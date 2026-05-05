@@ -916,17 +916,20 @@ public final class ClipboardSyncAdapter {
     let store: ClipboardStore
     let engine: SyncEngine
     let deviceID: DeviceID
-    private var counter: UInt64 = 0
     public init(store: ClipboardStore, engine: SyncEngine, deviceID: DeviceID) {
         self.store = store; self.engine = engine; self.deviceID = deviceID
     }
     /// Call after each successful local insert to publish to sync.
+    /// Lamport assignment is delegated to `engine.nextLamport()` so the engine's
+    /// view of "what's seen so far" is the single source of truth — concurrent
+    /// remote ingests advance the counter, and the next local publish observes
+    /// the updated value.
     public func publishCreated(meta: ClipboardItemMeta, body: ClipboardRecord) async throws {
-        counter += 1
+        let lamport = await engine.nextLamport()
         let envelopeMeta = EnvelopeMetadata(
             kind: .clipboardItem, id: meta.id,
             created: meta.created, modified: meta.modified,
-            deviceID: deviceID, lamport: counter
+            deviceID: deviceID, lamport: lamport
         )
         let bodyData = try JSONEncoder().encode(body)
         try await engine.put(metadata: envelopeMeta, body: bodyData)

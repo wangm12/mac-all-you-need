@@ -841,7 +841,7 @@ import Foundation
 import CryptoKit
 import Security
 
-public protocol KeychainBackend: Sendable {
+public protocol KeychainBackend: AnyObject {
     func get(_ account: String) throws -> Data?
     func set(_ data: Data, for account: String) throws
     func delete(_ account: String) throws
