@@ -78,6 +78,46 @@ Shared/Tests/PlatformTests/FolderPreview/
 
 ---
 
+## Task 4.0: Signing spike for Quick Look extension → App Group XPC
+
+**Files:**
+- Create: `docs/superpowers/findings/folderpreview-xpc-spike.md`
+- Modify only after spike passes: `FolderPreview/FolderPreview.entitlements`
+- Modify only after spike passes: `MacAllYouNeed/MacAllYouNeed.entitlements`
+
+- [ ] **Step 1: Build a minimal XPC probe before implementing Open/Copy/Reveal**
+
+Use the final intended bundle IDs, Developer ID team, App Group, sandbox setting, and hardened runtime setting. The main app hosts a temporary method `ping(reply:)`; the Quick Look extension calls it from `providePreview`.
+
+```swift
+@objc protocol FolderPreviewProbeXPC {
+    func ping(reply: @escaping (String) -> Void)
+}
+```
+
+- [ ] **Step 2: Verify from Finder/qlmanage**
+
+```bash
+xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme MacAllYouNeed -configuration Debug build
+qlmanage -r
+qlmanage -p /tmp
+```
+
+Expected: `docs/superpowers/findings/folderpreview-xpc-spike.md` records `PASS`, the service name, signing identity, App Group, sandbox state, and the observed `"pong"` reply from the Quick Look extension.
+
+- [ ] **Step 3: If the spike fails, patch Task 4.8 before continuing**
+
+Fallback contract: Quick Look uses extension-local read-only actions only and shows "Open in Mac All You Need" for Open/Copy/Reveal. The standalone app then performs the action after the user opens the folder there.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/superpowers/findings/folderpreview-xpc-spike.md FolderPreview MacAllYouNeed
+git commit -m "test(folderpreview): verify Quick Look to app XPC reachability"
+```
+
+---
+
 ## Task 4.1: `FolderEntry`, `FolderInventory`, and `FolderEnumerator`
 
 **Files:** see above.
@@ -379,55 +419,84 @@ module CLibArchive {
 }
 ```
 
-- [ ] **Step 3: Update `Package.swift`**
+- [ ] **Step 3: Build libarchive with CMake, then expose the static library to SwiftPM**
 
-Append a new `CLibArchive` target. Because libarchive expects autoconf-generated `config.h`, vendor a minimal stub. **In practice this is the longest "yak-shave" in the project**; if the engineer hits configure-step troubles, fall back to a smaller archive library (`Compression` for zip-only) and document the regression in the spec's `§13`.
+Do not compile libarchive's C sources directly from SwiftPM. libarchive needs generated config headers and a complete source list. Build one static archive with CMake and point a small SwiftPM C shim at the generated headers/library.
+
+Create `scripts/build-libarchive.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SRC="$ROOT/Vendored/libarchive"
+BUILD="$SRC/build/mayn"
+
+cmake -S "$SRC" -B "$BUILD" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DENABLE_ACL=OFF \
+  -DENABLE_XATTR=ON \
+  -DENABLE_OPENSSL=OFF \
+  -DENABLE_LIBB2=OFF \
+  -DENABLE_LZ4=OFF \
+  -DENABLE_ZSTD=OFF \
+  -DENABLE_TEST=OFF \
+  -DENABLE_CPIO=OFF \
+  -DENABLE_TAR=OFF \
+  -DENABLE_CAT=OFF
+
+cmake --build "$BUILD" --target archive --config Release
+test -f "$BUILD/libarchive/libarchive.a" || test -f "$BUILD/libarchive.a"
+```
+
+Update `Shared/Sources/CLibArchive/include/CLibArchive.h` to include generated headers by name, not by relative source paths:
+
+```c
+#ifndef CLIBARCHIVE_H
+#define CLIBARCHIVE_H
+#include <archive.h>
+#include <archive_entry.h>
+#endif
+```
+
+Append a new `CLibArchive` shim target to `Package.swift`:
 
 ```swift
 .target(
     name: "CLibArchive",
     path: "Sources/CLibArchive",
-    sources: [
-        "shim.c",
-        "../../Vendored/libarchive/libarchive/archive_entry.c",
-        "../../Vendored/libarchive/libarchive/archive_read.c",
-        "../../Vendored/libarchive/libarchive/archive_read_disk_posix.c",
-        "../../Vendored/libarchive/libarchive/archive_read_disk_entry_from_file.c",
-        "../../Vendored/libarchive/libarchive/archive_read_open_filename.c",
-        "../../Vendored/libarchive/libarchive/archive_read_support_format_zip.c",
-        "../../Vendored/libarchive/libarchive/archive_read_support_format_tar.c",
-        "../../Vendored/libarchive/libarchive/archive_read_support_format_7zip.c",
-        "../../Vendored/libarchive/libarchive/archive_read_support_format_rar.c",
-        "../../Vendored/libarchive/libarchive/archive_read_support_filter_gzip.c",
-        "../../Vendored/libarchive/libarchive/archive_read_support_filter_bzip2.c",
-        // Plus support files (archive_string.c, archive_util.c, etc.) - see libarchive's CMakeLists.txt for the full list.
-    ],
+    sources: ["shim.c"],
     publicHeadersPath: "include",
     cSettings: [
-        .headerSearchPath("../../Vendored/libarchive/libarchive"),
-        .define("HAVE_CONFIG_H", to: "0"),
-        // See libarchive/build/cmake/config.h.in; macOS provides most needed defines via system headers.
+        .headerSearchPath("../../Vendored/libarchive/build/mayn/libarchive"),
+        .headerSearchPath("../../Vendored/libarchive/build/mayn"),
     ],
-    linkerSettings: [.linkedLibrary("z"), .linkedLibrary("bz2"), .linkedLibrary("lzma")]
+    linkerSettings: [
+        .unsafeFlags(["-L../../Vendored/libarchive/build/mayn/libarchive", "-L../../Vendored/libarchive/build/mayn"]),
+        .linkedLibrary("archive"),
+        .linkedLibrary("z"),
+        .linkedLibrary("bz2"),
+        .linkedLibrary("lzma"),
+    ]
 ),
 ```
 
 Add `CLibArchive` to `Platform`'s dependencies.
 
-> **Reality check:** libarchive's full source list is ~80 files. If SwiftPM-only compilation gets stuck on missing `config.h` symbols, the practical path is: `cd Vendored/libarchive && cmake -B build && cmake --build build` to produce a `libarchive.a`, then expose via `.binaryTarget` or `.systemLibrary` in `Package.swift`. Document whichever path you take.
-
 - [ ] **Step 4: Build until green**
 
 ```bash
+chmod +x scripts/build-libarchive.sh
+./scripts/build-libarchive.sh
 cd Shared && swift build
 ```
-
-If errors persist for >2 hours, cut the scope: implement ZIP-only via Apple's `Compression` framework (handles deflate but not zip-archive metadata directly — use `ZIPFoundation` Swift package as a fallback) and file a TODO to bring back libarchive for RAR/7z/TAR/GZ/BZ2 in Plan 4.5.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Vendored/libarchive Shared/Sources/CLibArchive Shared/Package.swift
+git add scripts/build-libarchive.sh Vendored/libarchive Shared/Sources/CLibArchive Shared/Package.swift
 git commit -m "chore: vendor libarchive as CLibArchive SwiftPM target"
 ```
 
@@ -519,12 +588,19 @@ public final class LibArchiveBackend: ArchiveBackend {
             try ArchiveSafety.checkEntryCount(entries.count + 1, limits: limits)
             let cpath = String(cString: archive_entry_pathname(e))
             try ArchiveSafety.validatePath(cpath, limits: limits)
+            let filetype = archive_entry_filetype(e)
+            let isDir = filetype == AE_IFDIR
+            let isRegular = filetype == AE_IFREG
+            let isLink = archive_entry_symlink(e) != nil || archive_entry_hardlink(e) != nil
+            guard isDir || (isRegular && !isLink) else {
+                archive_read_data_skip(archive)
+                continue
+            }
             let size = archive_entry_size(e)
             try ArchiveSafety.checkPerFileSize(size, limits: limits)
             totalSize += size
             try ArchiveSafety.checkTotalUncompressed(totalSize, limits: limits)
             let mtime = Date(timeIntervalSince1970: TimeInterval(archive_entry_mtime(e)))
-            let isDir = archive_entry_filetype(e) == AE_IFDIR
             entries.append(ArchiveEntry(path: cpath, isDirectory: isDir, uncompressedSize: size, modified: mtime))
             archive_read_data_skip(archive)
         }
@@ -543,16 +619,29 @@ public final class LibArchiveBackend: ArchiveBackend {
         var entry: OpaquePointer?
         while archive_read_next_header(archive, &entry) == ARCHIVE_OK, let e = entry {
             let p = String(cString: archive_entry_pathname(e))
+            try ArchiveSafety.validatePath(p, limits: limits)
             if p == entryPath {
+                let filetype = archive_entry_filetype(e)
+                guard filetype == AE_IFREG,
+                      archive_entry_symlink(e) == nil,
+                      archive_entry_hardlink(e) == nil else {
+                    throw NSError(domain: "LibArchive", code: 6)
+                }
                 try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                 guard let out = fopen(destination.path, "wb") else { throw NSError(domain: "LibArchive", code: 5) }
                 defer { fclose(out) }
                 var buffer = [Int8](repeating: 0, count: 64 * 1024)
+                var written: Int64 = 0
                 while true {
                     let n = archive_read_data(archive, &buffer, buffer.count)
                     if n == 0 { break }
                     if n < 0 { throw NSError(domain: "LibArchive", code: Int(n)) }
-                    fwrite(buffer, 1, n, out)
+                    written += Int64(n)
+                    try ArchiveSafety.checkPerFileSize(written, limits: limits)
+                    try ArchiveSafety.checkTotalUncompressed(written, limits: limits)
+                    guard fwrite(buffer, 1, n, out) == n else {
+                        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+                    }
                 }
                 return
             } else {
@@ -640,9 +729,10 @@ public final class ThumbnailService {
 
     private func cacheKey(for url: URL, size: CGSize) throws -> String {
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+        let volumeID = (attrs[.systemNumber] as? NSNumber)?.uint64Value ?? 0
         let inode = (attrs[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         let mtime = Int((attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)
-        return "\(inode)-\(mtime)-\(Int(size.width))x\(Int(size.height))"
+        return "\(volumeID)-\(inode)-\(mtime)-\(Int(size.width))x\(Int(size.height))"
     }
 }
 ```
@@ -677,18 +767,27 @@ public struct FolderPreviewView: View {
 
     @State private var inventory: FolderInventory?
     @State private var mode: Mode = .files
+    @State private var currentURL: URL
+    @State private var backStack: [URL] = []
     public let folderURL: URL
     public let onAction: ((PreviewAction) -> Void)?
 
     public init(folderURL: URL, onAction: ((PreviewAction) -> Void)? = nil) {
         self.folderURL = folderURL
         self.onAction = onAction
+        _currentURL = State(initialValue: folderURL)
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(folderURL.lastPathComponent).font(.title3).bold()
+                Button {
+                    if let previous = backStack.popLast() { currentURL = previous }
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(backStack.isEmpty)
+                Text(currentURL.lastPathComponent).font(.title3).bold()
                 if let inv = inventory {
                     Text("· \(inv.entries.count) items · \(byteCountFormatter.string(fromByteCount: inv.totalSize))")
                         .foregroundStyle(.secondary).font(.caption)
@@ -704,7 +803,10 @@ public struct FolderPreviewView: View {
             Group {
                 if let inv = inventory {
                     switch mode {
-                    case .files: FolderFilesView(inventory: inv, onAction: onAction)
+                    case .files: FolderFilesView(inventory: inv, onAction: onAction) { url in
+                        backStack.append(currentURL)
+                        currentURL = url
+                    }
                     case .grid: FolderGridView(inventory: inv)
                     case .analyze: FolderAnalyzeView(inventory: inv)
                     }
@@ -713,8 +815,9 @@ public struct FolderPreviewView: View {
                 }
             }
         }
-        .task(id: folderURL) {
-            inventory = try? await FolderEnumerator.enumerate(url: folderURL, maxEntries: 50_000)
+        .task(id: currentURL) {
+            inventory = nil
+            inventory = try? await FolderEnumerator.enumerate(url: currentURL, maxEntries: 50_000)
             if let inv = inventory, autoSuggestGrid(inv) { mode = .grid }
         }
     }
@@ -751,10 +854,19 @@ import Platform
 struct FolderFilesView: View {
     let inventory: FolderInventory
     let onAction: ((PreviewAction) -> Void)?
+    let onOpenFolder: (URL) -> Void
 
     var body: some View {
-        Table(inventory.entries.filter { !$0.isDirectory }) {
-            TableColumn("Name") { Text($0.name) }
+        Table(inventory.entries) {
+            TableColumn("Name") { e in
+                Button {
+                    if e.isDirectory { onOpenFolder(URL(fileURLWithPath: e.path)) }
+                    else { onAction?(.open(URL(fileURLWithPath: e.path))) }
+                } label: {
+                    Label(e.name, systemImage: e.isDirectory ? "folder" : "doc")
+                }
+                .buttonStyle(.plain)
+            }
             TableColumn("Size") { e in Text(ByteCountFormatter.string(fromByteCount: e.size, countStyle: .file)) }
             TableColumn("Modified") { Text($0.modified, style: .date) }
             TableColumn("Kind") { Text($0.kind.rawValue) }
@@ -908,7 +1020,7 @@ class PreviewProvider: QLPreviewProvider, QLPreviewingController {
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
 
         return QLPreviewReply(contextSize: CGSize(width: 720, height: 480),
-                              isBitmap: false) { reply, drawIn in
+                              isBitmap: true) { context, reply, error in
             let host: NSView
             if isDirectory {
                 host = NSHostingView(rootView: FolderPreviewView(folderURL: url))
@@ -916,21 +1028,24 @@ class PreviewProvider: QLPreviewProvider, QLPreviewingController {
                 host = NSHostingView(rootView: ArchivePreviewView(archiveURL: url))
             }
             host.frame = NSRect(origin: .zero, size: CGSize(width: 720, height: 480))
-            // Quick Look replies expect drawing into a CG context. Render the SwiftUI view to an image
-            // by placing it inside an offscreen NSWindow's contentView.
-            // (Quick Look extensions support QLPreviewReply with a `view:` initializer in newer SDKs;
-            // if available, prefer that.)
-            let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
-            host.cacheDisplay(in: host.bounds, to: bitmap)
-            if let cg = bitmap.cgImage {
-                drawIn.draw(cg, in: host.bounds)
+            host.layoutSubtreeIfNeeded()
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+                error?.pointee = NSError(domain: "FolderPreview", code: 1)
+                return false
             }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            guard let cg = bitmap.cgImage else {
+                error?.pointee = NSError(domain: "FolderPreview", code: 2)
+                return false
+            }
+            context.draw(cg, in: CGRect(origin: .zero, size: CGSize(width: 720, height: 480)))
+            return true
         }
     }
 }
 ```
 
-> Quick Look on macOS 14+ also supports `QLPreviewReply(view:)` for direct SwiftUI hosting in some configurations. If your SDK exposes it, use the SwiftUI variant instead of the bitmap path.
+If this bitmap path renders blank under `qlmanage`, switch this task to `QLPreviewReply(dataOfContentType:contentSize:)` with a generated HTML preview instead of attempting unsupported live SwiftUI hosting in the extension.
 
 - [ ] **Step 2: Build + manual test**
 
@@ -968,7 +1083,7 @@ git commit -m "feat(folderpreview): host real SwiftUI views in Quick Look extens
 }
 ```
 
-Add `MachServices` entry `group.com.macallyouneed.shared.folderpreview` to the **main app**'s Info.plist (the main app, not the extension, hosts this server because it's the unsandboxed process).
+Only do this task if Task 4.0 recorded `PASS`. Add `MachServices` entry `group.com.macallyouneed.shared.folderpreview` to the host process that the spike proved can be reached from Quick Look. If the main app cannot publish this service under launchd, host it from the same login item/helper that publishes the Plan 3 daemon Mach service.
 
 - [ ] **Step 2: Implement coordinator in main app**
 
