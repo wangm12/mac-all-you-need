@@ -4,7 +4,7 @@
 
 **Goal:** Take the three subsystem prototypes (Plans 3, 4, 5) and assemble them into one coherent app. Build the polished menu-bar popover with tabs, the Settings window with all sub-sections, the six-step first-launch onboarding wizard with TCC capability checks, hotkey rebinding UI, the cross-feature integration moments, and the per-store sync adapters that wire local writes through Plan 2's `SyncEngine`.
 
-**Architecture:** A single `AppController` (in the main app target) is the composition root: it constructs the storage layer, the daemon XPC client, the downloader coordinator, the folder preview coordinator, the sync engine, and a small set of `*SyncAdapter` objects that subscribe to local stores and publish into `SyncEngine`, plus subscribe to `SyncEngine` events and write into local stores. Onboarding state is a `@AppStorage`-backed enum that gates the wizard. Hotkey rebinding uses a `HotkeyRecorder` SwiftUI view that captures `NSEvent.modifierFlags + keyCode`. Cross-feature integrations are simple Combine-style `NotificationCenter` posts, kept loose to avoid coupling subsystems.
+**Architecture:** A single `AppController` (in the main app target) is the composition root: it constructs the storage layer, the daemon XPC client, the downloader coordinator, the folder preview coordinator, the sync engine, and a small set of `*SyncAdapter` objects that subscribe to local stores and publish into `SyncEngine`, plus subscribe to `SyncEngine` events and write into local stores. Settings and onboarding state live in an App Group `UserDefaults` suite so the main app and daemon agree on sync configuration. Hotkey rebinding uses a `HotkeyRecorder` SwiftUI view plus a `HotkeyRegistry` that atomically re-registers Carbon hotkeys and reports registration conflicts. Cross-feature integrations are simple `NotificationCenter` posts, kept loose to avoid coupling subsystems.
 
 **Tech Stack:** SwiftUI (Settings scene, `MenuBarExtra` window style), `@AppStorage`, `UNUserNotificationCenter`, `SMAppService` (LoginItem registration).
 
@@ -21,10 +21,14 @@
 | Type | Module path | Purpose |
 |---|---|---|
 | `AppController` | (main app) | Composition root |
-| `OnboardingState` | (main app) | `@AppStorage` enum: `notStarted, step(N), completed` |
+| `OnboardingState` | (main app) | App Group persisted enum: `notStarted, welcome, accessibility, fullDiskAccess, notifications, sync, ready, completed` |
 | `OnboardingWizardView` | (main app) | Six-step modal |
 | `SettingsRoot` | (main app) | `Settings` scene with sidebar |
 | `HotkeyRecorder` | (main app) | SwiftUI view to capture a hotkey |
+| `HotkeyRegistry` | (main app) | Owns all global hotkey registrations and conflict rollback |
+| `AppGroupSettings` | `Core` | Shared `UserDefaults` suite for app + daemon settings |
+| `DeviceIdentityStore` | `Core` | Single persisted device ID helper used by app + daemon |
+| `SyncConfigurationStore` | `Core.Sync` | Persists sync folder/passphrase bootstrap handoff |
 | `ClipboardSyncAdapter` | `Core.Sync` | Bridges `ClipboardStore` ↔ `SyncEngine` |
 | `SnippetSyncAdapter` | `Core.Sync` | Same for snippets |
 | `PinboardSyncAdapter` | `Core.Sync` | Same for pinboards |
@@ -36,16 +40,86 @@
 ## Task 6.1: `AppController` composition root
 
 **Files:**
+- Create: `Shared/Sources/Core/AppGroupSettings.swift`
+- Create: `Shared/Sources/Core/DeviceIdentityStore.swift`
 - Create: `MacAllYouNeed/App/AppController.swift`
+- Create: `MacAllYouNeed/Onboarding/OnboardingState.swift`
 - Modify: `MacAllYouNeed/MacAllYouNeedApp.swift`
+- Modify: `ClipboardDaemon/DaemonContainer.swift` (use shared `DeviceIdentityStore`)
 
-- [ ] **Step 1: Implement**
+- [ ] **Step 1: Add shared settings + device identity helpers**
+
+`Shared/Sources/Core/AppGroupSettings.swift`:
+
+```swift
+import Foundation
+
+public enum AppGroupSettings {
+    public static let defaults: UserDefaults = UserDefaults(suiteName: AppGroup.identifier) ?? .standard
+}
+```
+
+`Shared/Sources/Core/DeviceIdentityStore.swift`:
+
+```swift
+import Foundation
+
+public enum DeviceIdentityStore {
+    public static func loadOrCreate(root: URL = AppGroup.containerURL()) throws -> DeviceID {
+        let url = root.appendingPathComponent("device-id.txt")
+        if let raw = try? String(contentsOf: url, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+           let id = DeviceID(rawValue: raw) {
+            return id
+        }
+        let id = DeviceID.generate()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try id.rawValue.write(to: url, atomically: true, encoding: .utf8)
+        return id
+    }
+}
+```
+
+In `ClipboardDaemon/DaemonContainer.swift`, delete the daemon-local `DeviceIdentityStore` enum from Plan 3 and keep:
+
+```swift
+self.deviceID = try DeviceIdentityStore.loadOrCreate(root: AppGroup.containerURL())
+```
+
+- [ ] **Step 2: Implement `OnboardingState`**
+
+`MacAllYouNeed/Onboarding/OnboardingState.swift`:
+
+```swift
+import Foundation
+import Core
+
+enum OnboardingState: String {
+    case notStarted, welcome, accessibility, fullDiskAccess, notifications, sync, ready, completed
+
+    static let key = "onboardingState"
+
+    static func load() -> OnboardingState {
+        OnboardingState(rawValue: AppGroupSettings.defaults.string(forKey: key) ?? "") ?? .notStarted
+    }
+
+    func save() {
+        AppGroupSettings.defaults.set(rawValue, forKey: Self.key)
+    }
+
+    static func reset() {
+        AppGroupSettings.defaults.removeObject(forKey: key)
+    }
+}
+```
+
+- [ ] **Step 3: Implement `AppController`**
 
 ```swift
 import Foundation
 import Core
 import Platform
 import SwiftUI
+import CryptoKit
 
 @MainActor
 @Observable
@@ -65,20 +139,23 @@ final class AppController {
     let downloaderVM: DownloaderViewModel
     let dock: DockProgressController
     // Plan 6
-    let onboarding: OnboardingState
+    var onboarding: OnboardingState
     var sync: SyncEngine?
-    var hotkeyMap: [HotkeyAction: HotkeyDescriptor]
+    var downloadHistorySync: DownloadHistorySyncAdapter?
 
     init() throws {
         let manager = KeyManager(keychain: SystemKeychain())
         self.key = try manager.deviceKey()
-        self.deviceID = AppController.persistentDeviceID()
+        self.deviceID = try DeviceIdentityStore.loadOrCreate(root: AppGroup.containerURL())
 
         let deps = AppDependencies()
         let popup = ClipboardPopupController(deps: deps)
         let hk = HotkeyController(popup: popup)
         self.clipboardDeps = deps; self.popup = popup; self.clipboardHotkey = hk
-        hk.registerDefault()
+        // Hotkey registration is performed at the end of init via HotkeyRegistry
+        // (Task 6.5). The fallback `hk.registerDefault()` only fires if the
+        // registry can't claim every hotkey atomically — preventing
+        // double-registration of ⌘⇧V.
 
         self.folder = BrowseFolderWindowController()
         self.folderXPC = BrowseFolderCoordinator()
@@ -90,24 +167,26 @@ final class AppController {
         let dock = DockProgressController(vm: dlVM); dock.start(); self.dock = dock
 
         self.onboarding = OnboardingState.load()
-        self.hotkeyMap = HotkeyMapStore.load()
+
+        Task { await coord.startDispatchServer() }
     }
 
-    private static func persistentDeviceID() -> DeviceID {
-        let url = AppGroup.containerURL().appendingPathComponent("device.id")
-        if let raw = try? String(contentsOf: url), let id = DeviceID(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return id
-        }
-        let id = DeviceID.generate()
-        try? id.rawValue.write(to: url, atomically: true, encoding: .utf8)
-        return id
+    func setOnboarding(_ state: OnboardingState) {
+        onboarding = state
+        state.save()
+    }
+
+    func resetOnboarding() {
+        setOnboarding(.notStarted)
+    }
+
+    func startSyncIfConfigured() async {
+        // Task 6.7 adds the engine startup body.
     }
 }
-
-import CryptoKit
 ```
 
-- [ ] **Step 2: Update `MacAllYouNeedApp` to use it**
+- [ ] **Step 4: Update `MacAllYouNeedApp` to use it**
 
 ```swift
 @main
@@ -116,19 +195,18 @@ struct MacAllYouNeedApp: App {
 
     var body: some Scene {
         MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
-            AppMenuBarContent(controller: controller)
+            Text("Mac All You Need")
+                .padding()
         }
         .menuBarExtraStyle(.window)
-
-        Settings { SettingsRoot(controller: controller) }
     }
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add MacAllYouNeed/App/AppController.swift MacAllYouNeed/MacAllYouNeedApp.swift
+git add Shared/Sources/Core/AppGroupSettings.swift Shared/Sources/Core/DeviceIdentityStore.swift MacAllYouNeed/App/AppController.swift MacAllYouNeed/Onboarding/OnboardingState.swift MacAllYouNeed/MacAllYouNeedApp.swift ClipboardDaemon/DaemonContainer.swift
 git commit -m "refactor(app): introduce AppController composition root"
 ```
 
@@ -138,6 +216,7 @@ git commit -m "refactor(app): introduce AppController composition root"
 
 **Files:**
 - Modify: `MacAllYouNeed/App/AppMenuBarContent.swift` (move logic from Plan 5 here)
+- Modify: `MacAllYouNeed/MacAllYouNeedApp.swift`
 
 - [ ] **Step 1: Implement final tab structure**
 
@@ -205,15 +284,29 @@ struct SyncStatusChip: View {
 struct SnippetsListView: View {
     let controller: AppController
     var body: some View {
-        Text("Snippets — TODO list/edit UI in 6.x").padding()
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Snippets").font(.headline)
+            Text("No snippets yet").foregroundStyle(.secondary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 ```
 
 - [ ] **Step 2: Commit**
 
+Update `MacAllYouNeedApp` to render the final popover:
+
+```swift
+MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
+    AppMenuBarContent(controller: controller)
+}
+.menuBarExtraStyle(.window)
+```
+
 ```bash
-git add MacAllYouNeed/App/AppMenuBarContent.swift
+git add MacAllYouNeed/App/AppMenuBarContent.swift MacAllYouNeed/MacAllYouNeedApp.swift
 git commit -m "feat(app): polished menu-bar popover with sync status chip + quit"
 ```
 
@@ -230,6 +323,10 @@ git commit -m "feat(app): polished menu-bar popover with sync status chip + quit
 - Create: `MacAllYouNeed/Settings/SyncSettingsView.swift`
 - Create: `MacAllYouNeed/Settings/HotkeysSettingsView.swift`
 - Create: `MacAllYouNeed/Settings/AdvancedSettingsView.swift`
+- Modify: `MacAllYouNeed/MacAllYouNeedApp.swift`
+- Modify: `MacAllYouNeed/Downloader/DownloadCoordinator.swift`
+- Modify: `ClipboardDaemon/DaemonContainer.swift`
+- Modify: `Shared/Sources/UI/FolderPreview/FolderPreviewView.swift`
 
 - [ ] **Step 1: Implement `SettingsRoot`**
 
@@ -260,29 +357,46 @@ struct SettingsRoot: View {
 }
 ```
 
-- [ ] **Step 2: Implement each sub-view (skeleton; expand fields as needed)**
+Update `MacAllYouNeedApp`:
+
+```swift
+Settings { SettingsRoot(controller: controller) }
+```
+
+- [ ] **Step 2: Implement each sub-view with persistent backing**
 
 `GeneralSettingsView.swift`:
 
 ```swift
 import SwiftUI
 import ServiceManagement
+import AppKit
+import Core
 
 struct GeneralSettingsView: View {
     let controller: AppController
-    @AppStorage("launchAtLogin") private var launchAtLogin = true
-    @AppStorage("showDockDuringDownloads") private var showDock = false
+    @AppStorage("launchAtLogin", store: AppGroupSettings.defaults) private var launchAtLogin = true
+    @AppStorage("showDockDuringDownloads", store: AppGroupSettings.defaults) private var showDock = false
     var body: some View {
         Form {
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, on in
                     do {
-                        if on { try SMAppService.mainApp.register() }
-                        else { try SMAppService.mainApp.unregister() }
+                        if on { try SMAppService.loginItem(identifier: "com.macallyouneed.app.daemon").register() }
+                        else { try SMAppService.loginItem(identifier: "com.macallyouneed.app.daemon").unregister() }
                     } catch { print("login item: \(error)") }
                 }
             Toggle("Show dock icon during downloads", isOn: $showDock)
+                .onChange(of: showDock) { _, visible in
+                    DockVisibilityController.setDockIconVisible(visible)
+                }
         }.padding()
+    }
+}
+
+enum DockVisibilityController {
+    static func setDockIconVisible(_ visible: Bool) {
+        NSApp.setActivationPolicy(visible ? .regular : .accessory)
     }
 }
 ```
@@ -295,38 +409,65 @@ import Core
 
 struct ClipboardSettingsView: View {
     let controller: AppController
-    @AppStorage("clipboardMaxItems") private var maxItems = 10000
-    @AppStorage("clipboardMaxBytes") private var maxBytes = 5 * 1024 * 1024 * 1024
-    @State private var blockedApps: [String] = []
+    @AppStorage("clipboardMaxItems", store: AppGroupSettings.defaults) private var maxItems = 10000
+    @AppStorage("clipboardMaxBytes", store: AppGroupSettings.defaults) private var maxBytes = 5 * 1024 * 1024 * 1024
+    @State private var blockedApps: [String] = ExcludedAppsStore.load()
     @State private var newBundleID: String = ""
     var body: some View {
         Form {
             Stepper("Max items: \(maxItems)", value: $maxItems, in: 100...100_000, step: 100)
             Section("Excluded apps") {
-                List(blockedApps, id: \.self) { Text($0) }
+                List {
+                    ForEach(blockedApps, id: \.self) { Text($0) }
+                    .onDelete { offsets in
+                        blockedApps.remove(atOffsets: offsets)
+                        ExcludedAppsStore.save(blockedApps)
+                    }
+                }
                     .frame(height: 120)
                 HStack {
                     TextField("com.example.app", text: $newBundleID)
                     Button("Add") {
                         guard !newBundleID.isEmpty else { return }
-                        blockedApps.append(newBundleID); newBundleID = ""
+                        blockedApps.append(newBundleID)
+                        ExcludedAppsStore.save(blockedApps)
+                        newBundleID = ""
                     }
                 }
             }
         }.padding()
     }
 }
+
+enum ExcludedAppsStore {
+    private static let key = "clipboardExcludedBundleIDs"
+    static func load() -> [String] {
+        AppGroupSettings.defaults.stringArray(forKey: key) ?? []
+    }
+    static func save(_ ids: [String]) {
+        AppGroupSettings.defaults.set(Array(Set(ids)).sorted(), forKey: key)
+    }
+}
+```
+
+Update `DaemonContainer` from Plan 3 so capture uses the shared exclusion list:
+
+```swift
+let blocked = Set(AppGroupSettings.defaults.stringArray(forKey: "clipboardExcludedBundleIDs") ?? [])
+self.observer = PasteboardObserver(reader: SystemPasteboardReader(),
+                                   rules: ExclusionRules(blockedBundleIDs: blocked))
 ```
 
 `DownloadsSettingsView.swift`:
 
 ```swift
 import SwiftUI
+import Core
 
 struct DownloadsSettingsView: View {
     let controller: AppController
-    @AppStorage("downloadConcurrency") private var concurrency = 3
-    @AppStorage("downloadOutputTemplate") private var template = "%(title)s [%(id)s].%(ext)s"
+    @AppStorage("downloadConcurrency", store: AppGroupSettings.defaults) private var concurrency = 3
+    @AppStorage("downloadOutputTemplate", store: AppGroupSettings.defaults) private var template = "%(title)s [%(id)s].%(ext)s"
     var body: some View {
         Form {
             Stepper("Concurrent downloads: \(concurrency)", value: $concurrency, in: 1...10)
@@ -334,20 +475,48 @@ struct DownloadsSettingsView: View {
                     Task { await controller.downloader.queue.setMaxConcurrent(n) }
                 }
             TextField("Output template", text: $template)
-            Button("Check for downloader update") { /* triggers DownloaderUpdate flow */ }
+            Button("Check for downloader update") {
+                Task { await controller.downloader.checkForDownloaderUpdate() }
+            }
         }.padding()
     }
 }
+```
+
+Add this wrapper to `DownloadCoordinator` if Plan 5 has only the lower-level `DownloaderUpdate` verifier:
+
+```swift
+extension DownloadCoordinator {
+    func checkForDownloaderUpdate() async {
+        // Plan 7 owns network/appcast delivery; Plan 6 exposes the command surface
+        // and keeps this path observable rather than leaving the Settings control inert.
+        NotificationCenter.default.post(name: .downloaderUpdateRequested, object: nil)
+    }
+}
+
+extension Notification.Name {
+    public static let downloaderUpdateRequested = Notification.Name("downloaderUpdateRequested")
+}
+```
+
+Also replace the hard-coded destination template in `DownloadCoordinator.enqueue(url:title:)`:
+
+```swift
+let template = AppGroupSettings.defaults.string(forKey: "downloadOutputTemplate")
+    ?? "%(title)s [%(id)s].%(ext)s"
+let dest = (FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+    ?? URL(fileURLWithPath: "/tmp")).appendingPathComponent(template)
 ```
 
 `FolderPreviewSettingsView.swift`:
 
 ```swift
 import SwiftUI
+import Core
 struct FolderPreviewSettingsView: View {
     let controller: AppController
-    @AppStorage("folderPreviewIncludeHidden") private var includeHidden = false
-    @AppStorage("folderPreviewMaxEntries") private var maxEntries = 50_000
+    @AppStorage("folderPreviewIncludeHidden", store: AppGroupSettings.defaults) private var includeHidden = false
+    @AppStorage("folderPreviewMaxEntries", store: AppGroupSettings.defaults) private var maxEntries = 50_000
     var body: some View {
         Form {
             Toggle("Include hidden files", isOn: $includeHidden)
@@ -355,6 +524,18 @@ struct FolderPreviewSettingsView: View {
         }.padding()
     }
 }
+```
+
+Update `FolderPreviewView` from Plan 4 to consume those settings:
+
+```swift
+let maxEntries = AppGroupSettings.defaults.integer(forKey: "folderPreviewMaxEntries")
+let includeHidden = AppGroupSettings.defaults.bool(forKey: "folderPreviewIncludeHidden")
+inventory = try? await FolderEnumerator.enumerate(
+    url: currentURL,
+    maxEntries: maxEntries == 0 ? 50_000 : maxEntries,
+    includeHidden: includeHidden
+)
 ```
 
 `SyncSettingsView.swift`:
@@ -365,9 +546,8 @@ import Core
 
 struct SyncSettingsView: View {
     let controller: AppController
-    @AppStorage("syncFolderPath") private var syncFolderPath: String = ""
-    @AppStorage("syncDownloadHistory") private var syncDownloads = false
-    @State private var showingPassphrase = false
+    @AppStorage("syncFolderPath", store: AppGroupSettings.defaults) private var syncFolderPath: String = ""
+    @AppStorage("syncDownloadHistory", store: AppGroupSettings.defaults) private var syncDownloads = false
     var body: some View {
         Form {
             HStack {
@@ -388,7 +568,7 @@ struct SyncSettingsView: View {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
         if panel.runModal() == .OK, let url = panel.url {
             syncFolderPath = url.path
-            // Plan 6.7 wires the actual SyncEngine start
+            Task { await controller.startSyncIfConfigured() }
         }
     }
 }
@@ -414,19 +594,56 @@ struct CloudDetectionChip: View {
 
 ```swift
 import SwiftUI
+import AppKit
+import Foundation
+import Core
 struct AdvancedSettingsView: View {
     let controller: AppController
-    @AppStorage("betaUpdates") private var beta = false
+    @AppStorage("betaUpdates", store: AppGroupSettings.defaults) private var beta = false
+    @State private var confirmingReset = false
     var body: some View {
         Form {
             Toggle("Beta updates", isOn: $beta)
             Button("Export diagnostic bundle") { exportDiagnostics() }
-            Button("Reset all data", role: .destructive) { /* confirm dialog */ }
-            Button("Re-run onboarding") { OnboardingState.reset() }
-        }.padding()
+            Button("Reset all data", role: .destructive) { confirmingReset = true }
+            Button("Re-run onboarding") { controller.resetOnboarding() }
+        }
+        .confirmationDialog("Reset all local data?", isPresented: $confirmingReset) {
+            Button("Reset", role: .destructive) { resetAllData() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes local databases, blobs, thumbnails, and downloader checkpoints. Synced cloud files are not deleted.")
+        }
+        .padding()
     }
     private func exportDiagnostics() {
-        // Collect last-N-day os.Logger output and zip it
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "MacAllYouNeed-Diagnostics.zip"
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        Task.detached {
+            let temp = FileManager.default.temporaryDirectory.appendingPathComponent("mayn-diagnostics-\(UUID())", isDirectory: true)
+            try? FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+            let settings = AppGroupSettings.defaults.dictionaryRepresentation()
+                .filter { !$0.key.lowercased().contains("passphrase") }
+            let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+            try? data?.write(to: temp.appendingPathComponent("settings.json"))
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+            process.arguments = ["-r", destination.path, "."]
+            process.currentDirectoryURL = temp
+            try? process.run()
+            process.waitUntilExit()
+            try? FileManager.default.removeItem(at: temp)
+        }
+    }
+    private func resetAllData() {
+        let root = AppGroup.containerURL()
+        for name in ["databases", "blobs", "thumbnails", "downloader-updates", "dispatch.token"] {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent(name))
+        }
+        OnboardingState.reset()
+        AppGroupSettings.defaults.removeObject(forKey: "syncFolderPath")
+        AppGroupSettings.defaults.removeObject(forKey: "syncDownloadHistory")
     }
 }
 ```
@@ -435,7 +652,7 @@ struct AdvancedSettingsView: View {
 
 ```bash
 xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme MacAllYouNeed -configuration Debug build
-git add MacAllYouNeed/Settings
+git add MacAllYouNeed/Settings MacAllYouNeed/MacAllYouNeedApp.swift MacAllYouNeed/Downloader/DownloadCoordinator.swift ClipboardDaemon/DaemonContainer.swift Shared/Sources/UI/FolderPreview/FolderPreviewView.swift
 git commit -m "feat(settings): Settings window with seven sub-sections"
 ```
 
@@ -444,15 +661,17 @@ git commit -m "feat(settings): Settings window with seven sub-sections"
 ## Task 6.4: Onboarding state + wizard
 
 **Files:**
-- Create: `MacAllYouNeed/Onboarding/OnboardingState.swift`
+- Create: `Shared/Sources/Core/Sync/SyncConfigurationStore.swift`
+- Modify: `MacAllYouNeed/Onboarding/OnboardingState.swift`
 - Create: `MacAllYouNeed/Onboarding/OnboardingWizardView.swift`
 - Create: `MacAllYouNeed/Onboarding/PermissionStepViews.swift`
 - Modify: `MacAllYouNeed/MacAllYouNeedApp.swift`
 
-- [ ] **Step 1: Implement `OnboardingState`**
+- [ ] **Step 1: Verify `OnboardingState` uses the App Group settings suite**
 
 ```swift
 import Foundation
+import Core
 
 enum OnboardingState: String {
     case notStarted, welcome, accessibility, fullDiskAccess, notifications, sync, ready, completed
@@ -460,14 +679,52 @@ enum OnboardingState: String {
     static let key = "onboardingState"
 
     static func load() -> OnboardingState {
-        OnboardingState(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .notStarted
+        OnboardingState(rawValue: AppGroupSettings.defaults.string(forKey: key) ?? "") ?? .notStarted
     }
-    func save() { UserDefaults.standard.set(rawValue, forKey: Self.key) }
-    static func reset() { UserDefaults.standard.removeObject(forKey: key) }
+    func save() { AppGroupSettings.defaults.set(rawValue, forKey: Self.key) }
+    static func reset() { AppGroupSettings.defaults.removeObject(forKey: key) }
 }
 ```
 
-- [ ] **Step 2: Implement wizard view**
+- [ ] **Step 2: Implement sync configuration handoff**
+
+`Shared/Sources/Core/Sync/SyncConfigurationStore.swift`:
+
+```swift
+import Foundation
+
+public enum SyncConfigurationStore {
+    public static let folderKey = "syncFolderPath"
+    public static let syncDownloadHistoryKey = "syncDownloadHistory"
+    public static let passphraseAccount = "sync-passphrase.v1"
+
+    public static func syncFolderURL() -> URL? {
+        guard let path = AppGroupSettings.defaults.string(forKey: folderKey), !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    public static func configure(folder: URL, passphrase: String, deviceID: DeviceID,
+                                 keychain: KeychainBackend = SystemKeychain()) throws {
+        let paths = SyncPaths(root: folder)
+        try paths.createIfNeeded()
+        if !FileManager.default.fileExists(atPath: paths.manifest.path) {
+            let deviceName = Host.current().localizedName ?? "Mac"
+            try Manifest.bootstrap(deviceID: deviceID, deviceName: deviceName).write(to: paths.manifest)
+        }
+        AppGroupSettings.defaults.set(folder.path, forKey: folderKey)
+        if !passphrase.isEmpty {
+            try keychain.set(Data(passphrase.utf8), for: passphraseAccount)
+        }
+    }
+
+    public static func passphrase(keychain: KeychainBackend = SystemKeychain()) throws -> String? {
+        guard let data = try keychain.get(passphraseAccount) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+}
+```
+
+- [ ] **Step 3: Implement wizard view**
 
 ```swift
 import SwiftUI
@@ -475,7 +732,13 @@ import ApplicationServices
 
 struct OnboardingWizardView: View {
     let controller: AppController
-    @State private var step: OnboardingState = .welcome
+    @State private var step: OnboardingState
+
+    init(controller: AppController) {
+        self.controller = controller
+        let loaded = controller.onboarding
+        _step = State(initialValue: loaded == .notStarted ? .welcome : loaded)
+    }
 
     var body: some View {
         VStack {
@@ -486,8 +749,8 @@ struct OnboardingWizardView: View {
                 case .accessibility: AccessibilityStep(next: advance)
                 case .fullDiskAccess: FullDiskAccessStep(next: advance)
                 case .notifications: NotificationsStep(next: advance)
-                case .sync: SyncSetupStep(next: advance)
-                case .ready: ReadyStep(close: { step = .completed; step.save() })
+                case .sync: SyncSetupStep(controller: controller, next: advance)
+                case .ready: ReadyStep(close: { setStep(.completed) })
                 default: EmptyView()
                 }
             }
@@ -498,7 +761,7 @@ struct OnboardingWizardView: View {
             }.padding()
         }
         .frame(width: 540, height: 420)
-        .onAppear { step.save() }
+        .onAppear { setStep(step) }
     }
 
     private var stepIndex: Int {
@@ -509,16 +772,20 @@ struct OnboardingWizardView: View {
     private func advance() {
         let order: [OnboardingState] = [.welcome, .accessibility, .fullDiskAccess, .notifications, .sync, .ready]
         if let idx = order.firstIndex(of: step), idx + 1 < order.count {
-            step = order[idx + 1]
-            step.save()
+            setStep(order[idx + 1])
         } else {
-            step = .completed; step.save()
+            setStep(.completed)
         }
+    }
+
+    private func setStep(_ newValue: OnboardingState) {
+        step = newValue
+        controller.setOnboarding(newValue)
     }
 }
 ```
 
-- [ ] **Step 3: Implement permission step views**
+- [ ] **Step 4: Implement permission step views**
 
 ```swift
 import SwiftUI
@@ -564,6 +831,8 @@ struct AccessibilityStep: View {
 
 struct FullDiskAccessStep: View {
     let next: () -> Void
+    @State private var granted = FullDiskAccessProbe.hasUsefulAccess()
+    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     var body: some View {
         VStack(spacing: 12) {
             Text("Full Disk Access").font(.title2).bold()
@@ -571,8 +840,26 @@ struct FullDiskAccessStep: View {
             Button("Open System Settings") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
             }
+            if granted { Label("Granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
             HStack { Spacer(); Button("Continue", action: next) }
-        }.padding()
+        }
+        .padding()
+        .onReceive(timer) { _ in
+            let nowGranted = FullDiskAccessProbe.hasUsefulAccess()
+            if nowGranted && !granted { next() }
+            granted = nowGranted
+        }
+    }
+}
+
+enum FullDiskAccessProbe {
+    static func hasUsefulAccess() -> Bool {
+        let chromeCookies = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Google/Chrome/Default/Cookies")
+        let safariCookies = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Cookies/Cookies.binarycookies")
+        return FileManager.default.isReadableFile(atPath: chromeCookies.path)
+            || FileManager.default.isReadableFile(atPath: safariCookies.path)
     }
 }
 
@@ -583,7 +870,9 @@ struct NotificationsStep: View {
             Text("Notifications").font(.title2).bold()
             Text("Optional. Used for download completion. You can change this anytime in Settings → General.")
             Button("Allow") {
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in next() }
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in
+                    DispatchQueue.main.async { next() }
+                }
             }
             HStack { Spacer(); Button("Skip", action: next) }
         }.padding()
@@ -591,10 +880,12 @@ struct NotificationsStep: View {
 }
 
 struct SyncSetupStep: View {
+    let controller: AppController
     let next: () -> Void
     @State private var choice = "later"
     @State private var path: String = ""
     @State private var passphrase: String = ""
+    @State private var errorMessage: String?
     var body: some View {
         VStack(spacing: 12) {
             Text("Sync setup").font(.title2).bold()
@@ -613,8 +904,30 @@ struct SyncSetupStep: View {
                 }
                 SecureField("Passphrase", text: $passphrase)
             }
-            HStack { Spacer(); Button("Continue", action: next) }
+            if let errorMessage {
+                Text(errorMessage).foregroundStyle(.red).font(.caption)
+            }
+            HStack {
+                Spacer()
+                Button("Continue") { continueTapped() }
+                    .disabled(choice == "now" && (path.isEmpty || passphrase.isEmpty))
+            }
         }.padding()
+    }
+
+    private func continueTapped() {
+        if choice == "now" {
+            do {
+                try SyncConfigurationStore.configure(folder: URL(fileURLWithPath: path),
+                                                    passphrase: passphrase,
+                                                    deviceID: controller.deviceID)
+                Task { await controller.startSyncIfConfigured() }
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+        next()
     }
 }
 
@@ -630,13 +943,16 @@ struct ReadyStep: View {
 }
 ```
 
-- [ ] **Step 4: Show wizard on first launch**
+- [ ] **Step 5: Show wizard on first launch**
 
 In `MacAllYouNeedApp`:
 
 ```swift
 var body: some Scene {
-    MenuBarExtra(...) { AppMenuBarContent(controller: controller) }
+    MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
+        AppMenuBarContent(controller: controller)
+            .background(OnboardingLauncher(controller: controller))
+    }
         .menuBarExtraStyle(.window)
     Settings { SettingsRoot(controller: controller) }
     WindowGroup("Onboarding", id: "onboarding") {
@@ -645,16 +961,31 @@ var body: some Scene {
         }
     }
 }
+
+struct OnboardingLauncher: View {
+    let controller: AppController
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .task {
+                if controller.onboarding != .completed {
+                    openWindow(id: "onboarding")
+                }
+            }
+    }
+}
 ```
 
-- [ ] **Step 5: Manual test**
+- [ ] **Step 6: Manual test**
 
 Reset onboarding (Settings → Advanced → Re-run onboarding). Quit + relaunch. Wizard should appear.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add MacAllYouNeed/Onboarding MacAllYouNeed/MacAllYouNeedApp.swift
+git add Shared/Sources/Core/Sync/SyncConfigurationStore.swift MacAllYouNeed/Onboarding MacAllYouNeed/MacAllYouNeedApp.swift
 git commit -m "feat(onboarding): six-step first-launch wizard with TCC capability checks"
 ```
 
@@ -666,12 +997,14 @@ git commit -m "feat(onboarding): six-step first-launch wizard with TCC capabilit
 - Create: `MacAllYouNeed/Settings/HotkeysSettingsView.swift`
 - Create: `MacAllYouNeed/Settings/HotkeyRecorder.swift`
 - Create: `MacAllYouNeed/Settings/HotkeyMapStore.swift`
+- Create: `MacAllYouNeed/App/HotkeyRegistry.swift`
 
 - [ ] **Step 1: Implement `HotkeyAction` + map store**
 
 ```swift
 import Foundation
 import Platform
+import Core
 
 enum HotkeyAction: String, CaseIterable, Identifiable {
     case clipboard, addDownload, browseFolder
@@ -693,7 +1026,7 @@ enum HotkeyMapStore {
             .addDownload: .defaultDownload,
             .browseFolder: .defaultFolder,
         ]
-        if let data = UserDefaults.standard.data(forKey: key),
+        if let data = AppGroupSettings.defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode([String: HotkeyDescriptor].self, from: data) {
             for (k, v) in decoded {
                 if let a = HotkeyAction(rawValue: k) { defaults[a] = v }
@@ -704,7 +1037,7 @@ enum HotkeyMapStore {
     static func save(_ map: [HotkeyAction: HotkeyDescriptor]) {
         let dict = Dictionary(uniqueKeysWithValues: map.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(dict) {
-            UserDefaults.standard.set(data, forKey: key)
+            AppGroupSettings.defaults.set(data, forKey: key)
         }
     }
 }
@@ -735,7 +1068,8 @@ struct HotkeyRecorder: NSViewRepresentable {
             layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
             layer?.cornerRadius = 4
         }
-        required init?(coder: NSCoder) { fatalError() }
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { return nil }
         override var acceptsFirstResponder: Bool { true }
         override func keyDown(with event: NSEvent) {
             let modRaw = UInt32(event.modifierFlags.rawValue & UInt(NSEvent.ModifierFlags.deviceIndependentFlagsMask.rawValue))
@@ -762,6 +1096,7 @@ import Platform
 struct HotkeysSettingsView: View {
     let controller: AppController
     @State private var map: [HotkeyAction: HotkeyDescriptor]
+    @State private var errorMessage: String?
     init(controller: AppController) {
         self.controller = controller
         _map = State(initialValue: HotkeyMapStore.load())
@@ -783,21 +1118,129 @@ struct HotkeysSettingsView: View {
                 Spacer()
                 Button("Apply") { apply() }
             }
+            if let errorMessage {
+                Text(errorMessage).foregroundStyle(.red).font(.caption)
+            }
         }.padding()
     }
     private func apply() {
-        HotkeyMapStore.save(map)
-        controller.applyHotkeyMap(map)
+        do {
+            try controller.applyHotkeyMap(map)
+            HotkeyMapStore.save(map)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 ```
 
-(Add `applyHotkeyMap(_:)` to `AppController` that unregisters previous hotkeys and re-registers per the new map. Implementation: each `HotkeyController`/`GlobalHotkey` exposes a `replace(descriptor:)`.)
+- [ ] **Step 4: Implement `HotkeyRegistry` and wire `AppController.applyHotkeyMap`**
 
-- [ ] **Step 4: Commit**
+`MacAllYouNeed/App/HotkeyRegistry.swift`:
+
+```swift
+import Foundation
+import Platform
+
+enum HotkeyRegistryError: LocalizedError {
+    case duplicate(HotkeyDescriptor)
+    case registrationFailed(HotkeyAction, Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .duplicate(let descriptor):
+            return "Duplicate hotkey \(descriptor.display). Pick a unique shortcut."
+        case .registrationFailed(let action, let error):
+            return "Could not register \(action.label): \(error.localizedDescription)"
+        }
+    }
+}
+
+@MainActor
+final class HotkeyRegistry {
+    private var handles: [HotkeyAction: GlobalHotkey] = [:]
+
+    func apply(_ map: [HotkeyAction: HotkeyDescriptor], controller: AppController) throws {
+        var seen: [HotkeyDescriptor: HotkeyAction] = [:]
+        for (action, descriptor) in map {
+            if seen[descriptor] != nil { throw HotkeyRegistryError.duplicate(descriptor) }
+            seen[descriptor] = action
+        }
+
+        var next: [HotkeyAction: GlobalHotkey] = [:]
+        do {
+            for (action, descriptor) in map {
+                let handle = GlobalHotkey(descriptor: descriptor) { [weak controller] in
+                    Task { @MainActor in controller?.performHotkeyAction(action) }
+                }
+                try handle.register()
+                next[action] = handle
+            }
+        } catch {
+            next.values.forEach { $0.unregister() }
+            let failed = map.first { next[$0.key] == nil }?.key ?? .clipboard
+            throw HotkeyRegistryError.registrationFailed(failed, error)
+        }
+
+        handles.values.forEach { $0.unregister() }
+        handles = next
+    }
+}
+```
+
+In `AppController.swift`, add:
+
+```swift
+private let hotkeyRegistry = HotkeyRegistry()
+
+func applyHotkeyMap(_ map: [HotkeyAction: HotkeyDescriptor]) throws {
+    clipboardHotkey.unregister()
+    try hotkeyRegistry.apply(map, controller: self)
+}
+
+func performHotkeyAction(_ action: HotkeyAction) {
+    switch action {
+    case .clipboard:
+        popup.show()
+    case .addDownload:
+        NotificationCenter.default.post(name: .addDownloadRequested, object: nil)
+    case .browseFolder:
+        folder.openPanelAndBrowse()
+    }
+}
+```
+
+In the same file at file scope, add:
+
+```swift
+extension Notification.Name {
+    public static let addDownloadRequested = Notification.Name("addDownloadRequested")
+}
+```
+
+In `DownloadsListView` from Plan 5, listen for the hotkey:
+
+```swift
+.onReceive(NotificationCenter.default.publisher(for: .addDownloadRequested)) { _ in
+    showAdd = true
+}
+```
+
+At the end of `AppController.init`, after all properties are initialized, replace `hk.registerDefault()` with:
+
+```swift
+do {
+    try hotkeyRegistry.apply(HotkeyMapStore.load(), controller: self)
+} catch {
+    hk.registerDefault()
+}
+```
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add MacAllYouNeed/Settings/HotkeyRecorder.swift MacAllYouNeed/Settings/HotkeysSettingsView.swift MacAllYouNeed/Settings/HotkeyMapStore.swift MacAllYouNeed/App/AppController.swift
+git add MacAllYouNeed/Settings/HotkeyRecorder.swift MacAllYouNeed/Settings/HotkeysSettingsView.swift MacAllYouNeed/Settings/HotkeyMapStore.swift MacAllYouNeed/App/HotkeyRegistry.swift MacAllYouNeed/App/AppController.swift
 git commit -m "feat(settings): hotkey rebinding UI with recorder"
 ```
 
@@ -900,6 +1343,7 @@ git commit -m "feat(integration): URL detector + clipboard → downloader one-cl
 ## Task 6.7: Sync adapters wiring
 
 **Files:**
+- Modify: `Shared/Sources/Core/Sync/SyncConfigurationStore.swift`
 - Create: `Shared/Sources/Core/Sync/ClipboardSyncAdapter.swift`
 - Create: `Shared/Sources/Core/Sync/SnippetSyncAdapter.swift`
 - Create: `Shared/Sources/Core/Sync/PinboardSyncAdapter.swift`
@@ -957,9 +1401,123 @@ public final class ClipboardSyncAdapter {
 
 (Add `insertExternalIfMissing` to `ClipboardStore`: writes the record only if no row with that id exists.)
 
-Similar adapters for `SnippetStore`, `PinboardStore`, `DownloadStore` (the latter only if `syncDownloadHistory` is enabled).
+- [ ] **Step 2: Implement the remaining adapters explicitly**
 
-- [ ] **Step 2: Architecture note — sync adapters live in the daemon, not the main app**
+`Shared/Sources/Core/Sync/SnippetSyncAdapter.swift`:
+
+```swift
+import Foundation
+
+public final class SnippetSyncAdapter {
+    let store: SnippetStore
+    let engine: SyncEngine
+    let deviceID: DeviceID
+
+    public init(store: SnippetStore, engine: SyncEngine, deviceID: DeviceID) {
+        self.store = store; self.engine = engine; self.deviceID = deviceID
+    }
+
+    public func publishCreated(_ snippet: Snippet, modified: Date) async throws {
+        let meta = EnvelopeMetadata(kind: .snippet, id: snippet.id, created: modified, modified: modified,
+                                    deviceID: deviceID, lamport: await engine.nextLamport())
+        try await engine.put(metadata: meta, body: JSONEncoder().encode(snippet))
+    }
+
+    public func attach() async {
+        await engine.subscribe { [weak self] event in
+            guard let self else { return }
+            if case let .recordReceived(rec) = event,
+               rec.metadata.kind == .snippet,
+               rec.metadata.deviceID != self.deviceID,
+               let snippet = try? JSONDecoder().decode(Snippet.self, from: rec.body) {
+                try? self.store.insertExternalIfMissing(snippet, with: rec.metadata)
+            }
+            if case let .recordDeleted(id, kind) = event, kind == .snippet {
+                try? self.store.delete(id: id)
+            }
+        }
+    }
+}
+```
+
+`Shared/Sources/Core/Sync/PinboardSyncAdapter.swift`:
+
+```swift
+import Foundation
+
+public final class PinboardSyncAdapter {
+    let store: PinboardStore
+    let engine: SyncEngine
+    let deviceID: DeviceID
+
+    public init(store: PinboardStore, engine: SyncEngine, deviceID: DeviceID) {
+        self.store = store; self.engine = engine; self.deviceID = deviceID
+    }
+
+    public func publishChanged(_ pinboard: Pinboard, modified: Date) async throws {
+        let meta = EnvelopeMetadata(kind: .pinboard, id: pinboard.id, created: modified, modified: modified,
+                                    deviceID: deviceID, lamport: await engine.nextLamport())
+        try await engine.put(metadata: meta, body: JSONEncoder().encode(pinboard))
+    }
+
+    public func attach() async {
+        await engine.subscribe { [weak self] event in
+            guard let self else { return }
+            if case let .recordReceived(rec) = event,
+               rec.metadata.kind == .pinboard,
+               rec.metadata.deviceID != self.deviceID,
+               let pinboard = try? JSONDecoder().decode(Pinboard.self, from: rec.body) {
+                try? self.store.insertExternalIfMissing(pinboard, with: rec.metadata)
+            }
+            if case let .recordDeleted(id, kind) = event, kind == .pinboard {
+                try? self.store.delete(id: id)
+            }
+        }
+    }
+}
+```
+
+`Shared/Sources/Core/Sync/DownloadHistorySyncAdapter.swift`:
+
+```swift
+import Foundation
+
+public final class DownloadHistorySyncAdapter {
+    let store: DownloadStore
+    let engine: SyncEngine
+    let deviceID: DeviceID
+
+    public init(store: DownloadStore, engine: SyncEngine, deviceID: DeviceID) {
+        self.store = store; self.engine = engine; self.deviceID = deviceID
+    }
+
+    public func publishChanged(_ record: DownloadRecord) async throws {
+        let modified = Date()
+        let meta = EnvelopeMetadata(kind: .downloadHistory, id: record.id, created: modified, modified: modified,
+                                    deviceID: deviceID, lamport: await engine.nextLamport())
+        try await engine.put(metadata: meta, body: JSONEncoder().encode(record))
+    }
+
+    public func attach() async {
+        await engine.subscribe { [weak self] event in
+            guard let self else { return }
+            if case let .recordReceived(rec) = event,
+               rec.metadata.kind == .downloadHistory,
+               rec.metadata.deviceID != self.deviceID,
+               let record = try? JSONDecoder().decode(DownloadRecord.self, from: rec.body) {
+                try? self.store.insertExternalIfMissing(record, with: rec.metadata)
+            }
+            if case let .recordDeleted(id, kind) = event, kind == .downloadHistory {
+                try? self.store.delete(id: id)
+            }
+        }
+    }
+}
+```
+
+Add `insertExternalIfMissing(_:with:)` to `SnippetStore`, `PinboardStore`, and `DownloadStore`; each method is idempotent by primary key and preserves remote `modified`, `deviceID`, and `lamport` metadata.
+
+- [ ] **Step 3: Architecture note — sync adapters live in the daemon, not the main app**
 
 Important: the `ClipboardStore`, `SnippetStore`, and `PinboardStore` are owned by the **daemon** (Plan 3's `DaemonContainer`), not the main app. The main app only holds `ClipboardXPCClient`. So `ClipboardSyncAdapter` (and `SnippetSyncAdapter`, `PinboardSyncAdapter`) must be instantiated in the daemon and connected to a `SyncEngine` that also lives daemon-side.
 
@@ -976,7 +1534,7 @@ The split is:
 
 Both processes need to construct their own `SyncEngine` instance pointing at the same sync folder (each with its own `FSEventsWatcher`). The sync key is shared via Keychain (`KeyManager` with `SystemKeychain` reads the same key from both processes — this works because the App Group entitlement scopes the Keychain entry).
 
-- [ ] **Step 3: Update `DaemonContainer` (Plan 3) to own its sync engine + adapters**
+- [ ] **Step 4: Update `DaemonContainer` (Plan 3) to own its sync engine + adapters**
 
 In `ClipboardDaemon/DaemonContainer.swift`, add:
 
@@ -985,29 +1543,61 @@ import CryptoKit
 
 extension DaemonContainer {
     func startSyncIfConfigured() async {
-        guard let path = UserDefaults.standard.string(forKey: "syncFolderPath"), !path.isEmpty,
-              let salt = (try? Manifest.read(from: SyncPaths(root: URL(fileURLWithPath: path)).manifest))?.kdfSalt
-        else { return }
+        guard let root = SyncConfigurationStore.syncFolderURL() else { return }
+        let paths = SyncPaths(root: root)
+        guard let manifest = try? Manifest.read(from: paths.manifest) else { return }
 
         let keychain = SystemKeychain()
-        guard let pwData = keychain.get("sync-passphrase.v1"),
-              let passphrase = String(data: pwData, encoding: .utf8) else { return }
+        guard let passphrase = try? SyncConfigurationStore.passphrase(keychain: keychain) else { return }
 
         let manager = KeyManager(keychain: keychain)
-        guard let syncKey = try? manager.deriveSyncKey(passphrase: passphrase, salt: salt, params: .defaultV1) else { return }
+        guard let syncKey = try? manager.deriveSyncKey(passphrase: passphrase, salt: manifest.kdfSalt, params: manifest.kdfParams) else { return }
 
-        let root = URL(fileURLWithPath: path)
-        let engine = SyncEngine(paths: SyncPaths(root: root), syncKey: syncKey,
-                                deviceID: deviceID, watcher: FSEventsWatcher(root: root))
+        let watcher: FolderWatcher = root.path.contains("Mobile Documents")
+            ? MetadataQueryWatcher(root: root)
+            : FSEventsWatcher(root: root)
+        let engine = SyncEngine(paths: paths, syncKey: syncKey, deviceID: deviceID, watcher: watcher)
         try? await engine.start()
 
         let clipAdapter = ClipboardSyncAdapter(store: clip, engine: engine, deviceID: deviceID)
         await clipAdapter.attach()
-        // …same for snippet/pinboard adapters
-
-        // Hook capture path: replace the bare persist call with one that also publishes:
-        // (DaemonContainer.persist returns the meta+body so we can hand to clipAdapter.publishCreated)
+        let snippetAdapter = SnippetSyncAdapter(store: snippets, engine: engine, deviceID: deviceID)
+        await snippetAdapter.attach()
+        let pinboardAdapter = PinboardSyncAdapter(store: pinboards, engine: engine, deviceID: deviceID)
+        await pinboardAdapter.attach()
+        self.syncEngine = engine
+        self.clipboardSync = clipAdapter
+        self.snippetSync = snippetAdapter
+        self.pinboardSync = pinboardAdapter
     }
+}
+```
+
+Retain sync state in `DaemonContainer`:
+
+```swift
+var syncEngine: SyncEngine?
+var clipboardSync: ClipboardSyncAdapter?
+var snippetSync: SnippetSyncAdapter?
+var pinboardSync: PinboardSyncAdapter?
+```
+
+`DaemonContainer` must own `snippets: SnippetStore` and `pinboards: PinboardStore` instances (alongside `clip: ClipboardStore`). If Plan 3 hasn't constructed them yet, add them here using the same encrypted-store pattern as `clip`. The engine subscribers above only fire while the adapter objects are alive — store them as instance properties, not local lets.
+
+Update `DaemonContainer.persist` to return the local record it wrote:
+
+```swift
+@discardableResult
+func persist(item: PasteboardItem, source: String?) throws -> (ClipboardItemMeta, ClipboardRecord)? {
+    // Existing Plan 3 switch body remains; each successful append returns `(meta, body)`.
+    // Example text branch:
+    if case .text(let s) = item {
+        let body = ClipboardRecord.text(s)
+        let meta = try clip.append(body, sourceAppBundleID: source)
+        try search.upsert(kind: .clipboardItem, id: meta.id, text: s)
+        return (meta, body)
+    }
+    return nil
 }
 ```
 
@@ -1018,47 +1608,57 @@ let container = try DaemonContainer()
 let server = ClipboardXPCServer(container: container)
 container.observer.start { change in
     for item in change.items {
-        try? container.persist(item: item, source: change.frontmostAppBundleID)
+        if let persisted = try? container.persist(item: item, source: change.frontmostAppBundleID) {
+            Task { try? await container.clipboardSync?.publishCreated(meta: persisted.0, body: persisted.1) }
+        }
     }
     server.notifyInvalidated()
 }
 Task { await container.startSyncIfConfigured() }
 ```
 
-- [ ] **Step 4: `AppController.startSyncIfConfigured()` covers only download history (the main app's local store)**
+- [ ] **Step 5: Replace `AppController.startSyncIfConfigured()` with download-history sync**
+
+In `AppController.swift`, replace the Task 6.1 method body with:
 
 ```swift
-extension AppController {
-    func startSyncIfConfigured() async {
-        guard let path = UserDefaults.standard.string(forKey: "syncFolderPath"), !path.isEmpty,
-              let salt = (try? Manifest.read(from: SyncPaths(root: URL(fileURLWithPath: path)).manifest))?.kdfSalt,
-              UserDefaults.standard.bool(forKey: "syncDownloadHistory")
-        else { return }
+func startSyncIfConfigured() async {
+    guard let root = SyncConfigurationStore.syncFolderURL(),
+          AppGroupSettings.defaults.bool(forKey: SyncConfigurationStore.syncDownloadHistoryKey)
+    else { sync = nil; downloadHistorySync = nil; return }
+    let paths = SyncPaths(root: root)
+    guard let manifest = try? Manifest.read(from: paths.manifest) else { sync = nil; downloadHistorySync = nil; return }
 
-        let keychain = SystemKeychain()
-        guard let pwData = keychain.get("sync-passphrase.v1"),
-              let passphrase = String(data: pwData, encoding: .utf8),
-              let syncKey = try? KeyManager(keychain: keychain).deriveSyncKey(
-                  passphrase: passphrase, salt: salt, params: .defaultV1)
-        else { return }
+    let keychain = SystemKeychain()
+    guard let passphrase = try? SyncConfigurationStore.passphrase(keychain: keychain),
+          let syncKey = try? KeyManager(keychain: keychain).deriveSyncKey(
+              passphrase: passphrase, salt: manifest.kdfSalt, params: manifest.kdfParams)
+    else { sync = nil; downloadHistorySync = nil; return }
 
-        let root = URL(fileURLWithPath: path)
-        let engine = SyncEngine(paths: SyncPaths(root: root), syncKey: syncKey,
-                                deviceID: deviceID, watcher: FSEventsWatcher(root: root))
-        try? await engine.start()
-        sync = engine
+    let watcher: FolderWatcher = root.path.contains("Mobile Documents")
+        ? MetadataQueryWatcher(root: root)
+        : FSEventsWatcher(root: root)
+    let engine = SyncEngine(paths: paths, syncKey: syncKey, deviceID: deviceID, watcher: watcher)
+    try? await engine.start()
+    sync = engine
 
-        let dlAdapter = DownloadHistorySyncAdapter(store: downloader.store, engine: engine, deviceID: deviceID)
-        await dlAdapter.attach()
-    }
+    let dlAdapter = DownloadHistorySyncAdapter(store: downloader.store, engine: engine, deviceID: deviceID)
+    await dlAdapter.attach()
+    downloadHistorySync = dlAdapter   // retain so the engine's [weak self] subscriber stays live
 }
 ```
 
-> **Onboarding hand-off:** the sync passphrase the user enters in onboarding step 5 (Plan 6.4) is stored in Keychain via `keychain.set(passphrase.data(using:.utf8)!, for: "sync-passphrase.v1")` so subsequent launches in either process can re-derive the key without prompting.
+At the end of `AppController.init`, add this after `Task { await coord.startDispatchServer() }`:
+
+```swift
+Task { [weak self] in await self?.startSyncIfConfigured() }
+```
+
+> **Onboarding hand-off:** the sync passphrase the user enters in onboarding step 5 (Plan 6.4) is stored in Keychain via `SyncConfigurationStore.configure(...)` so subsequent launches in either process can re-derive the key without prompting.
 
 > **First-run sync folder bootstrap:** on the first run with sync enabled, `Manifest.bootstrap(...)` writes a fresh manifest with random KDF salt; subsequent runs read that salt. Both processes must read the same manifest file.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add Shared/Sources/Core/Sync ClipboardDaemon/DaemonContainer.swift MacAllYouNeed/App/AppController.swift
@@ -1085,7 +1685,44 @@ if record.state == .completed {
 }
 ```
 
-In `AppController.init`, observe and call `folder.show(at: dir)` (extend `BrowseFolderWindowController` with `show(at: URL)`).
+In `AppController.init`, observe and call `folder.show(at: dir)`. First extend `BrowseFolderWindowController` with `show(at: URL)`:
+
+```swift
+extension BrowseFolderWindowController {
+    func show(at url: URL) {
+        self.url = url   // existing private property; promote to internal if it was private
+        show()
+    }
+}
+```
+
+Then in `AppController.init` (after all properties are initialized), add the observer and retain the token:
+
+```swift
+private var browseFolderObserver: NSObjectProtocol?
+
+// inside init():
+browseFolderObserver = NotificationCenter.default.addObserver(
+    forName: .browseFolderRequested, object: nil, queue: .main
+) { [weak self] note in
+    guard let url = note.object as? URL else { return }
+    self?.folder.show(at: url)
+}
+
+deinit {
+    if let token = browseFolderObserver {
+        NotificationCenter.default.removeObserver(token)
+    }
+}
+```
+
+Add the notification name next to the other app-level integration notifications:
+
+```swift
+extension Notification.Name {
+    public static let browseFolderRequested = Notification.Name("browseFolderRequested")
+}
+```
 
 - [ ] **Step 2: FolderPreview Copy → clipboard captures the URL**
 
@@ -1121,12 +1758,12 @@ Manual:
 - [x] §9 menu-bar tabs (Clipboard / Downloads / Snippets) — Task 6.2
 - [x] §9 settings sub-sections — Task 6.3
 - [x] §9 onboarding wizard with TCC capability checks — Task 6.4
-- [x] §9 hotkey rebinding with conflict detection (basic; system-conflict warning is a follow-up polish) — Task 6.5
+- [x] §9 hotkey rebinding with conflict detection — Task 6.5 detects duplicate assignments and reports Carbon registration failures when macOS rejects a reserved/in-use shortcut
 - [x] §9 cross-feature integration moments — Tasks 6.6, 6.8
 
-**Out of scope (other plans):**
-- Notifications wiring on download completion (Plan 5 stub; can land here if time)
-- "Resolve conflicts" full UI (skeleton in Settings → Sync; full UI is a v1.x polish)
-- Snippets full edit UI (placeholder in 6.2; expand if time)
+**Deferred to dedicated follow-up plans:**
+- Notifications wiring on download completion
+- Full conflict-resolution browser beyond the Settings entry point
+- Rich Snippets authoring UI beyond the menu-bar empty/list state
 - Multi-pane FolderPreview comparison (Plan 4 noted as deferred)
 - Localization (Plan 13 backlog)
