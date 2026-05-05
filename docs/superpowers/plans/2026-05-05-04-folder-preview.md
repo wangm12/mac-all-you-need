@@ -35,7 +35,7 @@
 ## File structure (added)
 
 ```
-Vendored/libarchive/                       # vendored from libarchive/libarchive tag v3.7.4
+Shared/Vendored/libarchive/                # vendored from libarchive/libarchive tag v3.7.4
 
 Shared/Sources/CLibArchive/                # SwiftPM C wrapper (analogous to CArgon2)
 ├── shim.c
@@ -375,16 +375,16 @@ git commit -m "feat(platform): add ArchiveSafety guard"
 ## Task 4.3: Vendor libarchive
 
 **Files:**
-- Create: `Vendored/libarchive/` (from https://github.com/libarchive/libarchive tag `v3.7.4`)
+- Create: `Shared/Vendored/libarchive/` (from https://github.com/libarchive/libarchive tag `v3.7.4`)
 - Create: `Shared/Sources/CLibArchive/`
 - Modify: `Shared/Package.swift`
 
 - [ ] **Step 1: Vendor**
 
 ```bash
-mkdir -p Vendored
-git clone --depth 1 --branch v3.7.4 https://github.com/libarchive/libarchive.git Vendored/libarchive
-rm -rf Vendored/libarchive/.git Vendored/libarchive/test_utils Vendored/libarchive/doc
+mkdir -p Shared/Vendored
+git clone --depth 1 --branch v3.7.4 https://github.com/libarchive/libarchive.git Shared/Vendored/libarchive
+rm -rf Shared/Vendored/libarchive/.git Shared/Vendored/libarchive/test_utils Shared/Vendored/libarchive/doc
 ```
 
 - [ ] **Step 2: SwiftPM C wrapper**
@@ -396,15 +396,15 @@ rm -rf Vendored/libarchive/.git Vendored/libarchive/test_utils Vendored/libarchi
 #define CLibArchive_h
 #include <stddef.h>
 #include <stdint.h>
-#include "../../Vendored/libarchive/libarchive/archive.h"
-#include "../../Vendored/libarchive/libarchive/archive_entry.h"
+#include <archive.h>
+#include <archive_entry.h>
 #endif
 ```
 
 `Shared/Sources/CLibArchive/shim.c`:
 
 ```c
-/* Empty: libarchive sources are listed in Package.swift */
+/* Empty: the static libarchive.a is built by scripts/build-libarchive.sh */
 ```
 
 `Shared/Sources/CLibArchive/module.modulemap`:
@@ -430,7 +430,7 @@ Create `scripts/build-libarchive.sh`:
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="$ROOT/Vendored/libarchive"
+SRC="$ROOT/Shared/Vendored/libarchive"
 BUILD="$SRC/build/mayn"
 
 cmake -S "$SRC" -B "$BUILD" \
@@ -451,16 +451,6 @@ cmake --build "$BUILD" --target archive --config Release
 test -f "$BUILD/libarchive/libarchive.a" || test -f "$BUILD/libarchive.a"
 ```
 
-Update `Shared/Sources/CLibArchive/include/CLibArchive.h` to include generated headers by name, not by relative source paths:
-
-```c
-#ifndef CLIBARCHIVE_H
-#define CLIBARCHIVE_H
-#include <archive.h>
-#include <archive_entry.h>
-#endif
-```
-
 Append a new `CLibArchive` shim target to `Package.swift`:
 
 ```swift
@@ -470,11 +460,12 @@ Append a new `CLibArchive` shim target to `Package.swift`:
     sources: ["shim.c"],
     publicHeadersPath: "include",
     cSettings: [
+        .headerSearchPath("../../Vendored/libarchive/libarchive"),
         .headerSearchPath("../../Vendored/libarchive/build/mayn/libarchive"),
         .headerSearchPath("../../Vendored/libarchive/build/mayn"),
     ],
     linkerSettings: [
-        .unsafeFlags(["-L../../Vendored/libarchive/build/mayn/libarchive", "-L../../Vendored/libarchive/build/mayn"]),
+        .unsafeFlags(["-LVendored/libarchive/build/mayn/libarchive", "-LVendored/libarchive/build/mayn"]),
         .linkedLibrary("archive"),
         .linkedLibrary("z"),
         .linkedLibrary("bz2"),
@@ -496,7 +487,7 @@ cd Shared && swift build
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/build-libarchive.sh Vendored/libarchive Shared/Sources/CLibArchive Shared/Package.swift
+git add scripts/build-libarchive.sh Shared/Vendored/libarchive Shared/Sources/CLibArchive Shared/Package.swift
 git commit -m "chore: vendor libarchive as CLibArchive SwiftPM target"
 ```
 
@@ -1011,41 +1002,71 @@ git commit -m "feat(ui): add FolderPreviewView + Files/Grid/Analyze + ArchivePre
 ```swift
 import Cocoa
 import Quartz
-import SwiftUI
-import UI
+import UniformTypeIdentifiers
+import Platform
 
 class PreviewProvider: QLPreviewProvider, QLPreviewingController {
     func providePreview(for request: QLFilePreviewRequest) async throws -> QLPreviewReply {
         let url = request.fileURL
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-
-        return QLPreviewReply(contextSize: CGSize(width: 720, height: 480),
-                              isBitmap: true) { context, reply, error in
-            let host: NSView
-            if isDirectory {
-                host = NSHostingView(rootView: FolderPreviewView(folderURL: url))
-            } else {
-                host = NSHostingView(rootView: ArchivePreviewView(archiveURL: url))
-            }
-            host.frame = NSRect(origin: .zero, size: CGSize(width: 720, height: 480))
-            host.layoutSubtreeIfNeeded()
-            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-                error?.pointee = NSError(domain: "FolderPreview", code: 1)
-                return false
-            }
-            host.cacheDisplay(in: host.bounds, to: bitmap)
-            guard let cg = bitmap.cgImage else {
-                error?.pointee = NSError(domain: "FolderPreview", code: 2)
-                return false
-            }
-            context.draw(cg, in: CGRect(origin: .zero, size: CGSize(width: 720, height: 480)))
-            return true
+        let html: String
+        if isDirectory {
+            let inv = try await FolderEnumerator.enumerate(url: url, maxEntries: 5_000)
+            html = PreviewHTML.folder(url: url, inventory: inv)
+        } else {
+            let entries = try LibArchiveBackend().list(archiveURL: url, limits: .default)
+            html = PreviewHTML.archive(url: url, entries: entries)
         }
+        let data = Data(html.utf8)
+
+        return QLPreviewReply(dataOfContentType: .html,
+                              contentSize: CGSize(width: 720, height: 480)) { _, _ in
+            data as NSData
+        }
+    }
+}
+
+enum PreviewHTML {
+    static func folder(url: URL, inventory: FolderInventory) -> String {
+        let rows = inventory.entries.prefix(500).map { e in
+            "<tr><td>\(escape(e.name))</td><td>\(e.kind.rawValue)</td><td>\(e.size)</td></tr>"
+        }.joined()
+        return page(title: escape(url.lastPathComponent), body: """
+        <h1>\(escape(url.lastPathComponent))</h1>
+        <p>\(inventory.entries.count) items · \(inventory.totalSize) bytes\(inventory.isPartial ? " · partial" : "")</p>
+        <table><tr><th>Name</th><th>Kind</th><th>Bytes</th></tr>\(rows)</table>
+        """)
+    }
+
+    static func archive(url: URL, entries: [ArchiveEntry]) -> String {
+        let rows = entries.prefix(500).map { e in
+            "<tr><td>\(escape(e.path))</td><td>\(e.isDirectory ? "folder" : "file")</td><td>\(e.uncompressedSize)</td></tr>"
+        }.joined()
+        return page(title: escape(url.lastPathComponent), body: """
+        <h1>\(escape(url.lastPathComponent))</h1>
+        <p>\(entries.count) archive entries</p>
+        <table><tr><th>Path</th><th>Kind</th><th>Bytes</th></tr>\(rows)</table>
+        """)
+    }
+
+    private static func page(title: String, body: String) -> String {
+        """
+        <!doctype html><html><head><meta charset="utf-8">
+        <style>body{font:13px -apple-system;margin:20px;color:#1f2328}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left}</style>
+        <title>\(title)</title></head><body>\(body)</body></html>
+        """
+    }
+
+    private static func escape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+         .replacingOccurrences(of: "<", with: "&lt;")
+         .replacingOccurrences(of: ">", with: "&gt;")
+         .replacingOccurrences(of: "\"", with: "&quot;")
     }
 }
 ```
 
-If this bitmap path renders blank under `qlmanage`, switch this task to `QLPreviewReply(dataOfContentType:contentSize:)` with a generated HTML preview instead of attempting unsupported live SwiftUI hosting in the extension.
+The standalone window still uses `FolderPreviewView`; Quick Look uses HTML because `QLPreviewReply` snapshots must be complete before the reply is drawn and cannot rely on SwiftUI `.task` loading after render.
 
 - [ ] **Step 2: Build + manual test**
 
@@ -1055,13 +1076,13 @@ qlmanage -r
 qlmanage -m
 ```
 
-In Finder, press Space on a folder. The Quick Look popup shows file count, total size, and the Files/Grid/Analyze segmented control.
+In Finder, press Space on a folder. The Quick Look popup shows the generated HTML summary and file table. The standalone Browse Folder window remains the Files/Grid/Analyze SwiftUI surface.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add FolderPreview/PreviewProvider.swift
-git commit -m "feat(folderpreview): host real SwiftUI views in Quick Look extension"
+git commit -m "feat(folderpreview): render folder and archive HTML in Quick Look"
 ```
 
 ---
@@ -1077,13 +1098,15 @@ git commit -m "feat(folderpreview): host real SwiftUI views in Quick Look extens
 
 ```swift
 @objc public protocol FolderPreviewXPCProtocol {
-    func openFile(at path: String, reply: @escaping (Bool) -> Void)
-    func revealInFinder(at path: String, reply: @escaping (Bool) -> Void)
-    func copyFileURLToPasteboard(at path: String, reply: @escaping (Bool) -> Void)
+    func openFile(bookmark: Data, fallbackPath: String, reply: @escaping (Bool) -> Void)
+    func revealInFinder(bookmark: Data, fallbackPath: String, reply: @escaping (Bool) -> Void)
+    func copyFileURLToPasteboard(bookmark: Data, fallbackPath: String, reply: @escaping (Bool) -> Void)
 }
 ```
 
 Only do this task if Task 4.0 recorded `PASS`. Add `MachServices` entry `group.com.macallyouneed.shared.folderpreview` to the host process that the spike proved can be reached from Quick Look. If the main app cannot publish this service under launchd, host it from the same login item/helper that publishes the Plan 3 daemon Mach service.
+
+The server must reject unexpected clients. In `listener(_:shouldAcceptNewConnection:)`, validate the caller audit token/team ID/bundle ID against the known Quick Look extension and main app identities recorded by Task 4.0. Do not accept arbitrary local processes.
 
 - [ ] **Step 2: Implement coordinator in main app**
 
@@ -1102,27 +1125,54 @@ final class BrowseFolderCoordinator: NSObject, FolderPreviewXPCProtocol, NSXPCLi
         listener.resume()
     }
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
+        guard Self.isAllowedClient(newConnection) else { return false }
         newConnection.exportedInterface = NSXPCInterface(with: FolderPreviewXPCProtocol.self)
         newConnection.exportedObject = self
         newConnection.resume()
         return true
     }
-    func openFile(at path: String, reply: @escaping (Bool) -> Void) {
+    static func isAllowedClient(_ connection: NSXPCConnection) -> Bool {
+        let allowedBundleIDs: Set<String> = [
+            "com.macallyouneed.app",
+            "com.macallyouneed.app.FolderPreview",
+        ]
+        let app = NSRunningApplication(processIdentifier: connection.processIdentifier)
+        guard let bundleID = app?.bundleIdentifier else { return false }
+        return allowedBundleIDs.contains(bundleID)
+    }
+    private func resolve(bookmark: Data, fallbackPath: String) -> URL? {
+        var stale = false
+        if let url = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &stale),
+           !stale {
+            return url
+        }
+        let fallback = URL(fileURLWithPath: fallbackPath)
+        guard fallback.path.hasPrefix(FileManager.default.homeDirectoryForCurrentUser.path) else { return nil }
+        return fallback
+    }
+    func openFile(bookmark: Data, fallbackPath: String, reply: @escaping (Bool) -> Void) {
         DispatchQueue.main.async {
-            reply(NSWorkspace.shared.open(URL(fileURLWithPath: path)))
+            guard let url = self.resolve(bookmark: bookmark, fallbackPath: fallbackPath) else { reply(false); return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            reply(NSWorkspace.shared.open(url))
         }
     }
-    func revealInFinder(at path: String, reply: @escaping (Bool) -> Void) {
+    func revealInFinder(bookmark: Data, fallbackPath: String, reply: @escaping (Bool) -> Void) {
         DispatchQueue.main.async {
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            guard let url = self.resolve(bookmark: bookmark, fallbackPath: fallbackPath) else { reply(false); return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
             reply(true)
         }
     }
-    func copyFileURLToPasteboard(at path: String, reply: @escaping (Bool) -> Void) {
+    func copyFileURLToPasteboard(bookmark: Data, fallbackPath: String, reply: @escaping (Bool) -> Void) {
         DispatchQueue.main.async {
+            guard let url = self.resolve(bookmark: bookmark, fallbackPath: fallbackPath) else { reply(false); return }
             let pb = NSPasteboard.general
             pb.clearContents()
-            pb.writeObjects([URL(fileURLWithPath: path) as NSURL])
+            pb.writeObjects([url as NSURL])
             reply(true)
         }
     }
@@ -1133,7 +1183,7 @@ Instantiate inside `MacAllYouNeedApp.init`.
 
 - [ ] **Step 3: Wire from `FolderFilesView` action menu**
 
-Replace the `contextMenu` placeholders with real items that call the coordinator over XPC. Quick Look extension uses an `NSXPCConnection(machServiceName: BrowseFolderCoordinator.serviceName)`. Standalone window calls in-process directly.
+Replace the `contextMenu` placeholders with real items that call the coordinator over XPC. Quick Look extension uses an `NSXPCConnection(machServiceName: BrowseFolderCoordinator.serviceName)` and sends a security-scoped bookmark plus the path as a fallback display/debug value. Standalone window calls in-process directly.
 
 - [ ] **Step 4: Manual test from Quick Look**
 
@@ -1202,7 +1252,7 @@ In `MacAllYouNeedApp.init`:
 ```swift
 let browse = BrowseFolderWindowController()
 let folderHotkey = GlobalHotkey(descriptor: .defaultFolder) { Task { @MainActor in browse.openPanelAndBrowse() } }
-folderHotkey.register()
+try? folderHotkey.register()
 ```
 
 (Persist `folderHotkey` in app state to keep it alive.)
