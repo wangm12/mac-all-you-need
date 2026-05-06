@@ -23,6 +23,7 @@
 		84F037297D7A1361ED62BDA1 /* ClipboardPopupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45978E5E3A3554D12EBBF135 /* ClipboardPopupController.swift */; };
 		87182AE75AA7D6DA36BD0DAE /* FolderPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		8A3A0E666C7E365F80A867DF /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 3ECCEAEFDCCE0914CC9AA6E1 /* Core */; };
+		A567CD5D7FD1A31E246AA644 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = 53F770A062C9B1FA2579F06C /* Platform */; };
 		BB3F916DDD9845C2752F35CC /* AppDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A2C8634B13A5A9A7BFC6D8 /* AppDependencies.swift */; };
 		D7C34DC7BF78208BCDE92710 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = 565D43E1D2B76D75D04F84F1 /* Platform */; };
 		DC0D9E22A7CB0045F1B5B8F3 /* ClipboardXPCServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE36E9C60737E2A5F1D1AFB /* ClipboardXPCServer.swift */; };
@@ -100,6 +101,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8A3A0E666C7E365F80A867DF /* Core in Frameworks */,
+				A567CD5D7FD1A31E246AA644 /* Platform in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -236,6 +238,7 @@
 			name = FolderPreview;
 			packageProductDependencies = (
 				3ECCEAEFDCCE0914CC9AA6E1 /* Core */,
+				53F770A062C9B1FA2579F06C /* Platform */,
 			);
 			productName = FolderPreview;
 			productReference = 0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */;
@@ -768,6 +771,10 @@
 		3ECCEAEFDCCE0914CC9AA6E1 /* Core */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Core;
+		};
+		53F770A062C9B1FA2579F06C /* Platform */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Platform;
 		};
 		565D43E1D2B76D75D04F84F1 /* Platform */ = {
 			isa = XCSwiftPackageProductDependency;
