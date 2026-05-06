@@ -267,6 +267,7 @@
 				FED34386D7CDF0DEF64C33E7 /* Frameworks */,
 				D359A89B632A3A2903045F69 /* Embed Foundation Extensions */,
 				01B78A86CE21BADC471BC70D /* Embed ClipboardDaemon in LoginItems */,
+				2B1F90F337FBA0B7FEAD245C /* Copy downloader binaries to Resources */,
 			);
 			buildRules = (
 			);
@@ -404,6 +405,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -e\nDEST=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LoginItems\"\nmkdir -p \"$DEST\"\nif [ -d \"${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app\" ]; then\n  cp -Rf \"${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app\" \"$DEST/\"\nfi\n";
+		};
+		2B1F90F337FBA0B7FEAD245C /* Copy downloader binaries to Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy downloader binaries to Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nRES=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRCROOT}/Vendored/binaries/yt-dlp\" ]; then\n  echo \"error: Missing Vendored/binaries/yt-dlp. Run scripts/fetch-binaries.sh first.\" >&2\n  exit 1\nfi\ncp \"${SRCROOT}/Vendored/binaries/yt-dlp\" \"${RES}/yt-dlp\"\ncp \"${SRCROOT}/Vendored/binaries/ffmpeg\" \"${RES}/ffmpeg\"\ncp \"${SRCROOT}/Vendored/binaries/manifest.json\" \"${RES}/downloader-manifest.json\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

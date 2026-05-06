@@ -58,6 +58,18 @@ targets:
           if [ -d "${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app" ]; then
             cp -Rf "${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app" "$DEST/"
           fi
+      - name: "Copy downloader binaries to Resources"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          RES="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          if [ ! -f "${SRCROOT}/Vendored/binaries/yt-dlp" ]; then
+            echo "error: Missing Vendored/binaries/yt-dlp. Run scripts/fetch-binaries.sh first." >&2
+            exit 1
+          fi
+          cp "${SRCROOT}/Vendored/binaries/yt-dlp" "${RES}/yt-dlp"
+          cp "${SRCROOT}/Vendored/binaries/ffmpeg" "${RES}/ffmpeg"
+          cp "${SRCROOT}/Vendored/binaries/manifest.json" "${RES}/downloader-manifest.json"
 
   MacAllYouNeedTests:
     type: bundle.unit-test
