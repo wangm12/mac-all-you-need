@@ -145,7 +145,7 @@ final class DownloadCoordinator {
     }
 
     func pauseDownload(id: RecordID) async {
-        await queue.cancel(id) // terminates yt-dlp; partial file saved for --continue
+        await queue.pauseForResume(id)  // terminates without firing failure completion
         try? store.updateState(id: id, to: .paused)
         Self.postStateChanged(id: id, state: .paused)
     }

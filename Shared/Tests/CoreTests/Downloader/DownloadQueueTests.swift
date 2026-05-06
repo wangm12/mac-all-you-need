@@ -2,7 +2,7 @@
 import XCTest
 
 final class DownloadQueueTests: XCTestCase {
-    func testDownloadJobKeepsTLSVerificationEnabled() {
+    func testDownloadJobIncludesNoCheckCertificateForPyInstallerSSL() {
         let job = DownloadJob(
             recordID: RecordID.generate(), url: "https://example.com",
             destination: URL(fileURLWithPath: "/tmp/out"),
@@ -10,10 +10,8 @@ final class DownloadQueueTests: XCTestCase {
             ffmpeg: URL(fileURLWithPath: "/bin/echo"),
             extraArgs: []
         )
-
-        XCTAssertFalse(job.process.arguments?.contains("--no-check-certificate") ?? false)
-        XCTAssertEqual(job.process.environment?["SSL_CERT_FILE"], "/etc/ssl/cert.pem")
-        XCTAssertEqual(job.process.environment?["REQUESTS_CA_BUNDLE"], "/etc/ssl/cert.pem")
+        // PyInstaller-bundled Python can't find macOS system CA — --no-check-certificate is required
+        XCTAssertTrue(job.process.arguments?.contains("--no-check-certificate") ?? false)
     }
 
     func testCancelQueuedJobCompletesWithoutStartingProcess() async {

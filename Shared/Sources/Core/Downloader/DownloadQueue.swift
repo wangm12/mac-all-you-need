@@ -23,6 +23,7 @@ public actor DownloadQueue {
     private var slots: Int
     private var queued: [DownloadJob] = []
     private var running: [RecordID: DownloadJob] = [:]
+    private var pausedIDs: Set<RecordID> = [] // jobs cancelled for pause, not failure
     private let started: StartHandler
     private let progress: ProgressHandler
     private let completion: CompletionHandler
@@ -51,6 +52,17 @@ public actor DownloadQueue {
 
     public func resume(_ id: RecordID) {
         running[id]?.resume()
+    }
+
+    /// Cancel the job but suppress the failure completion (job is being paused, not failed).
+    public func pauseForResume(_ id: RecordID) {
+        if let job = running[id] {
+            pausedIDs.insert(id)
+            job.cancel()
+        } else if let idx = queued.firstIndex(where: { $0.recordID == id }) {
+            queued.remove(at: idx)
+            pausedIDs.insert(id)
+        }
     }
 
     public func cancel(_ id: RecordID) {
@@ -106,6 +118,12 @@ public actor DownloadQueue {
     private func completed(recordID: RecordID, status: Int32) async {
         NSLog("🏁 completed: status=\(status) for recordID=\(recordID.rawValue.prefix(8))")
         running.removeValue(forKey: recordID)
+        if pausedIDs.contains(recordID) {
+            // Job was terminated for pause — don't fire failure completion
+            pausedIDs.remove(recordID)
+            await tryStart()
+            return
+        }
         if status == 0 {
             completion(recordID, .success(()))
         } else {
