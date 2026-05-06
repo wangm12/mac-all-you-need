@@ -19,6 +19,7 @@ public final class DownloadJob {
         p.arguments = [
             "--newline", "--progress", "--no-colors", "--continue",
             "--no-check-certificate",  // PyInstaller bundled Python can't find macOS system CA
+            "--concurrent-fragments", "4",  // download 4 HLS/DASH fragments in parallel
             "--ffmpeg-location", ffmpeg.path,
             "-o", destination.path
         ] + extraArgs + [url]
