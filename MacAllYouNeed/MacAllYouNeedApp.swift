@@ -7,7 +7,7 @@ import SwiftUI
 // MARK: - App Delegate
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     let deps = AppDependencies()
     private var popup: ClipboardPopupController?
     private var hotkey: HotkeyController?
@@ -15,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var browseWindow: BrowseFolderWindowController?
     private var browseCoordinator: BrowseFolderCoordinator?
     var downloader: DownloadCoordinator?
-    var downloaderVM: DownloaderViewModel?
+    @Published var downloaderVM: DownloaderViewModel?
     private var dockProgress: DockProgressController?
 
     func applicationDidFinishLaunching(_: Notification) {
