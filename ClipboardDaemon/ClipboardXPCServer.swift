@@ -7,7 +7,7 @@ import Security
 final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDelegate {
     let container: DaemonContainer
     let listener: NSXPCListener
-    private var callbacks: [ObjectIdentifier: ClipboardXPCClientCallback] = [:]
+    private var callbacks: [pid_t: ClipboardXPCClientCallback] = [:]
     private let callbackLock = NSLock()
 
     init(container: DaemonContainer) {
@@ -47,35 +47,23 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
         newConnection.exportedInterface = iface
         newConnection.exportedObject = self
         newConnection.remoteObjectInterface = NSXPCInterface(with: ClipboardXPCClientCallback.self)
-        newConnection.invalidationHandler = { [weak self, weak newConnection] in
-            guard let self, let conn = newConnection else { return }
-            let key = ObjectIdentifier(conn)
-            callbackLock.lock(); callbacks.removeValue(forKey: key); callbackLock.unlock()
+        let pid = newConnection.processIdentifier
+        newConnection.invalidationHandler = { [weak self] in
+            guard let self else { return }
+            callbackLock.lock(); callbacks.removeValue(forKey: pid); callbackLock.unlock()
         }
         newConnection.resume()
         return true
     }
 
     static func isAllowedClient(_ connection: NSXPCConnection) -> Bool {
-        // Bundle ID check is sufficient: only our app can connect to this daemon's Mach service.
-        // Team ID cross-check is skipped: Personal Team cert OU != provisioning team ID,
-        // so comparing them would always reject valid clients.
-        let allowedBundleIDs: Set = ["com.macallyouneed.app"]
+        // Bundle ID check is sufficient: the Mach service name (MachServices in Info.plist)
+        // already restricts who can send to this service at the launchd level.
+        // SecCodeCopyGuestWithAttributes(nil, pid) requires get-task-allow entitlement and
+        // fails in production-signed builds, so we avoid it here.
         guard let app = NSRunningApplication(processIdentifier: connection.processIdentifier),
               let bundleID = app.bundleIdentifier else { return false }
-        return allowedBundleIDs.contains(bundleID)
-    }
-
-    enum CodeSignatureIdentity {
-        static func teamIdentifier(for app: NSRunningApplication) -> String? {
-            guard let url = app.bundleURL else { return nil }
-            var code: SecStaticCode?
-            guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
-            var info: CFDictionary?
-            guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
-                  let dict = info as? [String: Any] else { return nil }
-            return dict[kSecCodeInfoTeamIdentifier as String] as? String
-        }
+        return bundleID == "com.macallyouneed.app"
     }
 
     func notifyInvalidated() {
@@ -90,19 +78,29 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
            let proxy = conn.remoteObjectProxy as? ClipboardXPCClientCallback
         {
             callbackLock.lock()
-            callbacks[ObjectIdentifier(conn)] = proxy
+            callbacks[conn.processIdentifier] = proxy
             callbackLock.unlock()
             reply(true)
         } else { reply(false) }
     }
 
-    func listItems(query _: String?, pageToken _: String?, limit: Int, reply: @escaping (ClipboardXPCList) -> Void) {
+    func listItems(query: String?, pageToken: String?, limit: Int, reply: @escaping (ClipboardXPCList) -> Void) {
         do {
-            let metas = try container.clip.list(limit: limit)
+            let pageSize = max(1, min(limit, 100))
+            let offset = max(0, Int(pageToken ?? "") ?? 0)
+            let trimmedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let metas: [ClipboardItemMeta]
+            if let trimmedQuery, !trimmedQuery.isEmpty {
+                let hits = try container.search.search(query: trimmedQuery, limit: pageSize, offset: offset)
+                metas = try container.clip.metas(for: hits.map(\.id))
+            } else {
+                metas = try container.clip.list(limit: pageSize, offset: offset)
+            }
             let items = metas.map {
                 ClipboardXPCMeta(id: $0.id.rawValue, modified: $0.modified, kind: $0.kind.rawValue, preview: $0.preview)
             }
-            reply(ClipboardXPCList(items: items, nextPageToken: nil))
+            let nextPageToken = items.count == pageSize ? String(offset + items.count) : nil
+            reply(ClipboardXPCList(items: items, nextPageToken: nextPageToken))
         } catch {
             reply(ClipboardXPCList(items: [], nextPageToken: nil))
         }
@@ -145,7 +143,15 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
 
     private static func plainText(from body: ClipboardRecord) -> String? {
         switch body {
-        case let .text(s), let .html(s): s
+        case let .text(s): s
+        case let .html(s):
+            if let data = s.data(using: .utf8),
+               let attributed = NSAttributedString(html: data, documentAttributes: nil)
+            {
+                attributed.string
+            } else {
+                s
+            }
         case let .rtf(data): NSAttributedString(rtf: data, documentAttributes: nil)?.string
         case let .files(urls): urls.map(\.path).joined(separator: "\n")
         case .image: nil
