@@ -30,4 +30,26 @@ final class DownloaderViewModel {
         await coordinator.enqueue(url: url, title: nil)
         await refresh()
     }
+
+    func retry(record: DownloadRecord) async {
+        try? coordinator.store.updateState(id: record.id, to: .queued)
+        await coordinator.enqueue(url: record.url, title: record.title)
+        await refresh()
+    }
+
+    func delete(ids: [RecordID]) async {
+        for id in ids {
+            await coordinator.queue.cancel(id)
+            try? coordinator.store.updateState(id: id, to: .failed)
+        }
+        await refresh()
+    }
+
+    func clearStaleQueued() async {
+        let stale = rows.filter { $0.state == .queued }
+        for r in stale {
+            try? coordinator.store.updateState(id: r.id, to: .failed)
+        }
+        await refresh()
+    }
 }

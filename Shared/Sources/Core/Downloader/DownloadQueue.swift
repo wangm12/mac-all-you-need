@@ -72,7 +72,7 @@ public actor DownloadQueue {
             buffered = parts.last.map(String.init) ?? ""
             for line in parts.dropLast() {
                 let s = String(line)
-                NSLog("yt-dlp: \(s)")   // debug — remove after diagnosis
+                NSLog("yt-dlp: \(s)") // debug — remove after diagnosis
                 if let p = ProgressParser.parse(line: s) {
                     progress(recordID, p)
                 }
