@@ -25,7 +25,10 @@ final class DaemonContainer {
     let searchDB: Database
     let search: SearchStore
     let blobs: BlobStore
+    let snippetDB: Database
+    let snippets: SnippetStore
     let observer: PasteboardObserver
+    let expander: SnippetExpander
     let log = Logging.logger(for: "daemon", category: "container")
 
     init() throws {
@@ -45,23 +48,32 @@ final class DaemonContainer {
         )
         search = SearchStore(database: searchDB)
         blobs = BlobStore(rootURL: blobRoot, key: key)
+        snippetDB = try Database(
+            url: root.appendingPathComponent("snippets.sqlite"),
+            migrations: SnippetStore.migrations
+        )
+        snippets = SnippetStore(database: snippetDB, deviceKey: key)
         observer = PasteboardObserver(reader: SystemPasteboardReader(), rules: ExclusionRules())
+        expander = SnippetExpander { [snippets] trigger in
+            try? snippets.find(trigger: trigger)?.body
+        }
+        expander.start()
     }
 
     func persist(item: PasteboardItem, source: String?) throws {
         switch item {
-        case .text(let s):
+        case let .text(s):
             let meta = try clip.append(.text(s), sourceAppBundleID: source)
             try search.upsert(kind: .clipboardItem, id: meta.id, text: s)
-        case .rtf(let d):
+        case let .rtf(d):
             let meta = try clip.append(.rtf(d), sourceAppBundleID: source)
             if let s = NSAttributedString(rtf: d, documentAttributes: nil)?.string {
                 try search.upsert(kind: .clipboardItem, id: meta.id, text: s)
             }
-        case .html(let s):
+        case let .html(s):
             let meta = try clip.append(.html(s), sourceAppBundleID: source)
             try search.upsert(kind: .clipboardItem, id: meta.id, text: s)
-        case .png(let d), .tiff(let d):
+        case let .png(d), let .tiff(d):
             let blobID = try blobs.write(d)
             let nsImg = NSImage(data: d)
             let w = Int(nsImg?.size.width ?? 0)
@@ -69,14 +81,18 @@ final class DaemonContainer {
             let meta = try clip.append(.image(blobID: blobID, width: w, height: h), sourceAppBundleID: source)
             Task.detached { [search] in
                 if let png = Self.pngData(from: d),
-                   let text = try? await OCRService.recognize(pngData: png), !text.isEmpty {
+                   let text = try? await OCRService.recognize(pngData: png), !text.isEmpty
+                {
                     try? search.upsert(kind: .clipboardItem, id: meta.id, text: text)
                 }
             }
-        case .fileURLs(let urls):
+        case let .fileURLs(urls):
             let meta = try clip.append(.files(urls), sourceAppBundleID: source)
-            try search.upsert(kind: .clipboardItem, id: meta.id,
-                              text: urls.map(\.lastPathComponent).joined(separator: " "))
+            try search.upsert(
+                kind: .clipboardItem,
+                id: meta.id,
+                text: urls.map(\.lastPathComponent).joined(separator: " ")
+            )
         case .unknown:
             break
         }
