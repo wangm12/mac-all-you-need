@@ -1,0 +1,33 @@
+name: MacAllYouNeed
+options:
+  bundleIdPrefix: com.macallyouneed
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+
+  MacAllYouNeed:
+    type: application
+    platform: macOS
+    sources:
+      - path: MacAllYouNeed
+    info:
+      path: MacAllYouNeed/Info.plist
+      properties:
+        CFBundleName: MacAllYouNeed
+        LSUIElement: YES
+        MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
+        MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app
+        CODE_SIGN_ENTITLEMENTS: MacAllYouNeed/MacAllYouNeed.entitlements
