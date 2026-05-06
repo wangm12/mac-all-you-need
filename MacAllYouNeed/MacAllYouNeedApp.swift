@@ -1,4 +1,5 @@
 import Core
+import ServiceManagement
 import SwiftUI
 
 @main
@@ -14,13 +15,30 @@ struct MacAllYouNeedApp: App {
         }
         .menuBarExtraStyle(.window)
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active, hotkey == nil {
-                let p = ClipboardPopupController(deps: deps)
-                let h = HotkeyController(popup: p)
-                h.registerDefault()
-                popup = p
-                hotkey = h
+            if phase == .active {
+                registerDaemon()
+                if hotkey == nil {
+                    let p = ClipboardPopupController(deps: deps)
+                    let h = HotkeyController(popup: p)
+                    h.registerDefault()
+                    popup = p
+                    hotkey = h
+                }
             }
+        }
+    }
+
+    private func registerDaemon() {
+        let service = SMAppService.loginItem(identifier: "com.macallyouneed.app.daemon")
+        switch service.status {
+        case .notRegistered, .notFound:
+            do {
+                try service.register()
+            } catch {
+                Logging.logger(for: "app", category: "daemon").error("Failed to register daemon: \(error.localizedDescription)")
+            }
+        default:
+            break
         }
     }
 }
