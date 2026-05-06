@@ -42,7 +42,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let h = HotkeyController(popup: p)
         do {
             try h.registerHotkeyThrowing()
-            NSLog("HotkeyController: ⌘⇧V registered")
         } catch {
             NSLog("HotkeyController: FAILED — \(error)")
         }
