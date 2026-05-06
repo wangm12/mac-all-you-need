@@ -2,7 +2,7 @@ import Foundation
 
 public enum CookieImporter {
     public static func combinedCookiesFile(at url: URL) throws {
-        var combined = "# Mac All You Need combined cookies\n"
+        var combined = "# Netscape HTTP Cookie File\n"
         for p in ChromiumCookies.discoverProfiles() {
             if let s = try? ChromiumCookies.exportNetscape(profile: p) { combined += s }
         }
