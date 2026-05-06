@@ -1,5 +1,6 @@
 import AppKit
 import Core
+import Platform
 import ServiceManagement
 import SwiftUI
 
@@ -10,11 +11,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let deps = AppDependencies()
     private var popup: ClipboardPopupController?
     private var hotkey: HotkeyController?
+    private var folderHotkey: GlobalHotkey?
+    private var browseWindow: BrowseFolderWindowController?
+    private var browseCoordinator: BrowseFolderCoordinator?
 
     func applicationDidFinishLaunching(_: Notification) {
         registerDaemon()
         requestAccessibilityIfNeeded()
         registerHotkey()
+        registerFolderBrowse()
+    }
+
+    @MainActor
+    private func registerFolderBrowse() {
+        let coordinator = BrowseFolderCoordinator()
+        let browser = BrowseFolderWindowController()
+        let hk = GlobalHotkey(descriptor: .defaultFolder) { [weak browser] in
+            Task { @MainActor in browser?.openPanelAndBrowse() }
+        }
+        do {
+            try hk.register()
+        } catch {
+            NSLog("FolderHotkey: FAILED — \(error)")
+        }
+        browseCoordinator = coordinator
+        browseWindow = browser
+        folderHotkey = hk
     }
 
     @MainActor

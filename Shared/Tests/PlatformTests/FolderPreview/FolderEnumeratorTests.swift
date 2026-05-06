@@ -13,7 +13,9 @@ final class FolderEnumeratorTests: XCTestCase {
         try? Data(repeating: 0, count: 4096).write(to: dir.appendingPathComponent("sub/c.swift"))
     }
 
-    override func tearDown() { try? FileManager.default.removeItem(at: dir); super.tearDown() }
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: dir); super.tearDown()
+    }
 
     func testEnumerateProducesEntries() async throws {
         let inv = try await FolderEnumerator.enumerate(url: dir, maxEntries: 1000)

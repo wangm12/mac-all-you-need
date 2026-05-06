@@ -6,7 +6,9 @@ public struct ArchivePreviewView: View {
     @State private var entries: [ArchiveEntry] = []
     @State private var error: String?
 
-    public init(archiveURL: URL) { self.archiveURL = archiveURL }
+    public init(archiveURL: URL) {
+        self.archiveURL = archiveURL
+    }
 
     public var body: some View {
         VStack(alignment: .leading) {

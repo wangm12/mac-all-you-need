@@ -24,7 +24,7 @@ public struct FolderInventory: Sendable {
 public enum FolderEnumeratorError: Error { case notADirectory }
 
 public enum FolderEnumerator {
-    public static func enumerate(url: URL, maxEntries: Int = 50_000, includeHidden: Bool = false) async throws -> FolderInventory {
+    public static func enumerate(url: URL, maxEntries: Int = 50000, includeHidden: Bool = false) async throws -> FolderInventory {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
             throw FolderEnumeratorError.notADirectory
@@ -42,8 +42,11 @@ public enum FolderEnumerator {
 
         let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .nameKey]
         let options: FileManager.DirectoryEnumerationOptions = includeHidden ? [] : [.skipsHiddenFiles]
-        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: keys,
-                                                              options: options) else {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: options
+        ) else {
             throw FolderEnumeratorError.notADirectory
         }
         for case let item as URL in enumerator {
@@ -66,8 +69,13 @@ public enum FolderEnumerator {
             }
         }
         let largest = entries.filter { !$0.isDirectory }.sorted { $0.size > $1.size }.prefix(5)
-        return FolderInventory(entries: entries, totalSize: total, breakdown: breakdown,
-                               largest: Array(largest), isPartial: partial)
+        return FolderInventory(
+            entries: entries,
+            totalSize: total,
+            breakdown: breakdown,
+            largest: Array(largest),
+            isPartial: partial
+        )
     }
 
     private static func classify(name: String) -> FolderEntryKind {

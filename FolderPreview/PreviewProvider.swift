@@ -19,7 +19,7 @@ class PreviewViewController: NSViewController, QLPreviewingController {
             do {
                 let html: String
                 if isDirectory {
-                    let inv = try await FolderEnumerator.enumerate(url: url, maxEntries: 5_000)
+                    let inv = try await FolderEnumerator.enumerate(url: url, maxEntries: 5000)
                     html = PreviewHTML.folder(url: url, inventory: inv)
                 } else {
                     let entries = try LibArchiveBackend().list(archiveURL: url, limits: .default)

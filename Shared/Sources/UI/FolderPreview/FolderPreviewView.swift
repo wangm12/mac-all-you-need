@@ -4,7 +4,9 @@ import SwiftUI
 public struct FolderPreviewView: View {
     public enum Mode: String, CaseIterable, Identifiable {
         case files, grid, analyze
-        public var id: String { rawValue }
+        public var id: String {
+            rawValue
+        }
     }
 
     @State private var inventory: FolderInventory?
@@ -60,7 +62,7 @@ public struct FolderPreviewView: View {
         }
         .task(id: currentURL) {
             inventory = nil
-            inventory = try? await FolderEnumerator.enumerate(url: currentURL, maxEntries: 50_000)
+            inventory = try? await FolderEnumerator.enumerate(url: currentURL, maxEntries: 50000)
             if let inv = inventory, autoSuggestGrid(inv) { mode = .grid }
         }
     }

@@ -15,6 +15,7 @@
 		4ADF3C8BBFFA81B238541F15 /* ClipboardPopupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB5AE2B0F5ACCBB52B0A26B6 /* ClipboardPopupView.swift */; };
 		4B8A4F878B4C5A9566DCDAB5 /* HotkeyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2316DD48BA6E95C007CF9FB /* HotkeyController.swift */; };
 		56BC84AA624EB0E847CDB02E /* UI in Frameworks */ = {isa = PBXBuildFile; productRef = DE455CF6AE9CDA5C981B1F12 /* UI */; };
+		7553067E92D14326A545A171 /* BrowseFolderWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7419744B83864E483F1D87A3 /* BrowseFolderWindowController.swift */; };
 		76E72834DB05A5A4E2888B6D /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 6731B6B0CA4B6CEFF4A313B9 /* Core */; };
 		77EF22454D9346F8333FB377 /* ClipboardDaemonMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */; };
 		7E03407B7E102E95065498C7 /* ClipboardItemRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C55D0134CC26D67F01B887D /* ClipboardItemRow.swift */; };
@@ -28,6 +29,7 @@
 		D7C34DC7BF78208BCDE92710 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = 565D43E1D2B76D75D04F84F1 /* Platform */; };
 		DC0D9E22A7CB0045F1B5B8F3 /* ClipboardXPCServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE36E9C60737E2A5F1D1AFB /* ClipboardXPCServer.swift */; };
 		E40ABB4D6C22BBEDDC64C7DE /* MacAllYouNeedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */; };
+		FB80218F9BE0B051AD5BE0F6 /* BrowseFolderCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D62D47A19B893BA641E3647C /* BrowseFolderCoordinator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -81,6 +83,7 @@
 		45978E5E3A3554D12EBBF135 /* ClipboardPopupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardPopupController.swift; sourceTree = "<group>"; };
 		472510935EFC931A406833AD /* PreviewProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewProvider.swift; sourceTree = "<group>"; };
 		4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAllYouNeedApp.swift; sourceTree = "<group>"; };
+		7419744B83864E483F1D87A3 /* BrowseFolderWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseFolderWindowController.swift; sourceTree = "<group>"; };
 		7BB49E2E3D4615E0473EB8F2 /* MacAllYouNeed.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MacAllYouNeed.entitlements; sourceTree = "<group>"; };
 		9533C66ECB81C34DAC0AA3D3 /* ClipboardDaemon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipboardDaemon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CE36E9C60737E2A5F1D1AFB /* ClipboardXPCServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardXPCServer.swift; sourceTree = "<group>"; };
@@ -89,6 +92,7 @@
 		C6C1BCF56E3A50FC6E2C0377 /* DaemonContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonContainer.swift; sourceTree = "<group>"; };
 		CB5AE2B0F5ACCBB52B0A26B6 /* ClipboardPopupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardPopupView.swift; sourceTree = "<group>"; };
 		CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDaemonMain.swift; sourceTree = "<group>"; };
+		D62D47A19B893BA641E3647C /* BrowseFolderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseFolderCoordinator.swift; sourceTree = "<group>"; };
 		ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F2316DD48BA6E95C007CF9FB /* HotkeyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyController.swift; sourceTree = "<group>"; };
 		F6F0ACF99031B97C81E1EFDF /* PasteboardPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardPreview.swift; sourceTree = "<group>"; };
@@ -152,6 +156,7 @@
 				4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */,
 				331ED6D17166D12D6949267C /* App */,
 				93605A7728BA6EA36F9EA9BF /* Clipboard */,
+				E23C76F85E85B0C900741DBF /* FolderPreview */,
 			);
 			path = MacAllYouNeed;
 			sourceTree = "<group>";
@@ -217,6 +222,15 @@
 				FC325F601D5780815C70E9DA /* FolderPreview.entitlements */,
 				C21AF4F16B2A80F7367C44B2 /* Info.plist */,
 				472510935EFC931A406833AD /* PreviewProvider.swift */,
+			);
+			path = FolderPreview;
+			sourceTree = "<group>";
+		};
+		E23C76F85E85B0C900741DBF /* FolderPreview */ = {
+			isa = PBXGroup;
+			children = (
+				D62D47A19B893BA641E3647C /* BrowseFolderCoordinator.swift */,
+				7419744B83864E483F1D87A3 /* BrowseFolderWindowController.swift */,
 			);
 			path = FolderPreview;
 			sourceTree = "<group>";
@@ -425,6 +439,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB3F916DDD9845C2752F35CC /* AppDependencies.swift in Sources */,
+				FB80218F9BE0B051AD5BE0F6 /* BrowseFolderCoordinator.swift in Sources */,
+				7553067E92D14326A545A171 /* BrowseFolderWindowController.swift in Sources */,
 				7E03407B7E102E95065498C7 /* ClipboardItemRow.swift in Sources */,
 				84F037297D7A1361ED62BDA1 /* ClipboardPopupController.swift in Sources */,
 				4ADF3C8BBFFA81B238541F15 /* ClipboardPopupView.swift in Sources */,

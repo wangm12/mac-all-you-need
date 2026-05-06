@@ -13,7 +13,7 @@ public enum ArchiveSafety {
         public var maxTotalUncompressedBytes: Int64
         public var maxPerFileBytes: Int64
         public static let `default` = Limits(
-            maxEntries: 50_000,
+            maxEntries: 50000,
             maxDepth: 64,
             maxTotalUncompressedBytes: 5 * 1024 * 1024 * 1024,
             maxPerFileBytes: 1 * 1024 * 1024 * 1024

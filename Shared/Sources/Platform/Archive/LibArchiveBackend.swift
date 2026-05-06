@@ -20,8 +20,8 @@ public final class LibArchiveBackend: ArchiveBackend {
             let cpath = String(cString: archive_entry_pathname(e))
             try ArchiveSafety.validatePath(cpath, limits: limits)
             let filetype = archive_entry_filetype(e)
-            let isDir = filetype == 0o040000  // AE_IFDIR
-            let isRegular = filetype == 0o100000  // AE_IFREG
+            let isDir = filetype == 0o040000 // AE_IFDIR
+            let isRegular = filetype == 0o100000 // AE_IFREG
             let isLink = archive_entry_symlink(e) != nil || archive_entry_hardlink(e) != nil
             guard isDir || (isRegular && !isLink) else {
                 archive_read_data_skip(archive)

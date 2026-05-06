@@ -1,6 +1,6 @@
+import AppKit
 @testable import Core
 @testable import Platform
-import AppKit
 import XCTest
 
 final class ThumbnailServiceTests: XCTestCase {

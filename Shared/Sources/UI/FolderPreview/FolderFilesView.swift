@@ -10,8 +10,11 @@ struct FolderFilesView: View {
         Table(inventory.entries) {
             TableColumn("Name") { entry in
                 Button {
-                    if entry.isDirectory { onOpenFolder(URL(fileURLWithPath: entry.path)) }
-                    else { onAction?(.open(URL(fileURLWithPath: entry.path))) }
+                    if entry.isDirectory {
+                        onOpenFolder(URL(fileURLWithPath: entry.path))
+                    } else {
+                        onAction?(.open(URL(fileURLWithPath: entry.path)))
+                    }
                 } label: {
                     Label(entry.name, systemImage: entry.isDirectory ? "folder" : "doc")
                 }
@@ -27,4 +30,6 @@ struct FolderFilesView: View {
     }
 }
 
-extension FolderEntry: Identifiable { public var id: String { path } }
+extension FolderEntry: Identifiable { public var id: String {
+    path
+} }

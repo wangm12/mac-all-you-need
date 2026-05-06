@@ -21,7 +21,8 @@ public final class ThumbnailService {
         let rep = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
         let img = rep.nsImage
         if let tiff = img.tiffRepresentation, let bits = NSBitmapImageRep(data: tiff),
-           let png = bits.representation(using: .png, properties: [:]) {
+           let png = bits.representation(using: .png, properties: [:])
+        {
             try? png.write(to: cached, options: .atomic)
         }
         return img
