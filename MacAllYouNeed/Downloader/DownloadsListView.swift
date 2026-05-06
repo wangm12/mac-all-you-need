@@ -4,25 +4,44 @@ import SwiftUI
 struct DownloadsListView: View {
     @Bindable var vm: DownloaderViewModel
     @State private var showAdd = false
+    @State private var addURL = ""
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text("Downloads").font(.headline)
                 Spacer()
-                Button { showAdd = true } label: { Image(systemName: "plus") }
-                    .keyboardShortcut(.init("N"), modifiers: .command)
+                Button {
+                    showAdd.toggle()
+                    addURL = ""
+                } label: {
+                    Image(systemName: showAdd ? "xmark.circle.fill" : "plus")
+                }
             }.padding(8)
+
+            if showAdd {
+                HStack(spacing: 8) {
+                    TextField("Paste URL…", text: $addURL)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Download") {
+                        let url = addURL
+                        showAdd = false
+                        addURL = ""
+                        Task { await vm.add(url: url) }
+                    }
+                    .disabled(addURL.isEmpty)
+                    .keyboardShortcut(.return)
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                Divider()
+            }
+
             Divider()
             List(vm.rows, id: \.id) { record in
                 DownloadRowView(record: record, progress: vm.liveProgress[record.id.rawValue])
             }
             .listStyle(.plain)
-        }
-        .sheet(isPresented: $showAdd) {
-            AddDownloadDialog { url in
-                Task { await vm.add(url: url) }
-            }
         }
         .task { await vm.refresh() }
     }
@@ -48,24 +67,5 @@ struct DownloadRowView: View {
                 }
             }
         }.padding(.vertical, 4)
-    }
-}
-
-struct AddDownloadDialog: View {
-    let onSubmit: (String) -> Void
-    @Environment(\.dismiss) var dismiss
-    @State private var url: String = ""
-
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("Add download").font(.headline)
-            TextField("URL", text: $url).textFieldStyle(.roundedBorder)
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Download") { onSubmit(url); dismiss() }
-                    .keyboardShortcut(.return).disabled(url.isEmpty)
-            }
-        }.padding(16).frame(width: 420)
     }
 }

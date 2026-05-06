@@ -80,13 +80,18 @@ final class DownloadCoordinator {
                 .appendingPathComponent("%(title)s [%(id)s].%(ext)s")
             let record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
             try store.insert(record)
-            let job = try DownloadJob(
+            let ytdlp = try binaries.ytdlpPath()
+            let ffmpeg = try binaries.ffmpegPath()
+            NSLog("DownloadCoordinator: ytdlp=\(ytdlp.path) ffmpeg=\(ffmpeg.path)")
+            let job = DownloadJob(
                 recordID: record.id, url: url, destination: dest,
-                ytdlp: binaries.ytdlpPath(), ffmpeg: binaries.ffmpegPath(),
+                ytdlp: ytdlp, ffmpeg: ffmpeg,
                 extraArgs: []
             )
+            NSLog("DownloadCoordinator: enqueuing job for \(url)")
             await queue.enqueue(job)
         } catch {
+            NSLog("DownloadCoordinator: enqueue FAILED — \(error)")
             log.error("enqueue failed: \(error.localizedDescription)")
         }
     }
