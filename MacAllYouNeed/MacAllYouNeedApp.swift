@@ -103,10 +103,7 @@ struct MacAllYouNeedApp: App {
 
     var body: some Scene {
         MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
-            AppMenuBarContent(
-                clipDeps: appDelegate.deps,
-                dlVM: appDelegate.downloaderVM
-            )
+            AppMenuBarContent(appDelegate: appDelegate, clipDeps: appDelegate.deps)
         }
         .menuBarExtraStyle(.window)
     }
@@ -115,8 +112,8 @@ struct MacAllYouNeedApp: App {
 // MARK: - Menu Bar Content
 
 struct AppMenuBarContent: View {
+    @ObservedObject var appDelegate: AppDelegate
     @Bindable var clipDeps: AppDependencies
-    let dlVM: DownloaderViewModel?
     @State private var tab: Tab = .clipboard
 
     enum Tab { case clipboard, downloads }
@@ -132,7 +129,7 @@ struct AppMenuBarContent: View {
             case .clipboard:
                 ClipboardMenuBarContent(deps: clipDeps)
             case .downloads:
-                if let vm = dlVM {
+                if let vm = appDelegate.downloaderVM {
                     DownloadsListView(vm: vm)
                 } else {
                     Text("Downloader unavailable").padding()
