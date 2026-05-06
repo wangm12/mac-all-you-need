@@ -68,12 +68,15 @@ public enum ChromiumCookies {
         let safeStorageKey = try keychainKey(for: profile.browser)
         var out = "# Netscape HTTP Cookie File\n"
         try db.read { conn in
-            for row in try Row
-                .fetchAll(conn, sql: "SELECT host_key, path, secure, expires_utc, name, value, encrypted_value FROM cookies")
-            {
+            // Chrome 130+ renamed 'secure' to 'is_secure'; detect which schema is present
+            let cols = try conn.columns(in: "cookies").map(\.name)
+            let secureCol = cols.contains("is_secure") ? "is_secure" : cols.contains("secure") ? "secure" : nil
+            let secureSQL = secureCol.map { ", \($0)" } ?? ""
+            let sql = "SELECT host_key, path\(secureSQL), expires_utc, name, value, encrypted_value FROM cookies"
+            for row in try Row.fetchAll(conn, sql: sql) {
                 let host: String = row["host_key"]
                 let path: String = row["path"]
-                let secure: Int = row["secure"]
+                let secureVal: Int = secureCol.map { row[$0] } ?? 0
                 let expires: Int64 = row["expires_utc"]
                 let name: String = row["name"]
                 let plainValue: String = row["value"]
@@ -81,7 +84,7 @@ public enum ChromiumCookies {
                 let value = !plainValue.isEmpty
                     ? plainValue
                     : (try? decryptChromiumValue(encryptedValue, safeStorageKey: safeStorageKey)) ?? ""
-                let secureFlag = secure == 1 ? "TRUE" : "FALSE"
+                let secureFlag = secureVal == 1 ? "TRUE" : "FALSE"
                 let expiresEpoch = expires == 0 ? 0 : Int(expires / 1_000_000) - 11_644_473_600
                 out += "\(host)\tFALSE\t\(path)\t\(secureFlag)\t\(expiresEpoch)\t\(name)\t\(value)\n"
             }
