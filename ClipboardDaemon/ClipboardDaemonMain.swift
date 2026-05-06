@@ -4,7 +4,8 @@ import Core
 @main
 struct ClipboardDaemonMain {
     static func main() {
-        NSLog("ClipboardDaemon started, Core \(CoreVersion.value)")
+        let fallback = AppGroup.isUsingFallbackContainer() ? " (FALLBACK - entitlement missing)" : ""
+        NSLog("ClipboardDaemon started, container: \(AppGroup.containerURL().path)\(fallback)")
         RunLoop.main.run()
     }
 }
