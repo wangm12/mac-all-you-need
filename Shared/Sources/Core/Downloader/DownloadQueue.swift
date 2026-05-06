@@ -1,5 +1,20 @@
 import Foundation
 
+private final class LineBuffer {
+    private let lock = NSLock()
+    private var buffered = ""
+
+    func append(_ data: Data) -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        buffered += String(data: data, encoding: .utf8) ?? ""
+        let parts = buffered.split(separator: "\n", omittingEmptySubsequences: false)
+        buffered = parts.last.map(String.init) ?? ""
+        return parts.dropLast().map(String.init)
+    }
+}
+
 public actor DownloadQueue {
     public typealias StartHandler = (RecordID) -> Void
     public typealias ProgressHandler = (RecordID, DownloadProgress) -> Void
@@ -63,34 +78,33 @@ public actor DownloadQueue {
 
     private func spawn(job: DownloadJob) {
         let handle = job.pipe.fileHandleForReading
-        var buffered = ""
+        let lineBuffer = LineBuffer()
+        NSLog("🚀 spawn: starting pid for url=\(job.url)")
         handle.readabilityHandler = { [progress, recordID = job.recordID] fh in
             let data = fh.availableData
             if data.isEmpty { return }
-            buffered += String(data: data, encoding: .utf8) ?? ""
-            let parts = buffered.split(separator: "\n", omittingEmptySubsequences: false)
-            buffered = parts.last.map(String.init) ?? ""
-            for line in parts.dropLast() {
-                let s = String(line)
-                NSLog("yt-dlp: \(s)") // debug — remove after diagnosis
+            for s in lineBuffer.append(data) {
+                NSLog("📺 yt-dlp: \(s)")
                 if let p = ProgressParser.parse(line: s) {
                     progress(recordID, p)
                 }
             }
         }
         job.process.terminationHandler = { [weak self, recordID = job.recordID] proc in
-            NSLog("yt-dlp: exit status \(proc.terminationStatus)")
+            NSLog("🏁 yt-dlp terminated: status=\(proc.terminationStatus)")
             handle.readabilityHandler = nil
             Task { await self?.completed(recordID: recordID, status: proc.terminationStatus) }
         }
         do {
             try job.process.run()
         } catch {
+            NSLog("❌ spawn: process.run() threw: \(error)")
             Task { await self.completed(recordID: job.recordID, status: -1) }
         }
     }
 
     private func completed(recordID: RecordID, status: Int32) async {
+        NSLog("🏁 completed: status=\(status) for recordID=\(recordID.rawValue.prefix(8))")
         running.removeValue(forKey: recordID)
         if status == 0 {
             completion(recordID, .success(()))

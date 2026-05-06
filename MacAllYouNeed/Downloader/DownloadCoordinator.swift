@@ -95,9 +95,17 @@ final class DownloadCoordinator {
         let cookieFile = AppGroup.containerURL()
             .appendingPathComponent("cookies", isDirectory: true)
             .appendingPathComponent("downloader-cookies.txt")
-        return Self.cookieArguments(cookieFileURL: cookieFile) { url in
+        let args = Self.cookieArguments(cookieFileURL: cookieFile) { url in
             try CookieImporter.combinedCookiesFile(at: url)
         }
+        if args.isEmpty {
+            NSLog("🍪 cookieArgs: EMPTY — cookie file generation failed, proceeding without cookies")
+        } else {
+            let lines = (try? String(contentsOfFile: args[1], encoding: .utf8))?.components(separatedBy: "\n").count ?? 0
+            let firstLine = (try? String(contentsOfFile: args[1], encoding: .utf8))?.components(separatedBy: "\n").first ?? "?"
+            NSLog("🍪 cookieArgs: \(args[1]) (\(lines) lines, first='\(firstLine)')")
+        }
+        return args
     }
 
     func startDispatchServer() async {
@@ -157,13 +165,18 @@ final class DownloadCoordinator {
             try store.insert(record)
             let ytdlp = try binaries.ytdlpPath()
             let ffmpeg = try binaries.ffmpegPath()
+            let cookies = cookieArgs()
+            NSLog("▶️ enqueue: url=\(url)")
+            NSLog("▶️ enqueue: ytdlp=\(ytdlp.path)")
+            NSLog("▶️ enqueue: args=\(["--newline","--progress","--no-colors","--continue","--no-check-certificate","--ffmpeg-location",ffmpeg.path,"-o",dest.path] + cookies + [url])")
             let job = DownloadJob(
                 recordID: record.id, url: url, destination: dest,
                 ytdlp: ytdlp, ffmpeg: ffmpeg,
-                extraArgs: cookieArgs()
+                extraArgs: cookies
             )
             await queue.enqueue(job)
         } catch {
+            NSLog("❌ enqueue FAILED: \(error)")
             log.error("enqueue failed: \(error.localizedDescription)")
         }
     }
