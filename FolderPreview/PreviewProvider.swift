@@ -2,19 +2,25 @@ import Cocoa
 import Core
 import Quartz
 
-class PreviewProvider: QLPreviewProvider, QLPreviewingController {
-    func providePreview(for request: QLFilePreviewRequest) async throws -> QLPreviewReply {
-        let url = request.fileURL
-        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        let fallback = AppGroup.isUsingFallbackContainer() ? " (FALLBACK - entitlement missing)" : ""
-        let body = if isDirectory {
-            "Folder preview placeholder for \(url.lastPathComponent)\nContainer: \(AppGroup.containerURL().path)\(fallback)"
-        } else {
-            "Archive preview placeholder for \(url.lastPathComponent)\nContainer: \(AppGroup.containerURL().path)\(fallback)"
-        }
+class PreviewViewController: NSViewController, QLPreviewingController {
+    private let label = NSTextField(wrappingLabelWithString: "")
 
-        return QLPreviewReply(dataOfContentType: .plainText, contentSize: .zero) { _ in
-            body.data(using: .utf8) ?? Data()
-        }
+    override func loadView() {
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 120))
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            label.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -32)
+        ])
+    }
+
+    func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        let kind = isDirectory ? "Folder" : "Archive"
+        let fallback = AppGroup.isUsingFallbackContainer() ? " (FALLBACK)" : ""
+        label.stringValue = "\(kind) preview: \(url.lastPathComponent)\nContainer: \(AppGroup.containerURL().path)\(fallback)"
+        handler(nil)
     }
 }

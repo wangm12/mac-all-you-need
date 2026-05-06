@@ -101,7 +101,7 @@ targets:
         CFBundleName: FolderPreview
         NSExtension:
           NSExtensionPointIdentifier: com.apple.quicklook.preview
-          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).PreviewProvider"
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).PreviewViewController"
           NSExtensionAttributes:
             QLSupportedContentTypes:
               - public.folder
