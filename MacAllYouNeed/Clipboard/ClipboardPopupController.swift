@@ -11,6 +11,7 @@ final class ClipboardPopupController {
 
     @MainActor
     func show() {
+        NSLog("ClipboardPopupController: show() called")
         Task { await deps.refresh() }
         if window == nil {
             let panel = NSPanel(
@@ -23,8 +24,9 @@ final class ClipboardPopupController {
             panel.isFloatingPanel = true
             panel.level = .floating
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            panel.hidesOnDeactivate = true
+            panel.hidesOnDeactivate = false
             panel.isReleasedWhenClosed = false
+            panel.becomesKeyOnlyIfNeeded = false
             panel.contentView = NSHostingView(
                 rootView: ClipboardPopupView(deps: deps, dismiss: { [weak self] in self?.hide() })
             )
@@ -37,6 +39,7 @@ final class ClipboardPopupController {
             window.setFrameOrigin(NSPoint(x: rect.midX - frame.width / 2, y: rect.midY - frame.height / 2))
         }
         window.orderFrontRegardless()
+        window.makeKey()
     }
 
     @MainActor

@@ -75,8 +75,12 @@ public final class GlobalHotkey {
                 EventParamType(typeEventHotKeyID), nil,
                 MemoryLayout<EventHotKeyID>.size, nil, &hkID
             )
+            NSLog("GlobalHotkey: Carbon event fired, id=\(hkID.id)")
             if let cb = GlobalHotkey.callback(for: hkID.id) {
+                NSLog("GlobalHotkey: dispatching callback")
                 DispatchQueue.main.async(execute: cb)
+            } else {
+                NSLog("GlobalHotkey: no callback found for id=\(hkID.id)")
             }
             return noErr
         }, 1, &spec, nil, nil)
