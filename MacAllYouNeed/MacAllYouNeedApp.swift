@@ -13,7 +13,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_: Notification) {
         registerDaemon()
+        requestAccessibilityIfNeeded()
         registerHotkey()
+    }
+
+    @MainActor
+    private func requestAccessibilityIfNeeded() {
+        if !AXIsProcessTrusted() {
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            AXIsProcessTrustedWithOptions(opts)
+        }
     }
 
     @MainActor

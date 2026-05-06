@@ -3,6 +3,7 @@ import SwiftUI
 
 final class ClipboardPopupController {
     private var window: NSPanel?
+    private var outsideClickMonitor: Any?
     let deps: AppDependencies
 
     init(deps: AppDependencies) {
@@ -11,7 +12,6 @@ final class ClipboardPopupController {
 
     @MainActor
     func show() {
-        NSLog("ClipboardPopupController: show() called")
         Task { await deps.refresh() }
         if window == nil {
             let panel = NSPanel(
@@ -40,10 +40,26 @@ final class ClipboardPopupController {
         }
         window.orderFrontRegardless()
         window.makeKey()
+        startOutsideClickMonitor()
     }
 
     @MainActor
     func hide() {
+        stopOutsideClickMonitor()
         window?.orderOut(nil)
+    }
+
+    private func startOutsideClickMonitor() {
+        stopOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in self?.hide() }
+        }
+    }
+
+    private func stopOutsideClickMonitor() {
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
+        }
     }
 }
