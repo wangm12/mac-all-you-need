@@ -144,8 +144,14 @@ final class DownloadCoordinator {
         Self.postStateChanged(id: id, state: .failed)
     }
 
+    func deleteDownload(id: RecordID) async {
+        await queue.cancel(id)
+        try? store.delete(id: id)
+        Self.postStateChanged(id: id, state: .failed)
+    }
+
     func pauseDownload(id: RecordID) async {
-        await queue.pauseForResume(id)  // terminates without firing failure completion
+        await queue.pauseForResume(id) // terminates without firing failure completion
         try? store.updateState(id: id, to: .paused)
         Self.postStateChanged(id: id, state: .paused)
     }

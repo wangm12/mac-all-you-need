@@ -111,4 +111,10 @@ public final class DownloadStore {
             )
         }
     }
+
+    public func delete(id: RecordID) throws {
+        try db.queue.write { conn in
+            try conn.execute(sql: "DELETE FROM downloads WHERE id = ?", arguments: [id.rawValue])
+        }
+    }
 }

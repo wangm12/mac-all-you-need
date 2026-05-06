@@ -50,8 +50,9 @@ final class DownloaderViewModel {
     }
 
     func cancel(id: RecordID) async {
+        // Stop button → delete the record entirely (user can re-add if they want to retry)
         liveProgress.removeValue(forKey: id.rawValue)
-        await coordinator.cancelDownload(id: id)
+        await coordinator.deleteDownload(id: id)
         await refresh()
     }
 
@@ -68,7 +69,8 @@ final class DownloaderViewModel {
 
     func delete(ids: [RecordID]) async {
         for id in ids {
-            await coordinator.cancelDownload(id: id)
+            liveProgress.removeValue(forKey: id.rawValue)
+            await coordinator.deleteDownload(id: id)
         }
         await refresh()
     }
