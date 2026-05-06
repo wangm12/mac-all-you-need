@@ -92,6 +92,8 @@ targets:
     dependencies:
       - package: Shared
         product: Core
+      - package: Shared
+        product: Platform
 
   FolderPreview:
     type: app-extension

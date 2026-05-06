@@ -17,6 +17,7 @@
 		7E3B076602A4609A684D000C /* PreviewProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 472510935EFC931A406833AD /* PreviewProvider.swift */; };
 		87182AE75AA7D6DA36BD0DAE /* FolderPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		8A3A0E666C7E365F80A867DF /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 3ECCEAEFDCCE0914CC9AA6E1 /* Core */; };
+		D7C34DC7BF78208BCDE92710 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = 565D43E1D2B76D75D04F84F1 /* Platform */; };
 		E40ABB4D6C22BBEDDC64C7DE /* MacAllYouNeedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */; };
 /* End PBXBuildFile section */
 
@@ -91,6 +92,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3F852164212DD74454B77367 /* Core in Frameworks */,
+				D7C34DC7BF78208BCDE92710 /* Platform in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -239,6 +241,7 @@
 			name = ClipboardDaemon;
 			packageProductDependencies = (
 				F623884AB04D9C3922B8C8D2 /* Core */,
+				565D43E1D2B76D75D04F84F1 /* Platform */,
 			);
 			productName = ClipboardDaemon;
 			productReference = 9533C66ECB81C34DAC0AA3D3 /* ClipboardDaemon.app */;
@@ -717,6 +720,10 @@
 		3ECCEAEFDCCE0914CC9AA6E1 /* Core */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Core;
+		};
+		565D43E1D2B76D75D04F84F1 /* Platform */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Platform;
 		};
 		6731B6B0CA4B6CEFF4A313B9 /* Core */ = {
 			isa = XCSwiftPackageProductDependency;
