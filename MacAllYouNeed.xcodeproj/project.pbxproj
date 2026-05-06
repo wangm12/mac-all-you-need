@@ -8,22 +8,47 @@
 
 /* Begin PBXBuildFile section */
 		267E46615CE1B97B51C489A8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */; };
+		3F852164212DD74454B77367 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = F623884AB04D9C3922B8C8D2 /* Core */; };
 		493B06B4F6B86ACA098B84C8 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = C90EF9C0B92791031982E209 /* Platform */; };
 		56BC84AA624EB0E847CDB02E /* UI in Frameworks */ = {isa = PBXBuildFile; productRef = DE455CF6AE9CDA5C981B1F12 /* UI */; };
+		6A5F253D7731AC3AC795EE04 /* ClipboardDaemon.app in Resources */ = {isa = PBXBuildFile; fileRef = 9533C66ECB81C34DAC0AA3D3 /* ClipboardDaemon.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		76E72834DB05A5A4E2888B6D /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 6731B6B0CA4B6CEFF4A313B9 /* Core */; };
+		77EF22454D9346F8333FB377 /* ClipboardDaemonMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */; };
 		E40ABB4D6C22BBEDDC64C7DE /* MacAllYouNeedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2300288B38898D0985B062D0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E66B6891310EDBB726ABA1AA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A0B97515571841FED0A486F3;
+			remoteInfo = ClipboardDaemon;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		0048E0AE4C75E2960CE5EA9C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacAllYouNeed.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0926233877B5C137B0887EF2 /* ClipboardDaemon.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClipboardDaemon.entitlements; sourceTree = "<group>"; };
+		2E0CD8F01E8F661BCE2FF0A1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		411973A037BCC50C2F200F8E /* Shared */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Shared; path = Shared; sourceTree = SOURCE_ROOT; };
 		4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAllYouNeedApp.swift; sourceTree = "<group>"; };
 		7BB49E2E3D4615E0473EB8F2 /* MacAllYouNeed.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MacAllYouNeed.entitlements; sourceTree = "<group>"; };
+		9533C66ECB81C34DAC0AA3D3 /* ClipboardDaemon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipboardDaemon.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDaemonMain.swift; sourceTree = "<group>"; };
 		ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		ADDF39BD5CFD06B5ED4AA5FC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3F852164212DD74454B77367 /* Core in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FED34386D7CDF0DEF64C33E7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -51,14 +76,26 @@
 		446F5E20EE01D39FFCAC4076 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				9533C66ECB81C34DAC0AA3D3 /* ClipboardDaemon.app */,
 				0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
+		5EBB0118F06F1CF76258A773 /* ClipboardDaemon */ = {
+			isa = PBXGroup;
+			children = (
+				0926233877B5C137B0887EF2 /* ClipboardDaemon.entitlements */,
+				CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */,
+				2E0CD8F01E8F661BCE2FF0A1 /* Info.plist */,
+			);
+			path = ClipboardDaemon;
+			sourceTree = "<group>";
+		};
 		6F7FD91BA10CF0F5B1252364 = {
 			isa = PBXGroup;
 			children = (
+				5EBB0118F06F1CF76258A773 /* ClipboardDaemon */,
 				3A19DB45CB8F1F6EF52975DC /* MacAllYouNeed */,
 				84B8A48C3BDF35E36D0354BC /* Packages */,
 				446F5E20EE01D39FFCAC4076 /* Products */,
@@ -83,10 +120,12 @@
 				E3FE0165928A14B3B3183FE8 /* Sources */,
 				FA697DE6860F2E4472CA0EC6 /* Resources */,
 				FED34386D7CDF0DEF64C33E7 /* Frameworks */,
+				01B78A86CE21BADC471BC70D /* Embed ClipboardDaemon in LoginItems */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				73FD7D4DF1DC4766C88F7B27 /* PBXTargetDependency */,
 			);
 			name = MacAllYouNeed;
 			packageProductDependencies = (
@@ -96,6 +135,25 @@
 			);
 			productName = MacAllYouNeed;
 			productReference = 0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A0B97515571841FED0A486F3 /* ClipboardDaemon */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4E0821755570B0C2FC1C0D9D /* Build configuration list for PBXNativeTarget "ClipboardDaemon" */;
+			buildPhases = (
+				48EB3C9AF211B6D548386BC1 /* Sources */,
+				ADDF39BD5CFD06B5ED4AA5FC /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ClipboardDaemon;
+			packageProductDependencies = (
+				F623884AB04D9C3922B8C8D2 /* Core */,
+			);
+			productName = ClipboardDaemon;
+			productReference = 9533C66ECB81C34DAC0AA3D3 /* ClipboardDaemon.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -108,6 +166,10 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					5BD88869F3EB83788E866E4F = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					A0B97515571841FED0A486F3 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
@@ -130,6 +192,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				A0B97515571841FED0A486F3 /* ClipboardDaemon */,
 				5BD88869F3EB83788E866E4F /* MacAllYouNeed */,
 			);
 		};
@@ -141,12 +204,43 @@
 			buildActionMask = 2147483647;
 			files = (
 				267E46615CE1B97B51C489A8 /* Assets.xcassets in Resources */,
+				6A5F253D7731AC3AC795EE04 /* ClipboardDaemon.app in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		01B78A86CE21BADC471BC70D /* Embed ClipboardDaemon in LoginItems */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed ClipboardDaemon in LoginItems";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nDEST=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LoginItems\"\nmkdir -p \"$DEST\"\nif [ -d \"${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app\" ]; then\n  cp -Rf \"${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app\" \"$DEST/\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
+		48EB3C9AF211B6D548386BC1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				77EF22454D9346F8333FB377 /* ClipboardDaemonMain.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E3FE0165928A14B3B3183FE8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -156,6 +250,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		73FD7D4DF1DC4766C88F7B27 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A0B97515571841FED0A486F3 /* ClipboardDaemon */;
+			targetProxy = 2300288B38898D0985B062D0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		2BA033F3E89684B2B2426F54 /* Release */ = {
@@ -315,6 +417,38 @@
 			};
 			name = Debug;
 		};
+		A559442C658E9E4ABE68DD60 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = ClipboardDaemon/ClipboardDaemon.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = ClipboardDaemon/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.macallyouneed.app.daemon;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		DC52A80813E16265BD1C5534 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = ClipboardDaemon/ClipboardDaemon.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = ClipboardDaemon/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.macallyouneed.app.daemon;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -323,6 +457,15 @@
 			buildConfigurations = (
 				3E57100C7F965444157C8847 /* Debug */,
 				2BA033F3E89684B2B2426F54 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4E0821755570B0C2FC1C0D9D /* Build configuration list for PBXNativeTarget "ClipboardDaemon" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DC52A80813E16265BD1C5534 /* Debug */,
+				A559442C658E9E4ABE68DD60 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -357,6 +500,10 @@
 		DE455CF6AE9CDA5C981B1F12 /* UI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = UI;
+		};
+		F623884AB04D9C3922B8C8D2 /* Core */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Core;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

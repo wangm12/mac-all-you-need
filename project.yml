@@ -42,3 +42,36 @@ targets:
         product: UI
       - package: Shared
         product: Platform
+      - target: ClipboardDaemon
+    postBuildScripts:
+      - name: "Embed ClipboardDaemon in LoginItems"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          DEST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LoginItems"
+          mkdir -p "$DEST"
+          if [ -d "${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app" ]; then
+            cp -Rf "${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app" "$DEST/"
+          fi
+
+  ClipboardDaemon:
+    type: application
+    platform: macOS
+    sources:
+      - path: ClipboardDaemon
+    info:
+      path: ClipboardDaemon/Info.plist
+      properties:
+        CFBundleName: ClipboardDaemon
+        LSUIElement: YES
+        LSBackgroundOnly: YES
+        MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
+        MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
+        NSHumanReadableCopyright: ""
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.daemon
+        CODE_SIGN_ENTITLEMENTS: ClipboardDaemon/ClipboardDaemon.entitlements
+    dependencies:
+      - package: Shared
+        product: Core
