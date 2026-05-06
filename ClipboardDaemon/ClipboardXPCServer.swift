@@ -4,6 +4,43 @@ import Foundation
 import Platform
 import Security
 
+// MARK: - Code signature identity helper (file-scope to avoid nesting violation)
+
+enum CodeSignatureIdentity {
+    struct Identity {
+        let bundleIdentifier: String?
+        let teamIdentifier: String?
+    }
+
+    static func identity(forPID pid: pid_t) -> Identity? {
+        let attributes = [kSecGuestAttributePid as String: pid] as CFDictionary
+        var code: SecCode?
+        guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        return identity(for: staticCode)
+    }
+
+    static func identity(for app: NSRunningApplication) -> Identity? {
+        guard let url = app.bundleURL else { return nil }
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
+        return identity(for: code)
+    }
+
+    private static func identity(for code: SecStaticCode) -> Identity? {
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any] else { return nil }
+        return Identity(
+            bundleIdentifier: dict[kSecCodeInfoIdentifier as String] as? String,
+            teamIdentifier: dict[kSecCodeInfoTeamIdentifier as String] as? String
+        )
+    }
+}
+
+// MARK: -
+
 final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDelegate {
     let container: DaemonContainer
     let listener: NSXPCListener
@@ -57,13 +94,22 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
     }
 
     static func isAllowedClient(_ connection: NSXPCConnection) -> Bool {
-        // Bundle ID check is sufficient: the Mach service name (MachServices in Info.plist)
-        // already restricts who can send to this service at the launchd level.
-        // SecCodeCopyGuestWithAttributes(nil, pid) requires get-task-allow entitlement and
-        // fails in production-signed builds, so we avoid it here.
         guard let app = NSRunningApplication(processIdentifier: connection.processIdentifier),
-              let bundleID = app.bundleIdentifier else { return false }
-        return bundleID == "com.macallyouneed.app"
+              let expectedTeamID = expectedTeamIdentifier(),
+              let identity = CodeSignatureIdentity.identity(forPID: connection.processIdentifier)
+              ?? CodeSignatureIdentity.identity(for: app)
+        else { return false }
+        return identity.bundleIdentifier == "com.macallyouneed.app" && identity.teamIdentifier == expectedTeamID
+    }
+
+    private static func expectedTeamIdentifier() -> String? {
+        if let configured = Bundle.main.object(forInfoDictionaryKey: "MAYNTeamIdentifier") as? String,
+           !configured.isEmpty,
+           !configured.hasPrefix("$(")
+        {
+            return configured
+        }
+        return CodeSignatureIdentity.identity(for: NSRunningApplication.current)?.teamIdentifier
     }
 
     func notifyInvalidated() {

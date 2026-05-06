@@ -44,6 +44,26 @@ final class PasteboardObserverTests: XCTestCase {
         XCTAssertEqual(changes.first?.items, [.text("hello")])
     }
 
+    func testDoesNotEmitExistingClipboardOnStart() {
+        let reader = FakeReader()
+        reader.changeCount = 7
+        reader.types = ["public.utf8-plain-text"]
+        reader.items = [.text("already there")]
+        let obs = PasteboardObserver(reader: reader, rules: ExclusionRules(), pollInterval: 0.05)
+        var changes: [PasteboardChange] = []
+        let inverted = expectation(description: "initial clipboard should be treated as baseline")
+        inverted.isInverted = true
+        obs.start {
+            changes.append($0)
+            inverted.fulfill()
+        }
+        defer { obs.stop() }
+
+        wait(for: [inverted], timeout: 0.2)
+
+        XCTAssertEqual(changes.count, 0)
+    }
+
     func testFiltersConcealed() {
         let reader = FakeReader()
         let obs = PasteboardObserver(reader: reader, rules: ExclusionRules(), pollInterval: 0.05)

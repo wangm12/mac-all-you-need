@@ -79,13 +79,28 @@ public final class ClipboardStore {
         )
     }
 
-    public func list(limit: Int) throws -> [ClipboardItemMeta] {
+    public func list(limit: Int, offset: Int = 0) throws -> [ClipboardItemMeta] {
         try db.queue.read { conn in
             try Row.fetchAll(conn, sql: """
                 SELECT id, created, modified, device_id, lamport, kind, preview, source_app
-                FROM clipboard_records ORDER BY modified DESC LIMIT ?
-            """, arguments: [limit]).map(Self.metaRow)
+                FROM clipboard_records ORDER BY modified DESC LIMIT ? OFFSET ?
+            """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
         }
+    }
+
+    public func metas(for ids: [RecordID]) throws -> [ClipboardItemMeta] {
+        guard !ids.isEmpty else { return [] }
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        let rows = try db.queue.read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT id, created, modified, device_id, lamport, kind, preview, source_app
+                FROM clipboard_records WHERE id IN (\(placeholders))
+            """, arguments: StatementArguments(ids.map(\.rawValue)))
+        }
+        let byID = Dictionary(uniqueKeysWithValues: rows.map { row in
+            (row["id"] as String, Self.metaRow(row))
+        })
+        return ids.compactMap { byID[$0.rawValue] }
     }
 
     public func body(for id: RecordID) throws -> ClipboardRecord {

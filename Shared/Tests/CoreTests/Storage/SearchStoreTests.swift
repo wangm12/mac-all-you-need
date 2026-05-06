@@ -46,4 +46,18 @@ final class SearchStoreTests: XCTestCase {
         let hits = try store.search(query: "colon:", limit: 10)
         XCTAssertEqual(hits.first?.id, id)
     }
+
+    func testSearchSupportsOffset() throws {
+        let first = RecordID.generate()
+        let second = RecordID.generate()
+        try store.upsert(kind: .clipboardItem, id: first, text: "shared unique")
+        try store.upsert(kind: .clipboardItem, id: second, text: "shared unique")
+
+        let firstPage = try store.search(query: "shared", limit: 1, offset: 0)
+        let secondPage = try store.search(query: "shared", limit: 1, offset: 1)
+
+        XCTAssertEqual(firstPage.count, 1)
+        XCTAssertEqual(secondPage.count, 1)
+        XCTAssertNotEqual(firstPage.first?.id, secondPage.first?.id)
+    }
 }

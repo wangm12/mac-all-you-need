@@ -16,12 +16,15 @@ public enum PasteInjector {
     @discardableResult
     public static func paste(
         _ string: String?,
-        mode _: PasteMode = .formatted,
+        mode: PasteMode = .formatted,
         into pasteboard: NSPasteboard = .general
     ) -> PasteResult {
         if let string {
             pasteboard.clearContents()
             pasteboard.setString(string, forType: .string)
+        } else if mode == .plainText, let plainText = pasteboard.string(forType: .string) {
+            pasteboard.clearContents()
+            pasteboard.setString(plainText, forType: .string)
         }
         guard AXIsProcessTrusted() else { return .manualPasteRequired }
         let src = CGEventSource(stateID: .combinedSessionState)

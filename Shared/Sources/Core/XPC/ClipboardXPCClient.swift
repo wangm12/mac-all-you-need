@@ -3,8 +3,9 @@ import Foundation
 public final class ClipboardXPCClient {
     public static let machServiceName = "group.com.macallyouneed.shared.daemon"
     public let connection: NSXPCConnection
+    private var isResumed = false
 
-    public init(serviceName: String = ClipboardXPCClient.machServiceName) {
+    public init(serviceName: String = ClipboardXPCClient.machServiceName, resumesImmediately: Bool = true) {
         connection = NSXPCConnection(machServiceName: serviceName, options: [])
         let iface = NSXPCInterface(with: ClipboardXPCProtocol.self)
         connection.remoteObjectInterface = iface
@@ -27,7 +28,15 @@ public final class ClipboardXPCClient {
             for: #selector(ClipboardXPCProtocol.resolveBlob(blobID:reply:)),
             argumentIndex: 0, ofReply: true
         )
+        if resumesImmediately {
+            resume()
+        }
+    }
+
+    public func resume() {
+        guard !isResumed else { return }
         connection.resume()
+        isResumed = true
     }
 
     public func proxy() -> ClipboardXPCProtocol? {

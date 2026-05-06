@@ -58,6 +58,7 @@ public final class PasteboardObserver {
 
     public func start(callback: @escaping (PasteboardChange) -> Void) {
         self.callback = callback
+        lastCount = reader.currentChangeCount()
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(50))
         t.setEventHandler { [weak self] in self?.tick() }

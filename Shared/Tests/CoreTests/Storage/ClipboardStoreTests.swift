@@ -41,6 +41,22 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertEqual(items.map(\.id), [b.id, a.id])
     }
 
+    func testListSupportsOffset() throws {
+        let a = try store.append(ClipboardRecord.text("a"))
+        Thread.sleep(forTimeInterval: 0.002)
+        let b = try store.append(ClipboardRecord.text("b"))
+        let items = try store.list(limit: 1, offset: 1)
+        XCTAssertEqual(items.map(\.id), [a.id])
+        XCTAssertNotEqual(items.first?.id, b.id)
+    }
+
+    func testMetasForIDsPreservesRequestedOrder() throws {
+        let a = try store.append(ClipboardRecord.text("a"))
+        let b = try store.append(ClipboardRecord.text("b"))
+        let items = try store.metas(for: [a.id, b.id])
+        XCTAssertEqual(items.map(\.id), [a.id, b.id])
+    }
+
     func testLamportClockIncrementsByOne() throws {
         let a = try store.append(ClipboardRecord.text("a"))
         let b = try store.append(ClipboardRecord.text("b"))

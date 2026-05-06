@@ -71,13 +71,17 @@ public final class SearchStore {
     }
 
     public func search(query: String, limit: Int) throws -> [SearchHit] {
+        try search(query: query, limit: limit, offset: 0)
+    }
+
+    public func search(query: String, limit: Int, offset: Int) throws -> [SearchHit] {
         let ftsQuery = Self.ftsQuery(for: query)
         guard !ftsQuery.isEmpty else { return [] }
         return try db.queue.read { conn in
             try Row.fetchAll(conn, sql: """
                 SELECT kind, record_id, snippet(search_index, 2, '<', '>', '…', 12) AS snip
-                FROM search_index WHERE search_index MATCH ? ORDER BY rank LIMIT ?
-            """, arguments: [ftsQuery, limit]).compactMap { row in
+                FROM search_index WHERE search_index MATCH ? ORDER BY rank LIMIT ? OFFSET ?
+            """, arguments: [ftsQuery, limit, max(0, offset)]).compactMap { row in
                 guard let kind = RecordKind(rawValue: row["kind"]),
                       let id = RecordID(rawValue: row["record_id"]) else { return nil }
                 return SearchHit(kind: kind, id: id, snippet: row["snip"])

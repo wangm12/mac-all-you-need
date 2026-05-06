@@ -12,7 +12,7 @@ final class ClipboardPopupController {
 
     @MainActor
     func show() {
-        Task { await deps.refresh() }
+        Task { await deps.refreshUsingRememberedQuery() }
         if window == nil {
             let panel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 720, height: 280),
@@ -46,6 +46,7 @@ final class ClipboardPopupController {
     @MainActor
     func hide() {
         stopOutsideClickMonitor()
+        deps.clearRememberedQuery()
         window?.orderOut(nil)
     }
 
