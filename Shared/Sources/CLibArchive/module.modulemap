@@ -1,0 +1,5 @@
+module CLibArchive {
+    umbrella header "include/CLibArchive.h"
+    link "archive"
+    export *
+}

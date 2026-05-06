@@ -34,6 +34,19 @@ let package = Package(
             ]
         ),
         .target(
+            name: "CLibArchive",
+            path: "Sources/CLibArchive",
+            sources: ["shim.c"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .unsafeFlags(["-I/opt/homebrew/opt/libarchive/include"])
+            ],
+            linkerSettings: [
+                .unsafeFlags(["-L/opt/homebrew/opt/libarchive/lib"]),
+                .linkedLibrary("archive")
+            ]
+        ),
+        .target(
             name: "Core",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
@@ -45,7 +58,7 @@ let package = Package(
             "Core",
             .product(name: "Splash", package: "Splash")
         ], path: "Sources/UI"),
-        .target(name: "Platform", dependencies: ["Core"], path: "Sources/Platform"),
+        .target(name: "Platform", dependencies: ["Core", "CLibArchive"], path: "Sources/Platform"),
         .testTarget(name: "CoreTests", dependencies: ["Core"], path: "Tests/CoreTests"),
         .testTarget(name: "UITests", dependencies: ["UI"], path: "Tests/UITests"),
         .testTarget(name: "PlatformTests", dependencies: ["Platform"], path: "Tests/PlatformTests")
