@@ -12,7 +12,6 @@
 		3F852164212DD74454B77367 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = F623884AB04D9C3922B8C8D2 /* Core */; };
 		493B06B4F6B86ACA098B84C8 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = C90EF9C0B92791031982E209 /* Platform */; };
 		56BC84AA624EB0E847CDB02E /* UI in Frameworks */ = {isa = PBXBuildFile; productRef = DE455CF6AE9CDA5C981B1F12 /* UI */; };
-		6A5F253D7731AC3AC795EE04 /* ClipboardDaemon.app in Resources */ = {isa = PBXBuildFile; fileRef = 9533C66ECB81C34DAC0AA3D3 /* ClipboardDaemon.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		76E72834DB05A5A4E2888B6D /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 6731B6B0CA4B6CEFF4A313B9 /* Core */; };
 		77EF22454D9346F8333FB377 /* ClipboardDaemonMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */; };
 		7E3B076602A4609A684D000C /* PreviewProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 472510935EFC931A406833AD /* PreviewProvider.swift */; };
@@ -321,7 +320,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				267E46615CE1B97B51C489A8 /* Assets.xcassets in Resources */,
-				6A5F253D7731AC3AC795EE04 /* ClipboardDaemon.app in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -499,6 +497,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -597,6 +596,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

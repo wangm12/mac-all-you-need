@@ -43,6 +43,8 @@ targets:
       - package: Shared
         product: Platform
       - target: ClipboardDaemon
+        embed: false
+        copy: false
       - target: FolderPreview
         embed: true
         codeSign: true
@@ -65,6 +67,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.tests
+        GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: MacAllYouNeed
 
