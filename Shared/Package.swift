@@ -14,9 +14,29 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "CArgon2",
+            path: "Sources/CArgon2",
+            sources: [
+                "argon2-shim.c",
+                "argon2/src/argon2.c",
+                "argon2/src/core.c",
+                "argon2/src/encoding.c",
+                "argon2/src/ref.c",
+                "argon2/src/thread.c",
+                "argon2/src/blake2/blake2b.c"
+            ],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("argon2/include"),
+                .headerSearchPath("argon2/src"),
+                .headerSearchPath("argon2/src/blake2")
+            ]
+        ),
+        .target(
             name: "Core",
             dependencies: [
-                .product(name: "GRDB", package: "GRDB.swift")
+                .product(name: "GRDB", package: "GRDB.swift"),
+                "CArgon2"
             ],
             path: "Sources/Core"
         ),

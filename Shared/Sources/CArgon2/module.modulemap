@@ -1,0 +1,4 @@
+module CArgon2 {
+    umbrella header "include/CArgon2.h"
+    export *
+}
