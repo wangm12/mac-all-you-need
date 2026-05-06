@@ -28,4 +28,9 @@ final class ArchiveSafetyTests: XCTestCase {
     func testRejectsTooLargeUncompressed() {
         XCTAssertThrowsError(try ArchiveSafety.checkTotalUncompressed(limits.maxTotalUncompressedBytes + 1, limits: limits))
     }
+
+    func testRejectsUnknownSize() {
+        XCTAssertThrowsError(try ArchiveSafety.checkKnownSize(false))
+        XCTAssertNoThrow(try ArchiveSafety.checkKnownSize(true))
+    }
 }

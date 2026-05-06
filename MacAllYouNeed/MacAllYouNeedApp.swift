@@ -25,7 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     private func registerFolderBrowse() {
         let coordinator = BrowseFolderCoordinator()
-        let browser = BrowseFolderWindowController()
+        let browser = BrowseFolderWindowController { action in
+            coordinator.perform(action)
+        }
         let hk = GlobalHotkey(descriptor: .defaultFolder) { [weak browser] in
             Task { @MainActor in browser?.openPanelAndBrowse() }
         }

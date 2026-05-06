@@ -27,9 +27,15 @@ public final class LibArchiveBackend: ArchiveBackend {
                 archive_read_data_skip(archive)
                 continue
             }
-            let size = archive_entry_size(e)
-            try ArchiveSafety.checkPerFileSize(size, limits: limits)
-            totalSize += size
+            let size: Int64
+            if isDir {
+                size = 0
+            } else {
+                try ArchiveSafety.checkKnownSize(archive_entry_size_is_set(e) != 0)
+                size = archive_entry_size(e)
+                try ArchiveSafety.checkPerFileSize(size, limits: limits)
+                totalSize += size
+            }
             try ArchiveSafety.checkTotalUncompressed(totalSize, limits: limits)
             let mtime = Date(timeIntervalSince1970: TimeInterval(archive_entry_mtime(e)))
             entries.append(ArchiveEntry(path: cpath, isDirectory: isDir, uncompressedSize: size, modified: mtime))

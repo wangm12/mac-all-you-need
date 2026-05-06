@@ -3,7 +3,7 @@ import Foundation
 public enum ArchiveSafetyError: Error, Equatable {
     case absolutePath, pathTraversal, tooDeep
     case tooManyEntries, tooLargeUncompressed, perFileTooLarge
-    case symlinkInPreview
+    case symlinkInPreview, unknownSize
 }
 
 public enum ArchiveSafety {
@@ -42,5 +42,9 @@ public enum ArchiveSafety {
 
     public static func checkPerFileSize(_ bytes: Int64, limits: Limits) throws {
         if bytes > limits.maxPerFileBytes { throw ArchiveSafetyError.perFileTooLarge }
+    }
+
+    public static func checkKnownSize(_ isSet: Bool) throws {
+        if !isSet { throw ArchiveSafetyError.unknownSize }
     }
 }

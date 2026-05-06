@@ -6,6 +6,11 @@ import UI
 final class BrowseFolderWindowController {
     private var window: NSWindow?
     private var url: URL = FileManager.default.homeDirectoryForCurrentUser
+    private let onAction: (PreviewAction) -> Void
+
+    init(onAction: @escaping (PreviewAction) -> Void) {
+        self.onAction = onAction
+    }
 
     func openPanelAndBrowse() {
         let panel = NSOpenPanel()
@@ -27,11 +32,14 @@ final class BrowseFolderWindowController {
             )
             win.title = "Browse Folder"
             win.center()
-            win.contentView = NSHostingView(rootView: FolderPreviewView(folderURL: url))
+            win.contentView = NSHostingView(rootView: FolderPreviewView(folderURL: url, onAction: onAction))
             win.isReleasedWhenClosed = false
             window = win
         } else {
-            (window?.contentView as? NSHostingView<FolderPreviewView>)?.rootView = FolderPreviewView(folderURL: url)
+            (window?.contentView as? NSHostingView<FolderPreviewView>)?.rootView = FolderPreviewView(
+                folderURL: url,
+                onAction: onAction
+            )
         }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

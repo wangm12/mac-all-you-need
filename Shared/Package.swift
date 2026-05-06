@@ -35,9 +35,7 @@ let package = Package(
         ),
         .systemLibrary(
             name: "CLibArchive",
-            path: "Sources/CLibArchive",
-            pkgConfig: "libarchive",
-            providers: [.brew(["libarchive"])]
+            path: "Sources/CLibArchive"
         ),
         .target(
             name: "Core",
