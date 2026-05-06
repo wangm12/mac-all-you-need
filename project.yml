@@ -43,6 +43,9 @@ targets:
       - package: Shared
         product: Platform
       - target: ClipboardDaemon
+      - target: FolderPreview
+        embed: true
+        codeSign: true
     postBuildScripts:
       - name: "Embed ClipboardDaemon in LoginItems"
         basedOnDependencyAnalysis: false
@@ -72,6 +75,35 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.daemon
         CODE_SIGN_ENTITLEMENTS: ClipboardDaemon/ClipboardDaemon.entitlements
+    dependencies:
+      - package: Shared
+        product: Core
+
+  FolderPreview:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FolderPreview
+    info:
+      path: FolderPreview/Info.plist
+      properties:
+        CFBundleName: FolderPreview
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.quicklook.preview
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).PreviewProvider"
+          NSExtensionAttributes:
+            QLSupportedContentTypes:
+              - public.folder
+              - public.zip-archive
+              - org.7-zip.7-zip-archive
+              - com.rarlab.rar-archive
+              - public.tar-archive
+              - org.gnu.gnu-zip-archive
+              - public.bzip2-archive
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.folderpreview
+        CODE_SIGN_ENTITLEMENTS: FolderPreview/FolderPreview.entitlements
     dependencies:
       - package: Shared
         product: Core
