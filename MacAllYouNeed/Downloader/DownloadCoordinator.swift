@@ -145,15 +145,26 @@ final class DownloadCoordinator {
     }
 
     func pauseDownload(id: RecordID) async {
-        await queue.pause(id)
+        await queue.cancel(id)  // terminates yt-dlp; partial file saved for --continue
         try? store.updateState(id: id, to: .paused)
         Self.postStateChanged(id: id, state: .paused)
     }
 
     func resumeDownload(id: RecordID) async {
-        await queue.resume(id)
-        try? store.updateState(id: id, to: .running)
-        Self.postStateChanged(id: id, state: .running)
+        do {
+            let record = try store.fetch(id: id)
+            let dest = URL(fileURLWithPath: record.destinationPath)
+            try store.updateState(id: id, to: .queued)
+            let job = try DownloadJob(
+                recordID: record.id, url: record.url, destination: dest,
+                ytdlp: binaries.ytdlpPath(), ffmpeg: binaries.ffmpegPath(),
+                extraArgs: ["--continue"] + cookieArgs()
+            )
+            await queue.enqueue(job)
+            Self.postStateChanged(id: id, state: .running)
+        } catch {
+            log.error("resumeDownload failed: \(error.localizedDescription)")
+        }
     }
 
     func enqueue(url: String, title: String?) async {

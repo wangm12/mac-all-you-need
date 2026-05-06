@@ -50,11 +50,13 @@ final class DownloaderViewModel {
     }
 
     func cancel(id: RecordID) async {
+        liveProgress.removeValue(forKey: id.rawValue)
         await coordinator.cancelDownload(id: id)
         await refresh()
     }
 
     func pause(id: RecordID) async {
+        liveProgress.removeValue(forKey: id.rawValue)
         await coordinator.pauseDownload(id: id)
         await refresh()
     }

@@ -34,11 +34,13 @@ public final class DownloadJob {
     }
 
     public func pause() {
-        if process.isRunning { kill(process.processIdentifier, SIGSTOP) }
+        // SIGSTOP only pauses yt-dlp, not its ffmpeg subprocess (used for HLS merging).
+        // Use SIGTERM instead — yt-dlp writes partial files that --continue resumes from.
+        cancel()
     }
 
     public func resume() {
-        if process.isRunning { kill(process.processIdentifier, SIGCONT) }
+        // No-op: resuming is handled by re-enqueueing with --continue via DownloadCoordinator.resumeDownload
     }
 
     public func cancel() {
