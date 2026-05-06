@@ -85,8 +85,9 @@ public enum ChromiumCookies {
                     ? plainValue
                     : (try? decryptChromiumValue(encryptedValue, safeStorageKey: safeStorageKey)) ?? ""
                 let secureFlag = secureVal == 1 ? "TRUE" : "FALSE"
+                let domainFlag = host.hasPrefix(".") ? "TRUE" : "FALSE"  // required by Netscape spec
                 let expiresEpoch = expires == 0 ? 0 : Int(expires / 1_000_000) - 11_644_473_600
-                out += "\(host)\tFALSE\t\(path)\t\(secureFlag)\t\(expiresEpoch)\t\(name)\t\(value)\n"
+                out += "\(host)\t\(domainFlag)\t\(path)\t\(secureFlag)\t\(expiresEpoch)\t\(name)\t\(value)\n"
             }
         }
         return out
