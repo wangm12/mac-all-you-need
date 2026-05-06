@@ -169,9 +169,11 @@ final class DownloadCoordinator {
 
     func enqueue(url: String, title: String?) async {
         do {
-            let dest = (FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                ?? URL(fileURLWithPath: "/tmp"))
-                .appendingPathComponent("%(title)s - %(uploader)s.%(ext)s")
+            let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: "/tmp")
+            let outputDir = downloadsDir.appendingPathComponent("MacAllYouNeed", isDirectory: true)
+            try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+            let dest = outputDir.appendingPathComponent("%(title)s - %(uploader)s.%(ext)s")
             let record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
             try store.insert(record)
             let ytdlp = try binaries.ytdlpPath()
