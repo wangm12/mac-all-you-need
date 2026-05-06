@@ -1,6 +1,6 @@
 import Core
-import CryptoKit
 import Foundation
+import Platform
 
 @MainActor
 final class DownloadCheckpointThrottler {
@@ -40,7 +40,12 @@ final class DownloadCoordinator {
         let storeRef = store
         queue = DownloadQueue(
             maxConcurrent: 3,
-            started: { id in Task { @MainActor in try? storeRef.updateState(id: id, to: .running) } },
+            started: { id in
+                Task { @MainActor in
+                    try? storeRef.updateState(id: id, to: .running)
+                    Self.postStateChanged(id: id, state: .running)
+                }
+            },
             progress: { id, p in
                 NotificationCenter.default.post(
                     name: .downloadProgress, object: nil,
@@ -51,12 +56,48 @@ final class DownloadCoordinator {
             completion: { id, result in
                 Task { @MainActor in
                     switch result {
-                    case .success: try? storeRef.updateState(id: id, to: .completed)
-                    case .failure: try? storeRef.updateState(id: id, to: .failed)
+                    case .success:
+                        try? storeRef.updateState(id: id, to: .completed)
+                        Self.postStateChanged(id: id, state: .completed)
+                    case .failure:
+                        try? storeRef.updateState(id: id, to: .failed)
+                        Self.postStateChanged(id: id, state: .failed)
                     }
                 }
             }
         )
+    }
+
+    nonisolated static func cookieArguments(
+        cookieFileURL: URL,
+        prepare: (URL) throws -> Void
+    ) -> [String] {
+        do {
+            try FileManager.default.createDirectory(
+                at: cookieFileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try prepare(cookieFileURL)
+            return ["--cookies", cookieFileURL.path]
+        } catch {
+            return []
+        }
+    }
+
+    private static func postStateChanged(id: RecordID, state: DownloadState) {
+        NotificationCenter.default.post(
+            name: .downloadStateChanged, object: nil,
+            userInfo: ["id": id.rawValue, "state": state.rawValue]
+        )
+    }
+
+    private func cookieArgs() -> [String] {
+        let cookieFile = AppGroup.containerURL()
+            .appendingPathComponent("cookies", isDirectory: true)
+            .appendingPathComponent("downloader-cookies.txt")
+        return Self.cookieArguments(cookieFileURL: cookieFile) { url in
+            try CookieImporter.combinedCookiesFile(at: url)
+        }
     }
 
     func startDispatchServer() async {
@@ -81,7 +122,7 @@ final class DownloadCoordinator {
             let job = try DownloadJob(
                 recordID: record.id, url: record.url, destination: dest,
                 ytdlp: binaries.ytdlpPath(), ffmpeg: binaries.ffmpegPath(),
-                extraArgs: ["--continue"]
+                extraArgs: cookieArgs()
             )
             await queue.enqueue(job)
         } catch {
@@ -92,6 +133,19 @@ final class DownloadCoordinator {
     func cancelDownload(id: RecordID) async {
         await queue.cancel(id)
         try? store.updateState(id: id, to: .failed)
+        Self.postStateChanged(id: id, state: .failed)
+    }
+
+    func pauseDownload(id: RecordID) async {
+        await queue.pause(id)
+        try? store.updateState(id: id, to: .paused)
+        Self.postStateChanged(id: id, state: .paused)
+    }
+
+    func resumeDownload(id: RecordID) async {
+        await queue.resume(id)
+        try? store.updateState(id: id, to: .running)
+        Self.postStateChanged(id: id, state: .running)
     }
 
     func enqueue(url: String, title: String?) async {
@@ -103,39 +157,35 @@ final class DownloadCoordinator {
             try store.insert(record)
             let ytdlp = try binaries.ytdlpPath()
             let ffmpeg = try binaries.ffmpegPath()
-            NSLog("DownloadCoordinator: ytdlp=\(ytdlp.path) ffmpeg=\(ffmpeg.path)")
             let job = DownloadJob(
                 recordID: record.id, url: url, destination: dest,
                 ytdlp: ytdlp, ffmpeg: ffmpeg,
-                extraArgs: []
+                extraArgs: cookieArgs()
             )
-            NSLog("DownloadCoordinator: enqueuing job for \(url)")
             await queue.enqueue(job)
         } catch {
-            NSLog("DownloadCoordinator: enqueue FAILED — \(error)")
             log.error("enqueue failed: \(error.localizedDescription)")
         }
     }
 
-    func recoverInFlight() async {
+    func prepareInterruptedDownloadsForRetry() async {
         do {
-            let ids = try store.list(state: .running)
+            let ids = try store.list(state: .running) + store.list(state: .queued) + store.list(state: .paused)
             for id in ids {
-                let r = try store.fetch(id: id)
-                let dest = URL(fileURLWithPath: r.destinationPath)
-                let job = try DownloadJob(
-                    recordID: r.id, url: r.url, destination: dest,
-                    ytdlp: binaries.ytdlpPath(), ffmpeg: binaries.ffmpegPath(),
-                    extraArgs: ["--continue"]
-                )
-                await queue.enqueue(job)
+                try? store.updateState(id: id, to: .failed)
+            }
+            // Single batch notification instead of N individual ones
+            if !ids.isEmpty {
+                NotificationCenter.default.post(name: .downloadStateChanged, object: nil,
+                                                userInfo: ["id": "", "state": "failed"])
             }
         } catch {
-            log.error("recover failed: \(error.localizedDescription)")
+            log.error("recovery preparation failed: \(error.localizedDescription)")
         }
     }
 }
 
 public extension Notification.Name {
     static let downloadProgress = Notification.Name("downloadProgress")
+    static let downloadStateChanged = Notification.Name("downloadStateChanged")
 }

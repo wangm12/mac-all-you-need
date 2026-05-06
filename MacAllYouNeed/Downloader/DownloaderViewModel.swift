@@ -18,6 +18,19 @@ final class DownloaderViewModel {
                   let p = note.userInfo?["progress"] as? DownloadProgress else { return }
             self?.liveProgress[id] = p
         }
+        NotificationCenter.default.addObserver(
+            forName: .downloadStateChanged, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            Task { @MainActor in
+                await self?.refresh()
+                if let state = note.userInfo?["state"] as? String,
+                   ["completed", "failed", "paused"].contains(state)
+                {
+                    self?.liveProgress.removeValue(forKey: id)
+                }
+            }
+        }
         Task { await self.refresh() }
     }
 
@@ -41,17 +54,19 @@ final class DownloaderViewModel {
         await refresh()
     }
 
-    func delete(ids: [RecordID]) async {
-        for id in ids {
-            await coordinator.cancelDownload(id: id)
-        }
+    func pause(id: RecordID) async {
+        await coordinator.pauseDownload(id: id)
         await refresh()
     }
 
-    func clearStaleQueued() async {
-        let stale = rows.filter { $0.state == .queued }
-        for r in stale {
-            try? coordinator.store.updateState(id: r.id, to: .failed)
+    func resume(id: RecordID) async {
+        await coordinator.resumeDownload(id: id)
+        await refresh()
+    }
+
+    func delete(ids: [RecordID]) async {
+        for id in ids {
+            await coordinator.cancelDownload(id: id)
         }
         await refresh()
     }
