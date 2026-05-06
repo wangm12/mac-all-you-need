@@ -11,10 +11,14 @@ final class HotkeyController {
     }
 
     func registerDefault() {
+        try? registerHotkeyThrowing()
+    }
+
+    func registerHotkeyThrowing() throws {
         hotkey = GlobalHotkey(descriptor: .defaultClipboard) { [weak self] in
             Task { @MainActor in self?.popup.show() }
         }
-        try? hotkey?.register()
+        try hotkey?.register()
     }
 
     func unregister() {

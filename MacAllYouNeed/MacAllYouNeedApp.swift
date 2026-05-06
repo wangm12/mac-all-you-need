@@ -5,33 +5,40 @@ import SwiftUI
 
 // MARK: - App Delegate
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    var popup: ClipboardPopupController?
-    var hotkey: HotkeyController?
+    let deps = AppDependencies()
+    private var popup: ClipboardPopupController?
+    private var hotkey: HotkeyController?
 
     func applicationDidFinishLaunching(_: Notification) {
         registerDaemon()
+        registerHotkey()
     }
 
+    @MainActor
     private func registerDaemon() {
         let service = SMAppService.loginItem(identifier: "com.macallyouneed.app.daemon")
         guard service.status == .notRegistered || service.status == .notFound else { return }
         do {
             try service.register()
         } catch {
-            Logging.logger(for: "app", category: "daemon").error("Failed to register daemon: \(error.localizedDescription)")
+            Logging.logger(for: "app", category: "daemon").error("Daemon register failed: \(error.localizedDescription)")
         }
     }
 
-    func setupHotkey(deps: AppDependencies) {
-        guard hotkey == nil else { return }
-        Task { @MainActor in
-            let p = ClipboardPopupController(deps: deps)
-            let h = HotkeyController(popup: p)
-            h.registerDefault()
-            popup = p
-            hotkey = h
+    @MainActor
+    private func registerHotkey() {
+        let p = ClipboardPopupController(deps: deps)
+        let h = HotkeyController(popup: p)
+        do {
+            try h.registerHotkeyThrowing()
+            NSLog("HotkeyController: ⌘⇧V registered")
+        } catch {
+            NSLog("HotkeyController: FAILED — \(error)")
         }
+        popup = p
+        hotkey = h
     }
 }
 
@@ -40,12 +47,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct MacAllYouNeedApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var deps = AppDependencies()
 
     var body: some Scene {
         MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
-            ClipboardMenuBarContent(deps: deps)
-                .onAppear { appDelegate.setupHotkey(deps: deps) }
+            ClipboardMenuBarContent(deps: appDelegate.deps)
         }
         .menuBarExtraStyle(.window)
     }
