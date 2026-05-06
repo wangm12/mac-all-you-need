@@ -98,7 +98,7 @@ final class DownloadCoordinator {
         do {
             let dest = (FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: "/tmp"))
-                .appendingPathComponent("%(title)s [%(id)s].%(ext)s")
+                .appendingPathComponent("%(title)s - %(uploader)s.%(ext)s")
             let record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
             try store.insert(record)
             let ytdlp = try binaries.ytdlpPath()
