@@ -30,7 +30,7 @@ class PreviewViewController: NSViewController, QLPreviewingController {
             do {
                 let html: String
                 if isDirectory {
-                    let inv = try await FolderEnumerator.enumerate(url: url, maxEntries: 5_000)
+                    let inv = try await FolderEnumerator.enumerate(url: url, maxEntries: 5000)
                     html = PreviewHTML.folder(url: url, inventory: inv)
                 } else {
                     let entries = try LibArchiveBackend().list(archiveURL: url, limits: .default)
@@ -40,10 +40,13 @@ class PreviewViewController: NSViewController, QLPreviewingController {
                     if let data = html.data(using: .utf8),
                        let attrStr = NSAttributedString(
                            html: data,
-                           options: [.documentType: NSAttributedString.DocumentType.html,
-                                     .characterEncoding: String.Encoding.utf8.rawValue],
+                           options: [
+                               .documentType: NSAttributedString.DocumentType.html,
+                               .characterEncoding: String.Encoding.utf8.rawValue
+                           ],
                            documentAttributes: nil
-                       ) {
+                       )
+                    {
                         self.textView?.textStorage?.setAttributedString(attrStr)
                     }
                 }
