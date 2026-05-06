@@ -30,4 +30,8 @@ public final class BlobStore {
         let url = root.appendingPathComponent("\(id).bin")
         try? FileManager.default.removeItem(at: url)
     }
+
+    public func encryptedURL(id: String) -> URL {
+        root.appendingPathComponent("\(id).bin")
+    }
 }
