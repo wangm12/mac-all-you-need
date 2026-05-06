@@ -6,7 +6,7 @@ import Security
 
 // MARK: - Code signature identity helper (file-scope to avoid nesting violation)
 
-enum CodeSignatureIdentity {
+private enum CodeSignatureIdentity {
     struct Identity {
         let bundleIdentifier: String?
         let teamIdentifier: String?
