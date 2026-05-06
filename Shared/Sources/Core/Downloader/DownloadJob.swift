@@ -18,10 +18,14 @@ public final class DownloadJob {
         p.executableURL = ytdlp
         p.arguments = [
             "--newline", "--progress", "--no-colors", "--continue",
-            "--no-check-certificate", // PyInstaller bundle can't find macOS system CA
+            "--no-check-certificate",  // PyInstaller bundled Python can't find macOS system CA
             "--ffmpeg-location", ffmpeg.path,
             "-o", destination.path
         ] + extraArgs + [url]
+        var env = ProcessInfo.processInfo.environment
+        env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+        env["REQUESTS_CA_BUNDLE"] = "/etc/ssl/cert.pem"
+        p.environment = env
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
