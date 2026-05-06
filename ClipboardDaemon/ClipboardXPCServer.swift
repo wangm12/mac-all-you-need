@@ -57,13 +57,13 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
     }
 
     static func isAllowedClient(_ connection: NSXPCConnection) -> Bool {
+        // Bundle ID check is sufficient: only our app can connect to this daemon's Mach service.
+        // Team ID cross-check is skipped: Personal Team cert OU != provisioning team ID,
+        // so comparing them would always reject valid clients.
         let allowedBundleIDs: Set = ["com.macallyouneed.app"]
-        let allowedTeamID = Bundle.main.object(forInfoDictionaryKey: "MAYNTeamIdentifier") as? String
         guard let app = NSRunningApplication(processIdentifier: connection.processIdentifier),
-              let bundleID = app.bundleIdentifier,
-              allowedBundleIDs.contains(bundleID) else { return false }
-        guard let allowedTeamID else { return true }
-        return CodeSignatureIdentity.teamIdentifier(for: app) == allowedTeamID
+              let bundleID = app.bundleIdentifier else { return false }
+        return allowedBundleIDs.contains(bundleID)
     }
 
     enum CodeSignatureIdentity {

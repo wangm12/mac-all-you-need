@@ -3,25 +3,25 @@ import SwiftUI
 
 @main
 struct MacAllYouNeedApp: App {
-    @State private var deps: AppDependencies
-    @State private var popup: ClipboardPopupController
-    @State private var hotkey: HotkeyController
-
-    init() {
-        let d = AppDependencies()
-        let p = ClipboardPopupController(deps: d)
-        let h = HotkeyController(popup: p)
-        _deps = State(wrappedValue: d)
-        _popup = State(wrappedValue: p)
-        _hotkey = State(wrappedValue: h)
-        h.registerDefault()
-    }
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var deps = AppDependencies()
+    @State private var popup: ClipboardPopupController?
+    @State private var hotkey: HotkeyController?
 
     var body: some Scene {
         MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
             ClipboardMenuBarContent(deps: deps)
         }
         .menuBarExtraStyle(.window)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, hotkey == nil {
+                let p = ClipboardPopupController(deps: deps)
+                let h = HotkeyController(popup: p)
+                h.registerDefault()
+                popup = p
+                hotkey = h
+            }
+        }
     }
 }
 
