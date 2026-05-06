@@ -1087,7 +1087,7 @@ git commit -m "feat(folderpreview): render folder and archive HTML in Quick Look
 
 ---
 
-## Task 4.8: `FolderPreviewXPCProtocol` for unsandboxed Open/Copy/Reveal
+## Task 4.8: `FolderPreviewXPCProtocol` for standalone Open/Copy/Reveal
 
 **Files:**
 - Create: `Shared/Sources/Core/XPC/FolderPreviewXPCProtocol.swift`
@@ -1104,9 +1104,9 @@ git commit -m "feat(folderpreview): render folder and archive HTML in Quick Look
 }
 ```
 
-Only do this task if Task 4.0 recorded `PASS`. Add `MachServices` entry `group.com.macallyouneed.shared.folderpreview` to the host process that the spike proved can be reached from Quick Look. If the main app cannot publish this service under launchd, host it from the same login item/helper that publishes the Plan 3 daemon Mach service.
+This XPC action surface is for the standalone SwiftUI Browse Folder window (`FolderFilesView`). Quick Look renders a read-only HTML summary in Task 4.7; it does not host SwiftUI context menus or call this XPC service.
 
-The server must reject unexpected clients. In `listener(_:shouldAcceptNewConnection:)`, validate the caller audit token/team ID/bundle ID against the known Quick Look extension and main app identities recorded by Task 4.0. Do not accept arbitrary local processes.
+The server must reject unexpected clients. In `listener(_:shouldAcceptNewConnection:)`, validate the caller audit token/team ID/bundle ID against the known main app identity. Do not accept arbitrary local processes.
 
 - [ ] **Step 2: Implement coordinator in main app**
 
@@ -1134,7 +1134,6 @@ final class BrowseFolderCoordinator: NSObject, FolderPreviewXPCProtocol, NSXPCLi
     static func isAllowedClient(_ connection: NSXPCConnection) -> Bool {
         let allowedBundleIDs: Set<String> = [
             "com.macallyouneed.app",
-            "com.macallyouneed.app.FolderPreview",
         ]
         let app = NSRunningApplication(processIdentifier: connection.processIdentifier)
         guard let bundleID = app?.bundleIdentifier else { return false }
@@ -1183,17 +1182,17 @@ Instantiate inside `MacAllYouNeedApp.init`.
 
 - [ ] **Step 3: Wire from `FolderFilesView` action menu**
 
-Replace the `contextMenu` placeholders with real items that call the coordinator over XPC. Quick Look extension uses an `NSXPCConnection(machServiceName: BrowseFolderCoordinator.serviceName)` and sends a security-scoped bookmark plus the path as a fallback display/debug value. Standalone window calls in-process directly.
+Replace the standalone `FolderFilesView` `contextMenu` placeholders with real items that call the coordinator. When `FolderFilesView` runs inside the main app, call `BrowseFolderCoordinator` in-process; if it is ever reused in a sandboxed extension host, use `NSXPCConnection(machServiceName: BrowseFolderCoordinator.serviceName)` with a security-scoped bookmark plus the path as a fallback display/debug value. The Task 4.7 Quick Look HTML preview remains read-only.
 
-- [ ] **Step 4: Manual test from Quick Look**
+- [ ] **Step 4: Manual test from the standalone window**
 
-Press Space on a folder. Right-click a file → "Open". Confirm the file opens in its default app even though the Quick Look extension is sandboxed.
+Press `⌘⇧F`, choose a folder, then right-click a file → "Open". Confirm the file opens in its default app. Repeat for "Copy URL" and "Reveal in Finder".
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add Shared/Sources/Core/XPC/FolderPreviewXPCProtocol.swift MacAllYouNeed/FolderPreview/BrowseFolderCoordinator.swift Shared/Sources/UI/FolderPreview/FolderFilesView.swift
-git commit -m "feat(folderpreview): XPC for Open/Copy/Reveal from sandboxed extension"
+git commit -m "feat(folderpreview): Open/Copy/Reveal actions in standalone browser"
 ```
 
 ---
@@ -1280,10 +1279,10 @@ qlmanage -r && qlmanage -m
 ```
 
 Manual:
-- Space on a folder → analysis + file list.
-- Space on a `.zip` → archive entries.
-- Right-click file in QL preview → Open / Copy / Reveal works.
+- Space on a folder → read-only HTML summary + file table.
+- Space on a `.zip` → read-only HTML archive entries.
 - `⌘⇧F` → folder picker → standalone window with multi-pane Files/Grid/Analyze.
+- Right-click a file in the standalone window → Open / Copy / Reveal works.
 
 **Spec coverage:**
 

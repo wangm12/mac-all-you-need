@@ -847,23 +847,40 @@ public protocol KeychainBackend: AnyObject {
     func delete(_ account: String) throws
 }
 
+public enum KeychainAccessGroup {
+    /// Plan 0 writes this Info.plist key into the main app and daemon.
+    /// App Groups do not share Keychain rows; this access group entitlement does.
+    public static var shared: String? {
+        Bundle.main.object(forInfoDictionaryKey: "MAYNKeychainAccessGroup") as? String
+    }
+}
+
 /// Default implementation: real macOS Keychain.
 public final class SystemKeychain: KeychainBackend {
     private let service: String
+    private let accessGroup: String?
 
-    public init(service: String = AppGroup.identifier) {
+    public init(service: String = AppGroup.identifier, accessGroup: String? = KeychainAccessGroup.shared) {
         self.service = service
+        self.accessGroup = accessGroup
     }
 
-    public func get(_ account: String) throws -> Data? {
-        let query: [String: Any] = [
+    private func baseQuery(account: String) -> [String: Any] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
+    }
+
+    public func get(_ account: String) throws -> Data? {
+        var query = baseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound { return nil }
@@ -875,13 +892,9 @@ public final class SystemKeychain: KeychainBackend {
 
     public func set(_ data: Data, for account: String) throws {
         try delete(account)
-        let attrs: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecValueData as String: data,
-        ]
+        var attrs = baseQuery(account: account)
+        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        attrs[kSecValueData as String] = data
         let status = SecItemAdd(attrs as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw KeyManagerError.keychainWriteFailed(status)
@@ -889,11 +902,7 @@ public final class SystemKeychain: KeychainBackend {
     }
 
     public func delete(_ account: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
+        let query = baseQuery(account: account)
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeyManagerError.keychainDeleteFailed(status)
@@ -1285,6 +1294,7 @@ public struct ClipboardItemMeta: Equatable, Sendable {
     public let id: RecordID
     public let created: Date
     public let modified: Date
+    public let deviceID: DeviceID
     public let lamport: UInt64
     public let kind: RecordKind
     public let preview: String        // short cleartext preview for list rendering
@@ -1320,6 +1330,7 @@ public final class ClipboardStore {
                     id TEXT PRIMARY KEY NOT NULL,
                     created INTEGER NOT NULL,
                     modified INTEGER NOT NULL,
+                    device_id TEXT NOT NULL,
                     lamport INTEGER NOT NULL,
                     kind TEXT NOT NULL,
                     preview TEXT NOT NULL,
@@ -1357,12 +1368,13 @@ public final class ClipboardStore {
             )
             insertedLamport = UInt64(next)
             try conn.execute(sql: """
-                INSERT INTO clipboard_records (id, created, modified, lamport, kind, preview, source_app, envelope)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO clipboard_records (id, created, modified, device_id, lamport, kind, preview, source_app, envelope)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 id.rawValue,
                 Int(now.timeIntervalSince1970 * 1000),
                 Int(now.timeIntervalSince1970 * 1000),
+                deviceID.rawValue,
                 Int(insertedLamport),
                 RecordKind.clipboardItem.rawValue,
                 preview,
@@ -1370,14 +1382,14 @@ public final class ClipboardStore {
                 envelope.combined,
             ])
         }
-        return ClipboardItemMeta(id: id, created: now, modified: now, lamport: insertedLamport,
+        return ClipboardItemMeta(id: id, created: now, modified: now, deviceID: deviceID, lamport: insertedLamport,
                                  kind: .clipboardItem, preview: preview, sourceAppBundleID: sourceAppBundleID)
     }
 
     public func list(limit: Int) throws -> [ClipboardItemMeta] {
         try db.queue.read { conn in
             try Row.fetchAll(conn, sql: """
-                SELECT id, created, modified, lamport, kind, preview, source_app
+                SELECT id, created, modified, device_id, lamport, kind, preview, source_app
                 FROM clipboard_records
                 ORDER BY modified DESC
                 LIMIT ?
@@ -1418,6 +1430,7 @@ public final class ClipboardStore {
             id: RecordID(rawValue: row["id"])!,
             created: Date(timeIntervalSince1970: Double(row["created"] as Int64) / 1000),
             modified: Date(timeIntervalSince1970: Double(row["modified"] as Int64) / 1000),
+            deviceID: DeviceID(rawValue: row["device_id"])!,
             lamport: UInt64(row["lamport"] as Int64),
             kind: RecordKind(rawValue: row["kind"]) ?? .clipboardItem,
             preview: row["preview"],
@@ -1792,6 +1805,8 @@ public struct DownloadRecord: Codable, Equatable, Sendable {
     public var title: String
     public var destinationPath: String
     public var state: DownloadState
+    public var deviceID: DeviceID?
+    public var lamport: UInt64
     public var bytesDownloaded: Int64
     public var bytesTotal: Int64?
     public var lastError: String?
@@ -1804,6 +1819,8 @@ public struct DownloadRecord: Codable, Equatable, Sendable {
         self.title = title
         self.destinationPath = destinationPath
         self.state = state
+        self.deviceID = nil
+        self.lamport = 0
         self.bytesDownloaded = 0
         self.bytesTotal = nil
         self.lastError = nil
@@ -1839,6 +1856,8 @@ public final class DownloadStore {
                     state TEXT NOT NULL,
                     created INTEGER NOT NULL,
                     modified INTEGER NOT NULL,
+                    device_id TEXT,
+                    lamport INTEGER NOT NULL DEFAULT 0,
                     envelope BLOB NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
@@ -1852,11 +1871,13 @@ public final class DownloadStore {
         let env = try Cipher.seal(payload, with: key)
         try db.queue.write { conn in
             try conn.execute(sql: """
-                INSERT INTO downloads (id, state, created, modified, envelope) VALUES (?, ?, ?, ?, ?)
+                INSERT INTO downloads (id, state, created, modified, device_id, lamport, envelope) VALUES (?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 record.id.rawValue, record.state.rawValue,
                 Int(record.created.timeIntervalSince1970 * 1000),
                 Int(record.modified.timeIntervalSince1970 * 1000),
+                record.deviceID?.rawValue,
+                Int(record.lamport),
                 env.combined,
             ])
         }
@@ -1881,9 +1902,9 @@ public final class DownloadStore {
         record.modified = Date()
         let env = try Cipher.seal(try JSONEncoder().encode(record), with: key)
         try db.queue.write { conn in
-            try conn.execute(sql: "UPDATE downloads SET state = ?, modified = ?, envelope = ? WHERE id = ?",
+            try conn.execute(sql: "UPDATE downloads SET state = ?, modified = ?, device_id = ?, lamport = ?, envelope = ? WHERE id = ?",
                              arguments: [state.rawValue, Int(record.modified.timeIntervalSince1970 * 1000),
-                                         env.combined, id.rawValue])
+                                         record.deviceID?.rawValue, Int(record.lamport), env.combined, id.rawValue])
         }
     }
 

@@ -43,6 +43,7 @@
 - Create: `Shared/Sources/Core/AppGroupSettings.swift`
 - Create: `Shared/Sources/Core/DeviceIdentityStore.swift`
 - Create: `MacAllYouNeed/App/AppController.swift`
+- Create: `MacAllYouNeed/App/LoginItemController.swift`
 - Create: `MacAllYouNeed/Onboarding/OnboardingState.swift`
 - Modify: `MacAllYouNeed/MacAllYouNeedApp.swift`
 - Modify: `ClipboardDaemon/DaemonContainer.swift` (use shared `DeviceIdentityStore`)
@@ -114,6 +115,35 @@ enum OnboardingState: String {
 
 - [ ] **Step 3: Implement `AppController`**
 
+`MacAllYouNeed/App/LoginItemController.swift`:
+
+```swift
+import Foundation
+import ServiceManagement
+import Core
+
+enum LoginItemController {
+    static let daemonIdentifier = "com.macallyouneed.app.daemon"
+
+    static func reconcileLaunchAtLogin() {
+        let enabled = AppGroupSettings.defaults.object(forKey: "launchAtLogin") as? Bool ?? true
+        setLaunchAtLogin(enabled)
+    }
+
+    static func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            let item = SMAppService.loginItem(identifier: daemonIdentifier)
+            if enabled { try item.register() }
+            else { try item.unregister() }
+            AppGroupSettings.defaults.set(enabled, forKey: "launchAtLogin")
+        } catch {
+            Logging.logger(for: "app", category: "login-item")
+                .error("Login item update failed: \(error.localizedDescription)")
+        }
+    }
+}
+```
+
 ```swift
 import Foundation
 import Core
@@ -142,6 +172,7 @@ final class AppController {
     var onboarding: OnboardingState
     var sync: SyncEngine?
     var downloadHistorySync: DownloadHistorySyncAdapter?
+    lazy var onboardingWindow = OnboardingWindowController(controller: self)
 
     init() throws {
         let manager = KeyManager(keychain: SystemKeychain())
@@ -168,7 +199,9 @@ final class AppController {
 
         self.onboarding = OnboardingState.load()
 
+        LoginItemController.reconcileLaunchAtLogin()
         Task { await coord.startDispatchServer() }
+        Task { await coord.recoverInFlight() }
     }
 
     func setOnboarding(_ state: OnboardingState) {
@@ -183,6 +216,11 @@ final class AppController {
     func startSyncIfConfigured() async {
         // Task 6.7 adds the engine startup body.
     }
+
+    func showOnboardingIfNeeded() {
+        guard onboarding != .completed else { return }
+        onboardingWindow.show()
+    }
 }
 ```
 
@@ -191,7 +229,7 @@ final class AppController {
 ```swift
 @main
 struct MacAllYouNeedApp: App {
-    @State private var controller: AppController = try! AppController()
+    @State private var controller: AppController
 
     var body: some Scene {
         MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
@@ -206,7 +244,7 @@ struct MacAllYouNeedApp: App {
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Shared/Sources/Core/AppGroupSettings.swift Shared/Sources/Core/DeviceIdentityStore.swift MacAllYouNeed/App/AppController.swift MacAllYouNeed/Onboarding/OnboardingState.swift MacAllYouNeed/MacAllYouNeedApp.swift ClipboardDaemon/DaemonContainer.swift
+git add Shared/Sources/Core/AppGroupSettings.swift Shared/Sources/Core/DeviceIdentityStore.swift MacAllYouNeed/App/AppController.swift MacAllYouNeed/App/LoginItemController.swift MacAllYouNeed/Onboarding/OnboardingState.swift MacAllYouNeed/MacAllYouNeedApp.swift ClipboardDaemon/DaemonContainer.swift
 git commit -m "refactor(app): introduce AppController composition root"
 ```
 
@@ -217,6 +255,8 @@ git commit -m "refactor(app): introduce AppController composition root"
 **Files:**
 - Modify: `MacAllYouNeed/App/AppMenuBarContent.swift` (move logic from Plan 5 here)
 - Modify: `MacAllYouNeed/MacAllYouNeedApp.swift`
+- Modify: `Shared/Sources/Core/XPC/ClipboardXPCProtocol.swift` (snippet list DTO + API)
+- Modify: `ClipboardDaemon/ClipboardXPCServer.swift` (serve snippets from daemon-owned store)
 
 - [ ] **Step 1: Implement final tab structure**
 
@@ -281,15 +321,72 @@ struct SyncStatusChip: View {
     }
 }
 
+// Shared/Sources/Core/XPC/ClipboardXPCProtocol.swift
+@objc public class SnippetXPCDTO: NSObject, NSSecureCoding, Identifiable {
+    public static var supportsSecureCoding: Bool { true }
+    @objc public let id: String
+    @objc public let name: String
+    @objc public let trigger: String?
+
+    public init(id: String, name: String, trigger: String?) {
+        self.id = id
+        self.name = name
+        self.trigger = trigger
+    }
+
+    public required init?(coder: NSCoder) {
+        guard let id = coder.decodeObject(of: NSString.self, forKey: "id") as String?,
+              let name = coder.decodeObject(of: NSString.self, forKey: "name") as String? else { return nil }
+        self.id = id
+        self.name = name
+        self.trigger = coder.decodeObject(of: NSString.self, forKey: "trigger") as String?
+    }
+
+    public func encode(with coder: NSCoder) {
+        coder.encode(id as NSString, forKey: "id")
+        coder.encode(name as NSString, forKey: "name")
+        if let trigger { coder.encode(trigger as NSString, forKey: "trigger") }
+    }
+}
+
+// Add to ClipboardXPCProtocol in Plan 3:
+// func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void)
+// Add `SnippetXPCDTO` and `NSArray` to the allowed classes for this reply on
+// both ClipboardXPCClient and ClipboardXPCServer.
+//
+// In ClipboardXPCServer:
+// func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void) {
+//     let rows = (try? container.snippets.list()) ?? []
+//     reply(rows.map { SnippetXPCDTO(id: $0.id.rawValue, name: $0.name, trigger: $0.trigger) })
+// }
+
 struct SnippetsListView: View {
     let controller: AppController
+    @State private var snippets: [SnippetXPCDTO] = []
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Snippets").font(.headline)
-            Text("No snippets yet").foregroundStyle(.secondary)
+        List(snippets) { snippet in
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(snippet.name)
+                    if let trigger = snippet.trigger {
+                        Text(trigger).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+            }
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay {
+            if snippets.isEmpty { Text("No snippets yet").foregroundStyle(.secondary) }
+        }
+        .task { await refresh() }
+    }
+
+    private func refresh() async {
+        guard let proxy = controller.clipboardDeps.xpc.proxy() else { return }
+        let rows: [SnippetXPCDTO] = await withCheckedContinuation { cont in
+            proxy.listSnippets { cont.resume(returning: $0) }
+        }
+        snippets = rows
     }
 }
 ```
@@ -306,7 +403,7 @@ MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
 ```
 
 ```bash
-git add MacAllYouNeed/App/AppMenuBarContent.swift MacAllYouNeed/MacAllYouNeedApp.swift
+git add MacAllYouNeed/App/AppMenuBarContent.swift MacAllYouNeed/MacAllYouNeedApp.swift Shared/Sources/Core/XPC/ClipboardXPCProtocol.swift ClipboardDaemon/ClipboardXPCServer.swift
 git commit -m "feat(app): polished menu-bar popover with sync status chip + quit"
 ```
 
@@ -369,7 +466,6 @@ Settings { SettingsRoot(controller: controller) }
 
 ```swift
 import SwiftUI
-import ServiceManagement
 import AppKit
 import Core
 
@@ -381,10 +477,7 @@ struct GeneralSettingsView: View {
         Form {
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, on in
-                    do {
-                        if on { try SMAppService.loginItem(identifier: "com.macallyouneed.app.daemon").register() }
-                        else { try SMAppService.loginItem(identifier: "com.macallyouneed.app.daemon").unregister() }
-                    } catch { print("login item: \(error)") }
+                    LoginItemController.setLaunchAtLogin(on)
                 }
             Toggle("Show dock icon during downloads", isOn: $showDock)
                 .onChange(of: showDock) { _, visible in
@@ -663,6 +756,7 @@ git commit -m "feat(settings): Settings window with seven sub-sections"
 **Files:**
 - Create: `Shared/Sources/Core/Sync/SyncConfigurationStore.swift`
 - Modify: `MacAllYouNeed/Onboarding/OnboardingState.swift`
+- Create: `MacAllYouNeed/Onboarding/OnboardingWindowController.swift`
 - Create: `MacAllYouNeed/Onboarding/OnboardingWizardView.swift`
 - Create: `MacAllYouNeed/Onboarding/PermissionStepViews.swift`
 - Modify: `MacAllYouNeed/MacAllYouNeedApp.swift`
@@ -945,35 +1039,64 @@ struct ReadyStep: View {
 
 - [ ] **Step 5: Show wizard on first launch**
 
-In `MacAllYouNeedApp`:
+Use an explicit AppKit window controller. Do not mount the launcher inside `MenuBarExtra` content — that content may not be constructed until the user clicks the menu-bar icon, which can suppress first-launch onboarding.
+
+`MacAllYouNeed/Onboarding/OnboardingWindowController.swift`:
 
 ```swift
-var body: some Scene {
-    MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
-        AppMenuBarContent(controller: controller)
-            .background(OnboardingLauncher(controller: controller))
+import AppKit
+import SwiftUI
+
+@MainActor
+final class OnboardingWindowController {
+    private weak var controller: AppController?
+    private var window: NSWindow?
+
+    init(controller: AppController) {
+        self.controller = controller
     }
-        .menuBarExtraStyle(.window)
-    Settings { SettingsRoot(controller: controller) }
-    WindowGroup("Onboarding", id: "onboarding") {
-        if controller.onboarding != .completed {
-            OnboardingWizardView(controller: controller)
+
+    func show() {
+        guard let controller, controller.onboarding != .completed else { return }
+        if window == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 420),
+                                  styleMask: [.titled, .closable],
+                                  backing: .buffered,
+                                  defer: false)
+            window.title = "Mac All You Need Setup"
+            window.center()
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: OnboardingWizardView(controller: controller))
+            self.window = window
         }
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
+```
 
-struct OnboardingLauncher: View {
-    let controller: AppController
-    @Environment(\.openWindow) private var openWindow
+In `MacAllYouNeedApp`, schedule the window after the app has entered the run loop:
 
-    var body: some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .task {
-                if controller.onboarding != .completed {
-                    openWindow(id: "onboarding")
-                }
-            }
+```swift
+@main
+struct MacAllYouNeedApp: App {
+    @State private var controller: AppController = try! AppController()
+
+    var body: some Scene {
+        MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
+            AppMenuBarContent(controller: controller)
+        }
+        .menuBarExtraStyle(.window)
+        Settings { SettingsRoot(controller: controller) }
+    }
+
+    init() {
+        let controller = try! AppController()
+        _controller = State(initialValue: controller)
+        Task { @MainActor in
+            await Task.yield()
+            controller.showOnboardingIfNeeded()
+        }
     }
 }
 ```
@@ -1348,7 +1471,32 @@ git commit -m "feat(integration): URL detector + clipboard → downloader one-cl
 - Create: `Shared/Sources/Core/Sync/SnippetSyncAdapter.swift`
 - Create: `Shared/Sources/Core/Sync/PinboardSyncAdapter.swift`
 - Create: `Shared/Sources/Core/Sync/DownloadHistorySyncAdapter.swift`
+- Modify: `Shared/Sources/Core/Storage/ClipboardStore.swift`
+- Modify: `Shared/Sources/Core/Storage/SnippetStore.swift`
+- Modify: `Shared/Sources/Core/Storage/PinboardStore.swift`
+- Modify: `Shared/Sources/Core/Storage/DownloadStore.swift`
 - Modify: `MacAllYouNeed/App/AppController.swift`
+
+- [ ] **Step 0: Ensure stores preserve sync metadata**
+
+Before wiring adapters, add idempotent external-write APIs and metadata columns to every synced store. The local write path and the remote ingest path must both persist `deviceID` and `lamport`; otherwise a record re-emitted from local storage loses its causal identity.
+
+```swift
+// ClipboardStore: base table already has device_id from Plan 1 after the review patch.
+func insertExternalIfMissing(_ body: ClipboardRecord, with metadata: EnvelopeMetadata) throws {
+    // If id exists, return without changing local data.
+    // Else insert id/created/modified/device_id/lamport/kind/preview/envelope using metadata.
+}
+
+// SnippetStore / PinboardStore / DownloadStore:
+// Add device_id TEXT and lamport INTEGER NOT NULL DEFAULT 0 if not present.
+// For remote inserts, copy metadata.modified, metadata.deviceID, and metadata.lamport.
+func insertExternalIfMissing(_ value: Snippet, with metadata: EnvelopeMetadata) throws
+func insertExternalIfMissing(_ value: Pinboard, with metadata: EnvelopeMetadata) throws
+func insertExternalIfMissing(_ value: DownloadRecord, with metadata: EnvelopeMetadata) throws
+```
+
+Add store tests for duplicate external insert (no overwrite), remote `modified` preservation, remote `deviceID` preservation, and remote `lamport` preservation.
 
 - [ ] **Step 1: Implement `ClipboardSyncAdapter`**
 
@@ -1399,7 +1547,7 @@ public final class ClipboardSyncAdapter {
 }
 ```
 
-(Add `insertExternalIfMissing` to `ClipboardStore`: writes the record only if no row with that id exists.)
+(The Step 0 `insertExternalIfMissing` implementation writes the record only if no row with that id exists.)
 
 - [ ] **Step 2: Implement the remaining adapters explicitly**
 
@@ -1515,7 +1663,7 @@ public final class DownloadHistorySyncAdapter {
 }
 ```
 
-Add `insertExternalIfMissing(_:with:)` to `SnippetStore`, `PinboardStore`, and `DownloadStore`; each method is idempotent by primary key and preserves remote `modified`, `deviceID`, and `lamport` metadata.
+The same Step 0 idempotency and metadata-preservation rules apply to `SnippetStore`, `PinboardStore`, and `DownloadStore`.
 
 - [ ] **Step 3: Architecture note — sync adapters live in the daemon, not the main app**
 
@@ -1532,7 +1680,7 @@ The split is:
 | `PinboardSyncAdapter` | Daemon | `DaemonContainer` |
 | `DownloadHistorySyncAdapter` | Main app | `DownloadCoordinator` |
 
-Both processes need to construct their own `SyncEngine` instance pointing at the same sync folder (each with its own `FSEventsWatcher`). The sync key is shared via Keychain (`KeyManager` with `SystemKeychain` reads the same key from both processes — this works because the App Group entitlement scopes the Keychain entry).
+Both processes need to construct their own `SyncEngine` instance pointing at the same sync folder (each with its own watcher). The sync key is shared via Keychain (`KeyManager` with `SystemKeychain` reads the same key from both processes because Plan 0 gives the main app and daemon the same `keychain-access-groups` entitlement and `MAYNKeychainAccessGroup` Info.plist value). App Groups only share files/defaults; they do not share Keychain rows.
 
 - [ ] **Step 4: Update `DaemonContainer` (Plan 3) to own its sync engine + adapters**
 
@@ -1556,7 +1704,12 @@ extension DaemonContainer {
         let watcher: FolderWatcher = root.path.contains("Mobile Documents")
             ? MetadataQueryWatcher(root: root)
             : FSEventsWatcher(root: root)
-        let engine = SyncEngine(paths: paths, syncKey: syncKey, deviceID: deviceID, watcher: watcher)
+        let hydrationQueue = HydrationQueue(maxConcurrent: 3) { url in
+            try FileManager.default.startDownloadingUbiquitousItem(at: url)
+        }
+        let engine = SyncEngine(paths: paths, syncKey: syncKey, deviceID: deviceID,
+                                watcher: watcher,
+                                hydrationQueue: root.path.contains("Mobile Documents") ? hydrationQueue : nil)
         try? await engine.start()
 
         let clipAdapter = ClipboardSyncAdapter(store: clip, engine: engine, deviceID: deviceID)
@@ -1638,7 +1791,12 @@ func startSyncIfConfigured() async {
     let watcher: FolderWatcher = root.path.contains("Mobile Documents")
         ? MetadataQueryWatcher(root: root)
         : FSEventsWatcher(root: root)
-    let engine = SyncEngine(paths: paths, syncKey: syncKey, deviceID: deviceID, watcher: watcher)
+    let hydrationQueue = HydrationQueue(maxConcurrent: 3) { url in
+        try FileManager.default.startDownloadingUbiquitousItem(at: url)
+    }
+    let engine = SyncEngine(paths: paths, syncKey: syncKey, deviceID: deviceID,
+                            watcher: watcher,
+                            hydrationQueue: root.path.contains("Mobile Documents") ? hydrationQueue : nil)
     try? await engine.start()
     sync = engine
 
@@ -1648,9 +1806,11 @@ func startSyncIfConfigured() async {
 }
 ```
 
-At the end of `AppController.init`, add this after `Task { await coord.startDispatchServer() }`:
+At the end of `AppController.init`, keep the startup tasks together:
 
 ```swift
+Task { await coord.startDispatchServer() }
+Task { await coord.recoverInFlight() }
 Task { [weak self] in await self?.startSyncIfConfigured() }
 ```
 
@@ -1661,7 +1821,7 @@ Task { [weak self] in await self?.startSyncIfConfigured() }
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Shared/Sources/Core/Sync ClipboardDaemon/DaemonContainer.swift MacAllYouNeed/App/AppController.swift
+git add Shared/Sources/Core/Sync Shared/Sources/Core/Storage/ClipboardStore.swift Shared/Sources/Core/Storage/SnippetStore.swift Shared/Sources/Core/Storage/PinboardStore.swift Shared/Sources/Core/Storage/DownloadStore.swift ClipboardDaemon/DaemonContainer.swift MacAllYouNeed/App/AppController.swift
 git commit -m "feat(sync): per-store sync adapters wired via SyncEngine"
 ```
 
