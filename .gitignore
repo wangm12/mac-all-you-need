@@ -1,0 +1,25 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+*.swp
+*.swo
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+
+# Secrets & local config
+*.p12
+*.cer
+*.mobileprovision
+.env
+.env.local
+
+# Vendored binary outputs (Plan 5 will populate)
+Vendored/build/
