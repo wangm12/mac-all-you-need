@@ -15,7 +15,7 @@ public final class ClipboardXPCClient {
             NSArray.self,
             NSString.self,
             NSDate.self,
-            NSNumber.self,
+            NSNumber.self
         ]) as! Set<AnyHashable>
         iface.setClasses(
             allowed,

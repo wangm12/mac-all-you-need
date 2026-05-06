@@ -18,34 +18,46 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
         listener.resume()
     }
 
-    func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
+    func listener(_: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
         guard Self.isAllowedClient(newConnection) else {
             container.log.warning("Rejected XPC client pid=\(newConnection.processIdentifier)")
             return false
         }
         let iface = NSXPCInterface(with: ClipboardXPCProtocol.self)
-        let allowed: NSSet = [ClipboardXPCList.self, ClipboardXPCBlobRef.self,
-                              NSArray.self, ClipboardXPCMeta.self, NSString.self, NSDate.self]
-        iface.setClasses(allowed as! Set<AnyHashable>,
-                         for: #selector(ClipboardXPCProtocol.listItems(query:pageToken:limit:reply:)),
-                         argumentIndex: 0, ofReply: true)
-        iface.setClasses(allowed as! Set<AnyHashable>,
-                         for: #selector(ClipboardXPCProtocol.resolveBlob(blobID:reply:)),
-                         argumentIndex: 0, ofReply: true)
+        let allowed: NSSet = [
+            ClipboardXPCList.self,
+            ClipboardXPCBlobRef.self,
+            NSArray.self,
+            ClipboardXPCMeta.self,
+            NSString.self,
+            NSDate.self
+        ]
+        iface.setClasses(
+            allowed as! Set<AnyHashable>,
+            for: #selector(ClipboardXPCProtocol.listItems(query:pageToken:limit:reply:)),
+            argumentIndex: 0,
+            ofReply: true
+        )
+        iface.setClasses(
+            allowed as! Set<AnyHashable>,
+            for: #selector(ClipboardXPCProtocol.resolveBlob(blobID:reply:)),
+            argumentIndex: 0,
+            ofReply: true
+        )
         newConnection.exportedInterface = iface
         newConnection.exportedObject = self
         newConnection.remoteObjectInterface = NSXPCInterface(with: ClipboardXPCClientCallback.self)
         newConnection.invalidationHandler = { [weak self, weak newConnection] in
             guard let self, let conn = newConnection else { return }
             let key = ObjectIdentifier(conn)
-            self.callbackLock.lock(); self.callbacks.removeValue(forKey: key); self.callbackLock.unlock()
+            callbackLock.lock(); callbacks.removeValue(forKey: key); callbackLock.unlock()
         }
         newConnection.resume()
         return true
     }
 
     static func isAllowedClient(_ connection: NSXPCConnection) -> Bool {
-        let allowedBundleIDs: Set<String> = ["com.macallyouneed.app"]
+        let allowedBundleIDs: Set = ["com.macallyouneed.app"]
         let allowedTeamID = Bundle.main.object(forInfoDictionaryKey: "MAYNTeamIdentifier") as? String
         guard let app = NSRunningApplication(processIdentifier: connection.processIdentifier),
               let bundleID = app.bundleIdentifier,
@@ -68,12 +80,15 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
 
     func notifyInvalidated() {
         callbackLock.lock(); let snapshot = Array(callbacks.values); callbackLock.unlock()
-        for cb in snapshot { cb.itemsInvalidated() }
+        for cb in snapshot {
+            cb.itemsInvalidated()
+        }
     }
 
     func registerCallback(reply: @escaping (Bool) -> Void) {
         if let conn = NSXPCConnection.current(),
-           let proxy = conn.remoteObjectProxy as? ClipboardXPCClientCallback {
+           let proxy = conn.remoteObjectProxy as? ClipboardXPCClientCallback
+        {
             callbackLock.lock()
             callbacks[ObjectIdentifier(conn)] = proxy
             callbackLock.unlock()
@@ -81,7 +96,7 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
         } else { reply(false) }
     }
 
-    func listItems(query: String?, pageToken: String?, limit: Int, reply: @escaping (ClipboardXPCList) -> Void) {
+    func listItems(query _: String?, pageToken _: String?, limit: Int, reply: @escaping (ClipboardXPCList) -> Void) {
         do {
             let metas = try container.clip.list(limit: limit)
             let items = metas.map {
@@ -96,7 +111,7 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
     func bodyText(forID id: String, reply: @escaping (String?) -> Void) {
         guard let rid = RecordID(rawValue: id) else { reply(nil); return }
         switch try? container.clip.body(for: rid) {
-        case .text(let s), .html(let s): reply(s)
+        case let .text(s), let .html(s): reply(s)
         default: reply(nil)
         }
     }
@@ -109,7 +124,8 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
 
     func paste(itemID: String, plainText: Bool, reply: @escaping (String) -> Void) {
         guard let rid = RecordID(rawValue: itemID),
-              let body = try? container.clip.body(for: rid) else {
+              let body = try? container.clip.body(for: rid)
+        else {
             reply(PasteResult.manualPasteRequired.rawValue)
             return
         }
@@ -129,9 +145,9 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
 
     private static func plainText(from body: ClipboardRecord) -> String? {
         switch body {
-        case .text(let s), .html(let s): s
-        case .rtf(let data): NSAttributedString(rtf: data, documentAttributes: nil)?.string
-        case .files(let urls): urls.map(\.path).joined(separator: "\n")
+        case let .text(s), let .html(s): s
+        case let .rtf(data): NSAttributedString(rtf: data, documentAttributes: nil)?.string
+        case let .files(urls): urls.map(\.path).joined(separator: "\n")
         case .image: nil
         }
     }
@@ -140,16 +156,16 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
         let pb = NSPasteboard.general
         pb.clearContents()
         switch body {
-        case .text(let s): pb.setString(s, forType: .string)
-        case .html(let s):
+        case let .text(s): pb.setString(s, forType: .string)
+        case let .html(s):
             pb.setString(s, forType: NSPasteboard.PasteboardType.html)
             pb.setString(s, forType: .string)
-        case .rtf(let data):
+        case let .rtf(data):
             pb.setData(data, forType: .rtf)
             if let s = NSAttributedString(rtf: data, documentAttributes: nil)?.string { pb.setString(s, forType: .string) }
-        case .image(let blobID, _, _):
+        case let .image(blobID, _, _):
             if let data = try? blobs.read(id: blobID) { pb.setData(data, forType: .png) }
-        case .files(let urls): pb.writeObjects(urls as [NSURL])
+        case let .files(urls): pb.writeObjects(urls as [NSURL])
         }
     }
 }

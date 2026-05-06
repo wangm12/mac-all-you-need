@@ -5,7 +5,9 @@ final class ClipboardPopupController {
     private var window: NSPanel?
     let deps: AppDependencies
 
-    init(deps: AppDependencies) { self.deps = deps }
+    init(deps: AppDependencies) {
+        self.deps = deps
+    }
 
     @MainActor
     func show() {
@@ -38,5 +40,7 @@ final class ClipboardPopupController {
     }
 
     @MainActor
-    func hide() { window?.orderOut(nil) }
+    func hide() {
+        window?.orderOut(nil)
+    }
 }

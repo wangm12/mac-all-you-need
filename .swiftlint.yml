@@ -1,6 +1,8 @@
 disabled_rules:
   - todo
   - force_try
+  - force_cast
+  - opening_brace
 
 opt_in_rules:
   - empty_count
@@ -28,8 +30,12 @@ identifier_name:
     - y
     - a
     - b
+    - c
+    - d
+    - g
     - i
     - m
+    - p
     - r
     - s
     - t

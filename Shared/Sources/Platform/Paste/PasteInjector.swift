@@ -16,7 +16,7 @@ public enum PasteInjector {
     @discardableResult
     public static func paste(
         _ string: String?,
-        mode: PasteMode = .formatted,
+        mode _: PasteMode = .formatted,
         into pasteboard: NSPasteboard = .general
     ) -> PasteResult {
         if let string {

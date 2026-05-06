@@ -7,10 +7,21 @@ final class PasteboardObserverTests: XCTestCase {
         var types: [String] = []
         var items: [PasteboardItem] = []
         var frontmost: String? = "com.test"
-        func currentChangeCount() -> Int { changeCount }
-        func currentTypes() -> [String] { types }
-        func currentItems() -> [PasteboardItem] { items }
-        func frontmostBundleID() -> String? { frontmost }
+        func currentChangeCount() -> Int {
+            changeCount
+        }
+
+        func currentTypes() -> [String] {
+            types
+        }
+
+        func currentItems() -> [PasteboardItem] {
+            items
+        }
+
+        func frontmostBundleID() -> String? {
+            frontmost
+        }
     }
 
     func testEmitsOnlyOnChange() {

@@ -5,6 +5,6 @@ final class ClipboardXPCContractTests: XCTestCase {
     func testProtocolHasRequiredSelectors() {
         let p = ClipboardXPCProtocol.self as Protocol
         XCTAssertNotNil(p)
-        let _ = ClipboardXPCList(items: [], nextPageToken: nil)
+        _ = ClipboardXPCList(items: [], nextPageToken: nil)
     }
 }

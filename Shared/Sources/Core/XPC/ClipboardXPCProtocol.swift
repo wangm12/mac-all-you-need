@@ -1,7 +1,10 @@
 import Foundation
 
 @objc public class ClipboardXPCMeta: NSObject, NSSecureCoding {
-    public static var supportsSecureCoding: Bool { true }
+    public static var supportsSecureCoding: Bool {
+        true
+    }
+
     @objc public let id: String
     @objc public let modified: Date
     @objc public let kind: String
@@ -35,7 +38,10 @@ import Foundation
 }
 
 @objc public class ClipboardXPCList: NSObject, NSSecureCoding {
-    public static var supportsSecureCoding: Bool { true }
+    public static var supportsSecureCoding: Bool {
+        true
+    }
+
     @objc public let items: [ClipboardXPCMeta]
     @objc public let nextPageToken: String?
 
@@ -48,7 +54,7 @@ import Foundation
         let cls: [AnyClass] = [NSArray.self, ClipboardXPCMeta.self]
         guard let items = coder.decodeObject(of: cls, forKey: "items") as? [ClipboardXPCMeta] else { return nil }
         self.items = items
-        self.nextPageToken = coder.decodeObject(of: NSString.self, forKey: "next") as String?
+        nextPageToken = coder.decodeObject(of: NSString.self, forKey: "next") as String?
     }
 
     public func encode(with coder: NSCoder) {
@@ -58,7 +64,10 @@ import Foundation
 }
 
 @objc public class ClipboardXPCBlobRef: NSObject, NSSecureCoding {
-    public static var supportsSecureCoding: Bool { true }
+    public static var supportsSecureCoding: Bool {
+        true
+    }
+
     @objc public let blobID: String
     @objc public let encryptedFilePath: String
     @objc public let kind: String
@@ -75,7 +84,7 @@ import Foundation
               let kind = coder.decodeObject(of: NSString.self, forKey: "kind") as String?
         else { return nil }
         self.blobID = blobID
-        self.encryptedFilePath = path
+        encryptedFilePath = path
         self.kind = kind
     }
 

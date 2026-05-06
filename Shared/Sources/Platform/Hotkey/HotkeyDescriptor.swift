@@ -4,7 +4,10 @@ import Foundation
 public struct HotkeyDescriptor: Hashable, Codable, Sendable {
     public struct Modifiers: OptionSet, Codable, Hashable, Sendable {
         public let rawValue: UInt32
-        public init(rawValue: UInt32) { self.rawValue = rawValue }
+        public init(rawValue: UInt32) {
+            self.rawValue = rawValue
+        }
+
         public static let command = Modifiers(rawValue: UInt32(cmdKey))
         public static let option = Modifiers(rawValue: UInt32(optionKey))
         public static let control = Modifiers(rawValue: UInt32(controlKey))

@@ -19,6 +19,7 @@
 		77EF22454D9346F8333FB377 /* ClipboardDaemonMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */; };
 		7E03407B7E102E95065498C7 /* ClipboardItemRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C55D0134CC26D67F01B887D /* ClipboardItemRow.swift */; };
 		7E3B076602A4609A684D000C /* PreviewProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 472510935EFC931A406833AD /* PreviewProvider.swift */; };
+		7FA4A73F2B02F251D055FD68 /* PasteboardPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F0ACF99031B97C81E1EFDF /* PasteboardPreview.swift */; };
 		84F037297D7A1361ED62BDA1 /* ClipboardPopupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45978E5E3A3554D12EBBF135 /* ClipboardPopupController.swift */; };
 		87182AE75AA7D6DA36BD0DAE /* FolderPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		8A3A0E666C7E365F80A867DF /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 3ECCEAEFDCCE0914CC9AA6E1 /* Core */; };
@@ -89,6 +90,7 @@
 		CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDaemonMain.swift; sourceTree = "<group>"; };
 		ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F2316DD48BA6E95C007CF9FB /* HotkeyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyController.swift; sourceTree = "<group>"; };
+		F6F0ACF99031B97C81E1EFDF /* PasteboardPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardPreview.swift; sourceTree = "<group>"; };
 		FC325F601D5780815C70E9DA /* FolderPreview.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FolderPreview.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -202,6 +204,7 @@
 				45978E5E3A3554D12EBBF135 /* ClipboardPopupController.swift */,
 				CB5AE2B0F5ACCBB52B0A26B6 /* ClipboardPopupView.swift */,
 				F2316DD48BA6E95C007CF9FB /* HotkeyController.swift */,
+				F6F0ACF99031B97C81E1EFDF /* PasteboardPreview.swift */,
 			);
 			path = Clipboard;
 			sourceTree = "<group>";
@@ -424,6 +427,7 @@
 				4ADF3C8BBFFA81B238541F15 /* ClipboardPopupView.swift in Sources */,
 				4B8A4F878B4C5A9566DCDAB5 /* HotkeyController.swift in Sources */,
 				E40ABB4D6C22BBEDDC64C7DE /* MacAllYouNeedApp.swift in Sources */,
+				7FA4A73F2B02F251D055FD68 /* PasteboardPreview.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
