@@ -88,8 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             downloaderVM = vm
             dockProgress = dock
             Task { await coordinator.startDispatchServer() }
-            Task { await coordinator.recoverInFlight() }
-            Task { await vm.clearStaleQueued() }
+            Task {
+                await coordinator.prepareInterruptedDownloadsForRetry()
+                await vm.refresh()
+            }
         } catch {
             NSLog("DownloadCoordinator init failed: \(error)")
         }

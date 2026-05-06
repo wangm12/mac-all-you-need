@@ -16,13 +16,18 @@ public final class DownloadJob {
         self.destination = destination
         let p = Process()
         p.executableURL = ytdlp
-        p.arguments = [
+        var args: [String] = [
             "--newline", "--progress", "--no-colors", "--continue",
-            "--no-check-certificate",  // PyInstaller bundled Python can't find macOS system CA
-            "--concurrent-fragments", "4",  // download 4 HLS/DASH fragments in parallel
+            "--no-check-certificate", // PyInstaller bundled Python can't find macOS system CA
+            "--concurrent-fragments", "4", // parallel HLS/DASH fragment downloads
             "--ffmpeg-location", ffmpeg.path,
             "-o", destination.path
-        ] + extraArgs + [url]
+        ]
+        // Provide Node.js runtime for yt-dlp 2026+ JavaScript extraction
+        if let nodePath = Self.findNode() {
+            args += ["--js-runtime", "node:\(nodePath)"]
+        }
+        p.arguments = args + extraArgs + [url]
         var env = ProcessInfo.processInfo.environment
         env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
         env["REQUESTS_CA_BUNDLE"] = "/etc/ssl/cert.pem"
@@ -50,5 +55,24 @@ public final class DownloadJob {
         DispatchQueue.global().asyncAfter(deadline: .now() + 3) { [process] in
             if process.isRunning { kill(process.processIdentifier, SIGKILL) }
         }
+    }
+
+    /// Find Node.js for yt-dlp's JavaScript extraction (required in yt-dlp 2026+)
+    private static func findNode() -> String? {
+        let candidates = [
+            "/usr/local/bin/node",
+            "/opt/homebrew/bin/node",
+            "/usr/bin/node"
+        ]
+        // Also check nvm path
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let nvmNode = "\(home)/.nvm/versions/node"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmNode),
+           let latest = versions.sorted().last
+        {
+            let nvmPath = "\(nvmNode)/\(latest)/bin/node"
+            if FileManager.default.isExecutableFile(atPath: nvmPath) { return nvmPath }
+        }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }

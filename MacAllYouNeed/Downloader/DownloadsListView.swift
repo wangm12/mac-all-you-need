@@ -47,6 +47,8 @@ struct DownloadsListView: View {
                         DownloadRowView(
                             record: record,
                             progress: vm.liveProgress[record.id.rawValue],
+                            onPause: { Task { await vm.pause(id: record.id) } },
+                            onResume: { Task { await vm.resume(id: record.id) } },
                             onStop: { Task { await vm.cancel(id: record.id) } },
                             onRetry: { Task { await vm.retry(record: record) } }
                         )
@@ -66,6 +68,8 @@ struct DownloadsListView: View {
 struct DownloadRowView: View {
     let record: DownloadRecord
     let progress: DownloadProgress?
+    let onPause: () -> Void
+    let onResume: () -> Void
     let onStop: () -> Void
     let onRetry: () -> Void
 
@@ -86,6 +90,16 @@ struct DownloadRowView: View {
                 Text(record.title.isEmpty ? record.url : record.title).lineLimit(1)
                 Spacer()
                 if record.state == .running {
+                    Button(action: onPause) {
+                        Image(systemName: "pause.circle").font(.caption)
+                    }.buttonStyle(.plain).foregroundStyle(.secondary)
+                    Button(action: onStop) {
+                        Image(systemName: "stop.circle").font(.caption)
+                    }.buttonStyle(.plain).foregroundStyle(.red)
+                } else if record.state == .paused {
+                    Button(action: onResume) {
+                        Image(systemName: "play.circle").font(.caption)
+                    }.buttonStyle(.plain).foregroundStyle(.secondary)
                     Button(action: onStop) {
                         Image(systemName: "stop.circle").font(.caption)
                     }.buttonStyle(.plain).foregroundStyle(.red)

@@ -1,7 +1,7 @@
 {
   "yt-dlp": {
-    "version": "2025.01.26",
-    "sha256": "fc5bd50ef656f1727d6f1c6c55688b21434e70cb5fb3e439701d1061ae094bf0"
+    "version": "2026.03.17",
+    "sha256": "e80c47b3ce712acee51d5e3d4eace2d181b44d38f1942c3a32e3c7ff53cd9ed5"
   },
   "ffmpeg": {
     "version": "8.1-https://www.martin-riedl.de",

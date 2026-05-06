@@ -145,7 +145,7 @@ final class DownloadCoordinator {
     }
 
     func pauseDownload(id: RecordID) async {
-        await queue.cancel(id)  // terminates yt-dlp; partial file saved for --continue
+        await queue.cancel(id) // terminates yt-dlp; partial file saved for --continue
         try? store.updateState(id: id, to: .paused)
         Self.postStateChanged(id: id, state: .paused)
     }
@@ -173,7 +173,9 @@ final class DownloadCoordinator {
                 ?? URL(fileURLWithPath: "/tmp")
             let outputDir = downloadsDir.appendingPathComponent("MacAllYouNeed", isDirectory: true)
             try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-            let dest = outputDir.appendingPathComponent("%(title)s - %(uploader)s.%(ext)s")
+            // Use string concatenation — URL.appendingPathComponent percent-encodes % signs
+            let destPath = outputDir.path + "/%(title)s - %(uploader)s.%(ext)s"
+            let dest = URL(fileURLWithPath: destPath)
             let record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
             try store.insert(record)
             let ytdlp = try binaries.ytdlpPath()
@@ -181,7 +183,9 @@ final class DownloadCoordinator {
             let cookies = cookieArgs()
             NSLog("▶️ enqueue: url=\(url)")
             NSLog("▶️ enqueue: ytdlp=\(ytdlp.path)")
-            NSLog("▶️ enqueue: args=\(["--newline","--progress","--no-colors","--continue","--no-check-certificate","--ffmpeg-location",ffmpeg.path,"-o",dest.path] + cookies + [url])")
+            NSLog(
+                "▶️ enqueue: args=\(["--newline", "--progress", "--no-colors", "--continue", "--no-check-certificate", "--ffmpeg-location", ffmpeg.path, "-o", dest.path] + cookies + [url])"
+            )
             let job = DownloadJob(
                 recordID: record.id, url: url, destination: dest,
                 ytdlp: ytdlp, ffmpeg: ffmpeg,
@@ -202,8 +206,11 @@ final class DownloadCoordinator {
             }
             // Single batch notification instead of N individual ones
             if !ids.isEmpty {
-                NotificationCenter.default.post(name: .downloadStateChanged, object: nil,
-                                                userInfo: ["id": "", "state": "failed"])
+                NotificationCenter.default.post(
+                    name: .downloadStateChanged,
+                    object: nil,
+                    userInfo: ["id": "", "state": "failed"]
+                )
             }
         } catch {
             log.error("recovery preparation failed: \(error.localizedDescription)")
