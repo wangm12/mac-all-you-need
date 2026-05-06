@@ -33,18 +33,11 @@ let package = Package(
                 .headerSearchPath("argon2/src/blake2")
             ]
         ),
-        .target(
+        .systemLibrary(
             name: "CLibArchive",
             path: "Sources/CLibArchive",
-            sources: ["shim.c"],
-            publicHeadersPath: "include",
-            cSettings: [
-                .unsafeFlags(["-I/opt/homebrew/opt/libarchive/include"])
-            ],
-            linkerSettings: [
-                .unsafeFlags(["-L/opt/homebrew/opt/libarchive/lib"]),
-                .linkedLibrary("archive")
-            ]
+            pkgConfig: "libarchive",
+            providers: [.brew(["libarchive"])]
         ),
         .target(
             name: "Core",
