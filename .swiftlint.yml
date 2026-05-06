@@ -1,5 +1,6 @@
 disabled_rules:
   - todo
+  - force_try
 
 opt_in_rules:
   - empty_count
@@ -25,3 +26,12 @@ identifier_name:
     - id
     - x
     - y
+    - a
+    - b
+    - i
+    - m
+    - r
+    - s
+    - t
+    - w
+    - h

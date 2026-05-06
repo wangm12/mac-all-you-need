@@ -27,7 +27,7 @@ public final class SystemKeychain: KeychainBackend {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: account
         ]
         if let accessGroup {
             query[kSecAttrAccessGroup as String] = accessGroup
@@ -74,10 +74,12 @@ public final class InMemoryKeychain: KeychainBackend {
         lock.lock(); defer { lock.unlock() }
         return store[account]
     }
+
     public func set(_ data: Data, for account: String) throws {
         lock.lock(); defer { lock.unlock() }
         store[account] = data
     }
+
     public func delete(_ account: String) throws {
         lock.lock(); defer { lock.unlock() }
         store.removeValue(forKey: account)

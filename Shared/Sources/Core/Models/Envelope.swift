@@ -26,5 +26,7 @@ public struct EnvelopeMetadata: Codable, Equatable, Sendable {
 
 public struct Envelope: Equatable, Sendable {
     public let combined: Data
-    public init(combined: Data) { self.combined = combined }
+    public init(combined: Data) {
+        self.combined = combined
+    }
 }

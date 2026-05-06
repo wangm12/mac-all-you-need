@@ -9,7 +9,7 @@ final class RecordIDTests: XCTestCase {
 
     func testGeneratedIDsAreUnique() {
         var seen = Set<String>()
-        for _ in 0..<1000 {
+        for _ in 0 ..< 1000 {
             seen.insert(RecordID.generate().rawValue)
         }
         XCTAssertEqual(seen.count, 1000)
