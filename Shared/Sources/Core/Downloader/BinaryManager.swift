@@ -101,7 +101,7 @@ public final class BinaryManager {
         try p.run()
         p.waitUntilExit()
         let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let found = Set(out.split(separator: " ").map(String.init))
+        let found = Set(out.split(whereSeparator: \.isWhitespace).map(String.init))
         for arch in required where !found.contains(arch) {
             throw BinaryManagerError.missingArchitecture(arch)
         }
