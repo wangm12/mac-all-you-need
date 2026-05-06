@@ -49,7 +49,6 @@ struct DownloadsListView: View {
                             progress: vm.liveProgress[record.id.rawValue],
                             onPause: { Task { await vm.pause(id: record.id) } },
                             onResume: { Task { await vm.resume(id: record.id) } },
-                            onStop: { Task { await vm.cancel(id: record.id) } },
                             onRetry: { Task { await vm.retry(record: record) } }
                         )
                     }
@@ -70,7 +69,6 @@ struct DownloadRowView: View {
     let progress: DownloadProgress?
     let onPause: () -> Void
     let onResume: () -> Void
-    let onStop: () -> Void
     let onRetry: () -> Void
 
     /// HLS streams report per-fragment %; use downloaded/total bytes for overall fraction
@@ -97,16 +95,10 @@ struct DownloadRowView: View {
                     Button(action: onPause) {
                         Image(systemName: "pause.circle").font(.caption)
                     }.buttonStyle(.plain).foregroundStyle(.secondary)
-                    Button(action: onStop) {
-                        Image(systemName: "stop.circle").font(.caption)
-                    }.buttonStyle(.plain).foregroundStyle(.red)
                 } else if record.state == .paused {
                     Button(action: onResume) {
                         Image(systemName: "play.circle").font(.caption)
                     }.buttonStyle(.plain).foregroundStyle(.secondary)
-                    Button(action: onStop) {
-                        Image(systemName: "stop.circle").font(.caption)
-                    }.buttonStyle(.plain).foregroundStyle(.red)
                 } else if record.state == .failed {
                     Button(action: onRetry) {
                         Image(systemName: "arrow.counterclockwise").font(.caption)
