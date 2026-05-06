@@ -17,6 +17,11 @@ public struct DownloadRecord: Codable, Equatable, Sendable {
     public var lastError: String?
     public var created: Date
     public var modified: Date
+    // Video metadata (populated asynchronously after enqueue)
+    public var videoTitle: String?
+    public var channelName: String?
+    public var durationSeconds: Int?
+    public var thumbnailURL: String?
 
     public init(url: String, title: String, destinationPath: String, state: DownloadState) {
         id = RecordID.generate()
@@ -29,6 +34,10 @@ public struct DownloadRecord: Codable, Equatable, Sendable {
         bytesDownloaded = 0
         bytesTotal = nil
         lastError = nil
+        videoTitle = nil
+        channelName = nil
+        durationSeconds = nil
+        thumbnailURL = nil
         let now = Date()
         created = now
         modified = now

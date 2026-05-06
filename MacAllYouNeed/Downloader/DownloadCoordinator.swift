@@ -196,6 +196,20 @@ final class DownloadCoordinator {
                 extraArgs: cookies
             )
             await queue.enqueue(job)
+            // Fetch video metadata concurrently — doesn't block the download
+            let recordID = record.id
+            let storeRef = store
+            Task.detached(priority: .background) { [ytdlp, url] in
+                guard let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlp) else { return }
+                var updated = (try? storeRef.fetch(id: recordID)) ?? record
+                updated.videoTitle = meta.title
+                updated.channelName = meta.channelName
+                updated.durationSeconds = meta.durationSeconds
+                updated.thumbnailURL = meta.thumbnailURL
+                updated.modified = Date()
+                try? storeRef.update(updated)
+                await MainActor.run { Self.postStateChanged(id: recordID, state: updated.state) }
+            }
         } catch {
             NSLog("❌ enqueue FAILED: \(error)")
             log.error("enqueue failed: \(error.localizedDescription)")

@@ -117,4 +117,21 @@ public final class DownloadStore {
             try conn.execute(sql: "DELETE FROM downloads WHERE id = ?", arguments: [id.rawValue])
         }
     }
+
+    public func update(_ record: DownloadRecord) throws {
+        let env = try Cipher.seal(JSONEncoder().encode(record), with: key)
+        try db.queue.write { conn in
+            try conn.execute(
+                sql: "UPDATE downloads SET state = ?, modified = ?, device_id = ?, lamport = ?, envelope = ? WHERE id = ?",
+                arguments: [
+                    record.state.rawValue,
+                    Int(record.modified.timeIntervalSince1970 * 1000),
+                    record.deviceID?.rawValue,
+                    Int(record.lamport),
+                    env.combined,
+                    record.id.rawValue
+                ]
+            )
+        }
+    }
 }
