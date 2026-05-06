@@ -71,12 +71,15 @@ public actor DownloadQueue {
             let parts = buffered.split(separator: "\n", omittingEmptySubsequences: false)
             buffered = parts.last.map(String.init) ?? ""
             for line in parts.dropLast() {
-                if let p = ProgressParser.parse(line: String(line)) {
+                let s = String(line)
+                NSLog("yt-dlp: \(s)")   // debug — remove after diagnosis
+                if let p = ProgressParser.parse(line: s) {
                     progress(recordID, p)
                 }
             }
         }
         job.process.terminationHandler = { [weak self, recordID = job.recordID] proc in
+            NSLog("yt-dlp: exit status \(proc.terminationStatus)")
             handle.readabilityHandler = nil
             Task { await self?.completed(recordID: recordID, status: proc.terminationStatus) }
         }
