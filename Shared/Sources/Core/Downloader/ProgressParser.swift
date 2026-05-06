@@ -37,12 +37,11 @@ public enum ProgressParser {
     private static func parseTotalBytes(_ line: String) -> Int64? {
         let r = #/of\s+(\d+(?:\.\d+)?)(KiB|MiB|GiB|B)/#
         guard let m = try? r.firstMatch(in: line), let val = Double(String(m.output.1)) else { return nil }
-        let bytes: Double
-        switch String(m.output.2) {
-        case "KiB": bytes = val * 1024
-        case "MiB": bytes = val * 1024 * 1024
-        case "GiB": bytes = val * 1024 * 1024 * 1024
-        default: bytes = val
+        let bytes: Double = switch String(m.output.2) {
+        case "KiB": val * 1024
+        case "MiB": val * 1024 * 1024
+        case "GiB": val * 1024 * 1024 * 1024
+        default: val
         }
         return Int64(bytes)
     }

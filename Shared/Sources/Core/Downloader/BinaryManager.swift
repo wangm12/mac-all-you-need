@@ -34,8 +34,13 @@ public final class BinaryManager {
         try? FileManager.default.createDirectory(at: updateRoot, withIntermediateDirectories: true)
     }
 
-    public func ytdlpPath() throws -> URL { try preferredPath(name: "yt-dlp") }
-    public func ffmpegPath() throws -> URL { try preferredPath(name: "ffmpeg") }
+    public func ytdlpPath() throws -> URL {
+        try preferredPath(name: "yt-dlp")
+    }
+
+    public func ffmpegPath() throws -> URL {
+        try preferredPath(name: "ffmpeg")
+    }
 
     private func preferredPath(name: String) throws -> URL {
         let updated = updateRoot.appendingPathComponent(name)
@@ -49,7 +54,8 @@ public final class BinaryManager {
                    signed: .init(payload: payload, signature: sig), publicKey: publicKey
                ),
                manifest.tool == name,
-               (try? Self.verify(at: updated, expectedSHA256: manifest.sha256)) != nil {
+               (try? Self.verify(at: updated, expectedSHA256: manifest.sha256)) != nil
+            {
                 try Self.verifyExecutable(at: updated)
                 try Self.verifyArchitectures(at: updated, required: ["arm64", "x86_64"])
                 return updated

@@ -33,7 +33,7 @@ final class DispatchServerTests: XCTestCase {
         defer { Task { await server.stop() } }
 
         let body = Data(#"{"url":"https://x.com"}"#.utf8)
-        var req = URLRequest(url: URL(string: "http://127.0.0.1:18999/dispatch")!)
+        var req = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18999/dispatch")))
         req.httpMethod = "POST"; req.httpBody = body
         req.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -46,7 +46,7 @@ final class DispatchServerTests: XCTestCase {
         let server = try DispatchServer(port: 18998, token: "secret") { _ in XCTFail("should not call") }
         try await server.start()
         defer { Task { await server.stop() } }
-        var req = URLRequest(url: URL(string: "http://127.0.0.1:18998/dispatch")!)
+        var req = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18998/dispatch")))
         req.httpMethod = "POST"; req.httpBody = Data("{}".utf8)
         req.setValue("Bearer wrong", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")

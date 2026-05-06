@@ -2,18 +2,19 @@
 import XCTest
 
 final class DownloadQueueTests: XCTestCase {
-    func testCancelQueuedJobCompletesWithoutStartingProcess() async throws {
+    func testCancelQueuedJobCompletesWithoutStartingProcess() async {
         let cancelled = expectation(description: "cancelled")
         let id = RecordID.generate()
         let queue = DownloadQueue(
             maxConcurrent: 0,
             started: { _ in XCTFail("queued job must not start") },
-            progress: { _, _ in }
-        ) { completedID, result in
-            XCTAssertEqual(completedID, id)
-            if case .success = result { XCTFail("expected failure") }
-            cancelled.fulfill()
-        }
+            progress: { _, _ in },
+            completion: { completedID, result in
+                XCTAssertEqual(completedID, id)
+                if case .success = result { XCTFail("expected failure") }
+                cancelled.fulfill()
+            }
+        )
         let job = DownloadJob(
             recordID: id, url: "https://example.com",
             destination: URL(fileURLWithPath: "/tmp/out"),

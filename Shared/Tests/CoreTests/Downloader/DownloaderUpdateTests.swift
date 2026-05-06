@@ -6,9 +6,9 @@ final class DownloaderUpdateTests: XCTestCase {
     func testVerifySignedManifest() throws {
         let priv = Curve25519.Signing.PrivateKey()
         let pub = priv.publicKey
-        let manifest = DownloaderUpdate.Manifest(
+        let manifest = try DownloaderUpdate.Manifest(
             tool: "yt-dlp", version: "2024.99.99",
-            sha256: "abcd", url: URL(string: "https://example.com/yt-dlp")!
+            sha256: "abcd", url: XCTUnwrap(URL(string: "https://example.com/yt-dlp"))
         )
         let payload = try JSONEncoder().encode(manifest)
         let sig = try priv.signature(for: payload)
@@ -21,8 +21,8 @@ final class DownloaderUpdateTests: XCTestCase {
     func testRejectsTamperedPayload() throws {
         let priv = Curve25519.Signing.PrivateKey()
         let pub = priv.publicKey
-        let manifest = DownloaderUpdate.Manifest(
-            tool: "yt-dlp", version: "v", sha256: "h", url: URL(string: "https://x")!
+        let manifest = try DownloaderUpdate.Manifest(
+            tool: "yt-dlp", version: "v", sha256: "h", url: XCTUnwrap(URL(string: "https://x"))
         )
         let payload = try JSONEncoder().encode(manifest)
         let sig = try priv.signature(for: payload)

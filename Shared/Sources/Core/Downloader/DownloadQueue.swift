@@ -19,7 +19,7 @@ public actor DownloadQueue {
         progress: @escaping ProgressHandler,
         completion: @escaping CompletionHandler
     ) {
-        self.slots = maxConcurrent
+        slots = maxConcurrent
         self.started = started
         self.progress = progress
         self.completion = completion
@@ -30,8 +30,13 @@ public actor DownloadQueue {
         Task { await self.tryStart() }
     }
 
-    public func pause(_ id: RecordID) { running[id]?.pause() }
-    public func resume(_ id: RecordID) { running[id]?.resume() }
+    public func pause(_ id: RecordID) {
+        running[id]?.pause()
+    }
+
+    public func resume(_ id: RecordID) {
+        running[id]?.resume()
+    }
 
     public func cancel(_ id: RecordID) {
         if let job = running[id] {
@@ -75,15 +80,20 @@ public actor DownloadQueue {
             handle.readabilityHandler = nil
             Task { await self?.completed(recordID: recordID, status: proc.terminationStatus) }
         }
-        do { try job.process.run() } catch {
+        do {
+            try job.process.run()
+        } catch {
             Task { await self.completed(recordID: job.recordID, status: -1) }
         }
     }
 
     private func completed(recordID: RecordID, status: Int32) async {
         running.removeValue(forKey: recordID)
-        if status == 0 { completion(recordID, .success(())) }
-        else { completion(recordID, .failure(NSError(domain: "DownloadQueue", code: Int(status)))) }
+        if status == 0 {
+            completion(recordID, .success(()))
+        } else {
+            completion(recordID, .failure(NSError(domain: "DownloadQueue", code: Int(status))))
+        }
         await tryStart()
     }
 }

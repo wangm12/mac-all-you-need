@@ -19,17 +19,23 @@ public final class DownloadJob {
         p.arguments = [
             "--newline", "--progress", "--no-colors", "--continue",
             "--ffmpeg-location", ffmpeg.path,
-            "-o", destination.path,
+            "-o", destination.path
         ] + extraArgs + [url]
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
-        self.process = p
+        process = p
         self.pipe = pipe
     }
 
-    public func pause() { if process.isRunning { kill(process.processIdentifier, SIGSTOP) } }
-    public func resume() { if process.isRunning { kill(process.processIdentifier, SIGCONT) } }
+    public func pause() {
+        if process.isRunning { kill(process.processIdentifier, SIGSTOP) }
+    }
+
+    public func resume() {
+        if process.isRunning { kill(process.processIdentifier, SIGCONT) }
+    }
+
     public func cancel() {
         guard process.isRunning else { return }
         kill(process.processIdentifier, SIGTERM)

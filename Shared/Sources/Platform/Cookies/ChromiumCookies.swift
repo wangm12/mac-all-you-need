@@ -12,7 +12,7 @@ public enum ChromiumCookies {
             (.chrome, "Google/Chrome"),
             (.edge, "Microsoft Edge"),
             (.brave, "BraveSoftware/Brave-Browser"),
-            (.arc, "Arc"),
+            (.arc, "Arc")
         ]
         var out: [BrowserProfile] = []
         for (b, sub) in candidates {
@@ -42,7 +42,7 @@ public enum ChromiumCookies {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(q as CFDictionary, &item)
@@ -68,7 +68,9 @@ public enum ChromiumCookies {
         let safeStorageKey = try keychainKey(for: profile.browser)
         var out = "# Netscape HTTP Cookie File\n"
         try db.read { conn in
-            for row in try Row.fetchAll(conn, sql: "SELECT host_key, path, secure, expires_utc, name, value, encrypted_value FROM cookies") {
+            for row in try Row
+                .fetchAll(conn, sql: "SELECT host_key, path, secure, expires_utc, name, value, encrypted_value FROM cookies")
+            {
                 let host: String = row["host_key"]
                 let path: String = row["path"]
                 let secure: Int = row["secure"]

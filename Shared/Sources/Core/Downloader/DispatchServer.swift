@@ -28,7 +28,7 @@ public actor DispatchServer {
         let l = try NWListener(using: params, on: port)
         l.newConnectionHandler = { [weak self] conn in Task { await self?.accept(conn) } }
         l.start(queue: .global(qos: .utility))
-        self.listener = l
+        listener = l
     }
 
     public func stop() {
@@ -95,7 +95,8 @@ public actor DispatchServer {
             return await respond(conn, status: 400, body: "invalid json")
         }
         guard let parsedURL = URL(string: parsed.url),
-              ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "") else {
+              ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
+        else {
             return await respond(conn, status: 400, body: "unsupported url")
         }
         await handler(.init(url: parsed.url, title: parsed.title))

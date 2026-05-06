@@ -97,4 +97,18 @@ public final class DownloadStore {
             return rows.compactMap { RecordID(rawValue: $0["id"]) }
         }
     }
+
+    public func updateProgress(id: RecordID, bytesDownloaded: Int64, bytesTotal: Int64?) throws {
+        var record = try fetch(id: id)
+        record.bytesDownloaded = bytesDownloaded
+        record.bytesTotal = bytesTotal
+        record.modified = Date()
+        let env = try Cipher.seal(JSONEncoder().encode(record), with: key)
+        try db.queue.write { conn in
+            try conn.execute(
+                sql: "UPDATE downloads SET modified = ?, envelope = ? WHERE id = ?",
+                arguments: [Int(record.modified.timeIntervalSince1970 * 1000), env.combined, id.rawValue]
+            )
+        }
+    }
 }
