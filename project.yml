@@ -57,6 +57,17 @@ targets:
             cp -Rf "${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app" "$DEST/"
           fi
 
+  MacAllYouNeedTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: MacAllYouNeedTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.tests
+    dependencies:
+      - target: MacAllYouNeed
+
   ClipboardDaemon:
     type: application
     platform: macOS

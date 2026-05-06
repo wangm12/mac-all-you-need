@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		267E46615CE1B97B51C489A8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */; };
+		372F357EDC414B104612E325 /* MacAllYouNeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17BF4839D6E1C11B52D1D4C0 /* MacAllYouNeedTests.swift */; };
 		3F852164212DD74454B77367 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = F623884AB04D9C3922B8C8D2 /* Core */; };
 		493B06B4F6B86ACA098B84C8 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = C90EF9C0B92791031982E209 /* Platform */; };
 		56BC84AA624EB0E847CDB02E /* UI in Frameworks */ = {isa = PBXBuildFile; productRef = DE455CF6AE9CDA5C981B1F12 /* UI */; };
@@ -27,6 +28,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = A0B97515571841FED0A486F3;
 			remoteInfo = ClipboardDaemon;
+		};
+		450357D02D76537F1BF9E7CA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E66B6891310EDBB726ABA1AA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5BD88869F3EB83788E866E4F;
+			remoteInfo = MacAllYouNeed;
 		};
 		CE0AFF96E756A69D9D00A1CF /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -56,7 +64,9 @@
 		0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FolderPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacAllYouNeed.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0926233877B5C137B0887EF2 /* ClipboardDaemon.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClipboardDaemon.entitlements; sourceTree = "<group>"; };
+		17BF4839D6E1C11B52D1D4C0 /* MacAllYouNeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAllYouNeedTests.swift; sourceTree = "<group>"; };
 		2E0CD8F01E8F661BCE2FF0A1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		407ECF5B94C9578CD9D79532 /* MacAllYouNeedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MacAllYouNeedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		411973A037BCC50C2F200F8E /* Shared */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Shared; path = Shared; sourceTree = SOURCE_ROOT; };
 		472510935EFC931A406833AD /* PreviewProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewProvider.swift; sourceTree = "<group>"; };
 		4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAllYouNeedApp.swift; sourceTree = "<group>"; };
@@ -98,6 +108,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		236F834E88CC4594FA4E40D5 /* MacAllYouNeedTests */ = {
+			isa = PBXGroup;
+			children = (
+				17BF4839D6E1C11B52D1D4C0 /* MacAllYouNeedTests.swift */,
+			);
+			path = MacAllYouNeedTests;
+			sourceTree = "<group>";
+		};
 		3A19DB45CB8F1F6EF52975DC /* MacAllYouNeed */ = {
 			isa = PBXGroup;
 			children = (
@@ -115,6 +133,7 @@
 				9533C66ECB81C34DAC0AA3D3 /* ClipboardDaemon.app */,
 				0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */,
 				0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */,
+				407ECF5B94C9578CD9D79532 /* MacAllYouNeedTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -135,6 +154,7 @@
 				5EBB0118F06F1CF76258A773 /* ClipboardDaemon */,
 				A9A25A23C026AC513E5B4DC9 /* FolderPreview */,
 				3A19DB45CB8F1F6EF52975DC /* MacAllYouNeed */,
+				236F834E88CC4594FA4E40D5 /* MacAllYouNeedTests */,
 				84B8A48C3BDF35E36D0354BC /* Packages */,
 				446F5E20EE01D39FFCAC4076 /* Products */,
 			);
@@ -225,6 +245,24 @@
 			productReference = 9533C66ECB81C34DAC0AA3D3 /* ClipboardDaemon.app */;
 			productType = "com.apple.product-type.application";
 		};
+		D5A712BD2830BC82AD0D5EDA /* MacAllYouNeedTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DB8D0E689C696DB4F9382A35 /* Build configuration list for PBXNativeTarget "MacAllYouNeedTests" */;
+			buildPhases = (
+				34C8AEFD67A1E278070C1BCF /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9B484D8F0E1772C3C801FEE7 /* PBXTargetDependency */,
+			);
+			name = MacAllYouNeedTests;
+			packageProductDependencies = (
+			);
+			productName = MacAllYouNeedTests;
+			productReference = 407ECF5B94C9578CD9D79532 /* MacAllYouNeedTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -243,6 +281,10 @@
 						ProvisioningStyle = Automatic;
 					};
 					A0B97515571841FED0A486F3 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					D5A712BD2830BC82AD0D5EDA = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
@@ -268,6 +310,7 @@
 				A0B97515571841FED0A486F3 /* ClipboardDaemon */,
 				58E172D57CB23EA5F7CB76DE /* FolderPreview */,
 				5BD88869F3EB83788E866E4F /* MacAllYouNeed */,
+				D5A712BD2830BC82AD0D5EDA /* MacAllYouNeedTests */,
 			);
 		};
 /* End PBXProject section */
@@ -307,6 +350,14 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		34C8AEFD67A1E278070C1BCF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				372F357EDC414B104612E325 /* MacAllYouNeedTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		48EB3C9AF211B6D548386BC1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -343,6 +394,11 @@
 			isa = PBXTargetDependency;
 			target = A0B97515571841FED0A486F3 /* ClipboardDaemon */;
 			targetProxy = 2300288B38898D0985B062D0 /* PBXContainerItemProxy */;
+		};
+		9B484D8F0E1772C3C801FEE7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5BD88869F3EB83788E866E4F /* MacAllYouNeed */;
+			targetProxy = 450357D02D76537F1BF9E7CA /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -438,6 +494,22 @@
 			};
 			name = Debug;
 		};
+		55EC7FBD2738EE6800E32ED5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.macallyouneed.app.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MacAllYouNeed.app/Contents/MacOS/MacAllYouNeed";
+			};
+			name = Release;
+		};
 		5AEFECA51EEB40601ED4ABB8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -517,6 +589,22 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.macallyouneed.app.folderpreview;
 				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		7B23854D8276DB45A36FAAB9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.macallyouneed.app.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MacAllYouNeed.app/Contents/MacOS/MacAllYouNeed";
 			};
 			name = Debug;
 		};
@@ -603,6 +691,15 @@
 			buildConfigurations = (
 				5AEFECA51EEB40601ED4ABB8 /* Debug */,
 				3BAA792EC58DC81E28CFE813 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DB8D0E689C696DB4F9382A35 /* Build configuration list for PBXNativeTarget "MacAllYouNeedTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7B23854D8276DB45A36FAAB9 /* Debug */,
+				55EC7FBD2738EE6800E32ED5 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
