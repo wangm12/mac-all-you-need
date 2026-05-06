@@ -7,7 +7,7 @@ let package = Package(
     products: [
         .library(name: "Core", targets: ["Core"]),
         .library(name: "UI", targets: ["UI"]),
-        .library(name: "Platform", targets: ["Platform"]),
+        .library(name: "Platform", targets: ["Platform"])
     ],
     dependencies: [],
     targets: [
@@ -16,6 +16,6 @@ let package = Package(
         .target(name: "Platform", dependencies: ["Core"], path: "Sources/Platform"),
         .testTarget(name: "CoreTests", dependencies: ["Core"], path: "Tests/CoreTests"),
         .testTarget(name: "UITests", dependencies: ["UI"], path: "Tests/UITests"),
-        .testTarget(name: "PlatformTests", dependencies: ["Platform"], path: "Tests/PlatformTests"),
+        .testTarget(name: "PlatformTests", dependencies: ["Platform"], path: "Tests/PlatformTests")
     ]
 )

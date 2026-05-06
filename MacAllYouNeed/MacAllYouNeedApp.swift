@@ -1,5 +1,5 @@
-import SwiftUI
 import Core
+import SwiftUI
 
 @main
 struct MacAllYouNeedApp: App {

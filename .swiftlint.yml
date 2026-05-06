@@ -1,0 +1,27 @@
+disabled_rules:
+  - todo
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - last_where
+  - sorted_imports
+
+excluded:
+  - .build
+  - Shared/.build
+  - DerivedData
+  - Vendored
+
+line_length:
+  warning: 140
+  error: 200
+
+identifier_name:
+  min_length: 2
+  max_length: 60
+  excluded:
+    - id
+    - x
+    - y

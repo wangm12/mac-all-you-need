@@ -1,5 +1,5 @@
-import XCTest
 @testable import Platform
+import XCTest
 
 final class PlatformVersionTests: XCTestCase {
     func testVersionFormat() {
