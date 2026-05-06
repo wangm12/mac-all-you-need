@@ -49,6 +49,7 @@ let package = Package(
         ),
         .target(name: "UI", dependencies: [
             "Core",
+            "Platform",
             .product(name: "Splash", package: "Splash")
         ], path: "Sources/UI"),
         .target(name: "Platform", dependencies: ["Core", "CLibArchive"], path: "Sources/Platform"),
