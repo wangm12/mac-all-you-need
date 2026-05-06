@@ -12,43 +12,55 @@ public enum MetadataFetcher {
         await Task.detached(priority: .utility) {
             let p = Process()
             p.executableURL = ytdlp
-            // Use --print to get individual fields, separated by a unique delimiter
-            p.arguments = [
+            var args = [
                 "--no-download",
                 "--no-check-certificate",
                 "--print", "%(title)s",
                 "--print", "%(uploader|channel)s",
                 "--print", "%(duration)s",
                 "--print", "%(thumbnail)s",
-                url
             ]
+            if let node = findNode() {
+                args += ["--js-runtime", "node:\(node)"]
+            }
+            args.append(url)
+            p.arguments = args
             var env = ProcessInfo.processInfo.environment
             env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
             p.environment = env
             let pipe = Pipe()
             p.standardOutput = pipe
-            p.standardError = Pipe() // discard stderr
-            do {
-                try p.run()
-            } catch {
-                return nil
-            }
-            // Timeout: kill after 15s if metadata fetch hangs
-            DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+            p.standardError = Pipe()
+            do { try p.run() } catch { return nil }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 20) {
                 if p.isRunning { p.terminate() }
             }
             p.waitUntilExit()
+            NSLog("🎬 MetadataFetcher: exit=\(p.terminationStatus) url=\(url)")
             guard p.terminationStatus == 0 else { return nil }
             let raw = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             let lines = raw.components(separatedBy: "\n").filter { !$0.isEmpty }
+            NSLog("🎬 MetadataFetcher: lines=\(lines)")
             guard lines.count >= 4 else { return nil }
-            let duration = Int(lines[2]) ?? 0
             return VideoMetadata(
                 title: lines[0],
                 channelName: lines[1],
-                durationSeconds: duration,
+                durationSeconds: Int(lines[2]) ?? 0,
                 thumbnailURL: lines[3]
             )
         }.value
+    }
+
+    private static func findNode() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let nvmNode = "\(home)/.nvm/versions/node"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmNode),
+           let latest = versions.sorted().last
+        {
+            let path = "\(nvmNode)/\(latest)/bin/node"
+            if FileManager.default.isExecutableFile(atPath: path) { return path }
+        }
+        return ["/usr/local/bin/node", "/opt/homebrew/bin/node"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }
