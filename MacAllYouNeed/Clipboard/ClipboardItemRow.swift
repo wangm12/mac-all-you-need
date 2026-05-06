@@ -6,7 +6,7 @@ struct ClipboardItemRow: View {
     let isSelected: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(item.preview).font(.body).lineLimit(8)
+            PasteboardPreview(text: item.preview)
             Spacer(minLength: 0)
             Text(item.modified, style: .relative).font(.caption2).foregroundStyle(.tertiary)
         }

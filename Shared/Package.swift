@@ -10,7 +10,8 @@ let package = Package(
         .library(name: "Platform", targets: ["Platform"])
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.27.0")
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.27.0"),
+        .package(url: "https://github.com/JohnSundell/Splash.git", from: "0.16.0")
     ],
     targets: [
         .target(
@@ -40,7 +41,10 @@ let package = Package(
             ],
             path: "Sources/Core"
         ),
-        .target(name: "UI", dependencies: ["Core"], path: "Sources/UI"),
+        .target(name: "UI", dependencies: [
+            "Core",
+            .product(name: "Splash", package: "Splash")
+        ], path: "Sources/UI"),
         .target(name: "Platform", dependencies: ["Core"], path: "Sources/Platform"),
         .testTarget(name: "CoreTests", dependencies: ["Core"], path: "Tests/CoreTests"),
         .testTarget(name: "UITests", dependencies: ["UI"], path: "Tests/UITests"),
