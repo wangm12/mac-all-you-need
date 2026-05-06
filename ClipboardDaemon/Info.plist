@@ -26,6 +26,11 @@
 	<string>$(AppIdentifierPrefix)com.macallyouneed.shared</string>
 	<key>MAYNTeamIdentifier</key>
 	<string>$(DEVELOPMENT_TEAM)</string>
+	<key>MachServices</key>
+	<dict>
+		<key>group.com.macallyouneed.shared.daemon</key>
+		<true/>
+	</dict>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 </dict>

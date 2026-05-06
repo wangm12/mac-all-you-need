@@ -85,6 +85,8 @@ targets:
         MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
         MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
         NSHumanReadableCopyright: ""
+        MachServices:
+          "group.com.macallyouneed.shared.daemon": true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.daemon
