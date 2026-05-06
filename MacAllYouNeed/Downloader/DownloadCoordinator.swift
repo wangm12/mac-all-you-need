@@ -183,9 +183,7 @@ final class DownloadCoordinator {
             let cookies = cookieArgs()
             NSLog("▶️ enqueue: url=\(url)")
             NSLog("▶️ enqueue: ytdlp=\(ytdlp.path)")
-            NSLog(
-                "▶️ enqueue: args=\(["--newline", "--progress", "--no-colors", "--continue", "--no-check-certificate", "--ffmpeg-location", ffmpeg.path, "-o", dest.path] + cookies + [url])"
-            )
+            NSLog("▶️ enqueue: cookies=\(cookies), url=\(url)")
             let job = DownloadJob(
                 recordID: record.id, url: url, destination: dest,
                 ytdlp: ytdlp, ffmpeg: ffmpeg,
