@@ -73,6 +73,27 @@ final class DownloadCoordinator {
         }
     }
 
+    /// Re-enqueue an existing record without creating a new DB entry.
+    func reenqueue(record: DownloadRecord) async {
+        do {
+            try store.updateState(id: record.id, to: .queued)
+            let dest = URL(fileURLWithPath: record.destinationPath)
+            let job = try DownloadJob(
+                recordID: record.id, url: record.url, destination: dest,
+                ytdlp: binaries.ytdlpPath(), ffmpeg: binaries.ffmpegPath(),
+                extraArgs: ["--continue"]
+            )
+            await queue.enqueue(job)
+        } catch {
+            log.error("reenqueue failed: \(error.localizedDescription)")
+        }
+    }
+
+    func cancelDownload(id: RecordID) async {
+        await queue.cancel(id)
+        try? store.updateState(id: id, to: .failed)
+    }
+
     func enqueue(url: String, title: String?) async {
         do {
             let dest = (FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first

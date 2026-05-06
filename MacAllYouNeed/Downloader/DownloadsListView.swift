@@ -16,22 +16,14 @@ struct DownloadsListView: View {
                     showAdd.toggle()
                     if showAdd {
                         if let clip = NSPasteboard.general.string(forType: .string),
-                           clip.hasPrefix("http")
-                        {
-                            addURL = clip
-                        } else {
-                            addURL = ""
-                        }
+                           clip.hasPrefix("http") { addURL = clip } else { addURL = "" }
                     }
-                } label: {
-                    Image(systemName: showAdd ? "xmark.circle.fill" : "plus")
-                }
+                } label: { Image(systemName: showAdd ? "xmark.circle.fill" : "plus") }
             }.padding(8)
 
             if showAdd {
                 HStack(spacing: 8) {
-                    TextField("Paste URL…", text: $addURL)
-                        .textFieldStyle(.roundedBorder)
+                    TextField("Paste URL…", text: $addURL).textFieldStyle(.roundedBorder)
                     Button("Download") {
                         let url = addURL.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !url.isEmpty else { return }
@@ -54,8 +46,10 @@ struct DownloadsListView: View {
                     ForEach(vm.rows, id: \.id) { record in
                         DownloadRowView(
                             record: record,
-                            progress: vm.liveProgress[record.id.rawValue]
-                        ) { Task { await vm.retry(record: record) } }
+                            progress: vm.liveProgress[record.id.rawValue],
+                            onStop: { Task { await vm.cancel(id: record.id) } },
+                            onRetry: { Task { await vm.retry(record: record) } }
+                        )
                     }
                     .onDelete { indexSet in
                         let ids = indexSet.map { vm.rows[$0].id }
@@ -72,24 +66,40 @@ struct DownloadsListView: View {
 struct DownloadRowView: View {
     let record: DownloadRecord
     let progress: DownloadProgress?
+    let onStop: () -> Void
     let onRetry: () -> Void
+
+    /// HLS streams report per-fragment %; use downloaded/total bytes for overall fraction
+    private var overallFraction: Double {
+        if let p = progress {
+            if let dl = p.downloadedBytes, let total = p.totalBytes, total > 0 {
+                return min(1, Double(dl) / Double(total))
+            }
+            return min(1, p.fraction) // fallback to reported fraction
+        }
+        return record.state == .completed ? 1 : 0
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(record.title.isEmpty ? record.url : record.title).lineLimit(1)
                 Spacer()
-                if record.state == .failed {
+                if record.state == .running {
+                    Button(action: onStop) {
+                        Image(systemName: "stop.circle").font(.caption)
+                    }.buttonStyle(.plain).foregroundStyle(.red)
+                } else if record.state == .failed {
                     Button(action: onRetry) {
                         Image(systemName: "arrow.counterclockwise").font(.caption)
                     }.buttonStyle(.plain).foregroundStyle(.orange)
                 }
             }
-            ProgressView(value: progress?.fraction ?? (record.state == .completed ? 1 : 0))
+            ProgressView(value: overallFraction)
                 .tint(record.state == .failed ? .red : record.state == .completed ? .green : .accentColor)
             HStack {
                 Text(record.state.rawValue.capitalized).font(.caption2)
-                    .foregroundStyle(record.state == .failed ? .red : .secondary)
+                    .foregroundStyle(record.state == .failed ? .red : record.state == .completed ? .green : .secondary)
                 if let speed = progress?.speedBytesPerSec {
                     Text("· \(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/s")
                         .font(.caption2).foregroundStyle(.secondary)
