@@ -8,16 +8,33 @@
 
 /* Begin PBXBuildFile section */
 		267E46615CE1B97B51C489A8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */; };
+		493B06B4F6B86ACA098B84C8 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = C90EF9C0B92791031982E209 /* Platform */; };
+		56BC84AA624EB0E847CDB02E /* UI in Frameworks */ = {isa = PBXBuildFile; productRef = DE455CF6AE9CDA5C981B1F12 /* UI */; };
+		76E72834DB05A5A4E2888B6D /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 6731B6B0CA4B6CEFF4A313B9 /* Core */; };
 		E40ABB4D6C22BBEDDC64C7DE /* MacAllYouNeedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0048E0AE4C75E2960CE5EA9C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacAllYouNeed.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		411973A037BCC50C2F200F8E /* Shared */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Shared; path = Shared; sourceTree = SOURCE_ROOT; };
 		4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAllYouNeedApp.swift; sourceTree = "<group>"; };
 		7BB49E2E3D4615E0473EB8F2 /* MacAllYouNeed.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MacAllYouNeed.entitlements; sourceTree = "<group>"; };
 		ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		FED34386D7CDF0DEF64C33E7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				76E72834DB05A5A4E2888B6D /* Core in Frameworks */,
+				56BC84AA624EB0E847CDB02E /* UI in Frameworks */,
+				493B06B4F6B86ACA098B84C8 /* Platform in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		3A19DB45CB8F1F6EF52975DC /* MacAllYouNeed */ = {
@@ -43,8 +60,17 @@
 			isa = PBXGroup;
 			children = (
 				3A19DB45CB8F1F6EF52975DC /* MacAllYouNeed */,
+				84B8A48C3BDF35E36D0354BC /* Packages */,
 				446F5E20EE01D39FFCAC4076 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		84B8A48C3BDF35E36D0354BC /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				411973A037BCC50C2F200F8E /* Shared */,
+			);
+			name = Packages;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -56,6 +82,7 @@
 			buildPhases = (
 				E3FE0165928A14B3B3183FE8 /* Sources */,
 				FA697DE6860F2E4472CA0EC6 /* Resources */,
+				FED34386D7CDF0DEF64C33E7 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -63,6 +90,9 @@
 			);
 			name = MacAllYouNeed;
 			packageProductDependencies = (
+				6731B6B0CA4B6CEFF4A313B9 /* Core */,
+				DE455CF6AE9CDA5C981B1F12 /* UI */,
+				C90EF9C0B92791031982E209 /* Platform */,
 			);
 			productName = MacAllYouNeed;
 			productReference = 0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */;
@@ -92,6 +122,9 @@
 			);
 			mainGroup = 6F7FD91BA10CF0F5B1252364;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				6F6C8B9EBB0EAB17D78F17E4 /* XCLocalSwiftPackageReference "Shared" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 446F5E20EE01D39FFCAC4076 /* Products */;
 			projectDirPath = "";
@@ -304,6 +337,28 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		6F6C8B9EBB0EAB17D78F17E4 /* XCLocalSwiftPackageReference "Shared" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Shared;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		6731B6B0CA4B6CEFF4A313B9 /* Core */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Core;
+		};
+		C90EF9C0B92791031982E209 /* Platform */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Platform;
+		};
+		DE455CF6AE9CDA5C981B1F12 /* UI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = UI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E66B6891310EDBB726ABA1AA /* Project object */;
 }
