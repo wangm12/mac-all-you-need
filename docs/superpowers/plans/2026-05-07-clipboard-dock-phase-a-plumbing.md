@@ -427,6 +427,117 @@ EOF
 
 ---
 
+## Task 1.5: Self-write suppression sentinel
+
+**Files:**
+- Modify: `Shared/Sources/Platform/Pasteboard/PasteboardTypes.swift`
+- Modify: `Shared/Sources/Platform/Pasteboard/PasteboardObserver.swift`
+- Modify: `Shared/Sources/Platform/XPC/ClipboardXPCService.swift`
+- Test: `Shared/Tests/PlatformTests/PasteboardObserverTests.swift`
+
+**Why this lands here:** every paste flow in Phase A — including the existing `paste(itemID:)` we just relocated — writes to the pasteboard, which the daemon's `PasteboardObserver` will then re-record as a brand-new clip with the wrong source app. Without suppression, every snippet paste / transformation / multi-paste produces a duplicate history entry. Subsequent Phase A tasks rely on this fix being present before they ship.
+
+**Mechanism:** every service-initiated pasteboard write also sets a sentinel `daemonWrite` pasteboard type. The observer's tick reads `currentTypes()` and skips any change containing that type. When another app overwrites the pasteboard, the sentinel is gone and capture resumes normally.
+
+- [ ] **Step 1: Failing test**
+
+Append to `Shared/Tests/PlatformTests/PasteboardObserverTests.swift`:
+
+```swift
+    func testTickSkipsChangesContainingDaemonWriteSentinel() {
+        let pb = NSPasteboard(name: NSPasteboard.Name("test-\(UUID())"))
+        let reader = PrivatePasteboardReader(pb: pb)
+        let obs = PasteboardObserver(reader: reader, rules: ExclusionRules(), pollInterval: 0.05)
+
+        var fired = false
+        obs.start { _ in fired = true }
+        defer { obs.stop() }
+
+        pb.clearContents()
+        pb.setString("hello", forType: .string)
+        pb.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
+        Thread.sleep(forTimeInterval: 0.2)
+
+        XCTAssertFalse(fired, "observer must skip changes carrying the daemonWrite sentinel")
+    }
+```
+
+`PrivatePasteboardReader` already exists in this file (used by other observer tests); if not, add a tiny conforming wrapper around an `NSPasteboard` instance.
+
+- [ ] **Step 2: Verify failure**
+
+```bash
+cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter PasteboardObserverTests/testTickSkipsChangesContainingDaemonWriteSentinel
+```
+
+Expected: FAIL — `PasteboardUTI.daemonWrite` doesn't exist; observer doesn't filter.
+
+- [ ] **Step 3: Add the sentinel UTI**
+
+In `Shared/Sources/Platform/Pasteboard/PasteboardTypes.swift`:
+
+```swift
+    public static let daemonWrite = NSPasteboard.PasteboardType("com.macallyouneed.shared.daemon-write")
+```
+
+- [ ] **Step 4: Update observer tick**
+
+In `Shared/Sources/Platform/Pasteboard/PasteboardObserver.swift`, in `tick()`:
+
+```swift
+    private func tick() {
+        let count = reader.currentChangeCount()
+        guard count != lastCount else { return }
+        lastCount = count
+        let types = reader.currentTypes()
+        if types.contains(PasteboardUTI.daemonWrite.rawValue) { return }
+        let bundleID = reader.frontmostBundleID()
+        if rules.shouldExclude(types: types, appBundleID: bundleID) { return }
+        let items = reader.currentItems()
+        guard !items.isEmpty else { return }
+        callback?(PasteboardChange(changeCount: count, frontmostAppBundleID: bundleID, items: items))
+    }
+```
+
+- [ ] **Step 5: Mark every service-initiated pasteboard write**
+
+In `ClipboardXPCService.swift`, add a small helper:
+
+```swift
+    private func markAsDaemonWrite() {
+        pasteboard.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
+    }
+```
+
+Call it after every place the service writes to `self.pasteboard`. In `paste(itemID:plainText:reply:)`'s `DispatchQueue.main.async` block — both branches (plainText and formatted) — add `self.markAsDaemonWrite()` after the `setString`/`restoreToPasteboard` call but before `PasteInjector.paste`. Same for `restoreToPasteboard` static method — add a parameter to mark, or call `markAsDaemonWrite` from the caller after invoking it.
+
+For the static `restoreToPasteboard(body:blobs:pasteboard:)`, simplest is: after calling it, add `pasteboard.setData(Data([0]), forType: PasteboardUTI.daemonWrite)` at the call site.
+
+- [ ] **Step 6: Run tests + commit**
+
+```bash
+cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test
+git add Shared/Sources/Platform/Pasteboard/PasteboardTypes.swift \
+        Shared/Sources/Platform/Pasteboard/PasteboardObserver.swift \
+        Shared/Sources/Platform/XPC/ClipboardXPCService.swift \
+        Shared/Tests/PlatformTests/PasteboardObserverTests.swift
+git commit -m "$(cat <<'EOF'
+feat(pasteboard): self-write suppression via daemonWrite sentinel UTI
+
+Every service-initiated pasteboard write now also sets a sentinel
+type. PasteboardObserver tick skips changes carrying it. Prevents
+duplicate history rows + wrong source-app provenance on every paste/
+pasteText/pasteMany/transformAndCopy flow.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+EOF
+)"
+```
+
+**Note for subsequent tasks:** every new RPC that writes to the pasteboard (`pasteMany`, `pasteText`, `transformAndCopy`) MUST call `markAsDaemonWrite()` after writing content, before `PasteInjector.paste`. Their task code blocks below assume this helper exists.
+
+---
+
 ## Task 2: Extend `ClipboardXPCMeta` wire format with new fields
 
 **Files:**
@@ -1310,6 +1421,7 @@ In `ClipboardXPCService.swift`, add:
         DispatchQueue.main.async {
             self.pasteboard.clearContents()
             self.pasteboard.setString(joined, forType: .string)
+            self.markAsDaemonWrite()
             let result = PasteInjector.paste(nil, mode: .plainText, into: self.pasteboard)
             reply(result.rawValue)
         }
@@ -1444,6 +1556,7 @@ In `ClipboardXPCService.swift`:
         DispatchQueue.main.async {
             self.pasteboard.clearContents()
             self.pasteboard.setString(text, forType: .string)
+            self.markAsDaemonWrite()
             let result = PasteInjector.paste(nil, mode: plainText ? .plainText : .formatted, into: self.pasteboard)
             reply(result.rawValue)
         }
@@ -2044,15 +2157,317 @@ EOF
 
 ---
 
+## Task 11.1: `bodyFileURLs` RPC
+
+**Files:**
+- Modify: `Shared/Sources/Core/XPC/ClipboardXPCProtocol.swift`
+- Modify: `Shared/Sources/Platform/XPC/ClipboardXPCService.swift`
+- Modify: `Shared/Sources/Core/XPC/ClipboardXPCInteracting.swift`
+- Modify: `Shared/Sources/Core/XPC/ClipboardXPCClient.swift`
+- Modify: `ClipboardDaemon/ClipboardXPCServer.swift`
+- Test: `Shared/Tests/PlatformTests/XPC/ClipboardXPCServiceTests.swift`
+
+The UI layer needs file URLs for `FileCard` rendering, drag-out, and Quick Look. `bodyText` only handles text/html. Add a parallel RPC for `.files([URL])` records.
+
+- [ ] **Step 1: Failing test**
+
+```swift
+    func testBodyFileURLsReturnsURLsForFilesRecord() throws {
+        let urls = [URL(fileURLWithPath: "/tmp/a.txt"), URL(fileURLWithPath: "/tmp/b.txt")]
+        let item = try clip.append(.files(urls))
+        let exp = expectation(description: "files")
+        service.bodyFileURLs(forID: item.id.rawValue) { result in
+            XCTAssertEqual(result, urls.map(\.path))
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+    }
+
+    func testBodyFileURLsReturnsNilForNonFilesRecord() throws {
+        let item = try clip.append(.text("not files"))
+        let exp = expectation(description: "files")
+        service.bodyFileURLs(forID: item.id.rawValue) { result in
+            XCTAssertNil(result)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+    }
+```
+
+- [ ] **Step 2: Add to protocol**
+
+```swift
+    func bodyFileURLs(forID id: String, reply: @escaping ([String]?) -> Void)
+```
+
+(`[String]` of paths; UI converts back to URL.)
+
+- [ ] **Step 3: Implement in service**
+
+```swift
+    public func bodyFileURLs(forID id: String, reply: @escaping ([String]?) -> Void) {
+        guard let rid = RecordID(rawValue: id),
+              let body = try? clip.body(for: rid),
+              case let .files(urls) = body
+        else { reply(nil); return }
+        reply(urls.map(\.path))
+    }
+```
+
+- [ ] **Step 4: Forward in server, add to interacting protocol + client extension**
+
+In `ClipboardXPCInteracting`:
+
+```swift
+    func bodyFileURLs(forID id: String) async -> [String]?
+```
+
+In `ClipboardXPCClient` extension:
+
+```swift
+    public func bodyFileURLs(forID id: String) async -> [String]? {
+        await withCheckedContinuation { cont in
+            guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+                cont.resume(returning: nil)
+            }) as? ClipboardXPCProtocol else { cont.resume(returning: nil); return }
+            proxy.bodyFileURLs(forID: id) { cont.resume(returning: $0) }
+        }
+    }
+```
+
+In `ClipboardXPCServer`:
+
+```swift
+    func bodyFileURLs(forID id: String, reply: @escaping ([String]?) -> Void) {
+        service.bodyFileURLs(forID: id, reply: reply)
+    }
+```
+
+- [ ] **Step 5: Run + commit**
+
+```bash
+cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter ClipboardXPCServiceTests
+git add Shared/Sources/Core/XPC/ClipboardXPCProtocol.swift \
+        Shared/Sources/Core/XPC/ClipboardXPCInteracting.swift \
+        Shared/Sources/Core/XPC/ClipboardXPCClient.swift \
+        Shared/Sources/Platform/XPC/ClipboardXPCService.swift \
+        ClipboardDaemon/ClipboardXPCServer.swift \
+        Shared/Tests/PlatformTests/XPC/ClipboardXPCServiceTests.swift
+git commit -m "feat(xpc): add bodyFileURLs RPC for file-kind records"
+```
+
+---
+
+## Task 11.2: `metasByIDs` RPC
+
+**Files:**
+- Modify: `Shared/Sources/Core/XPC/ClipboardXPCProtocol.swift`
+- Modify: `Shared/Sources/Platform/XPC/ClipboardXPCService.swift`
+- Modify: `Shared/Sources/Core/XPC/ClipboardXPCInteracting.swift`
+- Modify: `Shared/Sources/Core/XPC/ClipboardXPCClient.swift`
+- Modify: `ClipboardDaemon/ClipboardXPCServer.swift`
+- Test: `Shared/Tests/PlatformTests/XPC/ClipboardXPCServiceTests.swift`
+
+Phase C's Pinned and Pinboard tabs need to load specific item IDs regardless of recency. `ClipboardStore.metas(for:)` already supports arbitrary IDs; this RPC exposes it.
+
+- [ ] **Step 1: Failing test**
+
+```swift
+    func testMetasByIDsReturnsRequestedItemsRegardlessOfRecency() throws {
+        // Make 5 records, request the oldest two by ID.
+        var metas: [ClipboardItemMeta] = []
+        for i in 0..<5 {
+            metas.append(try clip.append(.text("v\(i)")))
+            Thread.sleep(forTimeInterval: 0.002)
+        }
+        let oldestTwo = [metas[0].id.rawValue, metas[1].id.rawValue]
+        let exp = expectation(description: "metas")
+        service.metasByIDs(ids: oldestTwo) { list in
+            XCTAssertEqual(list.items.count, 2)
+            XCTAssertEqual(Set(list.items.map(\.id)), Set(oldestTwo))
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+    }
+
+    func testMetasByIDsSkipsUnknownIDs() {
+        let exp = expectation(description: "metas")
+        service.metasByIDs(ids: ["01HFAKEFAKEFAKEFAKEFAKEFAK"]) { list in
+            XCTAssertEqual(list.items.count, 0)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+    }
+```
+
+- [ ] **Step 2: Add to protocol**
+
+```swift
+    func metasByIDs(ids: [String], reply: @escaping (ClipboardXPCList) -> Void)
+```
+
+- [ ] **Step 3: Implement in service**
+
+```swift
+    public func metasByIDs(ids: [String], reply: @escaping (ClipboardXPCList) -> Void) {
+        let recordIDs = ids.compactMap { RecordID(rawValue: $0) }
+        let metas = (try? clip.metas(for: recordIDs)) ?? []
+        let items = metas.map { meta -> ClipboardXPCMeta in
+            var imgWidth = 0
+            var imgHeight = 0
+            var imgBlobID: String? = nil
+            if meta.kind == .clipboardItem,
+               let body = try? clip.body(for: meta.id),
+               case let .image(blobID, w, h) = body {
+                imgBlobID = blobID; imgWidth = w; imgHeight = h
+            }
+            return ClipboardXPCMeta(
+                id: meta.id.rawValue, modified: meta.modified,
+                kind: meta.kind.rawValue, preview: meta.preview,
+                sourceAppBundleID: meta.sourceAppBundleID,
+                imageWidth: imgWidth, imageHeight: imgHeight, imageBlobID: imgBlobID
+            )
+        }
+        reply(ClipboardXPCList(items: items, nextPageToken: nil))
+    }
+```
+
+- [ ] **Step 4: Forward, async wrapper, allowed classes**
+
+`ClipboardXPCInteracting`:
+
+```swift
+    func metasByIDs(ids: [String]) async -> ClipboardXPCList
+```
+
+`ClipboardXPCClient` extension:
+
+```swift
+    public func metasByIDs(ids: [String]) async -> ClipboardXPCList {
+        await withCheckedContinuation { cont in
+            let empty = ClipboardXPCList(items: [], nextPageToken: nil)
+            guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+                cont.resume(returning: empty)
+            }) as? ClipboardXPCProtocol else { cont.resume(returning: empty); return }
+            proxy.metasByIDs(ids: ids) { cont.resume(returning: $0) }
+        }
+    }
+```
+
+`ClipboardXPCServer`:
+
+```swift
+    func metasByIDs(ids: [String], reply: @escaping (ClipboardXPCList) -> Void) {
+        service.metasByIDs(ids: ids, reply: reply)
+    }
+```
+
+- [ ] **Step 5: Run + commit**
+
+```bash
+cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter ClipboardXPCServiceTests
+git add Shared/Sources/Core/XPC/ClipboardXPCProtocol.swift \
+        Shared/Sources/Core/XPC/ClipboardXPCInteracting.swift \
+        Shared/Sources/Core/XPC/ClipboardXPCClient.swift \
+        Shared/Sources/Platform/XPC/ClipboardXPCService.swift \
+        ClipboardDaemon/ClipboardXPCServer.swift \
+        Shared/Tests/PlatformTests/XPC/ClipboardXPCServiceTests.swift
+git commit -m "feat(xpc): add metasByIDs RPC for bulk-by-ID lookup (Pinned tabs)"
+```
+
+---
+
+## Task 12: Complete server-side `iface.setClasses` for all new RPCs
+
+**Files:**
+- Modify: `ClipboardDaemon/ClipboardXPCServer.swift`
+- Modify: `Shared/Sources/Core/XPC/ClipboardXPCClient.swift`
+
+Phase A's earlier tasks added new RPCs but the server's `iface.setClasses(...)` registrations only cover `listItems` and `resolveBlob` (inherited from before the redesign). Without complete registration, NSXPC will reject decodes at runtime. The Phase A tests don't catch this because they bypass the XPC machinery — only manual smoke or daemon-vs-app integration would reveal it. This task adds every missing entry on both sides.
+
+- [ ] **Step 1: Update server `iface.setClasses` block**
+
+In `ClipboardDaemon/ClipboardXPCServer.swift`, in `listener(_:shouldAcceptNewConnection:)`, replace the `allowed` set + `iface.setClasses` calls with the complete set:
+
+```swift
+        let iface = NSXPCInterface(with: ClipboardXPCProtocol.self)
+        let allowed: Set<AnyHashable> = [
+            ClipboardXPCList.self,
+            ClipboardXPCBlobRef.self,
+            NSArray.self,
+            ClipboardXPCMeta.self,
+            SnippetXPCDTO.self,
+            NSString.self,
+            NSDate.self,
+            NSNumber.self,
+            NSData.self
+        ]
+        // Replies that decode rich object graphs.
+        iface.setClasses(allowed,
+            for: #selector(ClipboardXPCProtocol.listItems(query:pageToken:limit:reply:)),
+            argumentIndex: 0, ofReply: true)
+        iface.setClasses(allowed,
+            for: #selector(ClipboardXPCProtocol.metasByIDs(ids:reply:)),
+            argumentIndex: 0, ofReply: true)
+        iface.setClasses(allowed,
+            for: #selector(ClipboardXPCProtocol.resolveBlob(blobID:reply:)),
+            argumentIndex: 0, ofReply: true)
+        iface.setClasses(allowed,
+            for: #selector(ClipboardXPCProtocol.imageThumbnail(forID:maxDim:reply:)),
+            argumentIndex: 0, ofReply: true)
+        iface.setClasses(allowed,
+            for: #selector(ClipboardXPCProtocol.bodyFileURLs(forID:reply:)),
+            argumentIndex: 0, ofReply: true)
+        iface.setClasses(allowed,
+            for: #selector(ClipboardXPCProtocol.listSnippets(reply:)),
+            argumentIndex: 0, ofReply: true)
+        // Arguments that arrive as collections.
+        iface.setClasses(allowed,
+            for: #selector(ClipboardXPCProtocol.pasteMany(itemIDs:delimiter:plainText:reply:)),
+            argumentIndex: 0, ofReply: false)
+        iface.setClasses(allowed,
+            for: #selector(ClipboardXPCProtocol.metasByIDs(ids:reply:)),
+            argumentIndex: 0, ofReply: false)
+```
+
+- [ ] **Step 2: Mirror on client**
+
+In `ClipboardXPCClient.swift`, the `allowed` `NSSet` already includes `NSData` from Task 6. Add `iface.setClasses` calls for every new RPC's reply (same pattern as server). The client-side `setClasses(...)` calls live in the `init(serviceName:resumesImmediately:)` block.
+
+- [ ] **Step 3: Build + commit**
+
+```bash
+xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme ClipboardDaemon -configuration Debug build 2>&1 | tail -5
+xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme MacAllYouNeed -configuration Debug build 2>&1 | tail -5
+git add ClipboardDaemon/ClipboardXPCServer.swift Shared/Sources/Core/XPC/ClipboardXPCClient.swift
+git commit -m "$(cat <<'EOF'
+fix(xpc): complete iface.setClasses for every new RPC, both sides
+
+Previously only listItems + resolveBlob had explicit class
+registration. NSXPC would reject runtime decodes for imageThumbnail
+(Data/NSData reply), pasteMany ([String] arg), metasByIDs
+(both arg + reply), bodyFileURLs (NSArray<NSString> reply). Now
+covers every method on both server (request side) and client
+(reply side).
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ## Phase A — Done
 
 End-state of Phase A:
 
 - New XPC wire format ships with `sourceAppBundleID`, `imageWidth/Height`, `imageBlobID`. Backward-compatible decode verified by contract test.
-- New RPCs: `imageThumbnail`, `pasteMany`, `pasteText`, `transformAndCopy`. All implemented daemon-side with unit-test coverage.
+- New RPCs: `imageThumbnail`, `pasteMany`, `pasteText`, `transformAndCopy`, `bodyFileURLs`, `metasByIDs`. All implemented daemon-side with unit-test coverage.
+- Self-write suppression sentinel UTI prevents the daemon from re-recording its own pasteboard writes.
 - Helpers `ThumbnailRenderer`, `ThumbnailCache`, `TextTransforms` live in `Shared/Sources/Platform/`.
 - `ClipboardXPCService` cleanly extracted from the daemon's listener — pure, testable.
 - `ClipboardXPCInteracting` async protocol ready for Phase B's `ClipboardDockModel`.
+- Complete `iface.setClasses` registration on both client and server for every new RPC.
 - Existing UI (centered floating popup) unchanged; user experience unchanged.
 
 Run the full test suite and a clean build to confirm green:
