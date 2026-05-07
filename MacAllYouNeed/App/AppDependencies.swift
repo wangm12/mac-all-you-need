@@ -31,14 +31,23 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
     }
 
     func refresh(query: String? = nil, limit: Int = 50, rememberQuery: Bool = false) async {
-        guard let proxy = xpc.proxy() else { return }
         let trimmedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveQuery = trimmedQuery?.isEmpty == false ? trimmedQuery : nil
         if rememberQuery {
             activeQuery = effectiveQuery
         }
+        let empty = ClipboardXPCList(items: [], nextPageToken: nil)
         let result: ClipboardXPCList = await withCheckedContinuation { cont in
-            proxy.listItems(query: effectiveQuery, pageToken: nil, limit: limit) { list in cont.resume(returning: list) }
+            // Use an error-handling proxy so the continuation always resumes even
+            // if the XPC connection drops before the callback fires (e.g. daemon
+            // not yet ready when the app first connects).
+            let proxy = xpc.connection.remoteObjectProxyWithErrorHandler { _ in
+                cont.resume(returning: empty)
+            } as? ClipboardXPCProtocol
+            guard let proxy else { cont.resume(returning: empty); return }
+            proxy.listItems(query: effectiveQuery, pageToken: nil, limit: limit) { list in
+                cont.resume(returning: list)
+            }
         }
         recentItems = result.items
     }

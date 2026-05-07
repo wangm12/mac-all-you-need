@@ -54,10 +54,10 @@ struct ClipboardPopupView: View {
         Task {
             try? await Task.sleep(nanoseconds: 80_000_000)
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                guard let proxy = deps.xpc.proxy() else {
+                let proxy = deps.xpc.connection.remoteObjectProxyWithErrorHandler { _ in
                     cont.resume()
-                    return
-                }
+                } as? ClipboardXPCProtocol
+                guard let proxy else { cont.resume(); return }
                 proxy.paste(itemID: id, plainText: plainText) { _ in cont.resume() }
             }
         }
