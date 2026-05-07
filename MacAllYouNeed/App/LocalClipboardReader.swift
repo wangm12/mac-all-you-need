@@ -26,7 +26,6 @@ final class LocalClipboardReader {
 
     private func startPolling() {
         pollTask = Task {
-            // Small initial delay to let the daemon finish any in-flight write
             try? await Task.sleep(for: .milliseconds(300))
             while !Task.isCancelled {
                 await reload()
@@ -36,28 +35,50 @@ final class LocalClipboardReader {
     }
 
     private func reload() async {
-        guard let store else {
-            NSLog("📋 LocalClipboardReader: store is nil")
-            return
-        }
-        let currentQuery = query
-        let trimmed = currentQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Run the DB read on a background thread to avoid blocking the main actor
+        guard let store else { return }
+        let currentQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let result = await Task.detached(priority: .userInitiated) {
-            Result { try store.list(limit: 50) }
+            Result { try store.list(limit: 200) }
         }.value
         switch result {
         case .success(let fetched):
-            NSLog("📋 LocalClipboardReader: fetched \(fetched.count) items")
-            if trimmed.isEmpty {
-                items = fetched
+            let deduped = Self.deduplicate(fetched, limit: 30)
+            if currentQuery.isEmpty {
+                items = deduped
             } else {
-                let lower = trimmed.lowercased()
-                items = fetched.filter { $0.preview.lowercased().contains(lower) }
+                let lower = currentQuery.lowercased()
+                items = deduped.filter { $0.preview.lowercased().contains(lower) }
             }
-        case .failure(let error):
-            NSLog("📋 LocalClipboardReader: list() threw: \(error)")
+        case .failure:
             items = []
         }
     }
+
+    /// One copy action often writes multiple records (image + file URL, RTF + plain text).
+    /// Group items within a 0.5s window and keep the most informative one per group.
+    private static func deduplicate(_ sorted: [ClipboardItemMeta], limit: Int) -> [ClipboardItemMeta] {
+        var result: [ClipboardItemMeta] = []
+        for item in sorted {
+            if let last = result.last,
+               abs(last.modified.timeIntervalSince(item.modified)) < 0.5
+            {
+                // Same copy action — keep the more informative item
+                if previewPriority(item.preview) > previewPriority(last.preview) {
+                    result[result.count - 1] = item
+                }
+            } else {
+                result.append(item)
+            }
+            if result.count >= limit { break }
+        }
+        return result
+    }
+
+    /// Higher = more informative. Text > Image > File list
+    private static func previewPriority(_ preview: String) -> Int {
+        if preview.hasPrefix("(image ") { return 1 }
+        if preview.hasPrefix("(") && preview.contains("file") { return 0 }
+        return 2
+    }
 }
+

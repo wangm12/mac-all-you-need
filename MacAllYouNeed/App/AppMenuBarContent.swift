@@ -66,22 +66,49 @@ struct SyncStatusChip: View {
 struct ClipboardMenuBarContent: View {
     let reader: LocalClipboardReader
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Recent clipboard").font(.caption).foregroundStyle(.secondary)
-            ForEach(reader.items, id: \.id.rawValue) { item in
-                HStack {
-                    Text(item.preview).lineLimit(1).truncationMode(.tail)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+        if reader.items.isEmpty {
+            Text("No items yet")
+                .foregroundStyle(.tertiary).font(.callout)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            List(reader.items, id: \.id.rawValue) { item in
+                ClipboardItemRow2(item: item)
             }
-            if reader.items.isEmpty {
-                Text("No items yet").foregroundStyle(.tertiary).font(.callout)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            .listStyle(.plain)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct ClipboardItemRow2: View {
+    let item: ClipboardItemMeta
+
+    private var icon: String {
+        if item.preview.hasPrefix("(image ") { return "photo" }
+        if item.preview.hasPrefix("(") && item.preview.contains("file") { return "doc" }
+        if item.preview.hasPrefix("http") { return "link" }
+        return "doc.plaintext"
+    }
+
+    private var displayText: String {
+        item.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(displayText)
+                .lineLimit(2)
+                .font(.callout)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            Text(item.modified, style: .relative)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 2)
     }
 }
 
