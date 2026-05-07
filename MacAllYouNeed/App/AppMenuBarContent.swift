@@ -5,6 +5,7 @@ import SwiftUI
 struct AppMenuBarContent: View {
     let controller: AppController
     @State private var tab: Tab = .clipboard
+    @Environment(\.openSettings) private var openSettings
 
     enum Tab: Hashable { case clipboard, downloads, snippets }
 
@@ -14,8 +15,11 @@ struct AppMenuBarContent: View {
                 Text("Mac All You Need").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 SyncStatusChip()
-                SettingsLink { Image(systemName: "gear") }
-                    .buttonStyle(.borderless)
+                Button {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openSettings()
+                } label: { Image(systemName: "gear") }
+                .buttonStyle(.borderless)
             }
             .padding(.horizontal, 10).padding(.top, 8)
 
