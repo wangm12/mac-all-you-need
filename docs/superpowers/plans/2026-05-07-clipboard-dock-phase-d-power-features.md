@@ -66,6 +66,7 @@
 ```swift
     func testDeleteItemRemovesRecord() throws {
         let item = try clip.append(.text("doomed"))
+        try search.upsert(kind: .clipboardItem, id: item.id, text: "doomed")
         let exp = expectation(description: "delete")
         service.deleteItem(id: item.id.rawValue) { ok in
             XCTAssertTrue(ok)
@@ -73,6 +74,21 @@
         }
         wait(for: [exp], timeout: 1)
         XCTAssertEqual(try clip.list(limit: 10).count, 0)
+        XCTAssertEqual(try search.search(query: "doomed", limit: 10).count, 0,
+                       "search index row must also be removed")
+    }
+
+    func testDeleteItemAlsoDeletesBlobForImageRecord() throws {
+        let blobID = try blobs.write(Data(repeating: 1, count: 100))
+        let item = try clip.append(.image(blobID: blobID, width: 8, height: 8))
+        let exp = expectation(description: "delete")
+        service.deleteItem(id: item.id.rawValue) { ok in
+            XCTAssertTrue(ok)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: blobs.encryptedURL(id: blobID).path),
+                       "blob file must be deleted along with image record")
     }
 
     func testDeleteItemReturnsFalseForUnknownID() {
@@ -109,15 +125,30 @@ In `ClipboardXPCService.swift`:
     public func deleteItem(id: String, reply: @escaping (Bool) -> Void) {
         guard let rid = RecordID(rawValue: id) else { reply(false); return }
         do {
-            // Verify record exists before deleting; ClipboardStore.delete is idempotent.
-            _ = try clip.body(for: rid)
-            try clip.delete(id: rid)
+            try deleteRecordFully(id: rid)
             reply(true)
         } catch {
             reply(false)
         }
     }
+
+    /// Removes a clipboard record everywhere it touches:
+    /// - blob file (for image kinds), so BlobStore doesn't accumulate orphans
+    /// - search index row, so FTS doesn't return tombstoned IDs
+    /// - clipboard_records row
+    /// Throws if the record doesn't exist (caller treats this as "false" reply).
+    /// Used by deleteItem RPC and by Phase E retention.
+    public func deleteRecordFully(id: RecordID) throws {
+        let body = try clip.body(for: id)   // throws .404 if missing → treat as not-found
+        if case let .image(blobID, _, _) = body {
+            try? blobs.delete(id: blobID)
+        }
+        try? search.remove(id: id)
+        try clip.delete(id: id)
+    }
 ```
+
+`SearchStore.remove(id:)` already exists — see `Shared/Sources/Core/Storage/SearchStore.swift`. If it doesn't yet take `RecordID` directly, mirror its existing signature.
 
 - [ ] **Step 5: Forward in server**
 
@@ -764,6 +795,20 @@ struct QuickLookOverlay: View {
                 Task { @MainActor in model.isQuickLooking.toggle() }
                 return nil
             }
+            // Arrow keys cycle items while QuickLook is open (matches §12.6 smoke test
+            // "Image card + Space → Quick Look full-size; arrow keys cycle while
+            // overlay open"). Without this, arrow events fall to the carousel which
+            // is hidden behind the overlay.
+            if model.isQuickLooking {
+                if event.keyCode == 124 {   // → right arrow
+                    Task { @MainActor in model.focusForward() }
+                    return nil
+                }
+                if event.keyCode == 123 {   // ← left arrow
+                    Task { @MainActor in model.focusBackward() }
+                    return nil
+                }
+            }
 ```
 
 If `.dismiss` fires while `model.isQuickLooking`, dismiss only the overlay:
@@ -832,7 +877,7 @@ struct QuickLookContent: View {
                 }
                 .task(id: item.id) { fullText = await xpc.bodyText(forID: item.id) ?? item.preview }
             case .image:
-                FullImageView(recordID: item.id, loader: imageLoader)
+                FullImageView(item: item, loader: imageLoader)
             case .file:
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
@@ -890,22 +935,51 @@ struct QuickLookContent: View {
 }
 
 private struct FullImageView: View {
-    let recordID: String
+    let item: DockItem
     let loader: ImageBlobLoader
     @State private var image: NSImage?
+    @State private var zoom: CGFloat = 1.0
+    @State private var dataSize: Int?
 
     var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            } else {
-                ProgressView()
+        VStack(spacing: 6) {
+            ZStack {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .scaleEffect(zoom)
+                        .gesture(
+                            MagnificationGesture()
+                                .onChanged { value in zoom = max(0.25, min(8, value)) }
+                        )
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Footer: dimensions + bytes (if known)
+            HStack(spacing: 12) {
+                if case let .image(w, h, _) = item.kind {
+                    Text("\(w) × \(h)").font(.caption).foregroundStyle(.secondary)
+                }
+                if let dataSize {
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(dataSize), countStyle: .file))
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Text("⌘+ / ⌘− to zoom").font(.caption2).foregroundStyle(.tertiary)
             }
         }
-        .task(id: recordID) {
-            image = await loader.thumbnail(recordID: recordID, maxDim: 0)
+        .task(id: item.id) {
+            zoom = 1.0
+            // Fetch original (maxDim 0 = passthrough) for fidelity in Quick Look.
+            image = await loader.thumbnail(recordID: item.id, maxDim: 0)
+            // The XPC reply is decoded JPEG; we don't have raw byte size easily here.
+            // Approximate via NSImage's pixelsHigh × pixelsWide × 4 — informational only.
+            if let r = image?.representations.first as? NSBitmapImageRep {
+                dataSize = r.pixelsHigh * r.pixelsWide * 4
+            }
         }
     }
 }
@@ -1081,38 +1155,31 @@ git commit -m "feat(dock): wire selection-extend + delete shortcuts in key monit
 - Modify: `MacAllYouNeed/ClipboardDock/Views/Cards/LinkCard.swift`
 - Modify: `MacAllYouNeed/ClipboardDock/Views/Cards/ColorCard.swift`
 
+Uses SwiftUI's `.draggable(_:)` with the `Transferable` conformance of each payload type. `[URL]` is `Transferable` natively in macOS 14+, so multi-file drag is handled by the framework — no manual `NSItemProvider` juggling.
+
+The auto-dismiss-prevention hook moves out of every card and into a single global `NSEvent.localMonitor` for `.leftMouseDragged` events that originate inside the dock window (Task 13). Cards no longer need to call `draggingDidStart()`.
+
 - [ ] **Step 1: TextCard / CodeCard**
 
-Append `.draggable(item.preview)` to the body's outer view.
+```swift
+        .draggable(item.preview)
+```
 
 - [ ] **Step 2: ImageCard**
-
-Replace with:
 
 ```swift
         .draggable(image ?? NSImage())
 ```
 
-(Drag works only after the image is loaded; user-perceived latency is identical to the visible thumbnail load.)
+(Drag works only after the image loads; user-perceived latency matches the visible thumbnail load.)
 
 - [ ] **Step 3: FileCard**
 
-`FileCard` already loads URLs lazily via `FileURLLoader` (Phase B Task 9). Update its outer body to provide an `onDrag` that returns the loaded URLs as a multi-item provider:
-
 ```swift
-        .onDrag {
-            AppController.shared?.dock.draggingDidStart()
-            // urls is the @State property; if not yet loaded the drag fires with no URLs
-            // (briefly possible right after the card appears — fine; user retries).
-            let providers = NSItemProvider()
-            for u in urls {
-                providers.registerObject(u as NSURL, visibility: .all)
-            }
-            return providers
-        }
+        .draggable(urls)
 ```
 
-If multiple URLs are present, register them in one provider via `registerFileRepresentation` per URL — drop targets that accept `public.file-url` will receive the list in order.
+`urls: [URL]` is the loaded `@State` — see Phase B Task 9. SwiftUI uses `[URL]`'s built-in `Transferable` conformance to deliver every URL to the drop target as `public.file-url` items.
 
 - [ ] **Step 4: LinkCard**
 
@@ -1125,7 +1192,7 @@ If multiple URLs are present, register them in one provider via `registerFileRep
 - [ ] **Step 5: ColorCard**
 
 ```swift
-        .draggable(item.preview)
+        .draggable(formattedColor())
 ```
 
 - [ ] **Step 6: Build + commit**
@@ -1133,7 +1200,7 @@ If multiple URLs are present, register them in one provider via `registerFileRep
 ```bash
 xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme MacAllYouNeed -configuration Debug build 2>&1 | tail -5
 git add MacAllYouNeed/ClipboardDock/Views/Cards/
-git commit -m "feat(dock): add .draggable to all card types"
+git commit -m "feat(dock): add .draggable to all card types (multi-file via [URL] Transferable)"
 ```
 
 ---
@@ -1143,15 +1210,26 @@ git commit -m "feat(dock): add .draggable to all card types"
 **Files:**
 - Modify: `MacAllYouNeed/ClipboardDock/Window/DockWindowController.swift`
 
-When the user starts a drag from the dock, the global mouse-down monitor (Phase B) would fire on mouse-up outside the window and dismiss the dock prematurely. Suspend the monitor for 800ms after a drag begins.
+Cards use `.draggable(_:)` (Task 12) which doesn't expose a per-drag callback in SwiftUI. Instead, the controller installs a global `NSEvent` monitor for `.leftMouseDragged`: any drag whose down-stroke originated inside our window suspends the outside-click monitor for 800ms.
 
-- [ ] **Step 1: Track drag-in-progress and gate the monitor**
+- [ ] **Step 1: Add drag-aware monitor**
 
 ```swift
     private var ignoreOutsideClicksUntil: Date = .distantPast
+    private var dragMonitor: Any?
 
-    func draggingDidStart() {
-        ignoreOutsideClicksUntil = Date().addingTimeInterval(0.8)
+    private func startDragMonitor() {
+        stopDragMonitor()
+        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged]) { [weak self] event in
+            guard let self, let win = self.window, win.isVisible,
+                  let evWin = event.window, evWin == win else { return event }
+            self.ignoreOutsideClicksUntil = Date().addingTimeInterval(0.8)
+            return event
+        }
+    }
+
+    private func stopDragMonitor() {
+        if let m = dragMonitor { NSEvent.removeMonitor(m); dragMonitor = nil }
     }
 
     private func startOutsideClickMonitor() {
@@ -1160,57 +1238,20 @@ When the user starts a drag from the dock, the global mouse-down monitor (Phase 
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
             guard let self else { return }
-            if Date() < ignoreOutsideClicksUntil { return }
+            if Date() < self.ignoreOutsideClicksUntil { return }
             Task { @MainActor in self.hide() }
         }
     }
 ```
 
-Call `draggingDidStart` from the cards' `.draggable` via `onDrag` — but SwiftUI doesn't expose a callback on `.draggable`. Workaround: use the older `.onDrag { ... }` modifier instead of `.draggable(_:)`:
+Call `startDragMonitor()` from `show()`, `stopDragMonitor()` from `hide()`. The cards no longer reference `AppController.shared.dock.draggingDidStart()`.
 
-```swift
-    .onDrag {
-        AppController.shared?.dock.draggingDidStart()
-        return NSItemProvider(object: item.preview as NSString)
-    }
-```
-
-`AppController.shared` requires adding a static reference:
-
-```swift
-@MainActor @Observable
-final class AppController {
-    static var shared: AppController?
-    init() throws { … ; Self.shared = self }
-    …
-}
-```
-
-Acceptable: there's already exactly one AppController.
-
-- [ ] **Step 2: Update card drag modifiers to use `.onDrag`**
-
-Replace each `.draggable(...)` with:
-
-```swift
-    .onDrag {
-        AppController.shared?.dock.draggingDidStart()
-        return NSItemProvider(object: <typed-content> as NSObject)
-    }
-```
-
-For `URL`: `NSItemProvider(item: url as NSURL, typeIdentifier: UTType.url.identifier)`.
-For `NSImage`: `NSItemProvider(object: image)`.
-For `String`: `NSItemProvider(object: text as NSString)`.
-
-- [ ] **Step 3: Build + commit**
+- [ ] **Step 2: Build + commit**
 
 ```bash
 xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme MacAllYouNeed -configuration Debug build 2>&1 | tail -5
-git add MacAllYouNeed/App/AppController.swift \
-        MacAllYouNeed/ClipboardDock/Window/DockWindowController.swift \
-        MacAllYouNeed/ClipboardDock/Views/Cards/
-git commit -m "feat(dock): suspend outside-click dismiss for 800ms during drag"
+git add MacAllYouNeed/ClipboardDock/Window/DockWindowController.swift
+git commit -m "feat(dock): suspend outside-click for 800ms after any drag from dock window"
 ```
 
 ---
@@ -1300,7 +1341,6 @@ struct ColorCard: View {
             }
         }
         .onDrag {
-            AppController.shared?.dock.draggingDidStart()
             return NSItemProvider(object: formattedColor() as NSString)
         }
     }
@@ -1462,8 +1502,8 @@ End-state of Phase D:
 - MultiSelectBar with Paste/Pin/Add to list/Transform/Delete.
 - Quick Look overlay per kind.
 - TransformMenu popover with ⌘T.
-- Drag-out for every card type (text-only for files, deferred to follow-up if friction).
-- Drag-aware auto-dismiss prevention.
+- Drag-out for every card type (text, image, link, color, **multi-file** via SwiftUI Transferable [URL]).
+- Drag-aware auto-dismiss prevention via global leftMouseDragged monitor.
 - ColorCard format cycling + NSColorPanel integration.
 - CheatsheetOverlay reading live from `ShortcutRegistry`.
 - New `deleteItem` RPC in Phase A pattern.

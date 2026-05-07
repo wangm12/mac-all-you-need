@@ -576,9 +576,22 @@ git commit -m "feat(pasteboard): ExclusionRules adds transient + regex blocklist
 - Modify: `ClipboardDaemon/DaemonContainer.swift`
 - Modify: `ClipboardDaemon/ClipboardDaemonMain.swift`
 
-- [ ] **Step 1: Read full settings on startup, on Darwin notification, AND on every tick (defense-in-depth)**
+- [ ] **Step 1: Read full settings on startup, on Darwin notification, with thread-safe handoff**
 
-`UserDefaults.didChangeNotification` fires only within the same process — settings written by the main app's Settings UI will never wake the daemon. The right inter-process channel is a Darwin notification posted by the app and observed by the daemon. We also re-read settings on each capture tick as a cheap fallback (UserDefaults caches in-memory after first read, so this is microseconds).
+`UserDefaults.didChangeNotification` fires only within the same process — settings written by the main app's Settings UI will never wake the daemon. The right inter-process channel is a Darwin notification posted by the app and observed by the daemon.
+
+**Threading note:** `PasteboardObserver` runs its tick on a private utility queue (see `PasteboardObserver.swift`). Mutating `observer.rules` from any other thread races against the timer reading it. We add `PasteboardObserver.updateRules(_:)` that dispatches the assignment onto the observer's own queue.
+
+In `Shared/Sources/Platform/Pasteboard/PasteboardObserver.swift`, add:
+
+```swift
+    /// Thread-safe rule update — dispatches to the observer's internal queue.
+    public func updateRules(_ newRules: ExclusionRules) {
+        queue.async { [weak self] in self?.rules = newRules }
+    }
+```
+
+Also change `public var rules` to `private(set) public var rules` to force callers through `updateRules`.
 
 In `DaemonContainer.init`:
 
@@ -601,14 +614,14 @@ In `DaemonContainer.init`:
             { _, observer, _, _, _ in
                 guard let observer else { return }
                 let container = Unmanaged<DaemonContainer>.fromOpaque(observer).takeUnretainedValue()
-                Task { @MainActor in container.observer.rules = DaemonContainer.loadRules() }
+                container.observer.updateRules(DaemonContainer.loadRules())
             },
             Self.settingsChangedDarwin, nil, .deliverImmediately
         )
     }
 ```
 
-In `Shared/Sources/Core/AppGroupSettings.swift` (or wherever `AppGroupSettings.defaults` lives), add a `notifyReloaded()` helper for the app side:
+In `Shared/Sources/Core/AppGroupSettings.swift`, add a `notifyReloaded()` helper for the app side:
 
 ```swift
 public extension AppGroupSettings {
@@ -622,7 +635,7 @@ public extension AppGroupSettings {
 }
 ```
 
-Every Settings view that writes settings (Privacy / Storage / Search / Appearance) calls `AppGroupSettings.notifyReloaded()` after each `set(_:forKey:)`. To avoid sprinkling that everywhere, add a `Settings.write(_:forKey:)` shim in those views.
+Every Settings view that writes settings (Privacy / Storage / Search / Appearance) calls `AppGroupSettings.notifyReloaded()` after each `set(_:forKey:)` — see Tasks 13–17 below for the exact placements.
 
 ```swift
     private static func loadRules() -> ExclusionRules {
@@ -652,18 +665,6 @@ Every Settings view that writes settings (Privacy / Storage / Search / Appearanc
         )
     }
 ```
-
-Also extend `PasteboardObserver.tick()` to consult an "always re-read" knob via `AppGroupSettings.defaults.bool(forKey: "settings.alwaysReread")`. With this flag on (default true), each tick re-reads `loadRules()` before checking — at most one cheap UserDefaults read per 400ms tick.
-
-In `tick()` (after the existing daemon-write sentinel skip):
-
-```swift
-        if AppGroupSettings.defaults.bool(forKey: "settings.alwaysReread") {
-            // Cheap; UserDefaults is in-memory cached.
-        }
-```
-
-(Defense-in-depth — the Darwin notification is the primary path; the per-tick re-read is fallback for when the app forgets to call `notifyReloaded`.)
 
 - [ ] **Step 2: Apply text-only regex check in `persist`**
 
@@ -1209,6 +1210,18 @@ final class FuzzyMatcherTests: XCTestCase {
     func testNoMatchReturnsEmpty() {
         XCTAssertTrue(FuzzyMatcher.rank(candidates: ["foo"], query: "xyz").isEmpty)
     }
+    func testTypoIsToleratedViaEditDistance() {
+        // The smoke test in §12.6 requires "alfa" to find "Alpha" — pure trigram
+        // overlap fails (no shared 3-grams). Edit-distance scorer handles it.
+        let ranked = FuzzyMatcher.rank(candidates: ["Alpha", "Beta"], query: "alfa")
+        XCTAssertEqual(ranked.first, "Alpha")
+    }
+    func testHandlesDuplicatePreviewsWithoutCrashing() {
+        // Real clipboard records can have identical preview text (user copies the
+        // same URL twice). FuzzyMatcher must not crash on duplicates.
+        let ranked = FuzzyMatcher.rank(candidates: ["dup", "dup", "other"], query: "dup")
+        XCTAssertEqual(ranked.prefix(2), ["dup", "dup"])
+    }
 }
 ```
 
@@ -1222,24 +1235,39 @@ mkdir -p MacAllYouNeed/ClipboardDock/Search
 import Foundation
 
 enum FuzzyMatcher {
+    /// Rank candidates against `query`. Strategy:
+    ///   1. exact substring match → top tier (score 1000)
+    ///   2. for short queries (<=6 chars), Levenshtein-bounded match → tier 2
+    ///   3. trigram overlap → tier 3
+    /// Returns candidates ordered by score; non-matchers omitted. Stable for
+    /// duplicate strings (input order preserved among ties).
     static func rank(candidates: [String], query: String) -> [String] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return candidates }
-        let queryTrigrams = trigrams(q)
-        var scored: [(String, Double)] = []
-        for c in candidates {
+        var scored: [(index: Int, score: Double)] = []
+        for (idx, c) in candidates.enumerated() {
             let cl = c.lowercased()
             if cl.contains(q) {
-                scored.append((c, 100.0))
-                continue
-            }
-            let cTrigrams = trigrams(cl)
-            let intersect = cTrigrams.intersection(queryTrigrams).count
-            if intersect > 0 {
-                scored.append((c, Double(intersect) / Double(queryTrigrams.count)))
+                scored.append((idx, 1000))
+            } else if q.count <= 6 {
+                let dist = editDistance(q, cl.prefix(min(cl.count, max(8, q.count + 4))).lowercased())
+                let threshold = max(1, q.count / 3)   // allow ~33% typo
+                if dist <= threshold {
+                    scored.append((idx, 100 - Double(dist)))
+                }
+            } else {
+                let qTri = trigrams(q)
+                let cTri = trigrams(cl)
+                let inter = qTri.intersection(cTri).count
+                if inter > 0 {
+                    scored.append((idx, Double(inter) / Double(qTri.count)))
+                }
             }
         }
-        return scored.sorted { $0.1 > $1.1 }.map(\.0)
+        // Stable sort: order ties by original index (preserves duplicates).
+        return scored
+            .sorted { (a, b) in a.score == b.score ? a.index < b.index : a.score > b.score }
+            .map { candidates[$0.index] }
     }
 
     private static func trigrams(_ s: String) -> Set<String> {
@@ -1250,6 +1278,27 @@ enum FuzzyMatcher {
             result.insert(String(chars[i..<(i + 3)]))
         }
         return result
+    }
+
+    private static func editDistance(_ a: String, _ b: String) -> Int {
+        let s = Array(a), t = Array(b)
+        if s.isEmpty { return t.count }
+        if t.isEmpty { return s.count }
+        var prev = Array(0...t.count)
+        var curr = Array(repeating: 0, count: t.count + 1)
+        for i in 1...s.count {
+            curr[0] = i
+            for j in 1...t.count {
+                let cost = s[i - 1] == t[j - 1] ? 0 : 1
+                curr[j] = Swift.min(
+                    prev[j] + 1,
+                    curr[j - 1] + 1,
+                    prev[j - 1] + cost
+                )
+            }
+            swap(&prev, &curr)
+        }
+        return prev[t.count]
     }
 }
 ```
@@ -1272,15 +1321,28 @@ When fuzzy mode is on, the model fetches an UNFILTERED window (so it has candida
     private func applyFuzzyIfEnabled(query: String?) {
         guard AppGroupSettings.defaults.bool(forKey: "search.fuzzy"),
               let q = query, !q.isEmpty else { return }
-        let ranked = FuzzyMatcher.rank(candidates: items.map(\.preview), query: q)
-        let order = Dictionary(uniqueKeysWithValues: ranked.enumerated().map { ($1, $0) })
+        // Rank by item index (preview can have duplicates — using preview as a dict
+        // key would crash). Build an array of (id, score) pairs from the rank result.
+        let previews = items.map(\.preview)
+        let ranked = FuzzyMatcher.rank(candidates: previews, query: q)
+        guard !ranked.isEmpty else { items = []; return }
+        var orderByID: [String: Int] = [:]
+        var i = 0
+        for previewMatch in ranked {
+            // Find the next item with this preview that hasn't been assigned yet.
+            for item in items where item.preview == previewMatch && orderByID[item.id] == nil {
+                orderByID[item.id] = i
+                i += 1
+                break
+            }
+        }
         items = items
-            .filter { order.keys.contains($0.preview) }
-            .sorted { (order[$0.preview] ?? Int.max) < (order[$1.preview] ?? Int.max) }
+            .filter { orderByID[$0.id] != nil }
+            .sorted { (a, b) in (orderByID[a.id] ?? .max) < (orderByID[b.id] ?? .max) }
     }
 ```
 
-Replace the previously-shown standalone `applyFuzzyIfEnabled()` method (which read `model.search` and silently sorted) with the parameterized version above. `loadPinned` and `loadPinboard` should also call `applyFuzzyIfEnabled(query: query)` at their tail when their search-scoping needs ranked results.
+`loadPinned` and `loadPinboard` should also call `applyFuzzyIfEnabled(query: query)` at their tail when their search-scoping needs ranked results.
 
 - [ ] **Step 4: Settings view**
 
@@ -1302,8 +1364,8 @@ struct SearchSettingsView: View {
             Toggle("Fuzzy search", isOn: $fuzzy)
         }
         .padding()
-        .onChange(of: sortMode) { _, v in AppGroupSettings.defaults.set(v, forKey: "history.sortMode") }
-        .onChange(of: fuzzy) { _, v in AppGroupSettings.defaults.set(v, forKey: "search.fuzzy") }
+        .onChange(of: sortMode) { _, v in AppGroupSettings.defaults.set(v, forKey: "history.sortMode"); AppGroupSettings.notifyReloaded() }
+        .onChange(of: fuzzy) { _, v in AppGroupSettings.defaults.set(v, forKey: "search.fuzzy"); AppGroupSettings.notifyReloaded() }
     }
 }
 ```
@@ -1450,11 +1512,11 @@ struct AppearanceSettingsView: View {
             }
         }
         .padding()
-        .onChange(of: menuSymbol) { _, v in AppGroupSettings.defaults.set(v, forKey: "appearance.menuSymbol") }
-        .onChange(of: dockHeight) { _, v in AppGroupSettings.defaults.set(v, forKey: "dock.height") }
-        .onChange(of: captureSound) { _, v in AppGroupSettings.defaults.set(v, forKey: "capture.sound") }
-        .onChange(of: pasteBehavior) { _, v in AppGroupSettings.defaults.set(v, forKey: "autoPaste.behavior") }
-        .onChange(of: pasteDelay) { _, v in AppGroupSettings.defaults.set(v, forKey: "autoPaste.delayMs") }
+        .onChange(of: menuSymbol) { _, v in AppGroupSettings.defaults.set(v, forKey: "appearance.menuSymbol"); AppGroupSettings.notifyReloaded() }
+        .onChange(of: dockHeight) { _, v in AppGroupSettings.defaults.set(v, forKey: "dock.height"); AppGroupSettings.notifyReloaded() }
+        .onChange(of: captureSound) { _, v in AppGroupSettings.defaults.set(v, forKey: "capture.sound"); AppGroupSettings.notifyReloaded() }
+        .onChange(of: pasteBehavior) { _, v in AppGroupSettings.defaults.set(v, forKey: "autoPaste.behavior"); AppGroupSettings.notifyReloaded() }
+        .onChange(of: pasteDelay) { _, v in AppGroupSettings.defaults.set(v, forKey: "autoPaste.delayMs"); AppGroupSettings.notifyReloaded() }
     }
 }
 

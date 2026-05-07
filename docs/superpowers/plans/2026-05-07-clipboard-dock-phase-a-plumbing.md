@@ -236,7 +236,11 @@ import Foundation
             } else {
                 Self.restoreToPasteboard(body: body, blobs: self.blobs, pasteboard: self.pasteboard)
             }
-            let result = PasteInjector.paste(nil, mode: plainText ? .plainText : .formatted, into: self.pasteboard)
+            self.markAsDaemonWrite()
+            // Always pass .formatted: the service has already written exactly what it wants
+            // on the pasteboard. PasteInjector(.plainText) would clearContents() again and
+            // strip our sentinel UTI, re-enabling the duplicate-history bug.
+            let result = PasteInjector.paste(nil, mode: .formatted, into: self.pasteboard)
             reply(result.rawValue)
         }
     }
@@ -1422,7 +1426,9 @@ In `ClipboardXPCService.swift`, add:
             self.pasteboard.clearContents()
             self.pasteboard.setString(joined, forType: .string)
             self.markAsDaemonWrite()
-            let result = PasteInjector.paste(nil, mode: .plainText, into: self.pasteboard)
+            // Always .formatted — the service already wrote .string only, so no
+            // formatting to strip. .plainText would clearContents() and erase the sentinel.
+            let result = PasteInjector.paste(nil, mode: .formatted, into: self.pasteboard)
             reply(result.rawValue)
         }
     }
@@ -1550,14 +1556,19 @@ In `ClipboardXPCService.swift`:
         text: String, plainText: Bool, saveAsNew: Bool,
         reply: @escaping (String) -> Void
     ) {
-        if saveAsNew {
-            _ = try? clip.append(.text(text), sourceAppBundleID: "com.macallyouneed.app")
+        if saveAsNew, let meta = try? clip.append(.text(text), sourceAppBundleID: "com.macallyouneed.app") {
+            // Index for FTS so the new clip is searchable. Without this the row is
+            // findable by recency only — searching for words in it would miss because
+            // self-write suppression now correctly prevents observer recapture.
+            try? search.upsert(kind: .clipboardItem, id: meta.id, text: text)
         }
         DispatchQueue.main.async {
             self.pasteboard.clearContents()
             self.pasteboard.setString(text, forType: .string)
             self.markAsDaemonWrite()
-            let result = PasteInjector.paste(nil, mode: plainText ? .plainText : .formatted, into: self.pasteboard)
+            // Always .formatted; the service wrote plain .string already. .plainText
+            // would clearContents() and remove the sentinel.
+            let result = PasteInjector.paste(nil, mode: .formatted, into: self.pasteboard)
             reply(result.rawValue)
         }
     }
@@ -1715,6 +1726,16 @@ public enum TextTransform: String, CaseIterable, Sendable {
 }
 
 public enum TextTransforms {
+    /// Component-style URL encoding allowed set: alphanumerics + `-_.~` only.
+    /// Mirrors JavaScript's encodeURIComponent. Slash IS encoded (unlike Foundation's
+    /// `.urlPathAllowed`, which permits `/` and would leave path separators raw).
+    private static let componentEncodingAllowed: CharacterSet = {
+        var set = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        set.insert(charactersIn: "abcdefghijklmnopqrstuvwxyz")
+        set.insert(charactersIn: "0123456789-_.~")
+        return set
+    }()
+
     public static func apply(_ transform: TextTransform, to text: String) -> String? {
         switch transform {
         case .lowercase: return text.lowercased()
@@ -1729,7 +1750,7 @@ public enum TextTransforms {
             guard let data = Data(base64Encoded: text),
                   let s = String(data: data, encoding: .utf8) else { return nil }
             return s
-        case .urlEncode: return text.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        case .urlEncode: return text.addingPercentEncoding(withAllowedCharacters: componentEncodingAllowed)
         case .urlDecode: return text.removingPercentEncoding
         case .sortLines:
             return text.split(separator: "\n", omittingEmptySubsequences: false)
