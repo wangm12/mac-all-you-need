@@ -73,17 +73,17 @@ struct DownloadRowView: View {
 
     /// HLS streams report per-fragment %; use downloaded/total bytes for overall fraction
     private var overallFraction: Double {
+        if record.state == .completed { return 1.0 }
         if let p = progress {
             if let dl = p.downloadedBytes, let total = p.totalBytes, total > 0 {
                 return min(1, Double(dl) / Double(total))
             }
             return min(1, p.fraction)
         }
-        // No live progress — use persisted bytes (shown while paused / after resume)
         if let total = record.bytesTotal, total > 0 {
             return min(1, Double(record.bytesDownloaded) / Double(total))
         }
-        return record.state == .completed ? 1 : 0
+        return 0
     }
 
     var body: some View {

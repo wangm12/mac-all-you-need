@@ -196,19 +196,30 @@ final class DownloadCoordinator {
                 extraArgs: cookies
             )
             await queue.enqueue(job)
-            // Fetch video metadata concurrently — doesn't block the download
+            // Fetch metadata on MainActor-inherited Task (avoids Sendable capture issues with Task.detached)
             let recordID = record.id
-            let storeRef = store
-            Task.detached(priority: .background) { [ytdlp, url] in
-                guard let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlp) else { return }
-                var updated = (try? storeRef.fetch(id: recordID)) ?? record
+            Task(priority: .background) { [weak self] in
+                guard let self else { return }
+                guard let ytdlpPath = try? self.binaries.ytdlpPath(),
+                      let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath)
+                else {
+                    NSLog("🎬 MetadataFetcher: nil result for \(url)")
+                    return
+                }
+                NSLog("🎬 MetadataFetcher: got title='\(meta.title)' channel='\(meta.channelName)'")
+                guard var updated = try? self.store.fetch(id: recordID) else { return }
                 updated.videoTitle = meta.title
                 updated.channelName = meta.channelName
                 updated.durationSeconds = meta.durationSeconds
                 updated.thumbnailURL = meta.thumbnailURL
                 updated.modified = Date()
-                try? storeRef.update(updated)
-                await MainActor.run { Self.postStateChanged(id: recordID, state: updated.state) }
+                do {
+                    try self.store.update(updated)
+                    Self.postStateChanged(id: recordID, state: updated.state)
+                    NSLog("🎬 MetadataFetcher: saved for id=\(recordID.rawValue.prefix(8))")
+                } catch {
+                    NSLog("🎬 MetadataFetcher: update failed: \(error)")
+                }
             }
         } catch {
             NSLog("❌ enqueue FAILED: \(error)")
