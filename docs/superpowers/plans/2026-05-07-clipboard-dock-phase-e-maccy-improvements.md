@@ -1256,19 +1256,31 @@ enum FuzzyMatcher {
 
 - [ ] **Step 3: Apply in `ClipboardDockModel.refresh`**
 
+When fuzzy mode is on, the model fetches an UNFILTERED window (so it has candidates to rank); when off, it passes `query` through to FTS as before.
+
 ```swift
-    private func applyFuzzyIfEnabled() {
-        guard AppGroupSettings.defaults.bool(forKey: "search.fuzzy"),
-              !search.isEmpty else { return }
-        let ranked = FuzzyMatcher.rank(candidates: items.map(\.preview), query: search)
-        let order = Dictionary(uniqueKeysWithValues: ranked.enumerated().map { ($1, $0) })
-        items.sort { (a, b) in
-            (order[a.preview] ?? Int.max) < (order[b.preview] ?? Int.max)
+    private func loadFromXPC(query: String?) async {
+        let fuzzy = AppGroupSettings.defaults.bool(forKey: "search.fuzzy")
+        let effectiveQuery: String? = fuzzy ? nil : query
+        let list = await xpc.listItems(query: effectiveQuery, pageToken: nil, limit: 200)
+        items = list.items.map { meta in
+            buildDockItem(from: meta, isPinned: pinnedIDs().contains(RecordID(rawValue: meta.id)!))
         }
+        applyFuzzyIfEnabled(query: query)
+    }
+
+    private func applyFuzzyIfEnabled(query: String?) {
+        guard AppGroupSettings.defaults.bool(forKey: "search.fuzzy"),
+              let q = query, !q.isEmpty else { return }
+        let ranked = FuzzyMatcher.rank(candidates: items.map(\.preview), query: q)
+        let order = Dictionary(uniqueKeysWithValues: ranked.enumerated().map { ($1, $0) })
+        items = items
+            .filter { order.keys.contains($0.preview) }
+            .sorted { (order[$0.preview] ?? Int.max) < (order[$1.preview] ?? Int.max) }
     }
 ```
 
-Call `applyFuzzyIfEnabled()` at the end of every `refresh()` branch.
+Replace the previously-shown standalone `applyFuzzyIfEnabled()` method (which read `model.search` and silently sorted) with the parameterized version above. `loadPinned` and `loadPinboard` should also call `applyFuzzyIfEnabled(query: query)` at their tail when their search-scoping needs ranked results.
 
 - [ ] **Step 4: Settings view**
 
