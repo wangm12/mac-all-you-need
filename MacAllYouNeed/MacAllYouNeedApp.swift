@@ -4,22 +4,24 @@ import SwiftUI
 
 @main
 struct MacAllYouNeedApp: App {
-    @State private var controller: AppController
+    // Static let: created exactly once regardless of how many times
+    // SwiftUI recreates the App struct value.
+    private static let controller = try! AppController()
 
     var body: some Scene {
         MenuBarExtra("Mac All You Need", systemImage: "tray.full") {
-            AppMenuBarContent(controller: controller)
+            AppMenuBarContent(controller: Self.controller)
         }
         .menuBarExtraStyle(.window)
-        Settings { SettingsRoot(controller: controller) }
+        Settings { SettingsRoot(controller: Self.controller) }
     }
 
     init() {
-        let c = try! AppController()
-        _controller = State(initialValue: c)
+        // init() may be called more than once by SwiftUI; showOnboardingIfNeeded()
+        // is idempotent so re-scheduling is safe.
         Task { @MainActor in
             await Task.yield()
-            c.showOnboardingIfNeeded()
+            Self.controller.showOnboardingIfNeeded()
         }
     }
 }
