@@ -16,6 +16,16 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
         xpc.connection.exportedObject = self
         xpc.resume()
         xpc.proxy()?.registerCallback { _ in }
+        // Retry load until the daemon is ready (it may start a moment after the app).
+        Task { @MainActor in await self.retryUntilLoaded() }
+    }
+
+    private func retryUntilLoaded() async {
+        for delay in [0.5, 1.0, 2.0, 4.0] {
+            await refresh()
+            if !recentItems.isEmpty { return }
+            try? await Task.sleep(for: .seconds(delay))
+        }
     }
 
     nonisolated func itemsInvalidated() {
