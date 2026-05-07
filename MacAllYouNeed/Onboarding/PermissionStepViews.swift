@@ -51,6 +51,12 @@ struct FullDiskAccessStep: View {
             Text("Required for browser cookie import so authenticated downloads work. Without it, basic downloads still work.")
                 .multilineTextAlignment(.center)
             Button("Open System Settings") {
+                // Read a TCC-protected path before opening System Settings.
+                // Even though this fails without FDA, macOS adds the app to the
+                // Full Disk Access list so the user can see and enable it immediately.
+                let probe = FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Library/Application Support/Google/Chrome/Default/Cookies")
+                _ = try? Data(contentsOf: probe)
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
             }
             if granted { Label("Granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
