@@ -10,7 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-07-clipboard-dock-redesign-design.md`
 
-**Depends on:** Phase A (Plumbing) must be merged. Phase B uses `imageThumbnail`, `ClipboardXPCInteracting`, `ClipboardXPCMeta` new fields, `AppIconResolver` (created here), `ImageBlobLoader` (created here).
+**Depends on:** Phase A (Plumbing) must be merged. Phase B uses `imageThumbnail`, `bodyFileURLs`, `metasByIDs`, `ClipboardXPCInteracting`, `ClipboardXPCMeta` new fields, `AppIconResolver` (created here), `ImageBlobLoader` and `FileURLLoader` (both created here).
+
+**MockClient note:** every `MockClient` conforming to `ClipboardXPCInteracting` in tests must implement every method on the protocol — including the post-Phase-A additions `bodyFileURLs(forID:)` (return `nil`) and `metasByIDs(ids:)` (return `ClipboardXPCList(items: [], nextPageToken: nil)`). The mock blocks in this plan show those stubs explicitly; if you copy a MockClient from a different task, add them.
 
 **Working directory:** `/Users/mingjie.wang/Documents/personal/mac-all-you-need`
 
@@ -560,7 +562,11 @@ final class ImageBlobLoaderTests: XCTestCase {
         func listItems(query: String?, pageToken: String?, limit: Int) async -> ClipboardXPCList {
             ClipboardXPCList(items: [], nextPageToken: nil)
         }
+        func metasByIDs(ids: [String]) async -> ClipboardXPCList {
+            ClipboardXPCList(items: [], nextPageToken: nil)
+        }
         func bodyText(forID id: String) async -> String? { nil }
+        func bodyFileURLs(forID id: String) async -> [String]? { nil }
         func paste(itemID: String, plainText: Bool) async -> String { "injected" }
         func pasteMany(itemIDs: [String], delimiter: String, plainText: Bool) async -> String { "injected" }
         func pasteText(text: String, plainText: Bool, saveAsNew: Bool) async -> String { "injected" }
@@ -582,7 +588,7 @@ final class ImageBlobLoaderTests: XCTestCase {
         let rep = NSBitmapImageRep(data: tiff)!
         mock.thumbnailToReturn = rep.representation(using: .jpeg, properties: [:])
         let loader = ImageBlobLoader(xpc: mock)
-        let result = await loader.thumbnail(blobID: "b1", maxDim: 32)
+        let result = await loader.thumbnail(recordID: "b1", maxDim: 32)
         XCTAssertNotNil(result)
     }
 
@@ -590,10 +596,10 @@ final class ImageBlobLoaderTests: XCTestCase {
         let mock = MockClient()
         mock.thumbnailToReturn = nil
         let loader = ImageBlobLoader(xpc: mock)
-        XCTAssertNil(await loader.thumbnail(blobID: "b1", maxDim: 32))
+        XCTAssertNil(await loader.thumbnail(recordID: "b1", maxDim: 32))
     }
 
-    func testLoadCachesByBlobIDAndMaxDim() async {
+    func testLoadCachesByRecordIDAndMaxDim() async {
         let mock = MockClient()
         let img = NSImage(size: NSSize(width: 8, height: 8))
         img.lockFocus(); NSColor.blue.setFill()
@@ -601,8 +607,8 @@ final class ImageBlobLoaderTests: XCTestCase {
         mock.thumbnailToReturn = NSBitmapImageRep(data: img.tiffRepresentation!)!
             .representation(using: .jpeg, properties: [:])
         let loader = ImageBlobLoader(xpc: mock)
-        _ = await loader.thumbnail(blobID: "b1", maxDim: 32)
-        _ = await loader.thumbnail(blobID: "b1", maxDim: 32)
+        _ = await loader.thumbnail(recordID: "b1", maxDim: 32)
+        _ = await loader.thumbnail(recordID: "b1", maxDim: 32)
         XCTAssertEqual(mock.thumbnailCalls, 1)
     }
 }
@@ -634,27 +640,6 @@ actor ImageBlobLoader {
         cache.totalCostLimit = totalCostLimitBytes
     }
 
-    func thumbnail(blobID: String, maxDim: Int) async -> NSImage? {
-        let key = "\(blobID)|\(maxDim)" as NSString
-        if let cached = cache.object(forKey: key) { return cached }
-        guard let data = await xpc.imageThumbnail(forID: blobID, maxDim: maxDim),
-              let image = NSImage(data: data) else { return nil }
-        cache.setObject(image, forKey: key, cost: data.count)
-        return image
-    }
-
-    func clear(blobID: String) {
-        // Phase E (storage caps) calls this on blob deletion.
-        // Iterate keys is not possible on NSCache; rely on cache cost-eviction instead.
-    }
-}
-```
-
-Note: `imageThumbnail` is keyed in the daemon by the *record* ID, not the blob ID, but the parameter is named `forID` — review Phase A Task 6 step 4. The first param is the *record* ID. The `blobID` here is what the daemon resolves internally. The loader should pass the record ID, not the blob ID.
-
-Correction — the loader's API takes `blobID: String` but the underlying XPC call is by record ID. The actual UI flow is: card has `DockItemKind.image(width, height, blobID)` AND a record ID; loader is called with record ID. Rename param:
-
-```swift
     func thumbnail(recordID: String, maxDim: Int) async -> NSImage? {
         let key = "\(recordID)|\(maxDim)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
@@ -663,9 +648,10 @@ Correction — the loader's API takes `blobID: String` but the underlying XPC ca
         cache.setObject(image, forKey: key, cost: data.count)
         return image
     }
+}
 ```
 
-Update test to call `thumbnail(recordID: "b1", maxDim: 32)` (semantics-only rename; existing tests still pass since the mock ignores the ID).
+The XPC method `imageThumbnail(forID:maxDim:)` is keyed by *record* ID (not blob ID) — see Phase A §6.3. The loader's `recordID` parameter passes through directly.
 
 - [ ] **Step 4: Run tests**
 
@@ -691,6 +677,102 @@ to render previews without blocking the carousel.
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 EOF
 )"
+```
+
+---
+
+## Task 4.5: `FileURLLoader`
+
+**Files:**
+- Create: `MacAllYouNeed/ClipboardDock/Services/FileURLLoader.swift`
+- Test: `MacAllYouNeedTests/ClipboardDock/FileURLLoaderTests.swift`
+
+`DockItemKind.file(count:)` only carries the file count for view dispatch. Actual file URLs come from Phase A's `bodyFileURLs(forID:)` RPC and are needed by `FileCard` (filename + Finder icon), Quick Look (full file list), and drag-out. Loader pattern matches `ImageBlobLoader`.
+
+- [ ] **Step 1: Failing test**
+
+```swift
+@testable import MacAllYouNeed
+import Core
+import XCTest
+
+final class FileURLLoaderTests: XCTestCase {
+    final class MockClient: ClipboardXPCInteracting {
+        var calls = 0
+        var paths: [String]? = ["/tmp/a.txt", "/tmp/b.txt"]
+        func listItems(query: String?, pageToken: String?, limit: Int) async -> ClipboardXPCList {
+            ClipboardXPCList(items: [], nextPageToken: nil)
+        }
+        func metasByIDs(ids: [String]) async -> ClipboardXPCList {
+            ClipboardXPCList(items: [], nextPageToken: nil)
+        }
+        func bodyText(forID id: String) async -> String? { nil }
+        func bodyFileURLs(forID id: String) async -> [String]? {
+            calls += 1; return paths
+        }
+        func paste(itemID: String, plainText: Bool) async -> String { "injected" }
+        func pasteMany(itemIDs: [String], delimiter: String, plainText: Bool) async -> String { "injected" }
+        func pasteText(text: String, plainText: Bool, saveAsNew: Bool) async -> String { "injected" }
+        func transformAndCopy(itemID: String, transform: String, saveAsNew: Bool) async -> String? { nil }
+        func imageThumbnail(forID id: String, maxDim: Int) async -> Data? { nil }
+        func listSnippets() async -> [SnippetXPCDTO] { [] }
+    }
+
+    func testLoadReturnsURLs() async {
+        let mock = MockClient()
+        let loader = FileURLLoader(xpc: mock)
+        let urls = await loader.urls(recordID: "i1")
+        XCTAssertEqual(urls?.map(\.path), ["/tmp/a.txt", "/tmp/b.txt"])
+    }
+
+    func testLoadCachesByRecordID() async {
+        let mock = MockClient()
+        let loader = FileURLLoader(xpc: mock)
+        _ = await loader.urls(recordID: "i1")
+        _ = await loader.urls(recordID: "i1")
+        XCTAssertEqual(mock.calls, 1)
+    }
+
+    func testLoadReturnsNilOnXPCMiss() async {
+        let mock = MockClient()
+        mock.paths = nil
+        let loader = FileURLLoader(xpc: mock)
+        XCTAssertNil(await loader.urls(recordID: "i1"))
+    }
+}
+```
+
+- [ ] **Step 2: Implement**
+
+```swift
+import Core
+import Foundation
+
+actor FileURLLoader {
+    private let xpc: any ClipboardXPCInteracting
+    private var cache: [String: [URL]] = [:]
+
+    init(xpc: any ClipboardXPCInteracting) { self.xpc = xpc }
+
+    func urls(recordID: String) async -> [URL]? {
+        if let cached = cache[recordID] { return cached }
+        guard let paths = await xpc.bodyFileURLs(forID: recordID) else { return nil }
+        let urls = paths.map { URL(fileURLWithPath: $0) }
+        cache[recordID] = urls
+        return urls
+    }
+}
+```
+
+- [ ] **Step 3: Run + commit**
+
+```bash
+xcodegen generate
+xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme MacAllYouNeedTests test -only-testing:MacAllYouNeedTests/FileURLLoaderTests 2>&1 | tail -10
+git add MacAllYouNeed/ClipboardDock/Services/FileURLLoader.swift \
+        MacAllYouNeedTests/ClipboardDock/FileURLLoaderTests.swift \
+        MacAllYouNeed.xcodeproj
+git commit -m "feat(dock): add FileURLLoader actor over bodyFileURLs XPC"
 ```
 
 ---
@@ -721,7 +803,11 @@ final class ClipboardDockModelTests: XCTestCase {
             listCalls += 1
             return ClipboardXPCList(items: listResults, nextPageToken: nil)
         }
+        func metasByIDs(ids: [String]) async -> ClipboardXPCList {
+            ClipboardXPCList(items: [], nextPageToken: nil)
+        }
         func bodyText(forID id: String) async -> String? { nil }
+        func bodyFileURLs(forID id: String) async -> [String]? { nil }
         func paste(itemID: String, plainText: Bool) async -> String { "injected" }
         func pasteMany(itemIDs: [String], delimiter: String, plainText: Bool) async -> String { "injected" }
         func pasteText(text: String, plainText: Bool, saveAsNew: Bool) async -> String { "injected" }
@@ -734,7 +820,8 @@ final class ClipboardDockModelTests: XCTestCase {
         ClipboardDockModel(
             xpc: mock,
             appIcons: AppIconResolver(),
-            imageLoader: ImageBlobLoader(xpc: mock)
+            imageLoader: ImageBlobLoader(xpc: mock),
+            fileLoader: FileURLLoader(xpc: mock)
         )
     }
 
@@ -823,16 +910,21 @@ final class ClipboardDockModel {
     let xpc: any ClipboardXPCInteracting
     let appIcons: AppIconResolver
     let imageLoader: ImageBlobLoader
+    let fileLoader: FileURLLoader
 
     var items: [DockItem] = []
     var search: String = ""
     var focusedIndex: Int = 0
     var activeList: DockListSelector = .history    // Phase C broadens
 
-    init(xpc: any ClipboardXPCInteracting, appIcons: AppIconResolver, imageLoader: ImageBlobLoader) {
+    init(xpc: any ClipboardXPCInteracting,
+         appIcons: AppIconResolver,
+         imageLoader: ImageBlobLoader,
+         fileLoader: FileURLLoader) {
         self.xpc = xpc
         self.appIcons = appIcons
         self.imageLoader = imageLoader
+        self.fileLoader = fileLoader
     }
 
     func refresh() async {
@@ -1085,6 +1177,8 @@ git commit -m "feat(dock): add ImageCard view with async thumbnail load"
 **Files:**
 - Create: `MacAllYouNeed/ClipboardDock/Views/Cards/FileCard.swift`
 
+Uses Phase B's `FileURLLoader` (Task 4.5) to async-fetch the actual file URLs. Renders Finder icon for the first file, full filename, count + total size when known.
+
 - [ ] **Step 1: Implement**
 
 ```swift
@@ -1093,25 +1187,49 @@ import SwiftUI
 
 struct FileCard: View {
     let item: DockItem
+    let loader: FileURLLoader
+    @State private var urls: [URL] = []
+    @State private var totalBytes: Int64?
 
     var body: some View {
-        let count: Int = {
-            if case let .file(c) = item.kind { return c } else { return 0 }
-        }()
+        let displayCount: Int = urls.isEmpty ? fallbackCount() : urls.count
         VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: "doc.fill")
-                .font(.system(size: 32))
-                .foregroundStyle(.secondary)
-            Text(item.preview)
-                .font(.callout)
-                .lineLimit(2)
-            if count > 1 {
-                Text("\(count) files").font(.caption).foregroundStyle(.tertiary)
+            HStack(spacing: 8) {
+                if let first = urls.first {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: first.path))
+                        .resizable().frame(width: 32, height: 32)
+                } else {
+                    Image(systemName: "doc.fill")
+                        .font(.system(size: 32)).foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(urls.first?.lastPathComponent ?? item.preview)
+                        .font(.callout).lineLimit(2).truncationMode(.middle)
+                    if displayCount > 1 {
+                        Text("\(displayCount) files").font(.caption).foregroundStyle(.tertiary)
+                    } else if let total = totalBytes {
+                        Text(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
             }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(10)
+        .task(id: item.id) {
+            urls = await loader.urls(recordID: item.id) ?? []
+            if urls.count == 1,
+               let attrs = try? FileManager.default.attributesOfItem(atPath: urls[0].path),
+               let size = attrs[.size] as? Int64, size < 100 * 1024 * 1024 {
+                totalBytes = size
+            }
+        }
+    }
+
+    private func fallbackCount() -> Int {
+        if case let .file(c) = item.kind { return c }
+        return 1
     }
 }
 ```
@@ -1121,7 +1239,7 @@ struct FileCard: View {
 ```bash
 xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme MacAllYouNeed -configuration Debug build 2>&1 | tail -5
 git add MacAllYouNeed/ClipboardDock/Views/Cards/FileCard.swift
-git commit -m "feat(dock): add FileCard view"
+git commit -m "feat(dock): FileCard renders real filename + Finder icon via FileURLLoader"
 ```
 
 ---
@@ -1136,6 +1254,7 @@ git commit -m "feat(dock): add FileCard view"
 
 ```swift
 import AppKit
+import Core
 import Foundation
 
 actor FaviconCache {
@@ -1151,7 +1270,12 @@ actor FaviconCache {
         session = URLSession(configuration: config)
     }
 
+    /// Returns a favicon ONLY if remote favicon fetching is enabled in settings.
+    /// Default is OFF — prevents leaking copied URLs to third-party hosts.
+    /// Users opt in via Settings → Privacy → "Fetch favicons from web" (Phase E adds the toggle UI;
+    /// Phase B reads the existing UserDefaults key directly).
     func favicon(for url: URL) async -> NSImage? {
+        guard AppGroupSettings.defaults.bool(forKey: "linkCard.fetchFavicons") else { return nil }
         guard let host = url.host else { return nil }
         if let cached = memory[host] { return cached }
         guard let iconURL = URL(string: "https://\(host)/favicon.ico") else { return nil }
@@ -1167,6 +1291,8 @@ actor FaviconCache {
     }
 }
 ```
+
+The setting key `linkCard.fetchFavicons` defaults to `false`. `LinkCard` always falls back to the SF Symbol `link` glyph if the favicon is nil.
 
 - [ ] **Step 2: Implement `LinkCard`**
 
@@ -1316,6 +1442,7 @@ import SwiftUI
 struct ClipCard: View {
     let item: DockItem
     let imageLoader: ImageBlobLoader
+    let fileLoader: FileURLLoader
     let favicons: FaviconCache
     let cardBackground: Color
 
@@ -1333,7 +1460,7 @@ struct ClipCard: View {
         switch item.kind {
         case .text, .rtf: TextCard(item: item)
         case .image:      ImageCard(item: item, loader: imageLoader)
-        case .file:       FileCard(item: item)
+        case .file:       FileCard(item: item, loader: fileLoader)
         case .link:       LinkCard(item: item, favicons: favicons)
         case .color:      ColorCard(item: item)
         case .code:       CodeCard(item: item)
@@ -1371,13 +1498,14 @@ struct CardSlot: View {
     let index: Int
     let isFocused: Bool
     let imageLoader: ImageBlobLoader
+    let fileLoader: FileURLLoader
     let favicons: FaviconCache
 
     private var cardBackground: Color { Color(NSColor.controlBackgroundColor) }
 
     var body: some View {
-        ClipCard(item: item, imageLoader: imageLoader, favicons: favicons,
-                 cardBackground: cardBackground)
+        ClipCard(item: item, imageLoader: imageLoader, fileLoader: fileLoader,
+                 favicons: favicons, cardBackground: cardBackground)
             .frame(width: 220, height: 240)
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
@@ -1430,6 +1558,7 @@ struct ClipCarousel: View {
                             item: item, index: idx,
                             isFocused: idx == model.focusedIndex,
                             imageLoader: model.imageLoader,
+                            fileLoader: model.fileLoader,
                             favicons: favicons
                         )
                         .id(item.id)
@@ -1855,14 +1984,20 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
     let xpc: ClipboardXPCClient
     let appIcons = AppIconResolver()
     let imageLoader: ImageBlobLoader
+    let fileLoader: FileURLLoader
     let dockModel: ClipboardDockModel
 
     override init() {
         let client = ClipboardXPCClient(resumesImmediately: false)
         xpc = client
-        let loader = ImageBlobLoader(xpc: client)
-        imageLoader = loader
-        dockModel = ClipboardDockModel(xpc: client, appIcons: appIcons, imageLoader: loader)
+        let imgLoader = ImageBlobLoader(xpc: client)
+        let urlLoader = FileURLLoader(xpc: client)
+        imageLoader = imgLoader
+        fileLoader = urlLoader
+        dockModel = ClipboardDockModel(
+            xpc: client, appIcons: appIcons,
+            imageLoader: imgLoader, fileLoader: urlLoader
+        )
         super.init()
         xpc.connection.exportedInterface = NSXPCInterface(with: ClipboardXPCClientCallback.self)
         xpc.connection.exportedObject = self
