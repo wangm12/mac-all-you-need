@@ -336,11 +336,16 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
     final class MockClient: ClipboardXPCInteracting {
         var lastQuery: String?
         var resultsByQuery: [String?: [ClipboardXPCMeta]] = [:]
+        var metasByIDsResults: [ClipboardXPCMeta] = []
         func listItems(query: String?, pageToken: String?, limit: Int) async -> ClipboardXPCList {
             lastQuery = query
             return ClipboardXPCList(items: resultsByQuery[query] ?? [], nextPageToken: nil)
         }
+        func metasByIDs(ids: [String]) async -> ClipboardXPCList {
+            ClipboardXPCList(items: metasByIDsResults, nextPageToken: nil)
+        }
         func bodyText(forID id: String) async -> String? { nil }
+        func bodyFileURLs(forID id: String) async -> [String]? { nil }
         func paste(itemID: String, plainText: Bool) async -> String { "injected" }
         func pasteMany(itemIDs: [String], delimiter: String, plainText: Bool) async -> String { "injected" }
         func pasteText(text: String, plainText: Bool, saveAsNew: Bool) async -> String { "injected" }
@@ -367,6 +372,7 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
             xpc: mock,
             appIcons: AppIconResolver(),
             imageLoader: ImageBlobLoader(xpc: mock),
+            fileLoader: FileURLLoader(xpc: mock),
             pinboards: pinboards
         )
     }
@@ -446,6 +452,7 @@ final class ClipboardDockModel {
     let xpc: any ClipboardXPCInteracting
     let appIcons: AppIconResolver
     let imageLoader: ImageBlobLoader
+    let fileLoader: FileURLLoader
     let pinboards: PinboardStore
 
     var items: [DockItem] = []
@@ -458,11 +465,13 @@ final class ClipboardDockModel {
         xpc: any ClipboardXPCInteracting,
         appIcons: AppIconResolver,
         imageLoader: ImageBlobLoader,
+        fileLoader: FileURLLoader,
         pinboards: PinboardStore
     ) {
         self.xpc = xpc
         self.appIcons = appIcons
         self.imageLoader = imageLoader
+        self.fileLoader = fileLoader
         self.pinboards = pinboards
     }
 
@@ -553,13 +562,15 @@ final class ClipboardDockModel {
     }
 
     private func loadByIDs(_ ids: [String], query: String?) async {
-        // No bulk-by-IDs RPC yet; fetch the full recent window and filter by ID set.
-        // Phase E adds a dedicated XPC method if perf becomes a concern.
-        let list = await xpc.listItems(query: query, pageToken: nil, limit: 200)
-        let idSet = Set(ids)
-        items = list.items
-            .filter { idSet.contains($0.id) }
-            .map { buildDockItem(from: $0, isPinned: true) }
+        let list = await xpc.metasByIDs(ids: ids)
+        let filtered: [ClipboardXPCMeta]
+        if let query, !query.isEmpty {
+            let q = query.lowercased()
+            filtered = list.items.filter { $0.preview.lowercased().contains(q) }
+        } else {
+            filtered = list.items
+        }
+        items = filtered.map { buildDockItem(from: $0, isPinned: true) }
     }
 
     private func pinnedIDs() -> Set<RecordID> {
@@ -585,14 +596,19 @@ final class ClipboardDockModel {
 In `MacAllYouNeed/App/AppDependencies.swift`, replace:
 
 ```swift
-        dockModel = ClipboardDockModel(xpc: client, appIcons: appIcons, imageLoader: loader)
+        dockModel = ClipboardDockModel(
+            xpc: client, appIcons: appIcons,
+            imageLoader: imgLoader, fileLoader: urlLoader
+        )
 ```
 
 with:
 
 ```swift
         dockModel = ClipboardDockModel(
-            xpc: client, appIcons: appIcons, imageLoader: loader, pinboards: pinboards
+            xpc: client, appIcons: appIcons,
+            imageLoader: imgLoader, fileLoader: urlLoader,
+            pinboards: pinboards
         )
 ```
 
@@ -610,6 +626,7 @@ In Phase B's `ClipboardDockModelTests` (`MacAllYouNeedTests/ClipboardDock/Clipbo
             xpc: mock,
             appIcons: AppIconResolver(),
             imageLoader: ImageBlobLoader(xpc: mock),
+            fileLoader: FileURLLoader(xpc: mock),
             pinboards: pinboards
         )
     }
@@ -888,10 +905,16 @@ final class ShortcutRegistryTests: XCTestCase {
         XCTAssertEqual(r.bindings(for: .togglePin), ShortcutDefaults.defaultBindings(for: .togglePin))
     }
 
-    func testReservedKeysAreRejectedForInDockShortcuts() {
+    func testReservedKeysAreRejectedForOtherActions() {
         let r = ShortcutRegistry()
-        let escBinding = ShortcutBinding(keyCode: 53, modifierMask: 0) // Esc
-        XCTAssertThrowsError(try r.validate(escBinding, for: .togglePin))
+        let escForPin = ShortcutBinding(keyCode: 53, modifierMask: 0)
+        XCTAssertThrowsError(try r.validate(escForPin, for: .togglePin))
+    }
+
+    func testReservedKeyAcceptedForItsConventionalAction() {
+        let r = ShortcutRegistry()
+        let escForDismiss = ShortcutBinding(keyCode: 53, modifierMask: 0)
+        XCTAssertNoThrow(try r.validate(escForDismiss, for: .dismiss))
     }
 }
 ```
@@ -971,8 +994,20 @@ final class ShortcutRegistry {
     }
 
     func validate(_ binding: ShortcutBinding, for action: ShortcutAction) throws {
-        let reserved: Set<UInt16> = [53, 36, 48, 49, 123, 124, 125, 126] // Esc Return Tab Space arrows
-        if binding.modifierMask == 0 && reserved.contains(binding.keyCode) {
+        // Reserved unmodified keys: each is conventionally tied to one action.
+        // User can bind a reserved key to its conventional action (default behavior)
+        // but NOT to any other action.
+        let conventional: [UInt16: ShortcutAction] = [
+            53: .dismiss,                  // Esc
+            36: .paste,                    // Return
+            48: .cycleFocus,               // Tab
+            49: .quickLook,                // Space
+            123: .extendSelectionLeft,     // ⇧+← only when shift modifier; plain ← reserved for nav
+            124: .extendSelectionRight     // analogous
+        ]
+        if binding.modifierMask == 0,
+           let owner = conventional[binding.keyCode],
+           owner != action {
             throw ShortcutValidationError.reservedKey(binding.keyCode)
         }
     }
