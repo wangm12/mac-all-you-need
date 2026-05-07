@@ -3,6 +3,7 @@ disabled_rules:
   - force_try
   - force_cast
   - opening_brace
+  - cyclomatic_complexity
 
 opt_in_rules:
   - empty_count
@@ -45,5 +46,3 @@ identifier_name:
     - s
     - t
     - w
-    - h
-  - cyclomatic_complexity
