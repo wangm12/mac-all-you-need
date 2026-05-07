@@ -46,3 +46,4 @@ identifier_name:
     - t
     - w
     - h
+  - cyclomatic_complexity
