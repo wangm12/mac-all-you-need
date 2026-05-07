@@ -45,4 +45,26 @@ public enum ProgressParser {
         }
         return Int64(bytes)
     }
+
+    public static func detectPhase(line: String) -> String? {
+        if line.hasPrefix("[download]") {
+            if line.contains("Destination:") { return "Downloading..." }
+            return nil // percentage lines handled separately
+        }
+        if line.contains("Extracting URL") { return "Connecting..." }
+        if line.contains("Downloading webpage") { return "Fetching info..." }
+        if line.contains("Downloading tv client config")
+            || line.contains("Downloading tv player")
+            || line.contains("Downloading ios player")
+            || line.contains("Downloading web player")
+            || line.contains("Downloading player") { return "Fetching formats..." }
+        if line.contains("m3u8 information") { return "Getting streams..." }
+        if line.contains("[info] Testing format") { return "Testing formats..." }
+        if line.contains("[ffmpeg]") && line.contains("Merging") { return "Merging audio & video..." }
+        if line.contains("[ffmpeg]") && line.contains("Destination") { return "Finalizing..." }
+        if line.contains("[Merger]") || line.contains("[EmbedThumbnail]")
+            || line.contains("[Metadata]") { return "Finalizing..." }
+        if line.contains("[download]"), line.contains("100%") { return "Completing..." }
+        return nil
+    }
 }

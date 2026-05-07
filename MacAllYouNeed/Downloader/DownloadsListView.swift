@@ -47,6 +47,7 @@ struct DownloadsListView: View {
                         DownloadRowView(
                             record: record,
                             progress: vm.liveProgress[record.id.rawValue],
+                            statusText: vm.liveStatus[record.id.rawValue],
                             onPause: { Task { await vm.pause(id: record.id) } },
                             onResume: { Task { await vm.resume(id: record.id) } },
                             onRetry: { Task { await vm.retry(record: record) } }
@@ -67,6 +68,7 @@ struct DownloadsListView: View {
 struct DownloadRowView: View {
     let record: DownloadRecord
     let progress: DownloadProgress?
+    let statusText: String?
     let onPause: () -> Void
     let onResume: () -> Void
     let onRetry: () -> Void
@@ -133,7 +135,8 @@ struct DownloadRowView: View {
                 ProgressView(value: overallFraction)
                     .tint(record.state == .failed ? .red : record.state == .completed ? .green : .accentColor)
                 HStack {
-                    Text(record.state.rawValue.capitalized).font(.caption2)
+                    let label = record.state == .running ? (statusText ?? "Running") : record.state.rawValue.capitalized
+                    Text(label).font(.caption2)
                         .foregroundStyle(record.state == .failed ? .red : record.state == .completed ? .green : .secondary)
                     if let speed = progress?.speedBytesPerSec {
                         Text("· \(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/s")

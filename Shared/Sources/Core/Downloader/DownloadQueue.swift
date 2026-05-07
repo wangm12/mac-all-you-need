@@ -99,6 +99,11 @@ public actor DownloadQueue {
                 NSLog("📺 yt-dlp: \(s)")
                 if let p = ProgressParser.parse(line: s) {
                     progress(recordID, p)
+                } else if let phase = ProgressParser.detectPhase(line: s) {
+                    NotificationCenter.default.post(
+                        name: Notification.Name("downloadPhase"), object: nil,
+                        userInfo: ["id": recordID.rawValue, "phase": phase]
+                    )
                 }
             }
         }

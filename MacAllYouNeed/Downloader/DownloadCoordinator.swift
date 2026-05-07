@@ -200,21 +200,21 @@ final class DownloadCoordinator {
             let recordID = record.id
             Task(priority: .background) { [weak self] in
                 guard let self else { return }
-                guard let ytdlpPath = try? self.binaries.ytdlpPath(),
+                guard let ytdlpPath = try? binaries.ytdlpPath(),
                       let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath)
                 else {
                     NSLog("🎬 MetadataFetcher: nil result for \(url)")
                     return
                 }
                 NSLog("🎬 MetadataFetcher: got title='\(meta.title)' channel='\(meta.channelName)'")
-                guard var updated = try? self.store.fetch(id: recordID) else { return }
+                guard var updated = try? store.fetch(id: recordID) else { return }
                 updated.videoTitle = meta.title
                 updated.channelName = meta.channelName
                 updated.durationSeconds = meta.durationSeconds
                 updated.thumbnailURL = meta.thumbnailURL
                 updated.modified = Date()
                 do {
-                    try self.store.update(updated)
+                    try store.update(updated)
                     Self.postStateChanged(id: recordID, state: updated.state)
                     NSLog("🎬 MetadataFetcher: saved for id=\(recordID.rawValue.prefix(8))")
                 } catch {
@@ -250,4 +250,5 @@ final class DownloadCoordinator {
 public extension Notification.Name {
     static let downloadProgress = Notification.Name("downloadProgress")
     static let downloadStateChanged = Notification.Name("downloadStateChanged")
+    static let downloadPhase = Notification.Name("downloadPhase")
 }

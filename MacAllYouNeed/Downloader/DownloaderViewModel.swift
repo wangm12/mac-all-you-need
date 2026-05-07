@@ -8,6 +8,7 @@ final class DownloaderViewModel {
     let coordinator: DownloadCoordinator
     var rows: [DownloadRecord] = []
     var liveProgress: [String: DownloadProgress] = [:]
+    var liveStatus: [String: String] = [:] // phase text per download ID
 
     init(coordinator: DownloadCoordinator) {
         self.coordinator = coordinator
@@ -19,6 +20,13 @@ final class DownloaderViewModel {
             self?.liveProgress[id] = p
         }
         NotificationCenter.default.addObserver(
+            forName: .downloadPhase, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String,
+                  let phase = note.userInfo?["phase"] as? String else { return }
+            self?.liveStatus[id] = phase
+        }
+        NotificationCenter.default.addObserver(
             forName: .downloadStateChanged, object: nil, queue: .main
         ) { [weak self] note in
             guard let id = note.userInfo?["id"] as? String else { return }
@@ -28,6 +36,7 @@ final class DownloaderViewModel {
                    ["completed", "failed", "paused"].contains(state)
                 {
                     self?.liveProgress.removeValue(forKey: id)
+                    self?.liveStatus.removeValue(forKey: id)
                 }
             }
         }
@@ -52,12 +61,14 @@ final class DownloaderViewModel {
     func cancel(id: RecordID) async {
         // Stop button — cancel and keep record as Failed so user can ↺ retry
         liveProgress.removeValue(forKey: id.rawValue)
+        liveStatus.removeValue(forKey: id.rawValue)
         await coordinator.cancelDownload(id: id)
         await refresh()
     }
 
     func pause(id: RecordID) async {
         liveProgress.removeValue(forKey: id.rawValue)
+        liveStatus.removeValue(forKey: id.rawValue)
         await coordinator.pauseDownload(id: id)
         await refresh()
     }
@@ -70,6 +81,7 @@ final class DownloaderViewModel {
     func delete(ids: [RecordID]) async {
         for id in ids {
             liveProgress.removeValue(forKey: id.rawValue)
+            liveStatus.removeValue(forKey: id.rawValue)
             await coordinator.deleteDownload(id: id)
         }
         await refresh()
