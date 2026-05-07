@@ -51,5 +51,8 @@ struct OnboardingWizardView: View {
     private func setStep(_ newValue: OnboardingState) {
         step = newValue
         controller.setOnboarding(newValue)
+        if newValue == .completed {
+            NSApplication.shared.keyWindow?.close()
+        }
     }
 }
