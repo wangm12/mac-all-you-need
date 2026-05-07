@@ -13,6 +13,7 @@ public final class ClipboardXPCClient {
             ClipboardXPCList.self,
             ClipboardXPCMeta.self,
             ClipboardXPCBlobRef.self,
+            SnippetXPCDTO.self,
             NSArray.self,
             NSString.self,
             NSDate.self,
@@ -26,6 +27,11 @@ public final class ClipboardXPCClient {
         iface.setClasses(
             allowed,
             for: #selector(ClipboardXPCProtocol.resolveBlob(blobID:reply:)),
+            argumentIndex: 0, ofReply: true
+        )
+        iface.setClasses(
+            allowed,
+            for: #selector(ClipboardXPCProtocol.listSnippets(reply:)),
             argumentIndex: 0, ofReply: true
         )
         if resumesImmediately {

@@ -1,0 +1,57 @@
+import AppKit
+import Core
+import Foundation
+import SwiftUI
+
+struct AdvancedSettingsView: View {
+    let controller: AppController
+    @AppStorage("betaUpdates", store: AppGroupSettings.defaults) private var beta = false
+    @State private var confirmingReset = false
+    var body: some View {
+        Form {
+            Toggle("Beta updates", isOn: $beta)
+            Button("Export diagnostic bundle") { exportDiagnostics() }
+            Button("Reset all data", role: .destructive) { confirmingReset = true }
+            Button("Re-run onboarding") { controller.resetOnboarding() }
+        }
+        .confirmationDialog("Reset all local data?", isPresented: $confirmingReset) {
+            Button("Reset", role: .destructive) { resetAllData() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes local databases, blobs, thumbnails, and downloader checkpoints.")
+        }
+        .padding()
+    }
+
+    private func exportDiagnostics() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "MacAllYouNeed-Diagnostics.zip"
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        Task.detached {
+            let temp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("mayn-diagnostics-\(UUID())", isDirectory: true)
+            try? FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+            let settings = AppGroupSettings.defaults.dictionaryRepresentation()
+                .filter { !$0.key.lowercased().contains("passphrase") }
+            let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+            try? data?.write(to: temp.appendingPathComponent("settings.json"))
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+            process.arguments = ["-r", destination.path, "."]
+            process.currentDirectoryURL = temp
+            try? process.run()
+            process.waitUntilExit()
+            try? FileManager.default.removeItem(at: temp)
+        }
+    }
+
+    private func resetAllData() {
+        let root = AppGroup.containerURL()
+        for name in ["databases", "blobs", "thumbnails", "downloader-updates", "dispatch.token"] {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent(name))
+        }
+        OnboardingState.reset()
+        AppGroupSettings.defaults.removeObject(forKey: "syncFolderPath")
+        AppGroupSettings.defaults.removeObject(forKey: "syncDownloadHistory")
+    }
+}

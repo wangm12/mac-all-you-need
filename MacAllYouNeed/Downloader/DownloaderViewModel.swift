@@ -8,7 +8,8 @@ final class DownloaderViewModel {
     let coordinator: DownloadCoordinator
     var rows: [DownloadRecord] = []
     var liveProgress: [String: DownloadProgress] = [:]
-    var liveStatus: [String: String] = [:] // phase text per download ID
+    var liveStatus: [String: String] = [:]
+    var cookieWarning: String? = nil
 
     init(coordinator: DownloadCoordinator) {
         self.coordinator = coordinator
@@ -40,8 +41,15 @@ final class DownloaderViewModel {
                 }
             }
         }
+        NotificationCenter.default.addObserver(
+            forName: .cookieWarning, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.cookieWarning = "Some browser profiles could not be imported. Downloads requiring login may fail."
+        }
         Task { await self.refresh() }
     }
+
+    func dismissCookieWarning() { cookieWarning = nil }
 
     func refresh() async {
         let ids = (try? coordinator.store.list()) ?? []

@@ -68,22 +68,6 @@ final class DownloadCoordinator {
         )
     }
 
-    nonisolated static func cookieArguments(
-        cookieFileURL: URL,
-        prepare: (URL) throws -> Void
-    ) -> [String] {
-        do {
-            try FileManager.default.createDirectory(
-                at: cookieFileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try prepare(cookieFileURL)
-            return ["--cookies", cookieFileURL.path]
-        } catch {
-            return []
-        }
-    }
-
     private static func postStateChanged(id: RecordID, state: DownloadState) {
         NotificationCenter.default.post(
             name: .downloadStateChanged, object: nil,
@@ -91,21 +75,29 @@ final class DownloadCoordinator {
         )
     }
 
-    private func cookieArgs() -> [String] {
+    private func cookieArgs() -> ([String], hadErrors: Bool) {
         let cookieFile = AppGroup.containerURL()
             .appendingPathComponent("cookies", isDirectory: true)
             .appendingPathComponent("downloader-cookies.txt")
-        let args = Self.cookieArguments(cookieFileURL: cookieFile) { url in
-            try CookieImporter.combinedCookiesFile(at: url)
+        do {
+            try FileManager.default.createDirectory(
+                at: cookieFile.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let result = try CookieImporter.combinedCookiesFile(at: cookieFile)
+            let lines = (try? String(contentsOfFile: cookieFile.path, encoding: .utf8))?
+                .components(separatedBy: "\n").count ?? 0
+            NSLog("🍪 cookieArgs: \(lines) lines, hadErrors=\(result.hadErrors)")
+            return (["--cookies", cookieFile.path], result.hadErrors)
+        } catch {
+            NSLog("🍪 cookieArgs: EMPTY — \(error)")
+            return ([], true)
         }
-        if args.isEmpty {
-            NSLog("🍪 cookieArgs: EMPTY — cookie file generation failed, proceeding without cookies")
-        } else {
-            let lines = (try? String(contentsOfFile: args[1], encoding: .utf8))?.components(separatedBy: "\n").count ?? 0
-            let firstLine = (try? String(contentsOfFile: args[1], encoding: .utf8))?.components(separatedBy: "\n").first ?? "?"
-            NSLog("🍪 cookieArgs: \(args[1]) (\(lines) lines, first='\(firstLine)')")
-        }
-        return args
+    }
+
+    private func postCookieWarningIfNeeded(hadErrors: Bool) {
+        guard hadErrors else { return }
+        NotificationCenter.default.post(name: .cookieWarning, object: nil)
     }
 
     func startDispatchServer() async {
@@ -127,10 +119,12 @@ final class DownloadCoordinator {
         do {
             try store.updateState(id: record.id, to: .queued)
             let dest = URL(fileURLWithPath: record.destinationPath)
+            let (cookies, cookieHadErrors) = cookieArgs()
+            postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
             let job = try DownloadJob(
                 recordID: record.id, url: record.url, destination: dest,
                 ytdlp: binaries.ytdlpPath(), ffmpeg: binaries.ffmpegPath(),
-                extraArgs: cookieArgs()
+                extraArgs: cookies
             )
             await queue.enqueue(job)
         } catch {
@@ -161,10 +155,12 @@ final class DownloadCoordinator {
             let record = try store.fetch(id: id)
             let dest = URL(fileURLWithPath: record.destinationPath)
             try store.updateState(id: id, to: .queued)
+            let (cookies, cookieHadErrors) = cookieArgs()
+            postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
             let job = try DownloadJob(
                 recordID: record.id, url: record.url, destination: dest,
                 ytdlp: binaries.ytdlpPath(), ffmpeg: binaries.ffmpegPath(),
-                extraArgs: ["--continue"] + cookieArgs()
+                extraArgs: cookies // --continue already in DownloadJob base args
             )
             await queue.enqueue(job)
             Self.postStateChanged(id: id, state: .running)
@@ -186,10 +182,10 @@ final class DownloadCoordinator {
             try store.insert(record)
             let ytdlp = try binaries.ytdlpPath()
             let ffmpeg = try binaries.ffmpegPath()
-            let cookies = cookieArgs()
+            let (cookies, cookieHadErrors) = cookieArgs()
+            postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
             NSLog("▶️ enqueue: url=\(url)")
             NSLog("▶️ enqueue: ytdlp=\(ytdlp.path)")
-            NSLog("▶️ enqueue: cookies=\(cookies), url=\(url)")
             let job = DownloadJob(
                 recordID: record.id, url: url, destination: dest,
                 ytdlp: ytdlp, ffmpeg: ffmpeg,
@@ -251,4 +247,6 @@ public extension Notification.Name {
     static let downloadProgress = Notification.Name("downloadProgress")
     static let downloadStateChanged = Notification.Name("downloadStateChanged")
     static let downloadPhase = Notification.Name("downloadPhase")
+    static let cookieWarning = Notification.Name("cookieWarning")
+    static let downloaderUpdateRequested = Notification.Name("downloaderUpdateRequested")
 }

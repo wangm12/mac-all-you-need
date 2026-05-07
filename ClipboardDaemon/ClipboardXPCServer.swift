@@ -204,6 +204,11 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
         }
     }
 
+    func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void) {
+        let rows = (try? container.snippets.list()) ?? []
+        reply(rows.map { SnippetXPCDTO(id: $0.id.rawValue, name: $0.name, trigger: $0.trigger) })
+    }
+
     private static func restoreToPasteboard(body: ClipboardRecord, blobs: BlobStore) {
         let pb = NSPasteboard.general
         pb.clearContents()

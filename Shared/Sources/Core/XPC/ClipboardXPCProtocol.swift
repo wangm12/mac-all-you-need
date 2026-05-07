@@ -101,6 +101,32 @@ import Foundation
     func resolveBlob(blobID: String, reply: @escaping (ClipboardXPCBlobRef?) -> Void)
     func paste(itemID: String, plainText: Bool, reply: @escaping (String) -> Void)
     func registerCallback(reply: @escaping (Bool) -> Void)
+    func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void)
+}
+
+@objc public class SnippetXPCDTO: NSObject, NSSecureCoding, Identifiable {
+    public static var supportsSecureCoding: Bool { true }
+    @objc public let id: String
+    @objc public let name: String
+    @objc public let trigger: String?
+
+    public init(id: String, name: String, trigger: String?) {
+        self.id = id; self.name = name; self.trigger = trigger
+    }
+
+    public required init?(coder: NSCoder) {
+        guard let id = coder.decodeObject(of: NSString.self, forKey: "id") as String?,
+              let name = coder.decodeObject(of: NSString.self, forKey: "name") as String?
+        else { return nil }
+        self.id = id; self.name = name
+        self.trigger = coder.decodeObject(of: NSString.self, forKey: "trigger") as String?
+    }
+
+    public func encode(with coder: NSCoder) {
+        coder.encode(id as NSString, forKey: "id")
+        coder.encode(name as NSString, forKey: "name")
+        if let trigger { coder.encode(trigger as NSString, forKey: "trigger") }
+    }
 }
 
 @objc public protocol ClipboardXPCClientCallback {

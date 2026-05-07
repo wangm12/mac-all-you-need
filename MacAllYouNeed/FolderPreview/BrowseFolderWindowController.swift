@@ -23,6 +23,11 @@ final class BrowseFolderWindowController {
         }
     }
 
+    func show(at targetURL: URL) {
+        url = targetURL
+        show()
+    }
+
     func show() {
         if window == nil {
             let win = NSWindow(

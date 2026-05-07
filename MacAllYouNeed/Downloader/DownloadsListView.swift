@@ -21,6 +21,25 @@ struct DownloadsListView: View {
                 } label: { Image(systemName: showAdd ? "xmark.circle.fill" : "plus") }
             }.padding(8)
 
+            if let warning = vm.cookieWarning {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(warning).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Open Chrome") {
+                        NSWorkspace.shared.open(URL(string: "https://www.youtube.com")!)
+                    }
+                    .font(.caption)
+                    Button { vm.dismissCookieWarning() } label: {
+                        Image(systemName: "xmark").font(.caption2)
+                    }.buttonStyle(.plain).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.orange.opacity(0.1))
+                Divider()
+            }
+
             if showAdd {
                 HStack(spacing: 8) {
                     TextField("Paste URL…", text: $addURL).textFieldStyle(.roundedBorder)
@@ -62,6 +81,9 @@ struct DownloadsListView: View {
             }
         }
         .task { await vm.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .addDownloadRequested)) { _ in
+            showAdd = true
+        }
     }
 }
 
@@ -145,6 +167,14 @@ struct DownloadRowView: View {
                     Spacer()
                     if let eta = progress?.etaSeconds, eta > 0 {
                         Text("ETA \(eta)s").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    if record.state == .completed {
+                        Button("Preview folder") {
+                            let dir = URL(fileURLWithPath: record.destinationPath).deletingLastPathComponent()
+                            NotificationCenter.default.post(name: .browseFolderRequested, object: dir)
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption2)
                     }
                 }
             }
