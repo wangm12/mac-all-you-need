@@ -2256,6 +2256,16 @@ git add Shared/Sources/Core/XPC/ClipboardXPCProtocol.swift \
 git commit -m "feat(xpc): add bodyFileURLs RPC for file-kind records"
 ```
 
+- [ ] **Step 6: Update MockClient in `ClipboardXPCInteractingTests.swift` to satisfy the extended protocol**
+
+Add to that file's MockClient:
+
+```swift
+        func bodyFileURLs(forID id: String) async -> [String]? { nil }
+```
+
+Run `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test` to confirm the suite still compiles, then amend the previous commit with `git commit --amend --no-edit`.
+
 ---
 
 ## Task 11.2: `metasByIDs` RPC
@@ -2374,6 +2384,18 @@ git add Shared/Sources/Core/XPC/ClipboardXPCProtocol.swift \
         Shared/Tests/PlatformTests/XPC/ClipboardXPCServiceTests.swift
 git commit -m "feat(xpc): add metasByIDs RPC for bulk-by-ID lookup (Pinned tabs)"
 ```
+
+- [ ] **Step 6: Update MockClient in `ClipboardXPCInteractingTests.swift` to satisfy the extended protocol**
+
+Add to that file's MockClient:
+
+```swift
+        func metasByIDs(ids: [String]) async -> ClipboardXPCList {
+            ClipboardXPCList(items: [], nextPageToken: nil)
+        }
+```
+
+Run `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test`; amend with `git commit --amend --no-edit`.
 
 ---
 
