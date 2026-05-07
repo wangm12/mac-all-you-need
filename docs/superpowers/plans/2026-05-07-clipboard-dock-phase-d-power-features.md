@@ -199,7 +199,11 @@ final class SelectionStateTests: XCTestCase {
         func listItems(query: String?, pageToken: String?, limit: Int) async -> ClipboardXPCList {
             ClipboardXPCList(items: listResults, nextPageToken: nil)
         }
+        func metasByIDs(ids: [String]) async -> ClipboardXPCList {
+            ClipboardXPCList(items: [], nextPageToken: nil)
+        }
         func bodyText(forID id: String) async -> String? { nil }
+        func bodyFileURLs(forID id: String) async -> [String]? { nil }
         func paste(itemID: String, plainText: Bool) async -> String { "injected" }
         func pasteMany(itemIDs: [String], delimiter: String, plainText: Bool) async -> String {
             pasteManyArgs = (itemIDs, delimiter, plainText); return "injected"
@@ -494,7 +498,6 @@ import Platform
 struct MultiSelectBar: View {
     @Bindable var model: ClipboardDockModel
     let onPin: () -> Void
-    let onAddToList: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -507,7 +510,22 @@ struct MultiSelectBar: View {
                 Task { await model.pasteSelectionInOrder(delimiter: "\n", plainText: true) }
             }
             Button("Pin", action: onPin)
-            Button("Add to list…", action: onAddToList)
+            Menu("Add to list") {
+                if model.availableLists.isEmpty {
+                    Text("No lists yet").foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.availableLists, id: \.id) { board in
+                        Button(board.name) {
+                            Task {
+                                await model.addToPinboard(
+                                    itemIDs: Array(model.selection), boardID: board.id
+                                )
+                                model.clearSelection()
+                            }
+                        }
+                    }
+                }
+            }
             Menu("Transform") {
                 ForEach(TextTransform.allCases, id: \.self) { kind in
                     Button(label(for: kind)) {
@@ -585,18 +603,6 @@ git commit -m "feat(dock): add MultiSelectBar view"
                             for id in model.selection { await model.togglePin(itemID: id) }
                             model.clearSelection()
                         }
-                    },
-                    onAddToList: {
-                        // Phase D minimal: pick the first available list silently.
-                        // Full picker UI lands as a small follow-up if we discover need.
-                        if let board = model.availableLists.first {
-                            Task {
-                                await model.addToPinboard(
-                                    itemIDs: Array(model.selection), boardID: board.id
-                                )
-                                model.clearSelection()
-                            }
-                        }
                     }
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -605,7 +611,7 @@ git commit -m "feat(dock): add MultiSelectBar view"
         .animation(.easeOut(duration: 0.18), value: model.selection.isEmpty)
 ```
 
-The "Add to list" picker is intentionally minimal in Phase D — picks the first available list. A full popover picker is deferred unless smoke-testing reveals it's needed.
+The `MultiSelectBar` itself owns the "Add to list" picker UI (a `Menu` that lists every available Pinboard) — see Task 5.
 
 - [ ] **Step 2: Build + commit**
 
@@ -794,33 +800,56 @@ git commit -m "feat(dock): add QuickLookOverlay with spacebar toggle"
 **Files:**
 - Create: `MacAllYouNeed/ClipboardDock/Views/QuickLook/QuickLookContent.swift`
 
+Loads full content from XPC for text/file kinds (not the truncated `preview`). Colors use `PreviewDetection`.
+
 - [ ] **Step 1: Implement**
 
 ```swift
 import AppKit
+import Core
 import SwiftUI
+import UI
 
 struct QuickLookContent: View {
     let item: DockItem
-    let loader: ImageBlobLoader
+    let imageLoader: ImageBlobLoader
+    let fileLoader: FileURLLoader
+    let xpc: any ClipboardXPCInteracting
+
+    @State private var fullText: String?
+    @State private var fileURLs: [URL] = []
 
     var body: some View {
         Group {
             switch item.kind {
             case .text, .rtf, .code:
                 ScrollView {
-                    Text(item.preview)
+                    Text(fullText ?? item.preview)
                         .font(.system(.body, design: kindIsCode ? .monospaced : .default))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
                         .textSelection(.enabled)
                 }
+                .task(id: item.id) { fullText = await xpc.bodyText(forID: item.id) ?? item.preview }
             case .image:
-                FullImageView(recordID: item.id, loader: loader)
+                FullImageView(recordID: item.id, loader: imageLoader)
             case .file:
                 ScrollView {
-                    Text(item.preview).padding(12).textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(fileURLs, id: \.self) { url in
+                            HStack(spacing: 6) {
+                                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                                    .resizable().frame(width: 18, height: 18)
+                                Text(url.path).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                            }
+                            .onTapGesture(count: 2) {
+                                NSWorkspace.shared.activateFileViewerSelecting([url])
+                            }
+                        }
+                    }
+                    .padding(12)
                 }
+                .task(id: item.id) { fileURLs = await fileLoader.urls(recordID: item.id) ?? [] }
             case .link:
                 if case let .link(url) = item.kind {
                     VStack(spacing: 8) {
@@ -830,14 +859,26 @@ struct QuickLookContent: View {
                     .padding(12)
                 }
             case .color:
-                if case .color = item.kind {
-                    let nsColor = NSColor(named: NSColor.Name(item.preview)) ?? NSColor.gray
-                    VStack(spacing: 8) {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(nsColor))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        Text(item.preview).font(.system(.title3, design: .monospaced))
-                    }
+                let nsColor: NSColor = {
+                    if case let .color(c) = PreviewDetection.detect(item.preview) { return c }
+                    return .gray
+                }()
+                let c = nsColor.usingColorSpace(.sRGB) ?? nsColor
+                let rgb = String(format: "rgb(%d, %d, %d)",
+                                 Int(c.redComponent * 255),
+                                 Int(c.greenComponent * 255),
+                                 Int(c.blueComponent * 255))
+                let hsl = String(format: "hsl(%.0f, %.0f%%, %.0f%%)",
+                                 c.hueComponent * 360,
+                                 c.saturationComponent * 100,
+                                 c.brightnessComponent * 100)
+                VStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(nsColor))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Text(item.preview).font(.system(.title3, design: .monospaced))
+                    Text(rgb).font(.callout.monospaced()).foregroundStyle(.secondary)
+                    Text(hsl).font(.callout.monospaced()).foregroundStyle(.secondary)
                 }
             }
         }
@@ -872,12 +913,24 @@ private struct FullImageView: View {
 
 `maxDim: 0` returns the original (Phase A `ThumbnailRenderer.render` passthrough behavior).
 
+QuickLookOverlay (Task 8) needs to pass `xpc` and `fileLoader` to `QuickLookContent`. Update the call site:
+
+```swift
+                    QuickLookContent(
+                        item: item,
+                        imageLoader: model.imageLoader,
+                        fileLoader: model.fileLoader,
+                        xpc: model.xpc
+                    )
+```
+
 - [ ] **Step 2: Build + commit**
 
 ```bash
 xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme MacAllYouNeed -configuration Debug build 2>&1 | tail -5
-git add MacAllYouNeed/ClipboardDock/Views/QuickLook/QuickLookContent.swift
-git commit -m "feat(dock): add QuickLookContent per-kind dispatcher"
+git add MacAllYouNeed/ClipboardDock/Views/QuickLook/QuickLookContent.swift \
+        MacAllYouNeed/ClipboardDock/Views/QuickLook/QuickLookOverlay.swift
+git commit -m "feat(dock): QuickLookContent reads full body via bodyText + bodyFileURLs"
 ```
 
 ---
@@ -1044,16 +1097,22 @@ Replace with:
 
 - [ ] **Step 3: FileCard**
 
-Wrap files; the `DockItem.preview` for files reads e.g. `"(2 files)"` so we don't have URLs in the UI layer. We need `bodyText`-style RPC for file URLs — add it as a small extension:
-
-Looking at Phase A: `bodyText(forID:)` only returns text/html. For files we'd need a `bodyFileURLs(forID:reply:)` RPC. Rather than add another XPC method just for drag-out, simpler: provide the file's preview path as a transferable plain string. Drop targets that expect file URLs (Finder) won't accept it cleanly, so this is partial. Mark as known v1 limitation:
+`FileCard` already loads URLs lazily via `FileURLLoader` (Phase B Task 9). Update its outer body to provide an `onDrag` that returns the loaded URLs as a multi-item provider:
 
 ```swift
-        // Drag-out for files is text-only in Phase D; full file URL drag deferred.
-        .draggable(item.preview)
+        .onDrag {
+            AppController.shared?.dock.draggingDidStart()
+            // urls is the @State property; if not yet loaded the drag fires with no URLs
+            // (briefly possible right after the card appears — fine; user retries).
+            let providers = NSItemProvider()
+            for u in urls {
+                providers.registerObject(u as NSURL, visibility: .all)
+            }
+            return providers
+        }
 ```
 
-A follow-up task in Phase E or a Phase D-bis adds a `bodyFileURLs` RPC if the limitation surfaces in smoke testing.
+If multiple URLs are present, register them in one provider via `registerFileRepresentation` per URL — drop targets that accept `public.file-url` will receive the list in order.
 
 - [ ] **Step 4: LinkCard**
 
@@ -1166,21 +1225,38 @@ git commit -m "feat(dock): suspend outside-click dismiss for 800ms during drag"
 
 ```swift
 import AppKit
+import Foundation
 
+/// Coordinates with NSColorPanel and commits a single new clip when the user
+/// stops interacting (panel close OR a debounce settle), instead of writing
+/// on every drag-induced color change.
 @MainActor
-final class ColorPickerCoordinator: NSObject {
-    var onColorChosen: ((NSColor) -> Void)?
+final class ColorPickerCoordinator: NSObject, NSWindowDelegate {
+    var onCommit: ((NSColor) -> Void)?
+    private var latestColor: NSColor?
+    private weak var observedPanel: NSColorPanel?
 
     func present(initial: NSColor) {
         let panel = NSColorPanel.shared
+        observedPanel = panel
         panel.color = initial
         panel.setTarget(self)
         panel.setAction(#selector(colorChanged(_:)))
+        panel.delegate = self
         panel.makeKeyAndOrderFront(nil)
     }
 
     @objc private func colorChanged(_ sender: NSColorPanel) {
-        onColorChosen?(sender.color)
+        // Just remember the latest; do NOT write to history yet.
+        latestColor = sender.color
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let color = latestColor else { return }
+        onCommit?(color)
+        latestColor = nil
+        observedPanel?.delegate = nil
+        observedPanel = nil
     }
 }
 ```
@@ -1216,7 +1292,7 @@ struct ColorCard: View {
         .padding(10)
         .contextMenu {
             Button("Open in Color Picker") {
-                picker.onColorChosen = { c in
+                picker.onCommit = { c in
                     let hex = c.hexString
                     Task { _ = await model.xpc.pasteText(text: hex, plainText: true, saveAsNew: true) }
                 }
