@@ -8,6 +8,7 @@ import Platform
 final class AppController {
     let deviceID: DeviceID
     let clipboardDeps: AppDependencies
+    let clipboardReader: LocalClipboardReader
     let popup: ClipboardPopupController
     let folder: BrowseFolderWindowController
     let folderCoordinator: BrowseFolderCoordinator
@@ -29,6 +30,13 @@ final class AppController {
         let popup = ClipboardPopupController(deps: deps)
         self.clipboardDeps = deps
         self.popup = popup
+
+        let clipKey = try KeyManager(keychain: SystemKeychain()).deviceKey()
+        let clipDBURL = AppGroup.containerURL()
+            .appendingPathComponent("databases/clipboard.sqlite")
+        let clipDB = try Database(url: clipDBURL, migrations: ClipboardStore.migrations)
+        let clipStore = try ClipboardStore(database: clipDB, deviceKey: clipKey, deviceID: self.deviceID)
+        self.clipboardReader = LocalClipboardReader(store: clipStore)
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }

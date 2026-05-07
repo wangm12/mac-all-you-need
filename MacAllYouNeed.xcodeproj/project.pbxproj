@@ -22,6 +22,7 @@
 		56BC84AA624EB0E847CDB02E /* UI in Frameworks */ = {isa = PBXBuildFile; productRef = DE455CF6AE9CDA5C981B1F12 /* UI */; };
 		57B73E22BDACDCB60818E70F /* OnboardingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFEAC6BBBD9438A1790B90B /* OnboardingState.swift */; };
 		5C3D6B6EC2A7AA7696EB3436 /* AppMenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC48168DB6EB1529C64CEDF /* AppMenuBarContent.swift */; };
+		632ADECC35524EA087A10DBB /* LocalClipboardReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 592607551210D98E2F7A034D /* LocalClipboardReader.swift */; };
 		65A0558A963AF50EC79188DA /* DownloadsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6FDB2A914DE03953C08C59 /* DownloadsListView.swift */; };
 		7553067E92D14326A545A171 /* BrowseFolderWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7419744B83864E483F1D87A3 /* BrowseFolderWindowController.swift */; };
 		76E72834DB05A5A4E2888B6D /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 6731B6B0CA4B6CEFF4A313B9 /* Core */; };
@@ -116,6 +117,7 @@
 		4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAllYouNeedApp.swift; sourceTree = "<group>"; };
 		51B0AD792F22E95A7E450973 /* HotkeysSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeysSettingsView.swift; sourceTree = "<group>"; };
 		52E83A433923D384A05F933F /* AppController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppController.swift; sourceTree = "<group>"; };
+		592607551210D98E2F7A034D /* LocalClipboardReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalClipboardReader.swift; sourceTree = "<group>"; };
 		683127BBC977746393332166 /* LoginItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItemController.swift; sourceTree = "<group>"; };
 		6BC48168DB6EB1529C64CEDF /* AppMenuBarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBarContent.swift; sourceTree = "<group>"; };
 		6F1AA10BC029C6182FEA023F /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
@@ -190,6 +192,7 @@
 				B1A2C8634B13A5A9A7BFC6D8 /* AppDependencies.swift */,
 				6BC48168DB6EB1529C64CEDF /* AppMenuBarContent.swift */,
 				C6DCF0AE92FA94E30862798C /* HotkeyRegistry.swift */,
+				592607551210D98E2F7A034D /* LocalClipboardReader.swift */,
 				683127BBC977746393332166 /* LoginItemController.swift */,
 			);
 			path = App;
@@ -570,6 +573,7 @@
 				C2A5A19F0D9C4933ACF908E0 /* HotkeyRecorder.swift in Sources */,
 				2BBD484A5079B4F27A0EFE0D /* HotkeyRegistry.swift in Sources */,
 				4D8EEFEABBEC272335742E43 /* HotkeysSettingsView.swift in Sources */,
+				632ADECC35524EA087A10DBB /* LocalClipboardReader.swift in Sources */,
 				B7DAC1D64E0FF54F8B107A0B /* LoginItemController.swift in Sources */,
 				E40ABB4D6C22BBEDDC64C7DE /* MacAllYouNeedApp.swift in Sources */,
 				57B73E22BDACDCB60818E70F /* OnboardingState.swift in Sources */,

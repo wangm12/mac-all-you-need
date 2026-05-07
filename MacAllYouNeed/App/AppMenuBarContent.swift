@@ -33,7 +33,7 @@ struct AppMenuBarContent: View {
             Group {
                 switch tab {
                 case .clipboard:
-                    ClipboardMenuBarContent(deps: controller.clipboardDeps)
+                    ClipboardMenuBarContent(reader: controller.clipboardReader)
                 case .downloads:
                     DownloadsListView(vm: controller.downloaderVM)
                 case .snippets:
@@ -64,25 +64,24 @@ struct SyncStatusChip: View {
 }
 
 struct ClipboardMenuBarContent: View {
-    let deps: AppDependencies
+    let reader: LocalClipboardReader
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Recent clipboard").font(.caption).foregroundStyle(.secondary)
-            ForEach(deps.recentItems, id: \.id) { item in
+            ForEach(reader.items, id: \.id.rawValue) { item in
                 HStack {
                     Text(item.preview).lineLimit(1).truncationMode(.tail)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if deps.recentItems.isEmpty {
+            if reader.items.isEmpty {
                 Text("No items yet").foregroundStyle(.tertiary).font(.callout)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .task { await deps.refresh() }
     }
 }
 
