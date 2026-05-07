@@ -1,5 +1,6 @@
 import AppKit
 import Core
+import CryptoKit
 import Foundation
 import Platform
 
@@ -32,11 +33,7 @@ final class AppController {
         self.popup = popup
 
         let clipKey = try KeyManager(keychain: SystemKeychain()).deviceKey()
-        let clipDBURL = AppGroup.containerURL()
-            .appendingPathComponent("databases/clipboard.sqlite")
-        let clipDB = try Database(url: clipDBURL, migrations: ClipboardStore.migrations)
-        let clipStore = try ClipboardStore(database: clipDB, deviceKey: clipKey, deviceID: self.deviceID)
-        self.clipboardReader = LocalClipboardReader(store: clipStore)
+        self.clipboardReader = try Self.makeClipboardReader(deviceID: deviceID, key: clipKey)
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
@@ -115,6 +112,13 @@ final class AppController {
 
     func startSyncIfConfigured() async {
         // Plan 2 (SyncEngine) is deferred — stub for now
+    }
+
+    private static func makeClipboardReader(deviceID: DeviceID, key: SymmetricKey) throws -> LocalClipboardReader {
+        let url = AppGroup.containerURL().appendingPathComponent("databases/clipboard.sqlite")
+        let db = try Database(url: url, migrations: ClipboardStore.migrations)
+        let store = try ClipboardStore(database: db, deviceKey: key, deviceID: deviceID)
+        return LocalClipboardReader(store: store)
     }
 }
 
