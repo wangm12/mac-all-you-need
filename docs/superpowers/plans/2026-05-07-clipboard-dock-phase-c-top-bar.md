@@ -1663,7 +1663,7 @@ git commit -m "feat(dock): add DockListTabs with built-ins + Pinboards + new-lis
 **Files:**
 - Create: `MacAllYouNeed/ClipboardDock/Views/DockTopBar/DockMoreMenu.swift`
 
-For Phase C this only includes Settings open + Clear All History (with confirm). Phase D will add Pin/Add to list/Transform/Quick Look. Phase E adds Privacy/Clear Older Than.
+For Phase C the menu only opens Settings. Phase E expands it (Privacy submenu, Clear Older Than submenu, Clear All History) once the underlying retention plumbing exists.
 
 - [ ] **Step 1: Implement**
 
@@ -1672,23 +1672,15 @@ import SwiftUI
 
 struct DockMoreMenu: View {
     let openSettings: () -> Void
-    let clearAllHistory: () -> Void
-    @State private var showConfirm = false
 
     var body: some View {
         Menu {
             Button("Open Settings…") { openSettings() }
-            Divider()
-            Button("Clear All History", role: .destructive) { showConfirm = true }
         } label: {
             Image(systemName: "ellipsis").font(.title3).foregroundStyle(.secondary)
         }
         .menuStyle(.borderlessButton)
         .frame(width: 28, height: 28)
-        .alert("Clear all clipboard history?", isPresented: $showConfirm) {
-            Button("Clear", role: .destructive) { clearAllHistory() }
-            Button("Cancel", role: .cancel) { }
-        }
     }
 }
 ```
@@ -1698,7 +1690,7 @@ struct DockMoreMenu: View {
 ```bash
 xcodebuild -workspace MacAllYouNeed.xcworkspace -scheme MacAllYouNeed -configuration Debug build 2>&1 | tail -5
 git add MacAllYouNeed/ClipboardDock/Views/DockTopBar/DockMoreMenu.swift
-git commit -m "feat(dock): add DockMoreMenu skeleton (Settings + Clear All)"
+git commit -m "feat(dock): add DockMoreMenu skeleton (Settings only; Phase E extends)"
 ```
 
 ---
@@ -1716,7 +1708,6 @@ import SwiftUI
 struct DockTopBar: View {
     @Bindable var model: ClipboardDockModel
     let openSettings: () -> Void
-    let clearAllHistory: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1726,10 +1717,7 @@ struct DockTopBar: View {
                 }
             DockListTabs(model: model)
                 .frame(maxWidth: .infinity)
-            DockMoreMenu(
-                openSettings: openSettings,
-                clearAllHistory: clearAllHistory
-            )
+            DockMoreMenu(openSettings: openSettings)
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .frame(height: 52)
@@ -1756,7 +1744,7 @@ git commit -m "feat(dock): add DockTopBar composing search + tabs + more menu"
 
 - [ ] **Step 1: Update `DockRootView`**
 
-Replace the placeholder `HStack { magnifyingglass + TextField }` block with `DockTopBar(...)`. The view's outer signature gains `openSettings`, `clearAllHistory`:
+Replace the placeholder `HStack { magnifyingglass + TextField }` block with `DockTopBar(...)`. The view's outer signature gains `openSettings`:
 
 ```swift
 struct DockRootView: View {
@@ -1766,15 +1754,10 @@ struct DockRootView: View {
     let dismiss: () -> Void
     let onPaste: (Int, Bool) -> Void
     let openSettings: () -> Void
-    let clearAllHistory: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            DockTopBar(
-                model: model,
-                openSettings: openSettings,
-                clearAllHistory: clearAllHistory
-            )
+            DockTopBar(model: model, openSettings: openSettings)
             Divider()
             ClipCarousel(
                 model: model, favicons: favicons, registry: registry,
@@ -1805,37 +1788,12 @@ struct DockRootView: View {
                         )
                     }
                 },
-                openSettings: { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) },
-                clearAllHistory: { /* Phase E implements */ }
+                openSettings: { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }
             )
         )
 ```
 
-For Phase C, `clearAllHistory` is a no-op closure with a TODO comment — wait, no TODOs. Make it a real call that posts a notification picked up by future Phase E work, OR call into a stub method that does nothing. Per the no-placeholders rule: leave the closure body empty `{ }`, matching the visual flow but doing nothing. Phase E task 4 (clear all history wiring) will replace the closure body.
-
-Actually, leaving a no-op while shipping a button that says "Clear All" is misleading. Better: don't render the Clear All in `DockMoreMenu` until Phase E. Update Task 16 to remove that menu item; Phase E adds it back when the underlying action is implemented.
-
-- [ ] **Step 3: Roll back the Clear All entry in `DockMoreMenu`**
-
-```swift
-import SwiftUI
-
-struct DockMoreMenu: View {
-    let openSettings: () -> Void
-
-    var body: some View {
-        Menu {
-            Button("Open Settings…") { openSettings() }
-        } label: {
-            Image(systemName: "ellipsis").font(.title3).foregroundStyle(.secondary)
-        }
-        .menuStyle(.borderlessButton)
-        .frame(width: 28, height: 28)
-    }
-}
-```
-
-`DockTopBar` and `DockRootView` lose the `clearAllHistory` parameter. `DockWindowController.show()` no longer passes it.
+`DockMoreMenu` in Phase C exposes only Open Settings — Clear All History lands in Phase E together with the underlying retention plumbing. No "future" closure stubs ship in this phase.
 
 - [ ] **Step 4: Build + commit**
 

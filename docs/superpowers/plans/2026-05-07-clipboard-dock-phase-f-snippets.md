@@ -72,7 +72,8 @@ Pass into model construction:
 
 ```swift
         dockModel = ClipboardDockModel(
-            xpc: client, appIcons: appIcons, imageLoader: loader,
+            xpc: client, appIcons: appIcons,
+            imageLoader: imgLoader, fileLoader: urlLoader,
             pinboards: pinboards, snippets: snippets
         )
 ```
@@ -86,6 +87,7 @@ final class ClipboardDockModel {
     let xpc: any ClipboardXPCInteracting
     let appIcons: AppIconResolver
     let imageLoader: ImageBlobLoader
+    let fileLoader: FileURLLoader
     let pinboards: PinboardStore
     let snippets: SnippetStore
 
@@ -95,12 +97,14 @@ final class ClipboardDockModel {
         xpc: any ClipboardXPCInteracting,
         appIcons: AppIconResolver,
         imageLoader: ImageBlobLoader,
+        fileLoader: FileURLLoader,
         pinboards: PinboardStore,
         snippets: SnippetStore
     ) {
         self.xpc = xpc
         self.appIcons = appIcons
         self.imageLoader = imageLoader
+        self.fileLoader = fileLoader
         self.pinboards = pinboards
         self.snippets = snippets
     }
@@ -144,7 +148,11 @@ final class SnippetsModelTests: XCTestCase {
         func listItems(query: String?, pageToken: String?, limit: Int) async -> ClipboardXPCList {
             ClipboardXPCList(items: [], nextPageToken: nil)
         }
+        func metasByIDs(ids: [String]) async -> ClipboardXPCList {
+            ClipboardXPCList(items: [], nextPageToken: nil)
+        }
         func bodyText(forID id: String) async -> String? { nil }
+        func bodyFileURLs(forID id: String) async -> [String]? { nil }
         func paste(itemID: String, plainText: Bool) async -> String { "injected" }
         func pasteMany(itemIDs: [String], delimiter: String, plainText: Bool) async -> String { "injected" }
         func pasteText(text: String, plainText: Bool, saveAsNew: Bool) async -> String {
@@ -178,6 +186,7 @@ final class SnippetsModelTests: XCTestCase {
             xpc: mock,
             appIcons: AppIconResolver(),
             imageLoader: ImageBlobLoader(xpc: mock),
+            fileLoader: FileURLLoader(xpc: mock),
             pinboards: pinboards,
             snippets: snippets
         )
