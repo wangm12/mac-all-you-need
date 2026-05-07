@@ -1,3 +1,4 @@
+import Core
 import Platform
 import SwiftUI
 
@@ -62,7 +63,13 @@ public struct FolderPreviewView: View {
         }
         .task(id: currentURL) {
             inventory = nil
-            inventory = try? await FolderEnumerator.enumerate(url: currentURL, maxEntries: 50000)
+            let maxEntries = AppGroupSettings.defaults.integer(forKey: "folderPreviewMaxEntries")
+            let includeHidden = AppGroupSettings.defaults.bool(forKey: "folderPreviewIncludeHidden")
+            inventory = try? await FolderEnumerator.enumerate(
+                url: currentURL,
+                maxEntries: maxEntries == 0 ? 50_000 : maxEntries,
+                includeHidden: includeHidden
+            )
             if let inv = inventory, autoSuggestGrid(inv) { mode = .grid }
         }
     }

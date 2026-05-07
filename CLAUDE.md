@@ -3,13 +3,21 @@
 ## Project
 Native macOS productivity app combining clipboard manager, folder preview (Quick Look), and universal video downloader. Built with Swift 5.9+, SwiftUI, AppKit, GRDB, libarchive.
 
-## Architecture
-- `MacAllYouNeed/` — Main app target (menu bar, UI, coordinators)
-- `ClipboardDaemon/` — LoginItem helper (NSPasteboard polling, XPC server)
-- `FolderPreview/` — Quick Look extension (NSViewController + WKWebView)
-- `Shared/Sources/Core/` — Storage, encryption, XPC protocols, downloader logic
-- `Shared/Sources/Platform/` — Pasteboard, OCR, hotkeys, cookies, archive
-- `Shared/Sources/UI/` — SwiftUI views (FolderPreview, clipboard popup)
+## Architecture (Plan 6 update)
+- `MacAllYouNeed/App/AppController.swift` — composition root (replaces AppDelegate); owns all subsystems
+- `MacAllYouNeed/App/LocalClipboardReader.swift` — reads clipboard DB directly (no XPC); polls every 1s with deduplication
+- `MacAllYouNeed/Onboarding/` — 6-step first-launch wizard (Accessibility, FDA, Notifications, Sync)
+- `MacAllYouNeed/Settings/` — 7-tab Settings window (General, Clipboard, Downloads, FolderPreview, Sync, Hotkeys, Advanced)
+
+### Plan 6 Fixes (macOS 26 / XPC / SwiftUI)
+- **AppController is a static let** — SwiftUI App struct can be recreated multiple times; use `private static let controller = try! AppController()` to ensure single initialization
+- **XPC auth**: `SecCodeCopyGuestWithAttributes` + team-ID check fails (Personal Team cert OU ≠ provisioning ID). Use `NSRunningApplication(processIdentifier:).bundleIdentifier` only
+- **XPC continuation leak**: `withCheckedContinuation` leaks if XPC callback never fires (connection drop). Always use `remoteObjectProxyWithErrorHandler` with error handler that calls `cont.resume`
+- **Clipboard display**: Main app reads `ClipboardStore` directly from shared App Group DB (no XPC). Deduplicate records within 0.5s window (one copy action → multiple type records)
+- **Daemon startup race**: Main app retries XPC load with exponential backoff (0.5, 1, 2, 4s)
+- **Daemon crash throttle**: `SMAppService.loginItem.unregister()` then `register()` on each app launch resets the macOS crash throttle
+- **SettingsLink**: Broken in `MenuBarExtra` on macOS 14+. Use `@Environment(\.openSettings)` instead
+- **Snippet expansion**: Moved from daemon to main app — daemon has no Accessibility permission in its own bundle; main app requests it during onboarding
 
 ## Key Decisions & Platform-Specific Fixes
 
@@ -66,22 +74,34 @@ Native macOS productivity app combining clipboard manager, folder preview (Quick
 ## What's Working ✅
 - Clipboard capture (400ms poll, AES-GCM encrypted, FTS5 indexed)
 - ⌘⇧V popup with search, arrow navigation, paste injection
+- Menu bar 3-tab popover (Clipboard / Downloads / Snippets) with icon + relative timestamp list
+- Clipboard deduplication (same copy action → multiple records → one display entry)
 - Quick Look folder preview (HTML table) and archive listing (libarchive)
 - ⌘⇧F Browse Folder window with Files/Grid/Analyze views
 - yt-dlp downloader: queue, pause/resume, concurrent fragments, cookies
 - Real-time phase indicators (Connecting → Fetching info → Merging etc.)
 - Video metadata (thumbnail, title, channel, duration) fetched async
 - Browser cookie import (Chrome/Edge/Brave/Arc multi-profile, AES-CBC decryption)
+- Cookie import error banner with "Open Chrome" button when import fails
 - DispatchServer (localhost:18765) for browser extension integration
 - DockProgressController (badge %) during active downloads
+- Settings window (7 tabs) with persistent AppGroupSettings backing
+- Onboarding wizard (6 steps) with TCC auto-advance and window-close on Done
+- Hotkey rebinding (HotkeyRecorder + HotkeyRegistry with conflict detection)
+- URLDetector: video URL badge on clipboard items → one-click enqueue to downloader
+- "Preview folder" button on completed downloads → opens Browse Folder window
+- Snippet `;trigger` expansion via CGEventTap (runs in main app with Accessibility)
+- Excluded apps list wired from Settings → daemon ExclusionRules
+- Download output template wired from Settings → DownloadCoordinator
+- FolderPreview maxEntries + includeHidden wired from Settings → FolderEnumerator
 
 ## What's Not Working / Deferred ❌
 - Quick Look extension XPC to main app (sandboxed extension restrictions)
-- Safari binary cookies parsing (binarycookies format — deferred to Plan 6)
-- yt-dlp updater (EdDSA verification scaffolded, application deferred to Plan 7)
-- Format picker dialog for downloads (deferred to Plan 6)
-- Snippet `;trigger` expansion via CGEventTap (implemented, manual test pending)
+- Safari binary cookies parsing (binarycookies format — deferred)
+- yt-dlp updater (deferred to Plan 7)
+- Format picker dialog for downloads (deferred)
 - Xcode/GitHub Actions CI requiring `brew install libarchive` (PKG_CONFIG_PATH needed)
+- Plan 2 Sync Engine (deferred indefinitely)
 
 ## Build Requirements
 - Xcode 26+, macOS 14+ target
@@ -92,22 +112,15 @@ Native macOS productivity app combining clipboard manager, folder preview (Quick
 - `PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test` for Shared package
 
 ## Testing
-- `cd Shared && PKG_CONFIG_PATH=... swift test` — 113 tests
+- `cd Shared && PKG_CONFIG_PATH=... swift test` — 109+ tests
 - `./scripts/ci-build.sh` — full build + lint + tests
-
-## Bundle IDs
-- Main app: `com.macallyouneed.app`
-- Daemon: `com.macallyouneed.app.daemon`
-- Quick Look: `com.macallyouneed.app.folderpreview`
-- App Group: `group.com.macallyouneed.shared`
-- Mach services: `group.com.macallyouneed.shared.daemon`, `group.com.macallyouneed.shared.folderpreview`
 
 ## Plans Status
 - Plan 0 ✅ Foundation (Xcode project, targets, App Group)
 - Plan 1 ✅ Storage & Encryption (GRDB, AES-GCM, Argon2id, FTS5)
-- Plan 2 ⏳ Sync Engine (skipped for now)
+- Plan 2 ⏳ Sync Engine (skipped indefinitely)
 - Plan 3 ✅ Clipboard Subsystem (daemon, XPC, popup, hotkey)
 - Plan 4 ✅ FolderPreview (Quick Look HTML, libarchive, Browse window)
 - Plan 5 ✅ Downloader (yt-dlp, metadata, cookies, queue)
-- Plan 6 ⏳ UI Polish (pending)
-- Plan 7 ⏳ Distribution (pending)
+- Plan 6 ✅ UI Shell (AppController, settings, onboarding, hotkey rebinding, integrations)
+- Plan 7 ⏳ Distribution (Sparkle 2, notarized DMG, GitHub Actions — requires paid Developer ID cert)

@@ -171,55 +171,51 @@ final class DownloadCoordinator {
 
     func enqueue(url: String, title: String?) async {
         do {
-            let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                ?? URL(fileURLWithPath: "/tmp")
-            let outputDir = downloadsDir.appendingPathComponent("MacAllYouNeed", isDirectory: true)
-            try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-            // Use string concatenation — URL.appendingPathComponent percent-encodes % signs
-            let destPath = outputDir.path + "/%(title)s - %(uploader)s.%(ext)s"
-            let dest = URL(fileURLWithPath: destPath)
+            let dest = try makeDestinationURL(for: url)
             let record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
             try store.insert(record)
             let ytdlp = try binaries.ytdlpPath()
             let ffmpeg = try binaries.ffmpegPath()
             let (cookies, cookieHadErrors) = cookieArgs()
             postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
-            NSLog("▶️ enqueue: url=\(url)")
-            NSLog("▶️ enqueue: ytdlp=\(ytdlp.path)")
+            NSLog("▶️ enqueue: url=\(url) ytdlp=\(ytdlp.path)")
             let job = DownloadJob(
                 recordID: record.id, url: url, destination: dest,
                 ytdlp: ytdlp, ffmpeg: ffmpeg,
                 extraArgs: cookies
             )
             await queue.enqueue(job)
-            // Fetch metadata on MainActor-inherited Task (avoids Sendable capture issues with Task.detached)
-            let recordID = record.id
-            Task(priority: .background) { [weak self] in
-                guard let self else { return }
-                guard let ytdlpPath = try? binaries.ytdlpPath(),
-                      let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath)
-                else {
-                    NSLog("🎬 MetadataFetcher: nil result for \(url)")
-                    return
-                }
-                NSLog("🎬 MetadataFetcher: got title='\(meta.title)' channel='\(meta.channelName)'")
-                guard var updated = try? store.fetch(id: recordID) else { return }
-                updated.videoTitle = meta.title
-                updated.channelName = meta.channelName
-                updated.durationSeconds = meta.durationSeconds
-                updated.thumbnailURL = meta.thumbnailURL
-                updated.modified = Date()
-                do {
-                    try store.update(updated)
-                    Self.postStateChanged(id: recordID, state: updated.state)
-                    NSLog("🎬 MetadataFetcher: saved for id=\(recordID.rawValue.prefix(8))")
-                } catch {
-                    NSLog("🎬 MetadataFetcher: update failed: \(error)")
-                }
-            }
+            fetchMetadata(for: record.id, url: url)
         } catch {
             NSLog("❌ enqueue FAILED: \(error)")
             log.error("enqueue failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func makeDestinationURL(for url: String) throws -> URL {
+        let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: "/tmp")
+        let outputDir = downloadsDir.appendingPathComponent("MacAllYouNeed", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        let template = AppGroupSettings.defaults.string(forKey: "downloadOutputTemplate")
+            ?? "%(title)s - %(uploader)s.%(ext)s"
+        return URL(fileURLWithPath: outputDir.path + "/" + template)
+    }
+
+    private func fetchMetadata(for recordID: RecordID, url: String) {
+        Task(priority: .background) { [weak self] in
+            guard let self else { return }
+            guard let ytdlpPath = try? binaries.ytdlpPath(),
+                  let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath)
+            else { return }
+            guard var updated = try? store.fetch(id: recordID) else { return }
+            updated.videoTitle = meta.title
+            updated.channelName = meta.channelName
+            updated.durationSeconds = meta.durationSeconds
+            updated.thumbnailURL = meta.thumbnailURL
+            updated.modified = Date()
+            try? store.update(updated)
+            Self.postStateChanged(id: recordID, state: updated.state)
         }
     }
 

@@ -3,7 +3,6 @@ import Core
 import CryptoKit
 import Foundation
 import Platform
-import Security
 
 final class DaemonContainer {
     let key: SymmetricKey
@@ -41,7 +40,8 @@ final class DaemonContainer {
             migrations: SnippetStore.migrations
         )
         snippets = SnippetStore(database: snippetDB, deviceKey: key)
-        observer = PasteboardObserver(reader: SystemPasteboardReader(), rules: ExclusionRules())
+        let blockedIDs = Set(AppGroupSettings.defaults.stringArray(forKey: "clipboardExcludedBundleIDs") ?? [])
+        observer = PasteboardObserver(reader: SystemPasteboardReader(), rules: ExclusionRules(blockedBundleIDs: blockedIDs))
         expander = SnippetExpander { [snippets] trigger in
             try? snippets.find(trigger: trigger)?.body
         }

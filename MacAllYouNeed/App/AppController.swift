@@ -17,6 +17,8 @@ final class AppController {
     let downloaderVM: DownloaderViewModel
     let dock: DockProgressController
     var onboarding: OnboardingState
+    // Snippet expansion runs in the main app so it uses the app's Accessibility permission
+    private let snippetExpander: SnippetExpander
 
     private let hotkeyRegistry = HotkeyRegistry()
     private var fallbackHotkey: GlobalHotkey?
@@ -34,6 +36,7 @@ final class AppController {
 
         let clipKey = try KeyManager(keychain: SystemKeychain()).deviceKey()
         self.clipboardReader = try Self.makeClipboardReader(deviceID: deviceID, key: clipKey)
+        self.snippetExpander = try Self.makeSnippetExpander(deviceID: deviceID, key: clipKey)
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
@@ -119,6 +122,15 @@ final class AppController {
         let db = try Database(url: url, migrations: ClipboardStore.migrations)
         let store = try ClipboardStore(database: db, deviceKey: key, deviceID: deviceID)
         return LocalClipboardReader(store: store)
+    }
+
+    private static func makeSnippetExpander(deviceID: DeviceID, key: SymmetricKey) throws -> SnippetExpander {
+        let url = AppGroup.containerURL().appendingPathComponent("databases/snippets.sqlite")
+        let db = try Database(url: url, migrations: SnippetStore.migrations)
+        let store = SnippetStore(database: db, deviceKey: key)
+        let expander = SnippetExpander { trigger in try? store.find(trigger: trigger)?.body }
+        expander.start()
+        return expander
     }
 }
 
