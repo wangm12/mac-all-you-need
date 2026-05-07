@@ -9,7 +9,7 @@ final class DownloaderViewModel {
     var rows: [DownloadRecord] = []
     var liveProgress: [String: DownloadProgress] = [:]
     var liveStatus: [String: String] = [:]
-    var cookieWarning: String? = nil
+    var cookieWarning: String?
 
     init(coordinator: DownloadCoordinator) {
         self.coordinator = coordinator

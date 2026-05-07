@@ -5,7 +5,6 @@ import Foundation
 import Platform
 import Security
 
-
 final class DaemonContainer {
     let key: SymmetricKey
     let deviceID: DeviceID

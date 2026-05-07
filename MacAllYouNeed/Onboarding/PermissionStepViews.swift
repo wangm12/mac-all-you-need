@@ -115,7 +115,7 @@ struct SyncSetupStep: View {
                         let panel = NSOpenPanel()
                         panel.canChooseDirectories = true
                         panel.canChooseFiles = false
-                        if panel.runModal() == .OK, let u = panel.url { path = u.path }
+                        if panel.runModal() == .OK, let picked = panel.url { path = picked.path }
                     }
                 }
                 SecureField("Passphrase", text: $passphrase)

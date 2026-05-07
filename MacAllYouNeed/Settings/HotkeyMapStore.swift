@@ -21,13 +21,13 @@ enum HotkeyMapStore {
         var defaults: [HotkeyAction: HotkeyDescriptor] = [
             .clipboard: .defaultClipboard,
             .addDownload: .defaultDownload,
-            .browseFolder: .defaultFolder,
+            .browseFolder: .defaultFolder
         ]
         if let data = AppGroupSettings.defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode([String: HotkeyDescriptor].self, from: data)
         {
-            for (k, v) in decoded {
-                if let a = HotkeyAction(rawValue: k) { defaults[a] = v }
+            for (rawKey, descriptor) in decoded {
+                if let action = HotkeyAction(rawValue: rawKey) { defaults[action] = descriptor }
             }
         }
         return defaults

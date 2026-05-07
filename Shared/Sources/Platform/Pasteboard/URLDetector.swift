@@ -6,7 +6,7 @@ public enum URLDetector {
         "vimeo.com", "player.vimeo.com",
         "x.com", "twitter.com",
         "douyin.com", "tiktok.com",
-        "twitch.tv",
+        "twitch.tv"
     ]
 
     public static func videoBearingURL(in text: String) -> URL? {

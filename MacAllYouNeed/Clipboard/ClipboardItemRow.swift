@@ -32,4 +32,3 @@ struct ClipboardItemRow: View {
         }
     }
 }
-
