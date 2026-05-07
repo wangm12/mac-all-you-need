@@ -18,7 +18,7 @@ public enum MetadataFetcher {
                 "--print", "%(title)s",
                 "--print", "%(uploader|channel)s",
                 "--print", "%(duration)s",
-                "--print", "%(thumbnail)s",
+                "--print", "%(thumbnail)s"
             ]
             if let node = findNode() {
                 args += ["--js-runtime", "node:\(node)"]
