@@ -2,44 +2,8 @@ import AppKit
 import Core
 import Foundation
 import Platform
-import Security
 
-// MARK: - Code signature identity helper (file-scope to avoid nesting violation)
-
-private enum CodeSignatureIdentity {
-    struct Identity {
-        let bundleIdentifier: String?
-        let teamIdentifier: String?
-    }
-
-    static func identity(forPID pid: pid_t) -> Identity? {
-        let attributes = [kSecGuestAttributePid as String: pid] as CFDictionary
-        var code: SecCode?
-        guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        return identity(for: staticCode)
-    }
-
-    static func identity(for app: NSRunningApplication) -> Identity? {
-        guard let url = app.bundleURL else { return nil }
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
-        return identity(for: code)
-    }
-
-    private static func identity(for code: SecStaticCode) -> Identity? {
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
-              let dict = info as? [String: Any] else { return nil }
-        return Identity(
-            bundleIdentifier: dict[kSecCodeInfoIdentifier as String] as? String,
-            teamIdentifier: dict[kSecCodeInfoTeamIdentifier as String] as? String
-        )
-    }
-}
-
-// MARK: -
+// MARK: -// MARK: -
 
 final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDelegate {
     let container: DaemonContainer
@@ -94,22 +58,10 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
     }
 
     static func isAllowedClient(_ connection: NSXPCConnection) -> Bool {
-        guard let app = NSRunningApplication(processIdentifier: connection.processIdentifier),
-              let expectedTeamID = expectedTeamIdentifier(),
-              let identity = CodeSignatureIdentity.identity(forPID: connection.processIdentifier)
-              ?? CodeSignatureIdentity.identity(for: app)
-        else { return false }
-        return identity.bundleIdentifier == "com.macallyouneed.app" && identity.teamIdentifier == expectedTeamID
-    }
-
-    private static func expectedTeamIdentifier() -> String? {
-        if let configured = Bundle.main.object(forInfoDictionaryKey: "MAYNTeamIdentifier") as? String,
-           !configured.isEmpty,
-           !configured.hasPrefix("$(")
-        {
-            return configured
-        }
-        return CodeSignatureIdentity.identity(for: NSRunningApplication.current)?.teamIdentifier
+        // Personal Team: SecCodeCopyGuestWithAttributes + team-ID comparison fails
+        // (certificate OU ≠ provisioning team ID). Use bundle ID only per CLAUDE.md.
+        guard let app = NSRunningApplication(processIdentifier: connection.processIdentifier) else { return false }
+        return app.bundleIdentifier == "com.macallyouneed.app"
     }
 
     func notifyInvalidated() {
