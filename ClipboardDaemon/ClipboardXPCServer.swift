@@ -3,8 +3,6 @@ import Core
 import Foundation
 import Platform
 
-// MARK: -// MARK: -
-
 final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDelegate {
     let container: DaemonContainer
     let listener: NSXPCListener
