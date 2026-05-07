@@ -14,11 +14,8 @@ struct AppMenuBarContent: View {
                 Text("Mac All You Need").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 SyncStatusChip()
-                Button {
-                    NSApp.activate(ignoringOtherApps: true)
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                } label: { Image(systemName: "gear") }
-                .buttonStyle(.borderless)
+                SettingsLink { Image(systemName: "gear") }
+                    .buttonStyle(.borderless)
             }
             .padding(.horizontal, 10).padding(.top, 8)
 
@@ -106,10 +103,14 @@ struct SnippetsListView: View {
     }
 
     private func refresh() async {
-        guard let proxy = xpc.proxy() else { return }
-        let rows: [SnippetXPCDTO] = await withCheckedContinuation { cont in
+        snippets = await withCheckedContinuation { cont in
+            // Use an error handler so the continuation is always resumed,
+            // even if the XPC connection drops before the callback fires.
+            let proxy = xpc.connection.remoteObjectProxyWithErrorHandler { _ in
+                cont.resume(returning: [])
+            } as? ClipboardXPCProtocol
+            guard let proxy else { cont.resume(returning: []); return }
             proxy.listSnippets { cont.resume(returning: $0) }
         }
-        snippets = rows
     }
 }
