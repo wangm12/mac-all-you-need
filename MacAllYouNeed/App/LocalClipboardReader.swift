@@ -16,7 +16,7 @@ final class LocalClipboardReader {
 
     func search(query: String) {
         self.query = query
-        reload()
+        Task { await reload() }
     }
 
     func stopPolling() {
@@ -25,22 +25,29 @@ final class LocalClipboardReader {
     }
 
     private func startPolling() {
-        pollTask = Task { [weak self] in
+        pollTask = Task {
+            // Small initial delay to let the daemon finish any in-flight write
+            try? await Task.sleep(for: .milliseconds(300))
             while !Task.isCancelled {
-                self?.reload()
+                await reload()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
     }
 
-    private func reload() {
+    private func reload() async {
         guard let store else {
             NSLog("📋 LocalClipboardReader: store is nil")
             return
         }
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        do {
-            let fetched = try store.list(limit: 50)
+        let currentQuery = query
+        let trimmed = currentQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Run the DB read on a background thread to avoid blocking the main actor
+        let result = await Task.detached(priority: .userInitiated) {
+            Result { try store.list(limit: 50) }
+        }.value
+        switch result {
+        case .success(let fetched):
             NSLog("📋 LocalClipboardReader: fetched \(fetched.count) items")
             if trimmed.isEmpty {
                 items = fetched
@@ -48,9 +55,10 @@ final class LocalClipboardReader {
                 let lower = trimmed.lowercased()
                 items = fetched.filter { $0.preview.lowercased().contains(lower) }
             }
-        } catch {
+        case .failure(let error):
             NSLog("📋 LocalClipboardReader: list() threw: \(error)")
             items = []
         }
     }
 }
+
