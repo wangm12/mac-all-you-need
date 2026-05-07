@@ -81,4 +81,3 @@ final class LocalClipboardReader {
         return 2
     }
 }
-
