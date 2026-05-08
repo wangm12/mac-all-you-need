@@ -47,6 +47,7 @@ final class SelectionStateTests: XCTestCase {
 
     private var dir: URL!
     private var pinboards: PinboardStore!
+    private var snippets: SnippetStore!
     private var mock: MockClient!
     private var model: ClipboardDockModel!
 
@@ -56,8 +57,16 @@ final class SelectionStateTests: XCTestCase {
             .appendingPathComponent("Sel-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let key = SymmetricKey(size: .bits256)
-        let db = try Database(url: dir.appendingPathComponent("p.sqlite"), migrations: PinboardStore.migrations)
-        pinboards = PinboardStore(database: db, deviceKey: key)
+        let pinboardDB = try Database(
+            url: dir.appendingPathComponent("p.sqlite"),
+            migrations: PinboardStore.migrations
+        )
+        let snippetDB = try Database(
+            url: dir.appendingPathComponent("s.sqlite"),
+            migrations: SnippetStore.migrations
+        )
+        pinboards = PinboardStore(database: pinboardDB, deviceKey: key)
+        snippets = SnippetStore(database: snippetDB, deviceKey: key)
 
         mock = MockClient()
         mock.listResults = (0..<5).map {
@@ -69,7 +78,8 @@ final class SelectionStateTests: XCTestCase {
             appIcons: AppIconResolver(),
             imageLoader: ImageBlobLoader(xpc: mock),
             fileLoader: FileURLLoader(xpc: mock),
-            pinboards: pinboards
+            pinboards: pinboards,
+            snippets: snippets
         )
         await model.refresh()
     }

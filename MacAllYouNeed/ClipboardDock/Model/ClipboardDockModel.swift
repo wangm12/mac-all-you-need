@@ -11,8 +11,10 @@ final class ClipboardDockModel {
     let imageLoader: ImageBlobLoader
     let fileLoader: FileURLLoader
     let pinboards: PinboardStore
+    let snippets: SnippetStore
 
     var items: [DockItem] = []
+    var snippetItems: [Snippet] = []
     var search: String = ""
     var focusedIndex: Int = 0
     var activeList: DockListSelector = .history
@@ -31,13 +33,15 @@ final class ClipboardDockModel {
         appIcons: AppIconResolver,
         imageLoader: ImageBlobLoader,
         fileLoader: FileURLLoader,
-        pinboards: PinboardStore
+        pinboards: PinboardStore,
+        snippets: SnippetStore
     ) {
         self.xpc = xpc
         self.appIcons = appIcons
         self.imageLoader = imageLoader
         self.fileLoader = fileLoader
         self.pinboards = pinboards
+        self.snippets = snippets
     }
 
     func loadAvailableLists() async {
@@ -178,6 +182,40 @@ final class ClipboardDockModel {
         await refresh()
     }
 
+    func loadSnippets() async {
+        snippetItems = (try? snippets.list()) ?? []
+    }
+
+    func createSnippet(name: String, body: String, trigger: String?) async {
+        _ = try? snippets.create(name: name, body: body, trigger: trigger)
+        await loadSnippets()
+    }
+
+    func updateSnippet(id: RecordID, name: String, body: String, trigger: String?) async {
+        try? snippets.update(id: id, name: name, body: body, trigger: trigger)
+        await loadSnippets()
+    }
+
+    func deleteSnippet(id: RecordID) async {
+        try? snippets.delete(id: id)
+        await loadSnippets()
+    }
+
+    func duplicateSnippet(id: RecordID) async {
+        guard let original = snippetItems.first(where: { $0.id == id }) else { return }
+        _ = try? snippets.create(
+            name: "\(original.name) (copy)",
+            body: original.body,
+            trigger: nil
+        )
+        await loadSnippets()
+    }
+
+    func pasteSnippet(id: RecordID, plainText: Bool) async {
+        guard let snippet = snippetItems.first(where: { $0.id == id }) else { return }
+        _ = await xpc.pasteText(text: snippet.body, plainText: plainText, saveAsNew: true)
+    }
+
     private func nextRefreshSequence() -> UInt64 {
         refreshSequence += 1
         return refreshSequence
@@ -197,12 +235,18 @@ final class ClipboardDockModel {
         case let .pinboard(id):
             newItems = await loadPinboard(id: id, query: query)
         case .snippets:
+            await loadSnippets()
             newItems = []
         }
 
         guard sequence == refreshSequence else { return }
 
         items = newItems
+        if activeList == .snippets {
+            focusedIndex = 0
+            selection.removeAll()
+            return
+        }
         if let previousID, let newIndex = items.firstIndex(where: { $0.id == previousID }) {
             focusedIndex = newIndex
         } else {

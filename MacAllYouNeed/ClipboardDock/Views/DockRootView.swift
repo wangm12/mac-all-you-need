@@ -13,12 +13,18 @@ struct DockRootView: View {
         VStack(spacing: 0) {
             DockTopBar(model: model, openSettings: openSettings)
             Divider()
-            ClipCarousel(
-                model: model,
-                favicons: favicons,
-                registry: registry,
-                onPaste: onPaste
-            )
+            Group {
+                if model.activeList == .snippets {
+                    DockSnippetsListView(model: model)
+                } else {
+                    ClipCarousel(
+                        model: model,
+                        favicons: favicons,
+                        registry: registry,
+                        onPaste: onPaste
+                    )
+                }
+            }
             .frame(maxHeight: .infinity)
 
             if !model.selection.isEmpty {

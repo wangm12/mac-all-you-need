@@ -48,17 +48,23 @@ final class ClipboardDockModelTests: XCTestCase {
 
     private func makeModel(_ mock: MockClient) -> ClipboardDockModel {
         let key = SymmetricKey(size: .bits256)
-        let db = try! Database(
+        let pinboardDB = try! Database(
             url: FileManager.default.temporaryDirectory.appendingPathComponent("pb-\(UUID().uuidString).sqlite"),
             migrations: PinboardStore.migrations
         )
-        let pinboards = PinboardStore(database: db, deviceKey: key)
+        let snippetDB = try! Database(
+            url: FileManager.default.temporaryDirectory.appendingPathComponent("sn-\(UUID().uuidString).sqlite"),
+            migrations: SnippetStore.migrations
+        )
+        let pinboards = PinboardStore(database: pinboardDB, deviceKey: key)
+        let snippets = SnippetStore(database: snippetDB, deviceKey: key)
         return ClipboardDockModel(
             xpc: mock,
             appIcons: AppIconResolver(),
             imageLoader: ImageBlobLoader(xpc: mock),
             fileLoader: FileURLLoader(xpc: mock),
-            pinboards: pinboards
+            pinboards: pinboards,
+            snippets: snippets
         )
     }
 

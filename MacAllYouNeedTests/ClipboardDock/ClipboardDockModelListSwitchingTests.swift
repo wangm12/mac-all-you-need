@@ -36,6 +36,7 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
 
     private var dir: URL!
     private var pinboards: PinboardStore!
+    private var snippets: SnippetStore!
     private var mock: MockClient!
     private var model: ClipboardDockModel!
 
@@ -46,15 +47,24 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let key = SymmetricKey(size: .bits256)
-        let db = try Database(url: dir.appendingPathComponent("p.sqlite"), migrations: PinboardStore.migrations)
-        pinboards = PinboardStore(database: db, deviceKey: key)
+        let pinboardDB = try Database(
+            url: dir.appendingPathComponent("p.sqlite"),
+            migrations: PinboardStore.migrations
+        )
+        let snippetDB = try Database(
+            url: dir.appendingPathComponent("s.sqlite"),
+            migrations: SnippetStore.migrations
+        )
+        pinboards = PinboardStore(database: pinboardDB, deviceKey: key)
+        snippets = SnippetStore(database: snippetDB, deviceKey: key)
         mock = MockClient()
         model = ClipboardDockModel(
             xpc: mock,
             appIcons: AppIconResolver(),
             imageLoader: ImageBlobLoader(xpc: mock),
             fileLoader: FileURLLoader(xpc: mock),
-            pinboards: pinboards
+            pinboards: pinboards,
+            snippets: snippets
         )
     }
 
@@ -116,5 +126,11 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
         await model.loadAvailableLists()
 
         XCTAssertEqual(model.availableLists.map(\.name), ["Useful"])
+    }
+
+    func testSnippetsListLoadsWhenActiveListIsSnippets() async throws {
+        _ = try snippets.create(name: "sig", body: "Best,\nMingjie")
+        await model.switchList(.snippets)
+        XCTAssertEqual(model.snippetItems.map(\.name), ["sig"])
     }
 }

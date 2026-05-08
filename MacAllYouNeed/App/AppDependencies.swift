@@ -12,6 +12,7 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
     let imageLoader: ImageBlobLoader
     let fileLoader: FileURLLoader
     let pinboardStore: PinboardStore
+    let snippetStore: SnippetStore
     let dockModel: ClipboardDockModel
 
     override init() {
@@ -39,13 +40,29 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
             return PinboardStore(database: fallbackDB, deviceKey: SymmetricKey(size: .bits256))
         }()
         pinboardStore = pinboards
+        let snippetDB = try? Database(
+            url: AppGroup.containerURL().appendingPathComponent("databases/snippets.sqlite"),
+            migrations: SnippetStore.migrations
+        )
+        let snippets: SnippetStore = {
+            if let key, let snippetDB {
+                return SnippetStore(database: snippetDB, deviceKey: key)
+            }
+            let fallbackDB = try! Database(
+                url: FileManager.default.temporaryDirectory.appendingPathComponent("snip-\(UUID().uuidString).sqlite"),
+                migrations: SnippetStore.migrations
+            )
+            return SnippetStore(database: fallbackDB, deviceKey: SymmetricKey(size: .bits256))
+        }()
+        snippetStore = snippets
 
         dockModel = ClipboardDockModel(
             xpc: client,
             appIcons: appIcons,
             imageLoader: imageLoader,
             fileLoader: fileLoader,
-            pinboards: pinboards
+            pinboards: pinboards,
+            snippets: snippets
         )
 
         super.init()
