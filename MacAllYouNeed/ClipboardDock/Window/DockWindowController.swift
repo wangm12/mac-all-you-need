@@ -57,8 +57,8 @@ final class DockWindowController {
                 dismiss: { [weak self] in
                     self?.hide()
                 },
-                onPaste: { [weak self] idx, plainText in
-                    self?.triggerPaste(at: idx, plainText: plainText)
+                onPaste: { [weak self] idx, modifiers in
+                    self?.triggerPaste(at: idx, modifiers: modifiers)
                 },
                 openSettings: {
                     NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
@@ -90,16 +90,20 @@ final class DockWindowController {
         }
     }
 
-    private func triggerPaste(at idx: Int, plainText: Bool) {
+    private func triggerPaste(at idx: Int, modifiers: EventModifiers) {
         guard model.items.indices.contains(idx) else { return }
         let id = model.items[idx].id
 
-        let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command) {
+        // Use the modifier state captured at click time (passed in by the
+        // carousel's TapGesture), not the current NSEvent.modifierFlags. By
+        // the time SwiftUI dispatches the tap closure, the user may have
+        // released ⌘ — reading global flags here silently degrades ⌘+click
+        // into a destructive paste-and-dismiss.
+        if modifiers.contains(.command) {
             model.toggleSelection(itemID: id)
             return
         }
-        if flags.contains(.shift) {
+        if modifiers.contains(.shift) {
             let anchor = model.focusedIndex
             let lower = min(anchor, idx)
             let upper = max(anchor, idx)
@@ -114,6 +118,7 @@ final class DockWindowController {
             return
         }
 
+        let plainText = modifiers.contains(.option)
         Task { [weak self] in
             guard let self else { return }
             await self.pasteCoordinator.paste(
@@ -227,7 +232,7 @@ final class DockWindowController {
                         await self.model.pasteSelectionInOrder(delimiter: "\n", plainText: false)
                     }
                 } else {
-                    triggerPaste(at: model.focusedIndex, plainText: false)
+                    triggerPaste(at: model.focusedIndex, modifiers: [])
                 }
                 return nil
             }
@@ -238,7 +243,7 @@ final class DockWindowController {
                         await self.model.pasteSelectionInOrder(delimiter: "\n", plainText: true)
                     }
                 } else {
-                    triggerPaste(at: model.focusedIndex, plainText: true)
+                    triggerPaste(at: model.focusedIndex, modifiers: .option)
                 }
                 return nil
             }

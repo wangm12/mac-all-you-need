@@ -5,7 +5,11 @@ struct ClipCarousel: View {
     @Bindable var model: ClipboardDockModel
     let favicons: FaviconCache
     let registry: ShortcutRegistry
-    let onPaste: (Int, Bool) -> Void
+    /// Reports the index plus the modifier state captured at the moment of the
+    /// click. Reading NSEvent.modifierFlags later in DockWindowController is a
+    /// race — the user may release the modifier before the SwiftUI tap closure
+    /// runs, silently downgrading ⌘+click to a destructive paste.
+    let onPaste: (Int, EventModifiers) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -21,9 +25,19 @@ struct ClipCarousel: View {
                             favicons: favicons
                         )
                         .id(item.id)
-                        .onTapGesture {
-                            onPaste(idx, false)
-                        }
+                        // SwiftUI dispatches the most-specific modifier-matched
+                        // gesture, so the order of these stacks does not matter
+                        // for correctness — only one fires per click.
+                        .onTapGesture { onPaste(idx, []) }
+                        .simultaneousGesture(
+                            TapGesture().modifiers(.command).onEnded { onPaste(idx, .command) }
+                        )
+                        .simultaneousGesture(
+                            TapGesture().modifiers(.shift).onEnded { onPaste(idx, .shift) }
+                        )
+                        .simultaneousGesture(
+                            TapGesture().modifiers(.option).onEnded { onPaste(idx, .option) }
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -47,8 +61,8 @@ struct ClipCarousel: View {
                 model.focusForward()
                 return .handled
             case "\r":
-                let plainText = keyPress.modifiers.contains(.option)
-                onPaste(model.focusedIndex, plainText)
+                let mods: EventModifiers = keyPress.modifiers.contains(.option) ? .option : []
+                onPaste(model.focusedIndex, mods)
                 return .handled
             default:
                 _ = registry

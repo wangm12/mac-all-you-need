@@ -6,7 +6,7 @@ struct DockRootView: View {
     let favicons: FaviconCache
     let registry: ShortcutRegistry
     let dismiss: () -> Void
-    let onPaste: (Int, Bool) -> Void
+    let onPaste: (Int, EventModifiers) -> Void
     let openSettings: () -> Void
 
     var body: some View {
