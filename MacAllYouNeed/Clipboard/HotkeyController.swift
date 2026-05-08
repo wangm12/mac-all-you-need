@@ -3,11 +3,11 @@ import Platform
 
 @MainActor
 final class HotkeyController {
-    private let popup: ClipboardPopupController
+    private let dock: DockWindowController
     private var hotkey: GlobalHotkey?
 
-    init(popup: ClipboardPopupController) {
-        self.popup = popup
+    init(dock: DockWindowController) {
+        self.dock = dock
     }
 
     func registerDefault() {
@@ -16,7 +16,7 @@ final class HotkeyController {
 
     func registerHotkeyThrowing() throws {
         hotkey = GlobalHotkey(descriptor: .defaultClipboard) { [weak self] in
-            Task { @MainActor in self?.popup.show() }
+            Task { @MainActor in self?.dock.toggle() }
         }
         try hotkey?.register()
     }

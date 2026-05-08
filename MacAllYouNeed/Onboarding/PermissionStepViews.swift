@@ -25,7 +25,7 @@ struct AccessibilityStep: View {
     var body: some View {
         VStack(spacing: 12) {
             Text("Accessibility permission").font(.title2).bold()
-            Text("Required so the clipboard popup can paste back into your app, and so snippet `;trigger` expansion works.")
+            Text("Required so the clipboard dock can paste back into your app, and so snippet `;trigger` expansion works.")
                 .multilineTextAlignment(.center)
             Button("Open System Settings") {
                 _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)

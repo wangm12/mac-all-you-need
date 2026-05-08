@@ -7,7 +7,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .clipboard: return "Open clipboard popup"
+        case .clipboard: return "Open clipboard dock"
         case .addDownload: return "Add download"
         case .browseFolder: return "Browse folder"
         }

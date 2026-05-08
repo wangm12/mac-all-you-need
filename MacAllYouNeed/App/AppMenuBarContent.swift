@@ -45,7 +45,7 @@ struct AppMenuBarContent: View {
             Divider()
             HStack {
                 Text("⌘⇧V").font(.system(.caption, design: .monospaced))
-                Text("clipboard popup").font(.caption).foregroundStyle(.secondary)
+                Text("clipboard dock").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.borderless).font(.caption)
             }.padding(.horizontal, 10).padding(.vertical, 6)

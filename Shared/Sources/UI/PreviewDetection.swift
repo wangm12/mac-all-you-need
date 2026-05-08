@@ -1,7 +1,7 @@
 import AppKit
-import SwiftUI
+import Foundation
 
-public enum DetectedKind {
+public enum DetectedKind: Equatable {
     case color(NSColor)
     case url(URL)
     case code(language: String, body: String)
@@ -11,7 +11,9 @@ public enum DetectedKind {
 public enum PreviewDetection {
     public static func detect(_ text: String) -> DetectedKind {
         if let color = parseColor(text) { return .color(color) }
-        if let url = URL(string: text), url.scheme == "http" || url.scheme == "https" { return .url(url) }
+        if let url = URL(string: text), url.scheme == "http" || url.scheme == "https" {
+            return .url(url)
+        }
         if looksLikeCode(text) { return .code(language: guessLanguage(text), body: text) }
         return .plain(text)
     }
@@ -36,31 +38,5 @@ public enum PreviewDetection {
         if s.contains("=>") || s.contains("const ") { return "javascript" }
         if s.contains("def ") { return "python" }
         return "text"
-    }
-}
-
-public struct PasteboardPreview: View {
-    public let text: String
-    public init(text: String) {
-        self.text = text
-    }
-
-    public var body: some View {
-        switch PreviewDetection.detect(text) {
-        case let .color(c):
-            HStack {
-                RoundedRectangle(cornerRadius: 6).fill(Color(c)).frame(width: 36, height: 36)
-                Text(text).font(.system(.body, design: .monospaced))
-            }
-        case let .url(url):
-            VStack(alignment: .leading) {
-                Text(url.host ?? url.absoluteString).font(.caption).foregroundStyle(.secondary)
-                Text(text).lineLimit(2)
-            }
-        case let .code(_, body):
-            Text(body).font(.system(.body, design: .monospaced)).lineLimit(8)
-        case let .plain(s):
-            Text(s).lineLimit(8)
-        }
     }
 }

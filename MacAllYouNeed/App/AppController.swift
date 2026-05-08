@@ -10,12 +10,12 @@ final class AppController {
     let deviceID: DeviceID
     let clipboardDeps: AppDependencies
     let clipboardReader: LocalClipboardReader
-    let popup: ClipboardPopupController
+    let clipboardDock: DockWindowController
     let folder: BrowseFolderWindowController
     let folderCoordinator: BrowseFolderCoordinator
     let downloader: DownloadCoordinator
     let downloaderVM: DownloaderViewModel
-    let dock: DockProgressController
+    let downloaderDock: DockProgressController
     var onboarding: OnboardingState
     // Snippet expansion runs in the main app so it uses the app's Accessibility permission
     private let snippetExpander: SnippetExpander
@@ -30,9 +30,15 @@ final class AppController {
         self.deviceID = try DeviceIdentityStore.loadOrCreate()
 
         let deps = AppDependencies()
-        let popup = ClipboardPopupController(deps: deps)
+        let pasteCoordinator = DockPasteCoordinator(xpc: deps.xpc)
+        let favicons = FaviconCache()
+        let clipboardDock = DockWindowController(
+            model: deps.dockModel,
+            pasteCoordinator: pasteCoordinator,
+            favicons: favicons
+        )
         self.clipboardDeps = deps
-        self.popup = popup
+        self.clipboardDock = clipboardDock
 
         let clipKey = try KeyManager(keychain: SystemKeychain()).deviceKey()
         self.clipboardReader = try Self.makeClipboardReader(deviceID: deviceID, key: clipKey)
@@ -49,7 +55,7 @@ final class AppController {
         self.downloaderVM = dlVM
         let dockCtrl = DockProgressController(vm: dlVM)
         dockCtrl.start()
-        self.dock = dockCtrl
+        self.downloaderDock = dockCtrl
 
         self.onboarding = OnboardingState.load()
         LoginItemController.reconcileLaunchAtLogin()
@@ -64,8 +70,8 @@ final class AppController {
         do {
             try hotkeyRegistry.apply(HotkeyMapStore.load(), controller: self)
         } catch {
-            let hk = GlobalHotkey(descriptor: .defaultClipboard) { [weak popup] in
-                Task { @MainActor in popup?.show() }
+            let hk = GlobalHotkey(descriptor: .defaultClipboard) { [weak clipboardDock] in
+                Task { @MainActor in clipboardDock?.toggle() }
             }
             try? hk.register()
             fallbackHotkey = hk
@@ -107,7 +113,7 @@ final class AppController {
 
     func performHotkeyAction(_ action: HotkeyAction) {
         switch action {
-        case .clipboard: popup.show()
+        case .clipboard: clipboardDock.toggle()
         case .addDownload: NotificationCenter.default.post(name: .addDownloadRequested, object: nil)
         case .browseFolder: folder.openPanelAndBrowse()
         }
