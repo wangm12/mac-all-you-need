@@ -15,11 +15,14 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
     let snippetStore: SnippetStore
     let dockModel: ClipboardDockModel
 
-    /// Pinboards are constructed by AppController against the keychain-backed
-    /// device key; injected here so that a missing/locked keychain surfaces as
-    /// AppController.init throwing instead of silently building a temporary
-    /// store with a throwaway key (which orphaned user data on next launch).
-    init(pinboards: PinboardStore) {
+    /// Pinboards and snippets are constructed by AppController against the
+    /// keychain-backed device key; injected here so that a missing/locked
+    /// keychain surfaces as AppController.init throwing instead of silently
+    /// building temporary stores with a throwaway key (which orphaned user
+    /// data on next launch). Snippet injection also ensures only one
+    /// SnippetStore opens snippets.sqlite per process — a second
+    /// DatabaseQueue on the same file races with the SnippetExpander.
+    init(pinboards: PinboardStore, snippets: SnippetStore) {
         let client = ClipboardXPCClient(resumesImmediately: false)
         xpc = client
 
@@ -29,22 +32,6 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
         self.fileLoader = fileLoader
 
         pinboardStore = pinboards
-
-        let key = try? KeyManager(keychain: SystemKeychain()).deviceKey()
-        let snippetDB = try? Database(
-            url: AppGroup.containerURL().appendingPathComponent("databases/snippets.sqlite"),
-            migrations: SnippetStore.migrations
-        )
-        let snippets: SnippetStore = {
-            if let key, let snippetDB {
-                return SnippetStore(database: snippetDB, deviceKey: key)
-            }
-            let fallbackDB = try! Database(
-                url: FileManager.default.temporaryDirectory.appendingPathComponent("snip-\(UUID().uuidString).sqlite"),
-                migrations: SnippetStore.migrations
-            )
-            return SnippetStore(database: fallbackDB, deviceKey: SymmetricKey(size: .bits256))
-        }()
         snippetStore = snippets
 
         dockModel = ClipboardDockModel(

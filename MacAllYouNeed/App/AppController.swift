@@ -37,8 +37,12 @@ final class AppController {
         // and constructing fallback in-memory stores silently orphans user data.
         let clipKey = try KeyManager(keychain: SystemKeychain()).deviceKey()
         let pinboardStore = try Self.makePinboardStore(key: clipKey)
+        // One SnippetStore per process — both the dock UI and the CGEventTap
+        // expander must share it. Two GRDB DatabaseQueues to the same SQLite
+        // file race on writes and contend for locks.
+        let snippetStore = try Self.makeSnippetStore(key: clipKey)
 
-        let deps = AppDependencies(pinboards: pinboardStore)
+        let deps = AppDependencies(pinboards: pinboardStore, snippets: snippetStore)
         let pasteCoordinator = DockPasteCoordinator(xpc: deps.xpc)
         let favicons = FaviconCache()
         let clipboardDock = DockWindowController(
@@ -52,7 +56,7 @@ final class AppController {
         clipboardDock.dockHeight = Self.currentDockHeight()
 
         self.clipboardReader = try Self.makeClipboardReader(deviceID: deviceID, key: clipKey)
-        self.snippetExpander = try Self.makeSnippetExpander(deviceID: deviceID, key: clipKey)
+        self.snippetExpander = Self.makeSnippetExpander(store: snippetStore)
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
@@ -198,6 +202,12 @@ final class AppController {
         return PinboardStore(database: db, deviceKey: key)
     }
 
+    private static func makeSnippetStore(key: SymmetricKey) throws -> SnippetStore {
+        let url = AppGroup.containerURL().appendingPathComponent("databases/snippets.sqlite")
+        let db = try Database(url: url, migrations: SnippetStore.migrations)
+        return SnippetStore(database: db, deviceKey: key)
+    }
+
     private static func makeClipboardReader(deviceID: DeviceID, key: SymmetricKey) throws -> LocalClipboardReader {
         let url = AppGroup.containerURL().appendingPathComponent("databases/clipboard.sqlite")
         let db = try Database(url: url, migrations: ClipboardStore.migrations)
@@ -205,10 +215,7 @@ final class AppController {
         return LocalClipboardReader(store: store)
     }
 
-    private static func makeSnippetExpander(deviceID: DeviceID, key: SymmetricKey) throws -> SnippetExpander {
-        let url = AppGroup.containerURL().appendingPathComponent("databases/snippets.sqlite")
-        let db = try Database(url: url, migrations: SnippetStore.migrations)
-        let store = SnippetStore(database: db, deviceKey: key)
+    private static func makeSnippetExpander(store: SnippetStore) -> SnippetExpander {
         let expander = SnippetExpander { trigger in try? store.find(trigger: trigger)?.body }
         expander.start()
         return expander
