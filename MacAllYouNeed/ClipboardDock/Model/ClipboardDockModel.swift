@@ -1,6 +1,7 @@
 import Core
 import Foundation
 import Observation
+import Platform
 
 @MainActor
 @Observable
@@ -16,6 +17,11 @@ final class ClipboardDockModel {
     var focusedIndex: Int = 0
     var activeList: DockListSelector = .history
     var availableLists: [Pinboard] = []
+    var selection: Set<DockItem.ID> = []
+    var isQuickLooking: Bool = false
+    var pendingTransform: TextTransform?
+    var showTransformMenu: Bool = false
+    var showCheatsheet: Bool = false
 
     private var refreshDebounceTask: Task<Void, Never>?
     private var refreshSequence: UInt64 = 0
@@ -101,6 +107,77 @@ final class ClipboardDockModel {
         focusedIndex = max(0, focusedIndex - 1)
     }
 
+    func toggleSelection(itemID: String) {
+        if selection.contains(itemID) {
+            selection.remove(itemID)
+        } else {
+            selection.insert(itemID)
+        }
+    }
+
+    func extendSelectionRight() {
+        guard items.indices.contains(focusedIndex) else { return }
+        selection.insert(items[focusedIndex].id)
+        let nextIndex = focusedIndex + 1
+        guard items.indices.contains(nextIndex) else { return }
+        focusedIndex = nextIndex
+        selection.insert(items[nextIndex].id)
+    }
+
+    func extendSelectionLeft() {
+        guard items.indices.contains(focusedIndex) else { return }
+        selection.insert(items[focusedIndex].id)
+        let previousIndex = focusedIndex - 1
+        guard items.indices.contains(previousIndex) else { return }
+        focusedIndex = previousIndex
+        selection.insert(items[previousIndex].id)
+    }
+
+    func clearSelection() {
+        selection.removeAll()
+    }
+
+    func selectAllVisible() {
+        selection = Set(items.prefix(50).map(\.id))
+    }
+
+    func pasteSelectionInOrder(delimiter: String, plainText: Bool) async {
+        let orderedIDs = items.map(\.id).filter { selection.contains($0) }
+        guard !orderedIDs.isEmpty else { return }
+        _ = await xpc.pasteMany(itemIDs: orderedIDs, delimiter: delimiter, plainText: plainText)
+    }
+
+    func deleteSelected() async {
+        let ids = Array(selection)
+        for id in ids {
+            _ = await xpc.deleteItem(id: id)
+        }
+        clearSelection()
+        await refresh()
+    }
+
+    func applyTransform(_ transform: TextTransform, saveAsNew: Bool) async {
+        let targets: [String]
+        if !selection.isEmpty {
+            targets = items.map(\.id).filter { selection.contains($0) }
+        } else if items.indices.contains(focusedIndex) {
+            targets = [items[focusedIndex].id]
+        } else {
+            return
+        }
+
+        pendingTransform = transform
+        for id in targets {
+            _ = await xpc.transformAndCopy(
+                itemID: id,
+                transform: transform.rawValue,
+                saveAsNew: saveAsNew
+            )
+        }
+        pendingTransform = nil
+        await refresh()
+    }
+
     private func nextRefreshSequence() -> UInt64 {
         refreshSequence += 1
         return refreshSequence
@@ -131,6 +208,7 @@ final class ClipboardDockModel {
         } else {
             focusedIndex = 0
         }
+        selection.removeAll()
     }
 
     private func loadFromXPC(query: String?) async -> [DockItem] {

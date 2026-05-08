@@ -168,6 +168,9 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
             reply(transformed)
         }
     }
+    func deleteItem(id: String, reply: @escaping (Bool) -> Void) {
+        service.deleteItem(id: id, reply: reply)
+    }
     func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void) {
         service.listSnippets(reply: reply)
     }

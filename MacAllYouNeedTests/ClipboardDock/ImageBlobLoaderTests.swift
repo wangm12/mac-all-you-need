@@ -29,6 +29,7 @@ final class ImageBlobLoaderTests: XCTestCase {
         }
 
         func listSnippets() async -> [SnippetXPCDTO] { [] }
+        func deleteItem(id: String) async -> Bool { false }
     }
 
     func testLoadReturnsImageOnSuccess() async {

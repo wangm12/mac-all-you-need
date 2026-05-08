@@ -11,6 +11,8 @@ final class DockWindowController {
     private var window: BottomDockWindow?
     private var outsideClickMonitor: Any?
     private var keyMonitor: Any?
+    private var dragMonitor: Any?
+    private var ignoreOutsideClicksUntil: Date = .distantPast
 
     var dockHeight: CGFloat = 360
 
@@ -74,11 +76,13 @@ final class DockWindowController {
         }
 
         startOutsideClickMonitor()
+        startDragMonitor()
         startKeyMonitor()
     }
 
     func hide() {
         stopOutsideClickMonitor()
+        stopDragMonitor()
         stopKeyMonitor()
         guard let window else { return }
         DockAnimator.slideDown(window) { [weak window] in
@@ -89,6 +93,27 @@ final class DockWindowController {
     private func triggerPaste(at idx: Int, plainText: Bool) {
         guard model.items.indices.contains(idx) else { return }
         let id = model.items[idx].id
+
+        let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) {
+            model.toggleSelection(itemID: id)
+            return
+        }
+        if flags.contains(.shift) {
+            let anchor = model.focusedIndex
+            let lower = min(anchor, idx)
+            let upper = max(anchor, idx)
+            for rangeIndex in lower...upper where model.items.indices.contains(rangeIndex) {
+                model.selection.insert(model.items[rangeIndex].id)
+            }
+            model.focusedIndex = idx
+            return
+        }
+        if !model.selection.isEmpty {
+            model.toggleSelection(itemID: id)
+            return
+        }
+
         Task { [weak self] in
             guard let self else { return }
             await self.pasteCoordinator.paste(
@@ -109,8 +134,12 @@ final class DockWindowController {
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
+            guard let self else { return }
+            if Date() < self.ignoreOutsideClicksUntil {
+                return
+            }
             Task { @MainActor in
-                self?.hide()
+                self.hide()
             }
         }
     }
@@ -127,8 +156,54 @@ final class DockWindowController {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, let window = self.window, window.isVisible else { return event }
 
+            if registry.matches(event: event, .quickLook) {
+                model.isQuickLooking.toggle()
+                return nil
+            }
+
+            if registry.matches(event: event, .toggleCheatsheet) {
+                model.showCheatsheet.toggle()
+                return nil
+            }
+
+            if registry.matches(event: event, .transformFocused) {
+                model.showTransformMenu = true
+                return nil
+            }
+
+            if registry.matches(event: event, .extendSelectionRight) {
+                model.extendSelectionRight()
+                return nil
+            }
+
+            if registry.matches(event: event, .extendSelectionLeft) {
+                model.extendSelectionLeft()
+                return nil
+            }
+
+            if registry.matches(event: event, .deleteFocused) {
+                Task { @MainActor in
+                    if !self.model.selection.isEmpty {
+                        await self.model.deleteSelected()
+                    } else if self.model.items.indices.contains(self.model.focusedIndex) {
+                        let focusedID = self.model.items[self.model.focusedIndex].id
+                        _ = await self.model.xpc.deleteItem(id: focusedID)
+                        await self.model.refresh()
+                    }
+                }
+                return nil
+            }
+
             if registry.matches(event: event, .dismiss) {
-                hide()
+                if model.isQuickLooking {
+                    model.isQuickLooking = false
+                } else if model.showCheatsheet {
+                    model.showCheatsheet = false
+                } else if model.showTransformMenu {
+                    model.showTransformMenu = false
+                } else {
+                    hide()
+                }
                 return nil
             }
 
@@ -142,13 +217,36 @@ final class DockWindowController {
             }
 
             if registry.matches(event: event, .paste) {
-                triggerPaste(at: model.focusedIndex, plainText: false)
+                if !model.selection.isEmpty {
+                    Task { @MainActor in
+                        await self.model.pasteSelectionInOrder(delimiter: "\n", plainText: false)
+                    }
+                } else {
+                    triggerPaste(at: model.focusedIndex, plainText: false)
+                }
                 return nil
             }
 
             if registry.matches(event: event, .pastePlain) {
-                triggerPaste(at: model.focusedIndex, plainText: true)
+                if !model.selection.isEmpty {
+                    Task { @MainActor in
+                        await self.model.pasteSelectionInOrder(delimiter: "\n", plainText: true)
+                    }
+                } else {
+                    triggerPaste(at: model.focusedIndex, plainText: true)
+                }
                 return nil
+            }
+
+            if model.isQuickLooking {
+                if event.keyCode == 124 {
+                    model.focusForward()
+                    return nil
+                }
+                if event.keyCode == 123 {
+                    model.focusBackward()
+                    return nil
+                }
             }
 
             let keyMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -166,6 +264,30 @@ final class DockWindowController {
             }
 
             return event
+        }
+    }
+
+    private func startDragMonitor() {
+        stopDragMonitor()
+        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged]) { [weak self] event in
+            guard let self,
+                  let window = self.window,
+                  window.isVisible,
+                  let eventWindow = event.window,
+                  eventWindow == window
+            else {
+                return event
+            }
+
+            self.ignoreOutsideClicksUntil = Date().addingTimeInterval(0.8)
+            return event
+        }
+    }
+
+    private func stopDragMonitor() {
+        if let dragMonitor {
+            NSEvent.removeMonitor(dragMonitor)
+            self.dragMonitor = nil
         }
     }
 

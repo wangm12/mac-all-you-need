@@ -224,4 +224,18 @@ extension ClipboardXPCClient: ClipboardXPCInteracting {
             }
         }
     }
+
+    public func deleteItem(id: String) async -> Bool {
+        await withCheckedContinuation { cont in
+            guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+                cont.resume(returning: false)
+            }) as? ClipboardXPCProtocol else {
+                cont.resume(returning: false)
+                return
+            }
+            proxy.deleteItem(id: id) { ok in
+                cont.resume(returning: ok)
+            }
+        }
+    }
 }

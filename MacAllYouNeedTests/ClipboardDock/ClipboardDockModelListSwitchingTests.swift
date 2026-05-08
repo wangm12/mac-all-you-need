@@ -31,6 +31,7 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
         func transformAndCopy(itemID: String, transform: String, saveAsNew: Bool) async -> String? { nil }
         func imageThumbnail(forID id: String, maxDim: Int) async -> Data? { nil }
         func listSnippets() async -> [SnippetXPCDTO] { [] }
+        func deleteItem(id: String) async -> Bool { false }
     }
 
     private var dir: URL!

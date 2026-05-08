@@ -132,6 +132,7 @@ import Foundation
     func pasteMany(itemIDs: [String], delimiter: String, plainText: Bool, reply: @escaping (String) -> Void)
     func pasteText(text: String, plainText: Bool, saveAsNew: Bool, reply: @escaping (String) -> Void)
     func transformAndCopy(itemID: String, transform: String, saveAsNew: Bool, reply: @escaping (String?) -> Void)
+    func deleteItem(id: String, reply: @escaping (Bool) -> Void)
     func paste(itemID: String, plainText: Bool, reply: @escaping (String) -> Void)
     func registerCallback(reply: @escaping (Bool) -> Void)
     func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void)

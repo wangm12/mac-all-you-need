@@ -40,6 +40,7 @@ struct FileCard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(10)
+        .draggable(primaryDragURL)
         .task(id: item.id) {
             urls = await loader.urls(recordID: item.id) ?? []
             if urls.count == 1,
@@ -55,5 +56,9 @@ struct FileCard: View {
     private func fallbackCount() -> Int {
         if case let .file(count) = item.kind { return count }
         return 1
+    }
+
+    private var primaryDragURL: URL {
+        urls.first ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
     }
 }

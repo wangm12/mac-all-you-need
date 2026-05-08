@@ -358,4 +358,45 @@ final class ClipboardXPCServiceTests: XCTestCase {
         }
         wait(for: [exp], timeout: 1)
     }
+
+    func testDeleteItemRemovesRecord() throws {
+        let item = try clip.append(.text("doomed"))
+        try search.upsert(kind: .clipboardItem, id: item.id, text: "doomed")
+        let exp = expectation(description: "delete")
+        service.deleteItem(id: item.id.rawValue) { ok in
+            XCTAssertTrue(ok)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+        XCTAssertEqual(try clip.list(limit: 10).count, 0)
+        XCTAssertEqual(
+            try search.search(query: "doomed", limit: 10).count,
+            0,
+            "search index row must also be removed"
+        )
+    }
+
+    func testDeleteItemAlsoDeletesBlobForImageRecord() throws {
+        let blobID = try blobs.write(Data(repeating: 1, count: 100))
+        let item = try clip.append(.image(blobID: blobID, width: 8, height: 8))
+        let exp = expectation(description: "delete")
+        service.deleteItem(id: item.id.rawValue) { ok in
+            XCTAssertTrue(ok)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: blobs.encryptedURL(id: blobID).path),
+            "blob file must be deleted along with image record"
+        )
+    }
+
+    func testDeleteItemReturnsFalseForUnknownID() {
+        let exp = expectation(description: "delete")
+        service.deleteItem(id: "01HFAKEFAKEFAKEFAKEFAKEFAK") { ok in
+            XCTAssertFalse(ok)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+    }
 }

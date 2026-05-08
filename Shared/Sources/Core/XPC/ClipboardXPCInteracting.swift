@@ -11,4 +11,11 @@ public protocol ClipboardXPCInteracting: Sendable {
     func transformAndCopy(itemID: String, transform: String, saveAsNew: Bool) async -> String?
     func imageThumbnail(forID id: String, maxDim: Int) async -> Data?
     func listSnippets() async -> [SnippetXPCDTO]
+    func deleteItem(id: String) async -> Bool
+}
+
+public extension ClipboardXPCInteracting {
+    func deleteItem(id: String) async -> Bool {
+        false
+    }
 }

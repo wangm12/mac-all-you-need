@@ -196,6 +196,35 @@ import Foundation
         }
     }
 
+    public func deleteItem(id: String, reply: @escaping (Bool) -> Void) {
+        guard let rid = RecordID(rawValue: id) else {
+            reply(false)
+            return
+        }
+
+        do {
+            try deleteRecordFully(id: rid)
+            reply(true)
+        } catch {
+            reply(false)
+        }
+    }
+
+    /// Removes a clipboard record everywhere it touches:
+    /// - blob file (for image kinds), so BlobStore doesn't accumulate orphans
+    /// - search index row, so FTS doesn't return tombstoned IDs
+    /// - clipboard_records row
+    /// Throws if the record doesn't exist (caller treats this as "false" reply).
+    /// Used by deleteItem RPC and by retention cleanup paths.
+    public func deleteRecordFully(id: RecordID) throws {
+        let body = try clip.body(for: id)
+        if case let .image(blobID, _, _) = body {
+            try? blobs.delete(id: blobID)
+        }
+        try? search.remove(kind: .clipboardItem, id: id)
+        try clip.delete(id: id)
+    }
+
     public func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void) {
         let rows = (try? snippets.list()) ?? []
         reply(rows.map { SnippetXPCDTO(id: $0.id.rawValue, name: $0.name, trigger: $0.trigger) })

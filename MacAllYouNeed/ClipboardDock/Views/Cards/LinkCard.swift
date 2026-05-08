@@ -33,6 +33,7 @@ struct LinkCard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(10)
+        .draggable(url ?? URL(string: "about:blank")!)
         .task(id: item.id) {
             guard let url else { return }
             favicon = await favicons.favicon(for: url)

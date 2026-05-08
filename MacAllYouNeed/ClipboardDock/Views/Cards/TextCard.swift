@@ -15,5 +15,6 @@ struct TextCard: View {
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(10)
+            .draggable(item.preview)
     }
 }

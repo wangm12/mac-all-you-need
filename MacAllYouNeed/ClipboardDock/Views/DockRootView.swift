@@ -20,11 +20,46 @@ struct DockRootView: View {
                 onPaste: onPaste
             )
             .frame(maxHeight: .infinity)
+
+            if !model.selection.isEmpty {
+                MultiSelectBar(
+                    model: model,
+                    onPin: {
+                        Task {
+                            let selectedIDs = Array(model.selection)
+                            for id in selectedIDs {
+                                await model.togglePin(itemID: id)
+                            }
+                            model.clearSelection()
+                        }
+                    }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .environment(model)
+        .animation(.easeOut(duration: 0.18), value: model.selection.isEmpty)
         .background(
             VisualEffectBackground(material: .popover, blendingMode: .behindWindow)
         )
         .clipShape(RoundedCorners(radius: 12, corners: [.topLeft, .topRight]))
+        .overlay {
+            if model.showTransformMenu {
+                TransformMenu(model: model, isPresented: $model.showTransformMenu)
+            }
+        }
+        .overlay {
+            if model.isQuickLooking {
+                QuickLookOverlay(model: model)
+                    .animation(.easeOut(duration: 0.15), value: model.isQuickLooking)
+            }
+        }
+        .overlay {
+            if model.showCheatsheet {
+                CheatsheetOverlay(registry: registry)
+                    .animation(.easeOut(duration: 0.15), value: model.showCheatsheet)
+            }
+        }
     }
 }
 
