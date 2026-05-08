@@ -89,8 +89,7 @@ struct HotkeysSettingsView: View {
 
     private func apply() {
         do {
-            let registry = HotkeyRegistry()
-            try registry.apply(map, controller: controller)
+            try controller.applyHotkeyMap(map)
             HotkeyMapStore.save(map)
             errorMessage = nil
         } catch {

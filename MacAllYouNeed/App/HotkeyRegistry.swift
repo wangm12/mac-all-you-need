@@ -17,12 +17,7 @@ enum HotkeyRegistryError: LocalizedError {
 
 @MainActor
 final class HotkeyRegistry {
-    private static var handles: [HotkeyAction: [GlobalHotkey]] = [:]
-
-    func apply(_ map: [HotkeyAction: HotkeyDescriptor], controller: AppController) throws {
-        let expanded = Dictionary(uniqueKeysWithValues: map.map { ($0.key, [$0.value]) })
-        try apply(expanded, controller: controller)
-    }
+    private var handles: [HotkeyAction: [GlobalHotkey]] = [:]
 
     func apply(_ map: [HotkeyAction: [HotkeyDescriptor]], controller: AppController) throws {
         var seen: [HotkeyDescriptor: HotkeyAction] = [:]
@@ -38,7 +33,7 @@ final class HotkeyRegistry {
         var next: [HotkeyAction: [GlobalHotkey]] = [:]
         do {
             for (action, descriptors) in map {
-                var handles: [GlobalHotkey] = []
+                var registered: [GlobalHotkey] = []
                 for descriptor in descriptors {
                     let handle = GlobalHotkey(descriptor: descriptor) { [weak controller] in
                         Task { @MainActor in
@@ -46,9 +41,9 @@ final class HotkeyRegistry {
                         }
                     }
                     try handle.register()
-                    handles.append(handle)
+                    registered.append(handle)
                 }
-                next[action] = handles
+                next[action] = registered
             }
         } catch {
             next.values.flatMap { $0 }.forEach { $0.unregister() }
@@ -56,7 +51,7 @@ final class HotkeyRegistry {
             throw HotkeyRegistryError.registrationFailed(failed, error)
         }
 
-        Self.handles.values.flatMap { $0 }.forEach { $0.unregister() }
-        Self.handles = next
+        handles.values.flatMap { $0 }.forEach { $0.unregister() }
+        handles = next
     }
 }

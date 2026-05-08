@@ -131,7 +131,7 @@ final class AppController {
         onboardingWindow.show()
     }
 
-    func applyHotkeyMap(_ map: [HotkeyAction: HotkeyDescriptor]) throws {
+    func applyHotkeyMap(_ map: [HotkeyAction: [HotkeyDescriptor]]) throws {
         fallbackHotkey = nil
         try hotkeyRegistry.apply(map, controller: self)
     }
