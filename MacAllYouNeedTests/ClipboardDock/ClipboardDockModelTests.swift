@@ -5,6 +5,16 @@ import XCTest
 
 @MainActor
 final class ClipboardDockModelTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        AppGroupSettings.defaults.set(false, forKey: "search.fuzzy")
+    }
+
+    override func tearDown() {
+        AppGroupSettings.defaults.removeObject(forKey: "search.fuzzy")
+        super.tearDown()
+    }
+
     final class MockClient: ClipboardXPCInteracting, @unchecked Sendable {
         var listCalls = 0
         var listResults: [ClipboardXPCMeta] = []

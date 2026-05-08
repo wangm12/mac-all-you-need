@@ -16,6 +16,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case jumpToLast
     case toggleCheatsheet
     case transformFocused
+    case suspendCapture
 
     var id: String { rawValue }
 
@@ -51,6 +52,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
             return "Toggle keyboard cheatsheet"
         case .transformFocused:
             return "Transform focused item"
+        case .suspendCapture:
+            return "Suspend capture for 60 seconds"
         }
     }
 }

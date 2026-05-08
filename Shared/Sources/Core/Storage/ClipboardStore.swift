@@ -35,6 +35,14 @@ public final class ClipboardStore {
                 );
                 INSERT OR IGNORE INTO lamport_clock(scope, value) VALUES ('clipboard', 0);
             """)
+        },
+        Migration(identifier: "002-frequency-tracking") { conn in
+            try conn.execute(sql: """
+                ALTER TABLE clipboard_records ADD COLUMN frequency INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE clipboard_records ADD COLUMN last_accessed INTEGER;
+                CREATE INDEX IF NOT EXISTS idx_records_frequency ON clipboard_records(frequency DESC);
+                CREATE INDEX IF NOT EXISTS idx_records_last_accessed ON clipboard_records(last_accessed DESC);
+            """)
         }
     ]
 
@@ -75,14 +83,19 @@ public final class ClipboardStore {
         }
         return ClipboardItemMeta(
             id: id, created: now, modified: now, deviceID: deviceID, lamport: insertedLamport,
-            kind: .clipboardItem, preview: preview, sourceAppBundleID: sourceAppBundleID
+            kind: .clipboardItem,
+            preview: preview,
+            sourceAppBundleID: sourceAppBundleID,
+            frequency: 0,
+            lastAccessed: nil
         )
     }
 
     public func list(limit: Int, offset: Int = 0) throws -> [ClipboardItemMeta] {
         try db.queue.read { conn in
             try Row.fetchAll(conn, sql: """
-                SELECT id, created, modified, device_id, lamport, kind, preview, source_app
+                SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
+                       frequency, last_accessed
                 FROM clipboard_records ORDER BY modified DESC LIMIT ? OFFSET ?
             """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
         }
@@ -93,7 +106,8 @@ public final class ClipboardStore {
         let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
         let rows = try db.queue.read { conn in
             try Row.fetchAll(conn, sql: """
-                SELECT id, created, modified, device_id, lamport, kind, preview, source_app
+                SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
+                       frequency, last_accessed
                 FROM clipboard_records WHERE id IN (\(placeholders))
             """, arguments: StatementArguments(ids.map(\.rawValue)))
         }
@@ -124,6 +138,41 @@ public final class ClipboardStore {
         }
     }
 
+    public func bumpFrequency(id: RecordID) throws {
+        try db.queue.write { conn in
+            try conn.execute(sql: """
+                UPDATE clipboard_records
+                SET frequency = frequency + 1, last_accessed = ?
+                WHERE id = ?
+            """, arguments: [Int(Date().timeIntervalSince1970 * 1000), id.rawValue])
+        }
+    }
+
+    public func recentByFrequency(limit: Int, offset: Int = 0) throws -> [ClipboardItemMeta] {
+        try db.queue.read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
+                       frequency, last_accessed
+                FROM clipboard_records
+                ORDER BY frequency DESC, modified DESC
+                LIMIT ? OFFSET ?
+            """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
+        }
+    }
+
+    public func recentByLastAccessed(limit: Int, offset: Int = 0) throws -> [ClipboardItemMeta] {
+        try db.queue.read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
+                       frequency, last_accessed
+                FROM clipboard_records
+                WHERE last_accessed IS NOT NULL
+                ORDER BY last_accessed DESC
+                LIMIT ? OFFSET ?
+            """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
+        }
+    }
+
     private static func preview(for record: ClipboardRecord) -> String {
         switch record {
         case let .text(s): String(s.prefix(120))
@@ -135,7 +184,8 @@ public final class ClipboardStore {
     }
 
     private static func metaRow(_ row: Row) -> ClipboardItemMeta {
-        ClipboardItemMeta(
+        let lastAccessedMs = row["last_accessed"] as Int64?
+        return ClipboardItemMeta(
             id: RecordID(rawValue: row["id"])!,
             created: Date(timeIntervalSince1970: Double(row["created"] as Int64) / 1000),
             modified: Date(timeIntervalSince1970: Double(row["modified"] as Int64) / 1000),
@@ -143,7 +193,9 @@ public final class ClipboardStore {
             lamport: UInt64(row["lamport"] as Int64),
             kind: RecordKind(rawValue: row["kind"]) ?? .clipboardItem,
             preview: row["preview"],
-            sourceAppBundleID: row["source_app"]
+            sourceAppBundleID: row["source_app"],
+            frequency: Int(row["frequency"] as Int64? ?? 0),
+            lastAccessed: lastAccessedMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
         )
     }
 }

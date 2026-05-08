@@ -38,6 +38,8 @@ enum ShortcutDefaults {
             return [ShortcutBinding(keyCode: 44, modifierMask: cmd | shift)]
         case .transformFocused:
             return [ShortcutBinding(keyCode: 17, modifierMask: cmd)]
+        case .suspendCapture:
+            return []
         }
     }
 }

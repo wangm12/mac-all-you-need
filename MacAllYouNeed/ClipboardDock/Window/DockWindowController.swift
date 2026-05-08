@@ -166,6 +166,11 @@ final class DockWindowController {
                 return nil
             }
 
+            if registry.matches(event: event, .suspendCapture) {
+                NotificationCenter.default.post(name: .pauseCaptureRequested, object: nil)
+                return nil
+            }
+
             if registry.matches(event: event, .transformFocused) {
                 model.showTransformMenu = true
                 return nil

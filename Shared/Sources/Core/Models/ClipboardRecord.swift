@@ -17,4 +17,6 @@ public struct ClipboardItemMeta: Equatable, Sendable {
     public let kind: RecordKind
     public let preview: String
     public let sourceAppBundleID: String?
+    public let frequency: Int
+    public let lastAccessed: Date?
 }

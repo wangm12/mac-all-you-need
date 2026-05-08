@@ -212,9 +212,15 @@ final class ClipboardDockModel {
     }
 
     private func loadFromXPC(query: String?) async -> [DockItem] {
-        let list = await xpc.listItems(query: query, pageToken: nil, limit: 50)
+        let fuzzyEnabled = isFuzzyEnabled()
+        let effectiveQuery = fuzzyEnabled ? nil : query
+        let list = await xpc.listItems(
+            query: effectiveQuery,
+            pageToken: nil,
+            limit: fuzzyEnabled ? 200 : 50
+        )
         let pinned = pinnedIDs()
-        return list.items.map { meta in
+        let candidates = list.items.map { meta in
             let isPinned: Bool
             if let id = RecordID(rawValue: meta.id) {
                 isPinned = pinned.contains(id)
@@ -223,6 +229,7 @@ final class ClipboardDockModel {
             }
             return buildDockItem(from: meta, isPinned: isPinned)
         }
+        return filteredAndRanked(items: candidates, query: query)
     }
 
     private func loadPinned(query: String?) async -> [DockItem] {
@@ -245,13 +252,8 @@ final class ClipboardDockModel {
             order[lhs.id, default: .max] < order[rhs.id, default: .max]
         }
 
-        if let query, !query.isEmpty {
-            let lower = query.lowercased()
-            metas = metas.filter { $0.preview.lowercased().contains(lower) }
-        }
-
         let pinned = pinnedIDs()
-        return metas.map { meta in
+        let candidates = metas.map { meta in
             let isPinned: Bool
             if forcePinned {
                 isPinned = true
@@ -262,6 +264,7 @@ final class ClipboardDockModel {
             }
             return buildDockItem(from: meta, isPinned: isPinned)
         }
+        return filteredAndRanked(items: candidates, query: query)
     }
 
     private func pinnedIDs() -> Set<RecordID> {
@@ -278,5 +281,36 @@ final class ClipboardDockModel {
             )
         }
         return DockItem(from: meta, sourceApp: app, isPinned: isPinned)
+    }
+
+    private func isFuzzyEnabled() -> Bool {
+        AppGroupSettings.defaults.object(forKey: "search.fuzzy") as? Bool ?? false
+    }
+
+    private func filteredAndRanked(items: [DockItem], query: String?) -> [DockItem] {
+        guard let query else { return items }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return items }
+
+        if isFuzzyEnabled() {
+            let rankedPreviews = FuzzyMatcher.rank(candidates: items.map(\.preview), query: trimmed)
+            guard !rankedPreviews.isEmpty else { return [] }
+
+            var orderByID: [String: Int] = [:]
+            var rank = 0
+            for preview in rankedPreviews {
+                for item in items where item.preview == preview && orderByID[item.id] == nil {
+                    orderByID[item.id] = rank
+                    rank += 1
+                    break
+                }
+            }
+            return items
+                .filter { orderByID[$0.id] != nil }
+                .sorted { (orderByID[$0.id] ?? .max) < (orderByID[$1.id] ?? .max) }
+        }
+
+        let lower = trimmed.lowercased()
+        return items.filter { $0.preview.lowercased().contains(lower) }
     }
 }

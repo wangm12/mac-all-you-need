@@ -15,6 +15,9 @@ final class ClipboardXPCServiceTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        AppGroupSettings.defaults.removeObject(forKey: "history.sortMode")
+        AppGroupSettings.defaults.removeObject(forKey: "autoPaste.behavior")
+        AppGroupSettings.defaults.removeObject(forKey: "autoPaste.delayMs")
         dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("XPCSvc-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -43,6 +46,9 @@ final class ClipboardXPCServiceTests: XCTestCase {
     }
 
     override func tearDown() {
+        AppGroupSettings.defaults.removeObject(forKey: "history.sortMode")
+        AppGroupSettings.defaults.removeObject(forKey: "autoPaste.behavior")
+        AppGroupSettings.defaults.removeObject(forKey: "autoPaste.delayMs")
         try? FileManager.default.removeItem(at: dir)
         super.tearDown()
     }
@@ -63,6 +69,38 @@ final class ClipboardXPCServiceTests: XCTestCase {
         service.listItems(query: nil, pageToken: nil, limit: 10) { list in
             XCTAssertEqual(list.items.count, 1)
             XCTAssertEqual(list.items.first?.preview, "hello")
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+    }
+
+    func testListItemsUsesFrequencySortWhenConfigured() throws {
+        let first = try clip.append(.text("first"))
+        let second = try clip.append(.text("second"))
+        try clip.bumpFrequency(id: first.id)
+        try clip.bumpFrequency(id: first.id)
+        try clip.bumpFrequency(id: second.id)
+        AppGroupSettings.defaults.set("frequency", forKey: "history.sortMode")
+
+        let exp = expectation(description: "list")
+        service.listItems(query: nil, pageToken: nil, limit: 10) { list in
+            XCTAssertEqual(list.items.first?.id, first.id.rawValue)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+    }
+
+    func testListItemsUsesRecentlyUsedSortWhenConfigured() throws {
+        let first = try clip.append(.text("first"))
+        let second = try clip.append(.text("second"))
+        try clip.bumpFrequency(id: first.id)
+        Thread.sleep(forTimeInterval: 0.005)
+        try clip.bumpFrequency(id: second.id)
+        AppGroupSettings.defaults.set("recentlyUsed", forKey: "history.sortMode")
+
+        let exp = expectation(description: "list")
+        service.listItems(query: nil, pageToken: nil, limit: 10) { list in
+            XCTAssertEqual(list.items.first?.id, second.id.rawValue)
             exp.fulfill()
         }
         wait(for: [exp], timeout: 1)
@@ -188,6 +226,23 @@ final class ClipboardXPCServiceTests: XCTestCase {
         wait(for: [mainExp], timeout: 1)
 
         XCTAssertEqual(pasteboard.string(forType: .string), "alpha | beta | gamma")
+    }
+
+    func testPasteBumpsFrequency() throws {
+        let item = try clip.append(.text("hello"))
+        let exp = expectation(description: "paste")
+        service.paste(itemID: item.id.rawValue, plainText: true) { _ in
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1)
+
+        let mainExp = expectation(description: "main")
+        DispatchQueue.main.async { mainExp.fulfill() }
+        wait(for: [mainExp], timeout: 1)
+
+        let meta = try XCTUnwrap(try clip.list(limit: 10).first(where: { $0.id == item.id }))
+        XCTAssertEqual(meta.frequency, 1)
+        XCTAssertNotNil(meta.lastAccessed)
     }
 
     func testPasteManySkipsImageKindsAndPreservesOrder() throws {

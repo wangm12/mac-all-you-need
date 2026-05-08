@@ -37,7 +37,14 @@ import Foundation
                 let hits = try search.search(query: trimmedQuery, limit: pageSize, offset: offset)
                 metas = try clip.metas(for: hits.map(\.id))
             } else {
-                metas = try clip.list(limit: pageSize, offset: offset)
+                switch historySortMode() {
+                case .recency:
+                    metas = try clip.list(limit: pageSize, offset: offset)
+                case .frequency:
+                    metas = try clip.recentByFrequency(limit: pageSize, offset: offset)
+                case .recentlyUsed:
+                    metas = try clip.recentByLastAccessed(limit: pageSize, offset: offset)
+                }
             }
             let items = metas.map { xpcMeta(from: $0) }
             let nextPageToken = items.count == pageSize ? String(offset + items.count) : nil
@@ -111,6 +118,7 @@ import Foundation
             reply(PasteResult.manualPasteRequired.rawValue)
             return
         }
+        try? clip.bumpFrequency(id: rid)
         DispatchQueue.main.async {
             if plainText {
                 if let text = Self.plainText(from: body) {
@@ -121,11 +129,7 @@ import Foundation
                 Self.restoreToPasteboard(body: body, blobs: self.blobs, pasteboard: self.pasteboard)
             }
             self.markAsDaemonWrite()
-            // Always pass .formatted: the service has already written exactly what it wants
-            // on the pasteboard. PasteInjector(.plainText) would clearContents() again and
-            // strip our sentinel UTI, re-enabling the duplicate-history bug.
-            let result = PasteInjector.paste(nil, mode: .formatted, into: self.pasteboard)
-            reply(result.rawValue)
+            self.performAutoPaste(reply: reply)
         }
     }
 
@@ -135,12 +139,13 @@ import Foundation
         plainText: Bool,
         reply: @escaping (String) -> Void
     ) {
-        let parts = itemIDs.compactMap { idString -> String? in
-            guard let rid = RecordID(rawValue: idString),
-                  let body = try? clip.body(for: rid)
-            else {
-                return nil
-            }
+        let recordIDs = itemIDs.compactMap(RecordID.init(rawValue:))
+        for rid in recordIDs {
+            try? clip.bumpFrequency(id: rid)
+        }
+
+        let parts = recordIDs.compactMap { rid -> String? in
+            guard let body = try? clip.body(for: rid) else { return nil }
             return Self.plainText(from: body)
         }
         let joined = parts.joined(separator: delimiter)
@@ -148,10 +153,7 @@ import Foundation
             self.pasteboard.clearContents()
             self.pasteboard.setString(joined, forType: .string)
             self.markAsDaemonWrite()
-            // The service already wrote final plain text to the pasteboard.
-            // Using .plainText would clearContents() and remove the sentinel.
-            let result = PasteInjector.paste(nil, mode: .formatted, into: self.pasteboard)
-            reply(result.rawValue)
+            self.performAutoPaste(reply: reply)
         }
     }
 
@@ -169,9 +171,7 @@ import Foundation
             self.pasteboard.clearContents()
             self.pasteboard.setString(text, forType: .string)
             self.markAsDaemonWrite()
-            // The service already wrote the final string and needs to keep sentinel intact.
-            let result = PasteInjector.paste(nil, mode: .formatted, into: self.pasteboard)
-            reply(result.rawValue)
+            self.performAutoPaste(reply: reply)
         }
     }
 
@@ -190,6 +190,7 @@ import Foundation
             reply(nil)
             return
         }
+        try? clip.bumpFrequency(id: rid)
 
         pasteText(text: transformed, plainText: true, saveAsNew: saveAsNew) { _ in
             reply(transformed)
@@ -292,5 +293,35 @@ import Foundation
 
     private func markAsDaemonWrite() {
         pasteboard.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
+    }
+
+    private enum HistorySortMode: String {
+        case recency
+        case frequency
+        case recentlyUsed
+    }
+
+    private func historySortMode() -> HistorySortMode {
+        let value = AppGroupSettings.defaults.string(forKey: "history.sortMode") ?? ""
+        return HistorySortMode(rawValue: value) ?? .recency
+    }
+
+    private func performAutoPaste(reply: @escaping (String) -> Void) {
+        let behavior = AppGroupSettings.defaults.string(forKey: "autoPaste.behavior") ?? "pasteIntoFocused"
+        let delayMs = max(0, AppGroupSettings.defaults.integer(forKey: "autoPaste.delayMs"))
+
+        switch behavior {
+        case "copyOnly":
+            reply(PasteResult.injected.rawValue)
+        case "copyThenPaste":
+            let deadline = DispatchTime.now() + .milliseconds(delayMs)
+            DispatchQueue.main.asyncAfter(deadline: deadline) {
+                let result = PasteInjector.paste(nil, mode: .formatted, into: self.pasteboard)
+                reply(result.rawValue)
+            }
+        default:
+            let result = PasteInjector.paste(nil, mode: .formatted, into: self.pasteboard)
+            reply(result.rawValue)
+        }
     }
 }

@@ -47,6 +47,11 @@ struct AppMenuBarContent: View {
                 Text("⌘⇧V").font(.system(.caption, design: .monospaced))
                 Text("clipboard dock").font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Button("Pause 60s") {
+                    controller.suspendCaptureFor60Seconds()
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
                 Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.borderless).font(.caption)
             }.padding(.horizontal, 10).padding(.vertical, 6)
         }

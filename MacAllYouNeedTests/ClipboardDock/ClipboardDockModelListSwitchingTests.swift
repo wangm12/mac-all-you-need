@@ -40,6 +40,7 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
     private var model: ClipboardDockModel!
 
     override func setUp() async throws {
+        AppGroupSettings.defaults.set(false, forKey: "search.fuzzy")
         dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("PMod-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -58,6 +59,7 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        AppGroupSettings.defaults.removeObject(forKey: "search.fuzzy")
         try? FileManager.default.removeItem(at: dir)
     }
 

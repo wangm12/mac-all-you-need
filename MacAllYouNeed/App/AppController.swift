@@ -2,6 +2,7 @@ import AppKit
 import Core
 import CryptoKit
 import Foundation
+import CoreFoundation
 import Platform
 
 @MainActor
@@ -24,6 +25,8 @@ final class AppController {
     private var fallbackHotkey: GlobalHotkey?
     private var browseFolderObserver: NSObjectProtocol?
     private var downloadRequestObserver: NSObjectProtocol?
+    private var pauseCaptureObserver: NSObjectProtocol?
+    private var clearOlderThanObserver: NSObjectProtocol?
     private(set) var onboardingWindow: OnboardingWindowController!
 
     init() throws {
@@ -40,6 +43,7 @@ final class AppController {
         )
         self.clipboardDeps = deps
         self.clipboardDock = clipboardDock
+        clipboardDock.dockHeight = Self.currentDockHeight()
 
         let clipKey = try KeyManager(keychain: SystemKeychain()).deviceKey()
         self.clipboardReader = try Self.makeClipboardReader(deviceID: deviceID, key: clipKey)
@@ -90,6 +94,17 @@ final class AppController {
             guard let url = note.object as? URL else { return }
             Task { await self?.downloader.enqueue(url: url.absoluteString, title: nil) }
         }
+        pauseCaptureObserver = NotificationCenter.default.addObserver(
+            forName: .pauseCaptureRequested, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.suspendCaptureFor60Seconds()
+        }
+        clearOlderThanObserver = NotificationCenter.default.addObserver(
+            forName: .clearClipboardOlderThanRequested, object: nil, queue: .main
+        ) { [weak self] note in
+            let days = (note.object as? NSNumber)?.intValue ?? (note.object as? Int) ?? 0
+            self?.clearClipboardOlderThan(days: days)
+        }
 
         // Initialize after all stored properties are set
         onboardingWindow = OnboardingWindowController(controller: self)
@@ -124,6 +139,45 @@ final class AppController {
         // Plan 2 (SyncEngine) is deferred — stub for now
     }
 
+    func suspendCaptureFor60Seconds() {
+        AppGroupSettings.defaults.set(
+            Date().addingTimeInterval(60).timeIntervalSince1970,
+            forKey: "captureSuspendUntil"
+        )
+        Self.postSettingsChangedDarwin()
+    }
+
+    func clearClipboardOlderThan(days: Int) {
+        guard days > 0 else { return }
+
+        do {
+            let key = try KeyManager(keychain: SystemKeychain()).deviceKey()
+            let root = AppGroup.containerURL().appendingPathComponent("databases", isDirectory: true)
+            let clipDB = try Database(
+                url: root.appendingPathComponent("clipboard.sqlite"),
+                migrations: ClipboardStore.migrations
+            )
+            let clipStore = try ClipboardStore(database: clipDB, deviceKey: key, deviceID: deviceID)
+            let pinboardDB = try Database(
+                url: root.appendingPathComponent("pinboards.sqlite"),
+                migrations: PinboardStore.migrations
+            )
+            let pinboardStore = PinboardStore(database: pinboardDB, deviceKey: key)
+            let protected = try PinboardStore.protectedIDs(from: pinboardStore)
+            let blobRoot = AppGroup.containerURL().appendingPathComponent("blobs", isDirectory: true)
+            let blobStore = BlobStore(rootURL: blobRoot, key: key)
+            let policy = RetentionPolicy(
+                maxItems: nil,
+                maxAgeSeconds: Double(days) * 86400,
+                maxImageBytes: nil
+            )
+            try policy.enforceMaxAge(store: clipStore, blobs: blobStore, protectedIDs: protected)
+            Task { await self.clipboardDeps.dockModel.refresh() }
+        } catch {
+            // Ignore cleanup failures from a best-effort manual maintenance action.
+        }
+    }
+
     private static func makeClipboardReader(deviceID: DeviceID, key: SymmetricKey) throws -> LocalClipboardReader {
         let url = AppGroup.containerURL().appendingPathComponent("databases/clipboard.sqlite")
         let db = try Database(url: url, migrations: ClipboardStore.migrations)
@@ -139,10 +193,28 @@ final class AppController {
         expander.start()
         return expander
     }
+
+    private static func currentDockHeight() -> CGFloat {
+        let value = AppGroupSettings.defaults.double(forKey: "dock.height")
+        return value == 0 ? 360 : CGFloat(value)
+    }
+
+    private static func postSettingsChangedDarwin() {
+        let name = "com.macallyouneed.settings-changed" as CFString
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(name),
+            nil,
+            nil,
+            true
+        )
+    }
 }
 
 extension Notification.Name {
     static let addDownloadRequested = Notification.Name("addDownloadRequested")
     static let browseFolderRequested = Notification.Name("browseFolderRequested")
     static let clipboardDownloadRequested = Notification.Name("clipboardDownloadRequested")
+    static let pauseCaptureRequested = Notification.Name("pauseCaptureRequested")
+    static let clearClipboardOlderThanRequested = Notification.Name("clearClipboardOlderThanRequested")
 }
