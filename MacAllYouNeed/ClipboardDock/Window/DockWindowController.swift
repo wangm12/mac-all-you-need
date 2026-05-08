@@ -37,6 +37,10 @@ final class DockWindowController {
     }
 
     func show() {
+        // Newest item should always be focused when the dock opens fresh.
+        // Mid-session refreshes preserve focus via performRefresh's previousID
+        // logic; we only override here on the user-initiated open.
+        model.focusedIndex = 0
         Task { await model.refresh() }
 
         guard let screen = screenWithCursor() ?? NSScreen.main else { return }
@@ -47,9 +51,14 @@ final class DockWindowController {
             height: dockHeight
         )
 
-        let panel = window ?? BottomDockWindow(contentRect: frame)
+        // Always build a fresh panel. Reusing a cached BottomDockWindow across
+        // screens caused DockAnimator.slideUp to read the old window.frame
+        // (still in the prior screen's coordinate space) and compute a slide-
+        // from origin that placed the panel off the laptop screen when the
+        // first ⌘⇧V had been on the external monitor.
+        let panel = BottomDockWindow(contentRect: frame)
         panel.setFrame(frame, display: false)
-        panel.contentView = NSHostingView(
+        let hosting = NSHostingView(
             rootView: DockRootView(
                 model: model,
                 favicons: favicons,
@@ -65,10 +74,16 @@ final class DockWindowController {
                 }
             )
         )
+        // NSHostingView assigned as a panel's contentView does not auto-size
+        // to the panel's content rect — without an explicit frame +
+        // autoresizing mask, SwiftUI's outer VStack shrinks to the top bar
+        // alone (~52px) and the carousel is invisible. Match the bounds and
+        // let AppKit resize on subsequent setFrame calls.
+        hosting.frame = NSRect(origin: .zero, size: frame.size)
+        hosting.autoresizingMask = [.width, .height]
+        panel.contentView = hosting
 
-        if window == nil {
-            window = panel
-        }
+        window = panel
 
         panel.orderFrontRegardless()
         DockAnimator.slideUp(panel, finalOrigin: NSPoint(x: frame.minX, y: frame.minY)) {
@@ -85,8 +100,12 @@ final class DockWindowController {
         stopDragMonitor()
         stopKeyMonitor()
         guard let window else { return }
-        DockAnimator.slideDown(window) { [weak window] in
+        DockAnimator.slideDown(window) { [weak self, weak window] in
             window?.orderOut(nil)
+            // Drop the panel reference so the next show() builds a fresh one.
+            // Required for multi-monitor: a cached panel slid up from the
+            // wrong screen's coordinate space.
+            self?.window = nil
         }
     }
 

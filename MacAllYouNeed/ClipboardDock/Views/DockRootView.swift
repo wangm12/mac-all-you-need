@@ -25,7 +25,7 @@ struct DockRootView: View {
                     )
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if !model.selection.isEmpty {
                 MultiSelectBar(
@@ -43,6 +43,12 @@ struct DockRootView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // Force the outer VStack to fill the NSHostingView's frame. Without
+        // this, SwiftUI sizes the VStack to its natural content (just the
+        // top bar) regardless of how tall the host's frame is, and the
+        // Group's maxHeight: .infinity inside cannot expand into space the
+        // outer VStack didn't claim.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(model)
         .animation(.easeOut(duration: 0.18), value: model.selection.isEmpty)
         .background(

@@ -46,11 +46,16 @@ final class AppController {
         // the dock display items even when the daemon's XPC mach service
         // can't register (the SMAppService.loginItem registration issue).
         let clipboardStore = try Self.makeClipboardStore(deviceID: deviceID, key: clipKey)
+        // BlobStore wraps the on-disk encrypted-blob directory. Sharing it
+        // with ImageBlobLoader lets image cards render their thumbnails
+        // locally without an XPC roundtrip.
+        let blobStore = Self.makeBlobStore(key: clipKey)
 
         let deps = AppDependencies(
             pinboards: pinboardStore,
             snippets: snippetStore,
-            clip: clipboardStore
+            clip: clipboardStore,
+            blobs: blobStore
         )
         let pasteCoordinator = DockPasteCoordinator(xpc: deps.xpc)
         let favicons = FaviconCache()
@@ -193,6 +198,11 @@ final class AppController {
         let url = AppGroup.containerURL().appendingPathComponent("databases/clipboard.sqlite")
         let db = try Database(url: url, migrations: ClipboardStore.migrations)
         return try ClipboardStore(database: db, deviceKey: key, deviceID: deviceID)
+    }
+
+    private static func makeBlobStore(key: SymmetricKey) -> BlobStore {
+        let root = AppGroup.containerURL().appendingPathComponent("blobs", isDirectory: true)
+        return BlobStore(rootURL: root, key: key)
     }
 
     private static func makeSnippetExpander(store: SnippetStore) -> SnippetExpander {
