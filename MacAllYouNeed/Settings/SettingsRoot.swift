@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SettingsRoot: View {
     let controller: AppController
+    @State private var shortcuts = ShortcutRegistry.shared
+
     var body: some View {
         TabView {
             GeneralSettingsView(controller: controller)
@@ -16,6 +18,8 @@ struct SettingsRoot: View {
                 .tabItem { Label("Sync", systemImage: "icloud") }
             HotkeysSettingsView(controller: controller)
                 .tabItem { Label("Hotkeys", systemImage: "keyboard") }
+            ShortcutsSettingsView(registry: shortcuts)
+                .tabItem { Label("Shortcuts", systemImage: "command.square") }
             AdvancedSettingsView(controller: controller)
                 .tabItem { Label("Advanced", systemImage: "wrench") }
         }

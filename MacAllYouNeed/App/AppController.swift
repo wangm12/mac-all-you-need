@@ -35,7 +35,8 @@ final class AppController {
         let clipboardDock = DockWindowController(
             model: deps.dockModel,
             pasteCoordinator: pasteCoordinator,
-            favicons: favicons
+            favicons: favicons,
+            registry: .shared
         )
         self.clipboardDeps = deps
         self.clipboardDock = clipboardDock

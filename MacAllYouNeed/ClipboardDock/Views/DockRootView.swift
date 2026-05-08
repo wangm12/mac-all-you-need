@@ -4,34 +4,20 @@ import SwiftUI
 struct DockRootView: View {
     @Bindable var model: ClipboardDockModel
     let favicons: FaviconCache
+    let registry: ShortcutRegistry
+    let dismiss: () -> Void
     let onPaste: (Int, Bool) -> Void
-    @FocusState private var searchFocused: Bool
+    let openSettings: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search clipboard…", text: $model.search)
-                    .textFieldStyle(.plain)
-                    .focused($searchFocused)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(.thinMaterial)
-            .onChange(of: model.search) { _, _ in
-                model.refreshDebounced()
-            }
-
+            DockTopBar(model: model, openSettings: openSettings)
             Divider()
-
             ClipCarousel(
                 model: model,
                 favicons: favicons,
-                onPaste: { idx in
-                    let plainText = NSEvent.modifierFlags.contains(.option)
-                    onPaste(idx, plainText)
-                }
+                registry: registry,
+                onPaste: onPaste
             )
             .frame(maxHeight: .infinity)
         }
@@ -39,9 +25,6 @@ struct DockRootView: View {
             VisualEffectBackground(material: .popover, blendingMode: .behindWindow)
         )
         .clipShape(RoundedCorners(radius: 12, corners: [.topLeft, .topRight]))
-        .onAppear {
-            searchFocused = true
-        }
     }
 }
 

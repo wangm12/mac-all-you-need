@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 
 struct ClipCarousel: View {
     @Bindable var model: ClipboardDockModel
     let favicons: FaviconCache
-    let onPaste: (Int) -> Void
+    let registry: ShortcutRegistry
+    let onPaste: (Int, Bool) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -19,7 +21,9 @@ struct ClipCarousel: View {
                             favicons: favicons
                         )
                         .id(item.id)
-                        .onTapGesture { onPaste(idx) }
+                        .onTapGesture {
+                            onPaste(idx, false)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -29,6 +33,26 @@ struct ClipCarousel: View {
                 withAnimation(.easeOut(duration: 0.15)) {
                     proxy.scrollTo(model.items[newValue].id, anchor: .center)
                 }
+            }
+        }
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress { keyPress in
+            let raw = keyPress.key.character
+            switch raw {
+            case Character(UnicodeScalar(NSLeftArrowFunctionKey)!):
+                model.focusBackward()
+                return .handled
+            case Character(UnicodeScalar(NSRightArrowFunctionKey)!):
+                model.focusForward()
+                return .handled
+            case "\r":
+                let plainText = keyPress.modifiers.contains(.option)
+                onPaste(model.focusedIndex, plainText)
+                return .handled
+            default:
+                _ = registry
+                return .ignored
             }
         }
     }

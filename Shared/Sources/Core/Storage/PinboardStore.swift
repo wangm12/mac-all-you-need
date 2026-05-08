@@ -28,8 +28,8 @@ public final class PinboardStore {
     ]
 
     @discardableResult
-    public func create(name: String) throws -> Pinboard {
-        let pinboard = Pinboard(name: name)
+    public func create(name: String, color: String? = nil) throws -> Pinboard {
+        let pinboard = Pinboard(name: name, color: color)
         try persist(pinboard, order: maxOrder() + 1)
         return pinboard
     }
@@ -99,7 +99,7 @@ public final class PinboardStore {
         }
     }
 
-    private func update(_ pinboard: Pinboard) throws {
+    public func update(_ pinboard: Pinboard) throws {
         let env = try Cipher.seal(JSONEncoder().encode(pinboard), with: key)
         try db.queue.write { conn in
             try conn.execute(sql: """

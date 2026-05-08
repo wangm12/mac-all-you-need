@@ -9,11 +9,14 @@ final class ClipboardDockModel {
     let appIcons: AppIconResolver
     let imageLoader: ImageBlobLoader
     let fileLoader: FileURLLoader
+    let pinboards: PinboardStore
 
     var items: [DockItem] = []
     var search: String = ""
     var focusedIndex: Int = 0
     var activeList: DockListSelector = .history
+    var availableLists: [Pinboard] = []
+
     private var refreshDebounceTask: Task<Void, Never>?
     private var refreshSequence: UInt64 = 0
 
@@ -21,12 +24,25 @@ final class ClipboardDockModel {
         xpc: any ClipboardXPCInteracting,
         appIcons: AppIconResolver,
         imageLoader: ImageBlobLoader,
-        fileLoader: FileURLLoader
+        fileLoader: FileURLLoader,
+        pinboards: PinboardStore
     ) {
         self.xpc = xpc
         self.appIcons = appIcons
         self.imageLoader = imageLoader
         self.fileLoader = fileLoader
+        self.pinboards = pinboards
+    }
+
+    func loadAvailableLists() async {
+        availableLists = PinnedPinboard.userVisibleLists((try? pinboards.list()) ?? [])
+    }
+
+    func switchList(_ selector: DockListSelector) async {
+        activeList = selector
+        search = ""
+        focusedIndex = 0
+        await refresh()
     }
 
     func refresh() async {
@@ -46,37 +62,33 @@ final class ClipboardDockModel {
         }
     }
 
-    private func nextRefreshSequence() -> UInt64 {
-        refreshSequence += 1
-        return refreshSequence
+    func togglePin(itemID: String) async {
+        guard let recordID = RecordID(rawValue: itemID),
+              var pinned = try? PinnedPinboard.findOrCreate(in: pinboards)
+        else { return }
+
+        if pinned.itemIDs.contains(recordID) {
+            pinned.itemIDs.removeAll { $0 == recordID }
+        } else {
+            pinned.itemIDs.append(recordID)
+        }
+        pinned.modified = Date()
+        try? pinboards.update(pinned)
+
+        if activeList == .pinned || activeList == .history {
+            await refresh()
+        }
     }
 
-    private func performRefresh(sequence: UInt64) async {
-        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let query: String? = trimmed.isEmpty ? nil : trimmed
-        let list = await xpc.listItems(query: query, pageToken: nil, limit: 50)
-        guard sequence == refreshSequence else { return }
+    func addToPinboard(itemIDs: [String], boardID: RecordID) async {
+        guard var pinboard = (try? pinboards.list())?.first(where: { $0.id == boardID }) else { return }
 
-        let previousID: String? = items.indices.contains(focusedIndex)
-            ? items[focusedIndex].id
-            : nil
-
-        items = list.items.map { meta in
-            let app: SourceApp? = meta.sourceAppBundleID.map {
-                SourceApp(
-                    bundleID: $0,
-                    displayName: appIcons.displayName(for: $0),
-                    icon: appIcons.icon(for: $0)
-                )
-            }
-            return DockItem(from: meta, sourceApp: app, isPinned: false)
+        for raw in itemIDs {
+            guard let rid = RecordID(rawValue: raw), !pinboard.itemIDs.contains(rid) else { continue }
+            pinboard.itemIDs.append(rid)
         }
-
-        if let previousID, let newIdx = items.firstIndex(where: { $0.id == previousID }) {
-            focusedIndex = newIdx
-        } else {
-            focusedIndex = 0
-        }
+        pinboard.modified = Date()
+        try? pinboards.update(pinboard)
     }
 
     func focusForward() {
@@ -87,5 +99,106 @@ final class ClipboardDockModel {
     func focusBackward() {
         guard !items.isEmpty else { return }
         focusedIndex = max(0, focusedIndex - 1)
+    }
+
+    private func nextRefreshSequence() -> UInt64 {
+        refreshSequence += 1
+        return refreshSequence
+    }
+
+    private func performRefresh(sequence: UInt64) async {
+        let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query: String? = trimmed.isEmpty ? nil : trimmed
+        let previousID: String? = items.indices.contains(focusedIndex) ? items[focusedIndex].id : nil
+
+        let newItems: [DockItem]
+        switch activeList {
+        case .history:
+            newItems = await loadFromXPC(query: query)
+        case .pinned:
+            newItems = await loadPinned(query: query)
+        case let .pinboard(id):
+            newItems = await loadPinboard(id: id, query: query)
+        case .snippets:
+            newItems = []
+        }
+
+        guard sequence == refreshSequence else { return }
+
+        items = newItems
+        if let previousID, let newIndex = items.firstIndex(where: { $0.id == previousID }) {
+            focusedIndex = newIndex
+        } else {
+            focusedIndex = 0
+        }
+    }
+
+    private func loadFromXPC(query: String?) async -> [DockItem] {
+        let list = await xpc.listItems(query: query, pageToken: nil, limit: 50)
+        let pinned = pinnedIDs()
+        return list.items.map { meta in
+            let isPinned: Bool
+            if let id = RecordID(rawValue: meta.id) {
+                isPinned = pinned.contains(id)
+            } else {
+                isPinned = false
+            }
+            return buildDockItem(from: meta, isPinned: isPinned)
+        }
+    }
+
+    private func loadPinned(query: String?) async -> [DockItem] {
+        guard let pinned = try? PinnedPinboard.findOrCreate(in: pinboards) else { return [] }
+        return await loadByIDs(pinned.itemIDs.map(\.rawValue), query: query, forcePinned: true)
+    }
+
+    private func loadPinboard(id: RecordID, query: String?) async -> [DockItem] {
+        guard let board = (try? pinboards.list())?.first(where: { $0.id == id }) else { return [] }
+        return await loadByIDs(board.itemIDs.map(\.rawValue), query: query, forcePinned: false)
+    }
+
+    private func loadByIDs(_ ids: [String], query: String?, forcePinned: Bool) async -> [DockItem] {
+        guard !ids.isEmpty else { return [] }
+        let list = await xpc.metasByIDs(ids: ids)
+
+        let order = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($0.element, $0.offset) })
+        var metas = list.items
+        metas.sort { lhs, rhs in
+            order[lhs.id, default: .max] < order[rhs.id, default: .max]
+        }
+
+        if let query, !query.isEmpty {
+            let lower = query.lowercased()
+            metas = metas.filter { $0.preview.lowercased().contains(lower) }
+        }
+
+        let pinned = pinnedIDs()
+        return metas.map { meta in
+            let isPinned: Bool
+            if forcePinned {
+                isPinned = true
+            } else if let id = RecordID(rawValue: meta.id) {
+                isPinned = pinned.contains(id)
+            } else {
+                isPinned = false
+            }
+            return buildDockItem(from: meta, isPinned: isPinned)
+        }
+    }
+
+    private func pinnedIDs() -> Set<RecordID> {
+        guard let pinned = try? PinnedPinboard.findOrCreate(in: pinboards) else { return [] }
+        return Set(pinned.itemIDs)
+    }
+
+    private func buildDockItem(from meta: ClipboardXPCMeta, isPinned: Bool) -> DockItem {
+        let app: SourceApp? = meta.sourceAppBundleID.map {
+            SourceApp(
+                bundleID: $0,
+                displayName: appIcons.displayName(for: $0),
+                icon: appIcons.icon(for: $0)
+            )
+        }
+        return DockItem(from: meta, sourceApp: app, isPinned: isPinned)
     }
 }

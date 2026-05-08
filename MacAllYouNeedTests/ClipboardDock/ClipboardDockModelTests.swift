@@ -1,5 +1,6 @@
 @testable import MacAllYouNeed
 import Core
+import CryptoKit
 import XCTest
 
 @MainActor
@@ -35,11 +36,18 @@ final class ClipboardDockModelTests: XCTestCase {
     }
 
     private func makeModel(_ mock: MockClient) -> ClipboardDockModel {
-        ClipboardDockModel(
+        let key = SymmetricKey(size: .bits256)
+        let db = try! Database(
+            url: FileManager.default.temporaryDirectory.appendingPathComponent("pb-\(UUID().uuidString).sqlite"),
+            migrations: PinboardStore.migrations
+        )
+        let pinboards = PinboardStore(database: db, deviceKey: key)
+        return ClipboardDockModel(
             xpc: mock,
             appIcons: AppIconResolver(),
             imageLoader: ImageBlobLoader(xpc: mock),
-            fileLoader: FileURLLoader(xpc: mock)
+            fileLoader: FileURLLoader(xpc: mock),
+            pinboards: pinboards
         )
     }
 

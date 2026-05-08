@@ -6,16 +6,24 @@ final class DockWindowController {
     private let model: ClipboardDockModel
     private let pasteCoordinator: DockPasteCoordinator
     private let favicons: FaviconCache
+    private let registry: ShortcutRegistry
+
     private var window: BottomDockWindow?
     private var outsideClickMonitor: Any?
     private var keyMonitor: Any?
 
     var dockHeight: CGFloat = 360
 
-    init(model: ClipboardDockModel, pasteCoordinator: DockPasteCoordinator, favicons: FaviconCache) {
+    init(
+        model: ClipboardDockModel,
+        pasteCoordinator: DockPasteCoordinator,
+        favicons: FaviconCache,
+        registry: ShortcutRegistry
+    ) {
         self.model = model
         self.pasteCoordinator = pasteCoordinator
         self.favicons = favicons
+        self.registry = registry
     }
 
     func toggle() {
@@ -36,24 +44,35 @@ final class DockWindowController {
             width: screen.visibleFrame.width,
             height: dockHeight
         )
+
         let panel = window ?? BottomDockWindow(contentRect: frame)
         panel.setFrame(frame, display: false)
         panel.contentView = NSHostingView(
             rootView: DockRootView(
                 model: model,
                 favicons: favicons,
+                registry: registry,
+                dismiss: { [weak self] in
+                    self?.hide()
+                },
                 onPaste: { [weak self] idx, plainText in
                     self?.triggerPaste(at: idx, plainText: plainText)
+                },
+                openSettings: {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                 }
             )
         )
+
         if window == nil {
             window = panel
         }
+
         panel.orderFrontRegardless()
         DockAnimator.slideUp(panel, finalOrigin: NSPoint(x: frame.minX, y: frame.minY)) {
             panel.makeKey()
         }
+
         startOutsideClickMonitor()
         startKeyMonitor()
     }
@@ -90,7 +109,9 @@ final class DockWindowController {
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
-            Task { @MainActor in self?.hide() }
+            Task { @MainActor in
+                self?.hide()
+            }
         }
     }
 
@@ -101,29 +122,50 @@ final class DockWindowController {
         }
     }
 
-    /// Intercepts navigation keys before SwiftUI's focused TextField consumes them.
-    /// Letters/digits/etc. fall through to the search field unchanged.
     private func startKeyMonitor() {
         stopKeyMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            let plainText = event.modifierFlags.contains(.option)
-            switch Int(event.keyCode) {
-            case 0x7B: // left arrow
-                self.model.focusBackward()
+            guard let self, let window = self.window, window.isVisible else { return event }
+
+            if registry.matches(event: event, .dismiss) {
+                hide()
                 return nil
-            case 0x7C: // right arrow
-                self.model.focusForward()
-                return nil
-            case 0x24, 0x4C: // return, keypad enter
-                self.triggerPaste(at: self.model.focusedIndex, plainText: plainText)
-                return nil
-            case 0x35: // escape
-                self.hide()
-                return nil
-            default:
-                return event
             }
+
+            if registry.matches(event: event, .togglePin) {
+                Task { @MainActor in
+                    guard self.model.items.indices.contains(self.model.focusedIndex) else { return }
+                    let id = self.model.items[self.model.focusedIndex].id
+                    await self.model.togglePin(itemID: id)
+                }
+                return nil
+            }
+
+            if registry.matches(event: event, .paste) {
+                triggerPaste(at: model.focusedIndex, plainText: false)
+                return nil
+            }
+
+            if registry.matches(event: event, .pastePlain) {
+                triggerPaste(at: model.focusedIndex, plainText: true)
+                return nil
+            }
+
+            let keyMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if keyMods.isEmpty {
+                switch event.keyCode {
+                case 0x7B:
+                    model.focusBackward()
+                    return nil
+                case 0x7C:
+                    model.focusForward()
+                    return nil
+                default:
+                    break
+                }
+            }
+
+            return event
         }
     }
 
