@@ -32,7 +32,13 @@ final class AppController {
     init() throws {
         self.deviceID = try DeviceIdentityStore.loadOrCreate()
 
-        let deps = AppDependencies()
+        // Load the device key up front. If the keychain is locked or the entry
+        // is missing/corrupt, fail fast — every encrypted store needs this key,
+        // and constructing fallback in-memory stores silently orphans user data.
+        let clipKey = try KeyManager(keychain: SystemKeychain()).deviceKey()
+        let pinboardStore = try Self.makePinboardStore(key: clipKey)
+
+        let deps = AppDependencies(pinboards: pinboardStore)
         let pasteCoordinator = DockPasteCoordinator(xpc: deps.xpc)
         let favicons = FaviconCache()
         let clipboardDock = DockWindowController(
@@ -45,7 +51,6 @@ final class AppController {
         self.clipboardDock = clipboardDock
         clipboardDock.dockHeight = Self.currentDockHeight()
 
-        let clipKey = try KeyManager(keychain: SystemKeychain()).deviceKey()
         self.clipboardReader = try Self.makeClipboardReader(deviceID: deviceID, key: clipKey)
         self.snippetExpander = try Self.makeSnippetExpander(deviceID: deviceID, key: clipKey)
 
@@ -185,6 +190,12 @@ final class AppController {
         } catch {
             // Ignore cleanup failures from a best-effort manual maintenance action.
         }
+    }
+
+    private static func makePinboardStore(key: SymmetricKey) throws -> PinboardStore {
+        let url = AppGroup.containerURL().appendingPathComponent("databases/pinboards.sqlite")
+        let db = try Database(url: url, migrations: PinboardStore.migrations)
+        return PinboardStore(database: db, deviceKey: key)
     }
 
     private static func makeClipboardReader(deviceID: DeviceID, key: SymmetricKey) throws -> LocalClipboardReader {

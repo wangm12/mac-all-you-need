@@ -100,6 +100,7 @@
 		DC735024CCED5F4A650D1CF0 /* FileURLLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C507D201DC60F643BE53EF82 /* FileURLLoaderTests.swift */; };
 		DE426C3EEF5D4F4CB0F71B8F /* FileURLLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2624D38CF44DD95A5AE649F0 /* FileURLLoader.swift */; };
 		DF695E312AABAACFDA076892 /* CheatsheetOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673C0CFAD8357810A40CBB3B /* CheatsheetOverlay.swift */; };
+		E1D92F8FF11CF827C48701A3 /* HotkeyMapStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044427E436B002B16EDA1075 /* HotkeyMapStoreMigrationTests.swift */; };
 		E2D3DB2470FC4899FE972267 /* ClipboardDockModelListSwitchingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5F3C53A015F073DBAFD32B1 /* ClipboardDockModelListSwitchingTests.swift */; };
 		E40ABB4D6C22BBEDDC64C7DE /* MacAllYouNeedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */; };
 		E8542F4778D718844C2BA5BD /* ColorPickerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6492280F864A0A850F6889F9 /* ColorPickerCoordinator.swift */; };
@@ -153,6 +154,7 @@
 /* Begin PBXFileReference section */
 		0048E0AE4C75E2960CE5EA9C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		02ECAE4FA3AC4620DF9901CA /* DockPasteCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPasteCoordinator.swift; sourceTree = "<group>"; };
+		044427E436B002B16EDA1075 /* HotkeyMapStoreMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyMapStoreMigrationTests.swift; sourceTree = "<group>"; };
 		0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FolderPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		07D9491FEF0B4BA6626760F8 /* AppIconResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconResolverTests.swift; sourceTree = "<group>"; };
 		0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacAllYouNeed.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -316,6 +318,7 @@
 		236F834E88CC4594FA4E40D5 /* MacAllYouNeedTests */ = {
 			isa = PBXGroup;
 			children = (
+				044427E436B002B16EDA1075 /* HotkeyMapStoreMigrationTests.swift */,
 				17BF4839D6E1C11B52D1D4C0 /* MacAllYouNeedTests.swift */,
 				E01D09E784837FB77600371B /* ClipboardDock */,
 			);
@@ -822,6 +825,7 @@
 				99F9679CA4CEBCDC5A076E4C /* DockItemTests.swift in Sources */,
 				DC735024CCED5F4A650D1CF0 /* FileURLLoaderTests.swift in Sources */,
 				C8EBE19B6C152D9232897101 /* FuzzyMatcherTests.swift in Sources */,
+				E1D92F8FF11CF827C48701A3 /* HotkeyMapStoreMigrationTests.swift in Sources */,
 				B2D13425C45F611C5106886D /* ImageBlobLoaderTests.swift in Sources */,
 				372F357EDC414B104612E325 /* MacAllYouNeedTests.swift in Sources */,
 				6EE8AB0956D577CEADD18E96 /* SelectionStateTests.swift in Sources */,

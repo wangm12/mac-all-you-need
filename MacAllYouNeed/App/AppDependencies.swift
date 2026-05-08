@@ -15,7 +15,11 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
     let snippetStore: SnippetStore
     let dockModel: ClipboardDockModel
 
-    override init() {
+    /// Pinboards are constructed by AppController against the keychain-backed
+    /// device key; injected here so that a missing/locked keychain surfaces as
+    /// AppController.init throwing instead of silently building a temporary
+    /// store with a throwaway key (which orphaned user data on next launch).
+    init(pinboards: PinboardStore) {
         let client = ClipboardXPCClient(resumesImmediately: false)
         xpc = client
 
@@ -24,22 +28,9 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
         self.imageLoader = imageLoader
         self.fileLoader = fileLoader
 
-        let key = try? KeyManager(keychain: SystemKeychain()).deviceKey()
-        let pinboardDB = try? Database(
-            url: AppGroup.containerURL().appendingPathComponent("databases/pinboards.sqlite"),
-            migrations: PinboardStore.migrations
-        )
-        let pinboards: PinboardStore = {
-            if let key, let pinboardDB {
-                return PinboardStore(database: pinboardDB, deviceKey: key)
-            }
-            let fallbackDB = try! Database(
-                url: FileManager.default.temporaryDirectory.appendingPathComponent("pinboards-\(UUID().uuidString).sqlite"),
-                migrations: PinboardStore.migrations
-            )
-            return PinboardStore(database: fallbackDB, deviceKey: SymmetricKey(size: .bits256))
-        }()
         pinboardStore = pinboards
+
+        let key = try? KeyManager(keychain: SystemKeychain()).deviceKey()
         let snippetDB = try? Database(
             url: AppGroup.containerURL().appendingPathComponent("databases/snippets.sqlite"),
             migrations: SnippetStore.migrations

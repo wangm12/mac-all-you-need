@@ -68,4 +68,39 @@ final class PinboardStoreTests: XCTestCase {
         try store.delete(id: p.id)
         XCTAssertTrue(try store.list().isEmpty)
     }
+
+    func testMutateAppliesChangeAndStampsModified() throws {
+        var p = try store.create(name: "Pin")
+        let before = p.modified
+        Thread.sleep(forTimeInterval: 0.005)
+        let id1 = RecordID.generate()
+        p = try store.mutate(id: p.id) { $0.itemIDs.append(id1) }
+        XCTAssertEqual(p.itemIDs, [id1])
+        XCTAssertGreaterThan(p.modified, before)
+        let reread = try store.list().first { $0.id == p.id }
+        XCTAssertEqual(reread?.itemIDs, [id1])
+    }
+
+    func testMutateConcurrentAppendsAreSerializedNotLost() throws {
+        let p = try store.create(name: "Race")
+        let count = 100
+        let queue = DispatchQueue(label: "PinboardStoreTests.race", attributes: .concurrent)
+        let group = DispatchGroup()
+        for index in 0..<count {
+            group.enter()
+            queue.async {
+                let id = RecordID.generate()
+                _ = try? self.store.mutate(id: p.id) { board in
+                    // append a unique-per-iteration value so a lost update is detectable
+                    board.itemIDs.append(id)
+                    _ = index
+                }
+                group.leave()
+            }
+        }
+        group.wait()
+        let final = try store.list().first { $0.id == p.id }!
+        XCTAssertEqual(final.itemIDs.count, count,
+                       "Atomic mutate must preserve every concurrent append; got \(final.itemIDs.count) of \(count)")
+    }
 }

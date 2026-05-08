@@ -74,16 +74,17 @@ final class ClipboardDockModel {
 
     func togglePin(itemID: String) async {
         guard let recordID = RecordID(rawValue: itemID),
-              var pinned = try? PinnedPinboard.findOrCreate(in: pinboards)
+              let pinnedID = try? PinnedPinboard.findOrCreate(in: pinboards).id
         else { return }
 
-        if pinned.itemIDs.contains(recordID) {
-            pinned.itemIDs.removeAll { $0 == recordID }
-        } else {
-            pinned.itemIDs.append(recordID)
+        // Atomic read-modify-write so concurrent toggles do not lose updates.
+        try? pinboards.mutate(id: pinnedID) { board in
+            if board.itemIDs.contains(recordID) {
+                board.itemIDs.removeAll { $0 == recordID }
+            } else {
+                board.itemIDs.append(recordID)
+            }
         }
-        pinned.modified = Date()
-        try? pinboards.update(pinned)
 
         if activeList == .pinned || activeList == .history {
             await refresh()
@@ -91,14 +92,13 @@ final class ClipboardDockModel {
     }
 
     func addToPinboard(itemIDs: [String], boardID: RecordID) async {
-        guard var pinboard = (try? pinboards.list())?.first(where: { $0.id == boardID }) else { return }
-
-        for raw in itemIDs {
-            guard let rid = RecordID(rawValue: raw), !pinboard.itemIDs.contains(rid) else { continue }
-            pinboard.itemIDs.append(rid)
+        let recordIDs = itemIDs.compactMap(RecordID.init(rawValue:))
+        guard !recordIDs.isEmpty else { return }
+        try? pinboards.mutate(id: boardID) { board in
+            for rid in recordIDs where !board.itemIDs.contains(rid) {
+                board.itemIDs.append(rid)
+            }
         }
-        pinboard.modified = Date()
-        try? pinboards.update(pinboard)
     }
 
     func focusForward() {

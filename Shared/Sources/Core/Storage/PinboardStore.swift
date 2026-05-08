@@ -111,6 +111,33 @@ public final class PinboardStore {
         }
     }
 
+    /// Atomic read-modify-write: fetch, run the closure on the decoded pinboard,
+    /// then persist the mutated value — all inside a single GRDB write transaction
+    /// so concurrent callers cannot stomp each other.
+    @discardableResult
+    public func mutate(id: RecordID, _ change: (inout Pinboard) -> Void) throws -> Pinboard {
+        try db.queue.write { conn in
+            guard let row = try Row.fetchOne(
+                conn,
+                sql: "SELECT envelope FROM pinboards WHERE id = ?",
+                arguments: [id.rawValue]
+            ) else {
+                throw NSError(domain: "PinboardStore", code: 404)
+            }
+            var pinboard = try self.decode(row: row)
+            change(&pinboard)
+            pinboard.modified = Date()
+            let env = try Cipher.seal(JSONEncoder().encode(pinboard), with: self.key)
+            try conn.execute(sql: """
+                UPDATE pinboards SET name = ?, envelope = ?, modified = ?, device_id = ?, lamport = ? WHERE id = ?
+            """, arguments: [
+                pinboard.name, env.combined, pinboard.modified.timeIntervalSince1970,
+                pinboard.deviceID?.rawValue, pinboard.lamport, pinboard.id.rawValue
+            ])
+            return pinboard
+        }
+    }
+
     private func decode(row: Row) throws -> Pinboard {
         let env = Envelope(combined: row["envelope"])
         let data = try Cipher.open(env, with: key)
