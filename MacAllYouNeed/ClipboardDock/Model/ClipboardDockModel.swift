@@ -12,6 +12,13 @@ final class ClipboardDockModel {
     let fileLoader: FileURLLoader
     let pinboards: PinboardStore
     let snippets: SnippetStore
+    /// Optional in-process read path. When non-nil, the History tab reads
+    /// directly from the encrypted SQLite store the daemon writes to (same
+    /// path the menu-bar popover uses) instead of going through XPC. This
+    /// keeps the dock populated when the daemon's mach service registration
+    /// fails — a known macOS Sequoia issue with SMAppService.loginItem.
+    /// Writes (paste/delete/transform) still go through XPC.
+    let clip: ClipboardStore?
 
     var items: [DockItem] = []
     var snippetItems: [Snippet] = []
@@ -34,7 +41,8 @@ final class ClipboardDockModel {
         imageLoader: ImageBlobLoader,
         fileLoader: FileURLLoader,
         pinboards: PinboardStore,
-        snippets: SnippetStore
+        snippets: SnippetStore,
+        clip: ClipboardStore? = nil
     ) {
         self.xpc = xpc
         self.appIcons = appIcons
@@ -42,6 +50,7 @@ final class ClipboardDockModel {
         self.fileLoader = fileLoader
         self.pinboards = pinboards
         self.snippets = snippets
+        self.clip = clip
     }
 
     func loadAvailableLists() async {
@@ -258,13 +267,23 @@ final class ClipboardDockModel {
     private func loadFromXPC(query: String?) async -> [DockItem] {
         let fuzzyEnabled = isFuzzyEnabled()
         let effectiveQuery = fuzzyEnabled ? nil : query
-        let list = await xpc.listItems(
-            query: effectiveQuery,
-            pageToken: nil,
-            limit: fuzzyEnabled ? 200 : 50
-        )
+        let limit = fuzzyEnabled ? 200 : 50
+
+        let xpcItems: [ClipboardXPCMeta]
+        if let clip {
+            // Direct DB read — preferred path; works regardless of XPC state.
+            xpcItems = await loadHistoryLocally(
+                clip: clip, query: effectiveQuery, limit: limit
+            )
+        } else {
+            let list = await xpc.listItems(
+                query: effectiveQuery, pageToken: nil, limit: limit
+            )
+            xpcItems = list.items
+        }
+
         let pinned = pinnedIDs()
-        let candidates = list.items.map { meta in
+        let candidates = xpcItems.map { meta in
             let isPinned: Bool
             if let id = RecordID(rawValue: meta.id) {
                 isPinned = pinned.contains(id)
@@ -274,6 +293,25 @@ final class ClipboardDockModel {
             return buildDockItem(from: meta, isPinned: isPinned)
         }
         return filteredAndRanked(items: candidates, query: query)
+    }
+
+    private func loadHistoryLocally(
+        clip: ClipboardStore, query: String?, limit: Int
+    ) async -> [ClipboardXPCMeta] {
+        await Task.detached {
+            let metas: [ClipboardItemMeta]
+            if let query, !query.isEmpty {
+                // Without an injected SearchStore, do an in-memory contains
+                // filter over the most recent rows. Same fallback the menu-bar
+                // popover uses, and tolerable up to a few hundred items.
+                let recent = (try? clip.list(limit: max(limit, 200))) ?? []
+                let lower = query.lowercased()
+                metas = Array(recent.filter { $0.preview.lowercased().contains(lower) }.prefix(limit))
+            } else {
+                metas = (try? clip.list(limit: limit)) ?? []
+            }
+            return metas.map { Self.xpcMeta(from: $0, clip: clip) }
+        }.value
     }
 
     private func loadPinned(query: String?) async -> [DockItem] {
@@ -288,10 +326,16 @@ final class ClipboardDockModel {
 
     private func loadByIDs(_ ids: [String], query: String?, forcePinned: Bool) async -> [DockItem] {
         guard !ids.isEmpty else { return [] }
-        let list = await xpc.metasByIDs(ids: ids)
+
+        let xpcItems: [ClipboardXPCMeta]
+        if let clip {
+            xpcItems = await loadByIDsLocally(clip: clip, ids: ids)
+        } else {
+            xpcItems = await xpc.metasByIDs(ids: ids).items
+        }
 
         let order = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($0.element, $0.offset) })
-        var metas = list.items
+        var metas = xpcItems
         metas.sort { lhs, rhs in
             order[lhs.id, default: .max] < order[rhs.id, default: .max]
         }
@@ -309,6 +353,40 @@ final class ClipboardDockModel {
             return buildDockItem(from: meta, isPinned: isPinned)
         }
         return filteredAndRanked(items: candidates, query: query)
+    }
+
+    private func loadByIDsLocally(clip: ClipboardStore, ids: [String]) async -> [ClipboardXPCMeta] {
+        await Task.detached {
+            let recordIDs = ids.compactMap(RecordID.init(rawValue:))
+            let metas = (try? clip.metas(for: recordIDs)) ?? []
+            return metas.map { Self.xpcMeta(from: $0, clip: clip) }
+        }.value
+    }
+
+    /// Mirrors `ClipboardXPCService.xpcMeta(from:)` — keeps in-process and
+    /// XPC-served reads producing identical DTOs. The body lookup is needed
+    /// to attach blob info to image kinds; for non-image rows it is a no-op.
+    nonisolated private static func xpcMeta(from meta: ClipboardItemMeta, clip: ClipboardStore) -> ClipboardXPCMeta {
+        var imgWidth = 0
+        var imgHeight = 0
+        var imgBlobID: String?
+        if let body = try? clip.body(for: meta.id),
+           case let .image(blobID, w, h) = body
+        {
+            imgWidth = w
+            imgHeight = h
+            imgBlobID = blobID
+        }
+        return ClipboardXPCMeta(
+            id: meta.id.rawValue,
+            modified: meta.modified,
+            kind: meta.kind.rawValue,
+            preview: meta.preview,
+            sourceAppBundleID: meta.sourceAppBundleID,
+            imageWidth: imgWidth,
+            imageHeight: imgHeight,
+            imageBlobID: imgBlobID
+        )
     }
 
     private func pinnedIDs() -> Set<RecordID> {

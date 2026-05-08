@@ -41,8 +41,17 @@ final class AppController {
         // expander must share it. Two GRDB DatabaseQueues to the same SQLite
         // file race on writes and contend for locks.
         let snippetStore = try Self.makeSnippetStore(key: clipKey)
+        // Same rule for ClipboardStore: one DatabaseQueue, shared between the
+        // menu-bar popover (LocalClipboardReader) and the dock model. Lets
+        // the dock display items even when the daemon's XPC mach service
+        // can't register (the SMAppService.loginItem registration issue).
+        let clipboardStore = try Self.makeClipboardStore(deviceID: deviceID, key: clipKey)
 
-        let deps = AppDependencies(pinboards: pinboardStore, snippets: snippetStore)
+        let deps = AppDependencies(
+            pinboards: pinboardStore,
+            snippets: snippetStore,
+            clip: clipboardStore
+        )
         let pasteCoordinator = DockPasteCoordinator(xpc: deps.xpc)
         let favicons = FaviconCache()
         let clipboardDock = DockWindowController(
@@ -55,7 +64,7 @@ final class AppController {
         self.clipboardDock = clipboardDock
         clipboardDock.dockHeight = Self.currentDockHeight()
 
-        self.clipboardReader = try Self.makeClipboardReader(deviceID: deviceID, key: clipKey)
+        self.clipboardReader = LocalClipboardReader(store: clipboardStore)
         self.snippetExpander = Self.makeSnippetExpander(store: snippetStore)
 
         let coordinator = BrowseFolderCoordinator()
@@ -180,11 +189,10 @@ final class AppController {
         return SnippetStore(database: db, deviceKey: key)
     }
 
-    private static func makeClipboardReader(deviceID: DeviceID, key: SymmetricKey) throws -> LocalClipboardReader {
+    private static func makeClipboardStore(deviceID: DeviceID, key: SymmetricKey) throws -> ClipboardStore {
         let url = AppGroup.containerURL().appendingPathComponent("databases/clipboard.sqlite")
         let db = try Database(url: url, migrations: ClipboardStore.migrations)
-        let store = try ClipboardStore(database: db, deviceKey: key, deviceID: deviceID)
-        return LocalClipboardReader(store: store)
+        return try ClipboardStore(database: db, deviceKey: key, deviceID: deviceID)
     }
 
     private static func makeSnippetExpander(store: SnippetStore) -> SnippetExpander {

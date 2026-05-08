@@ -15,14 +15,14 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
     let snippetStore: SnippetStore
     let dockModel: ClipboardDockModel
 
-    /// Pinboards and snippets are constructed by AppController against the
-    /// keychain-backed device key; injected here so that a missing/locked
-    /// keychain surfaces as AppController.init throwing instead of silently
-    /// building temporary stores with a throwaway key (which orphaned user
-    /// data on next launch). Snippet injection also ensures only one
-    /// SnippetStore opens snippets.sqlite per process — a second
-    /// DatabaseQueue on the same file races with the SnippetExpander.
-    init(pinboards: PinboardStore, snippets: SnippetStore) {
+    /// Pinboards, snippets, and the clipboard store are all constructed by
+    /// AppController against the keychain-backed device key; injected here so
+    /// that a missing/locked keychain surfaces as AppController.init throwing
+    /// instead of silently building temporary stores with a throwaway key
+    /// (which orphaned user data on next launch). The clip store is also
+    /// shared with LocalClipboardReader and the dock model so all read paths
+    /// hit one DatabaseQueue.
+    init(pinboards: PinboardStore, snippets: SnippetStore, clip: ClipboardStore) {
         let client = ClipboardXPCClient(resumesImmediately: false)
         xpc = client
 
@@ -40,7 +40,8 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
             imageLoader: imageLoader,
             fileLoader: fileLoader,
             pinboards: pinboards,
-            snippets: snippets
+            snippets: snippets,
+            clip: clip
         )
 
         super.init()

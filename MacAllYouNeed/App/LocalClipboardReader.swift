@@ -6,7 +6,9 @@ import Foundation
 final class LocalClipboardReader {
     private(set) var items: [ClipboardItemMeta] = []
     private var query: String = ""
-    private var store: ClipboardStore?
+    /// Exposed so other read paths (e.g. the dock) can share this store rather
+    /// than opening a second DatabaseQueue against the same SQLite file.
+    let store: ClipboardStore?
     private var pollTask: Task<Void, Never>?
 
     init(store: ClipboardStore) {
