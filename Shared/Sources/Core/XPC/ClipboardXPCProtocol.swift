@@ -136,6 +136,11 @@ import Foundation
     func paste(itemID: String, plainText: Bool, reply: @escaping (String) -> Void)
     func registerCallback(reply: @escaping (Bool) -> Void)
     func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void)
+    /// Asks the daemon to evict every clipboard record older than the given
+    /// number of days, plus the matching FTS rows and image blobs. Routed
+    /// through XPC so the daemon — which holds the writer lock on the SQLite
+    /// files — owns the deletion, avoiding cross-process write races.
+    func runRetention(maxAgeDays: Int, reply: @escaping (Bool) -> Void)
 }
 
 @objc public class SnippetXPCDTO: NSObject, NSSecureCoding, Identifiable {

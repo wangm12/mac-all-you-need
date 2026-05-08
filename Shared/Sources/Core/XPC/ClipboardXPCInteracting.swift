@@ -12,10 +12,17 @@ public protocol ClipboardXPCInteracting: Sendable {
     func imageThumbnail(forID id: String, maxDim: Int) async -> Data?
     func listSnippets() async -> [SnippetXPCDTO]
     func deleteItem(id: String) async -> Bool
+    func runRetention(maxAgeDays: Int) async -> Bool
 }
 
 public extension ClipboardXPCInteracting {
     func deleteItem(id: String) async -> Bool {
+        false
+    }
+
+    /// Default no-op implementation so test mocks don't need to add a stub.
+    /// Real client overrides this.
+    func runRetention(maxAgeDays: Int) async -> Bool {
         false
     }
 }

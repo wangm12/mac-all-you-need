@@ -17,7 +17,8 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
             clip: container.clip,
             blobs: container.blobs,
             search: container.search,
-            snippets: container.snippets
+            snippets: container.snippets,
+            pinboards: container.pinboards
         )
         super.init()
         listener.delegate = self
@@ -170,6 +171,12 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
     }
     func deleteItem(id: String, reply: @escaping (Bool) -> Void) {
         service.deleteItem(id: id) { [weak self] ok in
+            if ok { self?.notifyInvalidated() }
+            reply(ok)
+        }
+    }
+    func runRetention(maxAgeDays: Int, reply: @escaping (Bool) -> Void) {
+        service.runRetention(maxAgeDays: maxAgeDays) { [weak self] ok in
             if ok { self?.notifyInvalidated() }
             reply(ok)
         }

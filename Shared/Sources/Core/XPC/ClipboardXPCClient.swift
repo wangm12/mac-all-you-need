@@ -238,4 +238,18 @@ extension ClipboardXPCClient: ClipboardXPCInteracting {
             }
         }
     }
+
+    public func runRetention(maxAgeDays: Int) async -> Bool {
+        await withCheckedContinuation { cont in
+            guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+                cont.resume(returning: false)
+            }) as? ClipboardXPCProtocol else {
+                cont.resume(returning: false)
+                return
+            }
+            proxy.runRetention(maxAgeDays: maxAgeDays) { ok in
+                cont.resume(returning: ok)
+            }
+        }
+    }
 }

@@ -158,41 +158,13 @@ final class AppController {
 
     func clearClipboardOlderThan(days: Int) {
         guard days > 0 else { return }
-
-        do {
-            let key = try KeyManager(keychain: SystemKeychain()).deviceKey()
-            let root = AppGroup.containerURL().appendingPathComponent("databases", isDirectory: true)
-            let clipDB = try Database(
-                url: root.appendingPathComponent("clipboard.sqlite"),
-                migrations: ClipboardStore.migrations
-            )
-            let clipStore = try ClipboardStore(database: clipDB, deviceKey: key, deviceID: deviceID)
-            let pinboardDB = try Database(
-                url: root.appendingPathComponent("pinboards.sqlite"),
-                migrations: PinboardStore.migrations
-            )
-            let pinboardStore = PinboardStore(database: pinboardDB, deviceKey: key)
-            let protected = try PinboardStore.protectedIDs(from: pinboardStore)
-            let blobRoot = AppGroup.containerURL().appendingPathComponent("blobs", isDirectory: true)
-            let blobStore = BlobStore(rootURL: blobRoot, key: key)
-            let searchDB = try Database(
-                url: root.appendingPathComponent("search.sqlite"),
-                migrations: SearchStore.migrations
-            )
-            let searchStore = SearchStore(database: searchDB)
-            let policy = RetentionPolicy(
-                maxItems: nil,
-                maxAgeSeconds: Double(days) * 86400,
-                maxImageBytes: nil
-            )
-            // FIXME: cross-process write race with daemon. Route through XPC
-            // (see review issue #10) so daemon-as-writer owns this.
-            try policy.enforceMaxAge(
-                store: clipStore, blobs: blobStore, search: searchStore, protectedIDs: protected
-            )
-            Task { await self.clipboardDeps.dockModel.refresh() }
-        } catch {
-            // Ignore cleanup failures from a best-effort manual maintenance action.
+        // Route through XPC so the daemon (writer of these SQLite files) owns
+        // the deletion. Opening competing DatabaseQueue instances here racing
+        // against the daemon caused intermittent BUSY errors and bypassed the
+        // FTS cleanup path.
+        Task {
+            _ = await self.clipboardDeps.xpc.runRetention(maxAgeDays: days)
+            await self.clipboardDeps.dockModel.refresh()
         }
     }
 

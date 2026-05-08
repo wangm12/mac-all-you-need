@@ -7,6 +7,7 @@ import Foundation
     private let blobs: BlobStore
     private let search: SearchStore
     private let snippets: SnippetStore
+    private let pinboards: PinboardStore?
     private let pasteboard: NSPasteboard
     private let thumbnailCache = ThumbnailCache()
 
@@ -15,12 +16,14 @@ import Foundation
         blobs: BlobStore,
         search: SearchStore,
         snippets: SnippetStore,
+        pinboards: PinboardStore? = nil,
         pasteboard: NSPasteboard = .general
     ) {
         self.clip = clip
         self.blobs = blobs
         self.search = search
         self.snippets = snippets
+        self.pinboards = pinboards
         self.pasteboard = pasteboard
     }
 
@@ -163,7 +166,11 @@ import Foundation
         saveAsNew: Bool,
         reply: @escaping (String) -> Void
     ) {
-        if saveAsNew,
+        // Honor capture-suspend on the saveAsNew side so a snippet paste
+        // during a suspend window does not silently create a history entry.
+        // The pasteboard write itself still happens — suspend pauses *capture*,
+        // not the user-initiated output that triggered the paste.
+        if saveAsNew, !Self.isCaptureSuspended(),
            let meta = try? clip.append(.text(text), sourceAppBundleID: "com.macallyouneed.app") {
             try? search.upsert(kind: .clipboardItem, id: meta.id, text: text)
         }
@@ -205,6 +212,36 @@ import Foundation
 
         do {
             try deleteRecordFully(id: rid)
+            reply(true)
+        } catch {
+            reply(false)
+        }
+    }
+
+    /// Manual "Clear Older Than N Days" entry point. Daemon owns the writer
+    /// lock on the SQLite files, so the main app routes the request through
+    /// XPC instead of opening a competing connection. Pinned items are exempt
+    /// when a PinboardStore was injected.
+    public func runRetention(maxAgeDays: Int, reply: @escaping (Bool) -> Void) {
+        guard maxAgeDays > 0 else {
+            reply(false)
+            return
+        }
+        let policy = RetentionPolicy(
+            maxItems: nil,
+            maxAgeSeconds: Double(maxAgeDays) * 86400,
+            maxImageBytes: nil
+        )
+        let protected: Set<RecordID>
+        if let pinboards {
+            protected = (try? PinboardStore.protectedIDs(from: pinboards)) ?? []
+        } else {
+            protected = []
+        }
+        do {
+            try policy.enforceMaxAge(
+                store: clip, blobs: blobs, search: search, protectedIDs: protected
+            )
             reply(true)
         } catch {
             reply(false)
@@ -323,5 +360,14 @@ import Foundation
             let result = PasteInjector.paste(nil, mode: .formatted, into: self.pasteboard)
             reply(result.rawValue)
         }
+    }
+
+    /// Mirrors `DaemonContainer.isCaptureSuspended`. Read inline rather than
+    /// injected so the service has no opinion on settings ownership.
+    private static func isCaptureSuspended(now: Date = Date()) -> Bool {
+        guard let until = AppGroupSettings.defaults.object(forKey: "captureSuspendUntil") as? Double else {
+            return false
+        }
+        return now.timeIntervalSince1970 < until
     }
 }
