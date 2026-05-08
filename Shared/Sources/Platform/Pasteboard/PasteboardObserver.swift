@@ -43,7 +43,7 @@ public final class SystemPasteboardReader: PasteboardReading {
 
 public final class PasteboardObserver {
     private let reader: PasteboardReading
-    public var rules: ExclusionRules
+    public private(set) var rules: ExclusionRules
     private let interval: TimeInterval
     private var timer: DispatchSourceTimer?
     private var lastCount: Int = -1
@@ -54,6 +54,15 @@ public final class PasteboardObserver {
         self.reader = reader
         self.rules = rules
         interval = pollInterval
+    }
+
+    /// Thread-safe rules handoff. Callers (e.g. Darwin notification handler) may
+    /// run on arbitrary CFRunLoop threads; the actual mutation hops onto the
+    /// observer's serial queue so `tick()` never reads a torn struct.
+    public func updateRules(_ rules: ExclusionRules) {
+        queue.async { [weak self] in
+            self?.rules = rules
+        }
     }
 
     public func start(callback: @escaping (PasteboardChange) -> Void) {

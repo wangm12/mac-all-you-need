@@ -7,6 +7,7 @@ final class RetentionPolicyTests: XCTestCase {
     var clip: ClipboardStore!
     var pinboards: PinboardStore!
     var blobs: BlobStore!
+    var search: SearchStore!
 
     override func setUp() {
         super.setUp()
@@ -19,6 +20,8 @@ final class RetentionPolicyTests: XCTestCase {
         let pdb = try! Database(url: dir.appendingPathComponent("p.sqlite"), migrations: PinboardStore.migrations)
         pinboards = PinboardStore(database: pdb, deviceKey: key)
         blobs = BlobStore(rootURL: dir.appendingPathComponent("blobs"), key: key)
+        let sdb = try! Database(url: dir.appendingPathComponent("s.sqlite"), migrations: SearchStore.migrations)
+        search = SearchStore(database: sdb)
     }
 
     override func tearDown() {
@@ -34,7 +37,7 @@ final class RetentionPolicyTests: XCTestCase {
         }
         let policy = RetentionPolicy(maxItems: 3, maxAgeSeconds: nil, maxImageBytes: nil)
         let protected = try PinboardStore.protectedIDs(from: pinboards)
-        try policy.enforceItemCap(store: clip, blobs: blobs, protectedIDs: protected)
+        try policy.enforceItemCap(store: clip, blobs: blobs, search: search, protectedIDs: protected)
         let surviving = try clip.list(limit: 10).map(\.id)
         XCTAssertEqual(surviving.count, 3)
         XCTAssertEqual(Set(surviving), Set(ids.suffix(3)))
@@ -58,7 +61,7 @@ final class RetentionPolicyTests: XCTestCase {
 
         let policy = RetentionPolicy(maxItems: 3, maxAgeSeconds: nil, maxImageBytes: nil)
         let protected = try PinboardStore.protectedIDs(from: pinboards)
-        try policy.enforceItemCap(store: clip, blobs: blobs, protectedIDs: protected)
+        try policy.enforceItemCap(store: clip, blobs: blobs, search: search, protectedIDs: protected)
 
         let surviving = Set(try clip.list(limit: 10).map(\.id))
         XCTAssertTrue(pinnedIDs.allSatisfy { surviving.contains($0) })
@@ -71,7 +74,7 @@ final class RetentionPolicyTests: XCTestCase {
         let blobID = try blobs.write(Data(repeating: 1, count: 1_000))
         let imageMeta = try clip.append(.image(blobID: blobID, width: 32, height: 32))
         let policy = RetentionPolicy(maxItems: 0, maxAgeSeconds: nil, maxImageBytes: nil)
-        try policy.enforceItemCap(store: clip, blobs: blobs, protectedIDs: [])
+        try policy.enforceItemCap(store: clip, blobs: blobs, search: search, protectedIDs: [])
         XCTAssertFalse(FileManager.default.fileExists(atPath: blobs.encryptedURL(id: blobID).path))
         XCTAssertNil(try clip.list(limit: 10).first { $0.id == imageMeta.id })
     }
@@ -82,7 +85,7 @@ final class RetentionPolicyTests: XCTestCase {
         let fresh = try clip.append(.text("fresh"))
         let now = Date()
         let policy = RetentionPolicy(maxItems: nil, maxAgeSeconds: 0.01, maxImageBytes: nil)
-        try policy.enforceMaxAge(store: clip, blobs: blobs, protectedIDs: [], now: now)
+        try policy.enforceMaxAge(store: clip, blobs: blobs, search: search, protectedIDs: [], now: now)
 
         let ids = Set(try clip.list(limit: 10).map(\.id))
         XCTAssertFalse(ids.contains(old.id))
@@ -97,12 +100,60 @@ final class RetentionPolicyTests: XCTestCase {
         let second = try clip.append(.image(blobID: secondBlob, width: 10, height: 10))
 
         let policy = RetentionPolicy(maxItems: nil, maxAgeSeconds: nil, maxImageBytes: 1_600)
-        try policy.enforceImageCap(store: clip, blobs: blobs, protectedIDs: [])
+        try policy.enforceImageCap(store: clip, blobs: blobs, search: search, protectedIDs: [])
 
         let ids = Set(try clip.list(limit: 10).map(\.id))
         XCTAssertFalse(ids.contains(first.id))
         XCTAssertTrue(ids.contains(second.id))
         XCTAssertFalse(FileManager.default.fileExists(atPath: blobs.encryptedURL(id: firstBlob).path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: blobs.encryptedURL(id: secondBlob).path))
+    }
+
+    func testRetentionRemovesFTSIndexEntriesForEvictedRecords() throws {
+        let stale = try clip.append(.text("alpha bravo"))
+        try search.upsert(kind: .clipboardItem, id: stale.id, text: "alpha bravo")
+        Thread.sleep(forTimeInterval: 0.005)
+        let kept = try clip.append(.text("charlie delta"))
+        try search.upsert(kind: .clipboardItem, id: kept.id, text: "charlie delta")
+
+        XCTAssertEqual(try search.search(query: "alpha", limit: 5).count, 1)
+
+        let policy = RetentionPolicy(maxItems: 1, maxAgeSeconds: nil, maxImageBytes: nil)
+        try policy.enforceItemCap(store: clip, blobs: blobs, search: search, protectedIDs: [])
+
+        XCTAssertNil(try clip.list(limit: 10).first { $0.id == stale.id })
+        XCTAssertEqual(try search.search(query: "alpha", limit: 5).count, 0,
+                       "FTS index must drop the row for an evicted record")
+        XCTAssertEqual(try search.search(query: "charlie", limit: 5).first?.id, kept.id)
+    }
+
+    func testMaxAgeRemovesFTSIndexEntries() throws {
+        let old = try clip.append(.text("hello"))
+        try search.upsert(kind: .clipboardItem, id: old.id, text: "hello")
+        Thread.sleep(forTimeInterval: 0.02)
+        let fresh = try clip.append(.text("world"))
+        try search.upsert(kind: .clipboardItem, id: fresh.id, text: "world")
+
+        let policy = RetentionPolicy(maxItems: nil, maxAgeSeconds: 0.01, maxImageBytes: nil)
+        try policy.enforceMaxAge(store: clip, blobs: blobs, search: search, protectedIDs: [], now: Date())
+
+        XCTAssertEqual(try search.search(query: "hello", limit: 5).count, 0)
+        XCTAssertEqual(try search.search(query: "world", limit: 5).first?.id, fresh.id)
+    }
+
+    func testImageCapRemovesFTSIndexEntries() throws {
+        let firstBlob = try blobs.write(Data(repeating: 0xAA, count: 1_200))
+        let first = try clip.append(.image(blobID: firstBlob, width: 10, height: 10))
+        try search.upsert(kind: .clipboardItem, id: first.id, text: "ocr first text")
+        Thread.sleep(forTimeInterval: 0.01)
+        let secondBlob = try blobs.write(Data(repeating: 0xBB, count: 1_200))
+        let second = try clip.append(.image(blobID: secondBlob, width: 10, height: 10))
+        try search.upsert(kind: .clipboardItem, id: second.id, text: "ocr second text")
+
+        let policy = RetentionPolicy(maxItems: nil, maxAgeSeconds: nil, maxImageBytes: 1_600)
+        try policy.enforceImageCap(store: clip, blobs: blobs, search: search, protectedIDs: [])
+
+        XCTAssertEqual(try search.search(query: "first", limit: 5).count, 0)
+        XCTAssertEqual(try search.search(query: "second", limit: 5).first?.id, second.id)
     }
 }

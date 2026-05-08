@@ -15,6 +15,7 @@ public struct RetentionPolicy: Sendable {
     public func enforceItemCap(
         store: ClipboardStore,
         blobs: BlobStore,
+        search: SearchStore,
         protectedIDs: Set<RecordID>
     ) throws {
         guard let cap = maxItems else { return }
@@ -25,13 +26,14 @@ public struct RetentionPolicy: Sendable {
 
         // list() returns newest first, so overflow victims are at the tail.
         for victim in candidates.suffix(overflow) {
-            try Self.deleteWithBlob(victim.id, store: store, blobs: blobs)
+            try Self.deleteRecord(victim.id, store: store, blobs: blobs, search: search)
         }
     }
 
     public func enforceMaxAge(
         store: ClipboardStore,
         blobs: BlobStore,
+        search: SearchStore,
         protectedIDs: Set<RecordID>,
         now: Date = Date()
     ) throws {
@@ -39,13 +41,14 @@ public struct RetentionPolicy: Sendable {
         let cutoff = now.addingTimeInterval(-maxAgeSeconds)
         let all = try store.list(limit: 10_000)
         for meta in all where meta.modified < cutoff && !protectedIDs.contains(meta.id) {
-            try Self.deleteWithBlob(meta.id, store: store, blobs: blobs)
+            try Self.deleteRecord(meta.id, store: store, blobs: blobs, search: search)
         }
     }
 
     public func enforceImageCap(
         store: ClipboardStore,
         blobs: BlobStore,
+        search: SearchStore,
         protectedIDs: Set<RecordID>
     ) throws {
         guard let maxImageBytes else { return }
@@ -62,8 +65,7 @@ public struct RetentionPolicy: Sendable {
 
         // Evict oldest images first.
         for entry in imageEntries.sorted(by: { $0.modified < $1.modified }) {
-            try? blobs.delete(id: entry.blobID)
-            try store.delete(id: entry.id)
+            try Self.deleteRecord(entry.id, store: store, blobs: blobs, search: search)
             totalBytes -= entry.bytes
             if totalBytes <= maxImageBytes {
                 return
@@ -71,15 +73,18 @@ public struct RetentionPolicy: Sendable {
         }
     }
 
-    /// Removes image blob files alongside record rows to avoid orphan blobs.
-    private static func deleteWithBlob(
+    /// Single deletion path used by every retention enforcer. Removes:
+    /// blob file (image kinds), FTS index entry, and clipboard_records row.
+    private static func deleteRecord(
         _ id: RecordID,
         store: ClipboardStore,
-        blobs: BlobStore
+        blobs: BlobStore,
+        search: SearchStore
     ) throws {
         if let body = try? store.body(for: id), case let .image(blobID, _, _) = body {
             try? blobs.delete(id: blobID)
         }
+        try? search.remove(kind: .clipboardItem, id: id)
         try store.delete(id: id)
     }
 

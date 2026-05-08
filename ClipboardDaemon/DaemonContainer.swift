@@ -155,8 +155,12 @@ final class DaemonContainer {
             { _, observer, _, _, _ in
                 guard let observer else { return }
                 let container = Unmanaged<DaemonContainer>.fromOpaque(observer).takeUnretainedValue()
-                container.observer.rules = DaemonContainer.loadRules()
-                container.runRetention()
+                container.observer.updateRules(DaemonContainer.loadRules())
+                // runRetention opens DB connections and may block. Hop off the
+                // CFRunLoop callback thread so we don't stall notification delivery.
+                DispatchQueue.global(qos: .utility).async { [weak container] in
+                    container?.runRetention()
+                }
             },
             Self.settingsChangedDarwin,
             nil,
@@ -178,9 +182,9 @@ final class DaemonContainer {
     private func runRetention() {
         guard let policy = currentPolicy() else { return }
         let protected = (try? PinboardStore.protectedIDs(from: pinboards)) ?? []
-        try? policy.enforceItemCap(store: clip, blobs: blobs, protectedIDs: protected)
-        try? policy.enforceMaxAge(store: clip, blobs: blobs, protectedIDs: protected)
-        try? policy.enforceImageCap(store: clip, blobs: blobs, protectedIDs: protected)
+        try? policy.enforceItemCap(store: clip, blobs: blobs, search: search, protectedIDs: protected)
+        try? policy.enforceMaxAge(store: clip, blobs: blobs, search: search, protectedIDs: protected)
+        try? policy.enforceImageCap(store: clip, blobs: blobs, search: search, protectedIDs: protected)
     }
 
     private func currentPolicy() -> RetentionPolicy? {

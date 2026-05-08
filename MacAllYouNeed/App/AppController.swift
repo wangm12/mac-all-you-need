@@ -166,12 +166,21 @@ final class AppController {
             let protected = try PinboardStore.protectedIDs(from: pinboardStore)
             let blobRoot = AppGroup.containerURL().appendingPathComponent("blobs", isDirectory: true)
             let blobStore = BlobStore(rootURL: blobRoot, key: key)
+            let searchDB = try Database(
+                url: root.appendingPathComponent("search.sqlite"),
+                migrations: SearchStore.migrations
+            )
+            let searchStore = SearchStore(database: searchDB)
             let policy = RetentionPolicy(
                 maxItems: nil,
                 maxAgeSeconds: Double(days) * 86400,
                 maxImageBytes: nil
             )
-            try policy.enforceMaxAge(store: clipStore, blobs: blobStore, protectedIDs: protected)
+            // FIXME: cross-process write race with daemon. Route through XPC
+            // (see review issue #10) so daemon-as-writer owns this.
+            try policy.enforceMaxAge(
+                store: clipStore, blobs: blobStore, search: searchStore, protectedIDs: protected
+            )
             Task { await self.clipboardDeps.dockModel.refresh() }
         } catch {
             // Ignore cleanup failures from a best-effort manual maintenance action.
