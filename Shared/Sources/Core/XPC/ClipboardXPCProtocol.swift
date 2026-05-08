@@ -1,20 +1,35 @@
 import Foundation
 
 @objc public class ClipboardXPCMeta: NSObject, NSSecureCoding {
-    public static var supportsSecureCoding: Bool {
-        true
-    }
+    public static var supportsSecureCoding: Bool { true }
 
     @objc public let id: String
     @objc public let modified: Date
     @objc public let kind: String
     @objc public let preview: String
+    @objc public let sourceAppBundleID: String?
+    @objc public let imageWidth: Int
+    @objc public let imageHeight: Int
+    @objc public let imageBlobID: String?
 
-    public init(id: String, modified: Date, kind: String, preview: String) {
+    public init(
+        id: String,
+        modified: Date,
+        kind: String,
+        preview: String,
+        sourceAppBundleID: String? = nil,
+        imageWidth: Int = 0,
+        imageHeight: Int = 0,
+        imageBlobID: String? = nil
+    ) {
         self.id = id
         self.modified = modified
         self.kind = kind
         self.preview = preview
+        self.sourceAppBundleID = sourceAppBundleID
+        self.imageWidth = imageWidth
+        self.imageHeight = imageHeight
+        self.imageBlobID = imageBlobID
     }
 
     public required init?(coder: NSCoder) {
@@ -27,6 +42,10 @@ import Foundation
         self.modified = modified
         self.kind = kind
         self.preview = preview
+        sourceAppBundleID = coder.decodeObject(of: NSString.self, forKey: "sourceAppBundleID") as String?
+        imageWidth = coder.decodeInteger(forKey: "imageWidth")
+        imageHeight = coder.decodeInteger(forKey: "imageHeight")
+        imageBlobID = coder.decodeObject(of: NSString.self, forKey: "imageBlobID") as String?
     }
 
     public func encode(with coder: NSCoder) {
@@ -34,6 +53,14 @@ import Foundation
         coder.encode(modified as NSDate, forKey: "modified")
         coder.encode(kind as NSString, forKey: "kind")
         coder.encode(preview as NSString, forKey: "preview")
+        if let sourceAppBundleID {
+            coder.encode(sourceAppBundleID as NSString, forKey: "sourceAppBundleID")
+        }
+        coder.encode(imageWidth, forKey: "imageWidth")
+        coder.encode(imageHeight, forKey: "imageHeight")
+        if let imageBlobID {
+            coder.encode(imageBlobID as NSString, forKey: "imageBlobID")
+        }
     }
 }
 
@@ -97,8 +124,14 @@ import Foundation
 
 @objc public protocol ClipboardXPCProtocol {
     func listItems(query: String?, pageToken: String?, limit: Int, reply: @escaping (ClipboardXPCList) -> Void)
+    func metasByIDs(ids: [String], reply: @escaping (ClipboardXPCList) -> Void)
     func bodyText(forID id: String, reply: @escaping (String?) -> Void)
+    func bodyFileURLs(forID id: String, reply: @escaping ([String]?) -> Void)
     func resolveBlob(blobID: String, reply: @escaping (ClipboardXPCBlobRef?) -> Void)
+    func imageThumbnail(forID id: String, maxDim: Int, reply: @escaping (Data?) -> Void)
+    func pasteMany(itemIDs: [String], delimiter: String, plainText: Bool, reply: @escaping (String) -> Void)
+    func pasteText(text: String, plainText: Bool, saveAsNew: Bool, reply: @escaping (String) -> Void)
+    func transformAndCopy(itemID: String, transform: String, saveAsNew: Bool, reply: @escaping (String?) -> Void)
     func paste(itemID: String, plainText: Bool, reply: @escaping (String) -> Void)
     func registerCallback(reply: @escaping (Bool) -> Void)
     func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void)

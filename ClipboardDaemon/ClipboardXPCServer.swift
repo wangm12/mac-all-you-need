@@ -35,20 +35,60 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
             ClipboardXPCBlobRef.self,
             NSArray.self,
             ClipboardXPCMeta.self,
+            SnippetXPCDTO.self,
             NSString.self,
-            NSDate.self
+            NSDate.self,
+            NSNumber.self,
+            NSData.self
         ]
+        let allowedClasses = allowed as! Set<AnyHashable>
         iface.setClasses(
-            allowed as! Set<AnyHashable>,
+            allowedClasses,
             for: #selector(ClipboardXPCProtocol.listItems(query:pageToken:limit:reply:)),
             argumentIndex: 0,
             ofReply: true
         )
         iface.setClasses(
-            allowed as! Set<AnyHashable>,
+            allowedClasses,
+            for: #selector(ClipboardXPCProtocol.metasByIDs(ids:reply:)),
+            argumentIndex: 0,
+            ofReply: true
+        )
+        iface.setClasses(
+            allowedClasses,
             for: #selector(ClipboardXPCProtocol.resolveBlob(blobID:reply:)),
             argumentIndex: 0,
             ofReply: true
+        )
+        iface.setClasses(
+            allowedClasses,
+            for: #selector(ClipboardXPCProtocol.imageThumbnail(forID:maxDim:reply:)),
+            argumentIndex: 0,
+            ofReply: true
+        )
+        iface.setClasses(
+            allowedClasses,
+            for: #selector(ClipboardXPCProtocol.bodyFileURLs(forID:reply:)),
+            argumentIndex: 0,
+            ofReply: true
+        )
+        iface.setClasses(
+            allowedClasses,
+            for: #selector(ClipboardXPCProtocol.listSnippets(reply:)),
+            argumentIndex: 0,
+            ofReply: true
+        )
+        iface.setClasses(
+            allowedClasses,
+            for: #selector(ClipboardXPCProtocol.pasteMany(itemIDs:delimiter:plainText:reply:)),
+            argumentIndex: 0,
+            ofReply: false
+        )
+        iface.setClasses(
+            allowedClasses,
+            for: #selector(ClipboardXPCProtocol.metasByIDs(ids:reply:)),
+            argumentIndex: 0,
+            ofReply: false
         )
         newConnection.exportedInterface = iface
         newConnection.exportedObject = self
@@ -76,14 +116,57 @@ final class ClipboardXPCServer: NSObject, ClipboardXPCProtocol, NSXPCListenerDel
     func listItems(query: String?, pageToken: String?, limit: Int, reply: @escaping (ClipboardXPCList) -> Void) {
         service.listItems(query: query, pageToken: pageToken, limit: limit, reply: reply)
     }
+    func metasByIDs(ids: [String], reply: @escaping (ClipboardXPCList) -> Void) {
+        service.metasByIDs(ids: ids, reply: reply)
+    }
     func bodyText(forID id: String, reply: @escaping (String?) -> Void) {
         service.bodyText(forID: id, reply: reply)
+    }
+    func bodyFileURLs(forID id: String, reply: @escaping ([String]?) -> Void) {
+        service.bodyFileURLs(forID: id, reply: reply)
     }
     func resolveBlob(blobID: String, reply: @escaping (ClipboardXPCBlobRef?) -> Void) {
         service.resolveBlob(blobID: blobID, reply: reply)
     }
+    func imageThumbnail(forID id: String, maxDim: Int, reply: @escaping (Data?) -> Void) {
+        service.imageThumbnail(forID: id, maxDim: maxDim, reply: reply)
+    }
     func paste(itemID: String, plainText: Bool, reply: @escaping (String) -> Void) {
         service.paste(itemID: itemID, plainText: plainText, reply: reply)
+    }
+    func pasteMany(
+        itemIDs: [String],
+        delimiter: String,
+        plainText: Bool,
+        reply: @escaping (String) -> Void
+    ) {
+        service.pasteMany(itemIDs: itemIDs, delimiter: delimiter, plainText: plainText, reply: reply)
+    }
+    func pasteText(
+        text: String,
+        plainText: Bool,
+        saveAsNew: Bool,
+        reply: @escaping (String) -> Void
+    ) {
+        service.pasteText(text: text, plainText: plainText, saveAsNew: saveAsNew) { [weak self] result in
+            if saveAsNew {
+                self?.notifyInvalidated()
+            }
+            reply(result)
+        }
+    }
+    func transformAndCopy(
+        itemID: String,
+        transform: String,
+        saveAsNew: Bool,
+        reply: @escaping (String?) -> Void
+    ) {
+        service.transformAndCopy(itemID: itemID, transform: transform, saveAsNew: saveAsNew) { [weak self] transformed in
+            if saveAsNew, transformed != nil {
+                self?.notifyInvalidated()
+            }
+            reply(transformed)
+        }
     }
     func listSnippets(reply: @escaping ([SnippetXPCDTO]) -> Void) {
         service.listSnippets(reply: reply)

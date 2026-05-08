@@ -77,6 +77,7 @@ public final class PasteboardObserver {
         guard count != lastCount else { return }
         lastCount = count
         let types = reader.currentTypes()
+        if types.contains(PasteboardUTI.daemonWrite.rawValue) { return }
         let bundleID = reader.frontmostBundleID()
         if rules.shouldExclude(types: types, appBundleID: bundleID) { return }
         let items = reader.currentItems()
