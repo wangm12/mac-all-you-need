@@ -11,6 +11,10 @@ final class SelectionStateTests: XCTestCase {
         var deletes: [String] = []
         var transformCalls: [(String, String)] = []
         var listResults: [ClipboardXPCMeta] = []
+        /// When true, `deleteItem` removes the matching meta from `listResults`
+        /// before replying — modelling the real daemon, where a follow-up
+        /// `listItems` reflects prior deletes.
+        var shouldShrinkListOnDelete = false
 
         func listItems(query: String?, pageToken: String?, limit: Int) async -> ClipboardXPCList {
             ClipboardXPCList(items: listResults, nextPageToken: nil)
@@ -41,6 +45,9 @@ final class SelectionStateTests: XCTestCase {
 
         func deleteItem(id: String) async -> Bool {
             deletes.append(id)
+            if shouldShrinkListOnDelete {
+                listResults.removeAll { $0.id == id }
+            }
             return true
         }
     }
@@ -154,6 +161,34 @@ final class SelectionStateTests: XCTestCase {
 
         XCTAssertEqual(Set(mock.deletes), Set(["i0", "i1"]))
         XCTAssertTrue(model.selection.isEmpty)
+    }
+
+    /// Regression test for the delete/refresh race called out in Phase D
+    /// review item #15. deleteSelected is N awaits long; if itemsInvalidated
+    /// fires (or anything else triggers refresh) mid-flight, the snapshot of
+    /// selection IDs taken at the start of deleteSelected must still be
+    /// honored, no item should escape deletion, and final selection must be
+    /// empty. The mock's listResults shrinks per-delete to mimic the real
+    /// daemon's view after each XPC call.
+    func testDeleteSelectedSurvivesConcurrentRefresh() async {
+        model.toggleSelection(itemID: "i0")
+        model.toggleSelection(itemID: "i2")
+        model.toggleSelection(itemID: "i4")
+        let targetIDs = Set(model.selection)
+
+        mock.shouldShrinkListOnDelete = true
+
+        async let deletes: Void = model.deleteSelected()
+        async let interleavedRefresh: Void = model.refresh()
+        async let secondRefresh: Void = model.refresh()
+        _ = await (deletes, interleavedRefresh, secondRefresh)
+
+        XCTAssertEqual(Set(mock.deletes), targetIDs,
+                       "Every item snapshotted before the concurrent refresh must still get deleted")
+        XCTAssertTrue(model.selection.isEmpty,
+                      "Selection must be cleared regardless of refresh interleaving")
+        XCTAssertFalse(model.items.contains { targetIDs.contains($0.id) },
+                       "Final items list must reflect the deletes the daemon already accepted")
     }
 
     func testApplyTransformRoutesEachSelectedItem() async {
