@@ -73,9 +73,33 @@ final class SnippetsModelTests: XCTestCase {
         XCTAssertEqual(model.snippetItems.first?.name, "sig")
     }
 
-    func testCreateSnippetPersistsAndReloads() async {
-        await model.createSnippet(name: "code", body: "if true {}", trigger: ";code")
+    func testCreateSnippetPersistsAndReloads() async throws {
+        try await model.createSnippet(name: "code", body: "if true {}", trigger: ";code")
         XCTAssertEqual(model.snippetItems.first?.trigger, ";code")
+    }
+
+    func testCreateSnippetWithDuplicateTriggerThrows() async throws {
+        try await model.createSnippet(name: "first", body: "one", trigger: ";dup")
+        do {
+            try await model.createSnippet(name: "second", body: "two", trigger: ";dup")
+            XCTFail("Creating a second snippet with an existing trigger must throw")
+        } catch {
+            // Expected: SnippetStore propagates the SQLite UNIQUE(trigger) error.
+        }
+        XCTAssertEqual(model.snippetItems.count, 1, "Failed insert must not appear in the list")
+    }
+
+    func testUpdateSnippetToExistingTriggerThrows() async throws {
+        try await model.createSnippet(name: "alpha", body: "a", trigger: ";a")
+        try await model.createSnippet(name: "beta", body: "b", trigger: ";b")
+        let beta = model.snippetItems.first { $0.name == "beta" }!
+
+        do {
+            try await model.updateSnippet(id: beta.id, name: "beta", body: "b", trigger: ";a")
+            XCTFail("Updating to a trigger another snippet already owns must throw")
+        } catch {
+            // Expected.
+        }
     }
 
     func testDeleteSnippetRemovesIt() async throws {

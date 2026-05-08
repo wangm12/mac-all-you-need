@@ -186,13 +186,13 @@ final class ClipboardDockModel {
         snippetItems = (try? snippets.list()) ?? []
     }
 
-    func createSnippet(name: String, body: String, trigger: String?) async {
-        _ = try? snippets.create(name: name, body: body, trigger: trigger)
+    func createSnippet(name: String, body: String, trigger: String?) async throws {
+        try snippets.create(name: name, body: body, trigger: trigger)
         await loadSnippets()
     }
 
-    func updateSnippet(id: RecordID, name: String, body: String, trigger: String?) async {
-        try? snippets.update(id: id, name: name, body: body, trigger: trigger)
+    func updateSnippet(id: RecordID, name: String, body: String, trigger: String?) async throws {
+        try snippets.update(id: id, name: name, body: body, trigger: trigger)
         await loadSnippets()
     }
 

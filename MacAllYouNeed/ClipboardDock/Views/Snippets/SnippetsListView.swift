@@ -74,22 +74,20 @@ struct DockSnippetsListView: View {
             case .new:
                 SnippetSheet(
                     editing: nil,
+                    existingSnippets: model.snippetItems,
                     isPresented: bindingForSheet,
                     onSave: { name, body, trigger in
-                        Task {
-                            await model.createSnippet(name: name, body: body, trigger: trigger)
-                        }
+                        try await model.createSnippet(name: name, body: body, trigger: trigger)
                     }
                 )
 
             case let .edit(id):
                 SnippetSheet(
                     editing: model.snippetItems.first(where: { $0.id == id }),
+                    existingSnippets: model.snippetItems,
                     isPresented: bindingForSheet,
                     onSave: { name, body, trigger in
-                        Task {
-                            await model.updateSnippet(id: id, name: name, body: body, trigger: trigger)
-                        }
+                        try await model.updateSnippet(id: id, name: name, body: body, trigger: trigger)
                     }
                 )
             }
