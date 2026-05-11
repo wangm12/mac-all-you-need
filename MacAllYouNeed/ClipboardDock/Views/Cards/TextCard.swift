@@ -9,12 +9,11 @@ struct TextCard: View {
             return false
         }()
 
-        Text(item.preview)
+        Text(item.displayLabel)
             .font(isCode ? .system(.body, design: .monospaced) : .body)
             .lineLimit(8)
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(10)
-            .draggable(item.preview)
     }
 }

@@ -7,12 +7,27 @@ struct DockRootView: View {
     let registry: ShortcutRegistry
     let dismiss: () -> Void
     let onPaste: (Int, EventModifiers) -> Void
-    let openSettings: () -> Void
+
+    /// Height permanently reserved below the tab bar for the multi-select
+    /// action bar (44pt bar + 1pt divider). Allocating it always — instead
+    /// of growing/shrinking the panel on every selection change — keeps the
+    /// carousel cards in a fixed screen-space position and avoids a layout
+    /// flicker where the cards momentarily collapse to zero height while
+    /// the window resize is in flight.
+    private static let actionBarSlotHeight: CGFloat = 45
 
     var body: some View {
         VStack(spacing: 0) {
-            DockTopBar(model: model, openSettings: openSettings)
+            DockTopBar(model: model, dismissDock: dismiss)
             Divider()
+
+            // Action bar is always visible. When nothing is multi-selected
+            // its actions fall back to the focused (highlighted) card, so
+            // the bar is useful right after the dock opens — no need to
+            // click first to make the buttons do something.
+            MultiSelectBar(model: model)
+                .frame(height: Self.actionBarSlotHeight)
+
             Group {
                 if model.activeList == .snippets {
                     DockSnippetsListView(model: model)
@@ -26,22 +41,6 @@ struct DockRootView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if !model.selection.isEmpty {
-                MultiSelectBar(
-                    model: model,
-                    onPin: {
-                        Task {
-                            let selectedIDs = Array(model.selection)
-                            for id in selectedIDs {
-                                await model.togglePin(itemID: id)
-                            }
-                            model.clearSelection()
-                        }
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
         }
         // Force the outer VStack to fill the NSHostingView's frame. Without
         // this, SwiftUI sizes the VStack to its natural content (just the
@@ -50,9 +49,19 @@ struct DockRootView: View {
         // outer VStack didn't claim.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(model)
-        .animation(.easeOut(duration: 0.18), value: model.selection.isEmpty)
+        // No outer `.animation(value: model.selection.isEmpty)` — that
+        // modifier propagates implicit animation to every descendant that
+        // re-renders on the same diff, which made the per-card selection
+        // border fade in over ~180ms after each click. The MultiSelectBar's
+        // appearance is animated locally via `transition`-aware
+        // `withAnimation` calls in the selection mutators (clearSelection /
+        // selectOnly etc.) only when it actually changes appearance state.
         .background(
-            VisualEffectBackground(material: .popover, blendingMode: .behindWindow)
+            // Fully opaque panel surface. `windowBackgroundColor` was still
+            // letting the desktop/terminal bleed through faintly (it carries
+            // a vibrancy alpha on macOS). `controlBackgroundColor` is the
+            // explicit "card/panel" surface and is solid.
+            Color(nsColor: .controlBackgroundColor)
         )
         .clipShape(RoundedCorners(radius: 12, corners: [.topLeft, .topRight]))
         .overlay {

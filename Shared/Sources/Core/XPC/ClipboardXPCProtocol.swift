@@ -11,6 +11,7 @@ import Foundation
     @objc public let imageWidth: Int
     @objc public let imageHeight: Int
     @objc public let imageBlobID: String?
+    @objc public let customLabel: String?
 
     public init(
         id: String,
@@ -20,7 +21,8 @@ import Foundation
         sourceAppBundleID: String? = nil,
         imageWidth: Int = 0,
         imageHeight: Int = 0,
-        imageBlobID: String? = nil
+        imageBlobID: String? = nil,
+        customLabel: String? = nil
     ) {
         self.id = id
         self.modified = modified
@@ -30,6 +32,7 @@ import Foundation
         self.imageWidth = imageWidth
         self.imageHeight = imageHeight
         self.imageBlobID = imageBlobID
+        self.customLabel = customLabel
     }
 
     public required init?(coder: NSCoder) {
@@ -46,6 +49,7 @@ import Foundation
         imageWidth = coder.decodeInteger(forKey: "imageWidth")
         imageHeight = coder.decodeInteger(forKey: "imageHeight")
         imageBlobID = coder.decodeObject(of: NSString.self, forKey: "imageBlobID") as String?
+        customLabel = coder.decodeObject(of: NSString.self, forKey: "customLabel") as String?
     }
 
     public func encode(with coder: NSCoder) {
@@ -60,6 +64,9 @@ import Foundation
         coder.encode(imageHeight, forKey: "imageHeight")
         if let imageBlobID {
             coder.encode(imageBlobID as NSString, forKey: "imageBlobID")
+        }
+        if let customLabel {
+            coder.encode(customLabel as NSString, forKey: "customLabel")
         }
     }
 }

@@ -17,13 +17,22 @@ struct DockItem: Identifiable, Hashable {
     let modified: Date
     let kind: DockItemKind
     let preview: String
+    let customLabel: String?
     let sourceApp: SourceApp?
     let isPinned: Bool
+
+    /// What the card should actually show — user-set rename takes precedence
+    /// over the auto-generated preview when present.
+    var displayLabel: String {
+        if let customLabel, !customLabel.isEmpty { return customLabel }
+        return preview
+    }
 
     init(from meta: ClipboardXPCMeta, sourceApp: SourceApp?, isPinned: Bool) {
         id = meta.id
         modified = meta.modified
         preview = meta.preview
+        customLabel = meta.customLabel
         self.sourceApp = sourceApp
         self.isPinned = isPinned
 

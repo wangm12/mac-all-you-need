@@ -2,37 +2,42 @@ import Core
 import SwiftUI
 
 struct DockMoreMenu: View {
-    let openSettings: () -> Void
+    /// Called before opening Settings so the dock can hide itself — the dock
+    /// window sits at `.popUpMenu` level which would otherwise cover the
+    /// Settings window and make it look like nothing happened.
+    let dismissDock: () -> Void
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Menu {
-            Menu("Privacy") {
-                Button("Open Privacy Settings…") {
-                    AppGroupSettings.defaults.set("privacy", forKey: "settings.selectedTab")
-                    openSettings()
-                }
-                Button("Pause capture for 60s") {
-                    NotificationCenter.default.post(name: .pauseCaptureRequested, object: nil)
-                }
+            // Flat structure — submenus inside a SwiftUI Menu hosted in a
+            // borderless nonactivating NSPanel are unreliable; clicks on
+            // nested items frequently never reach the action closure.
+            Button("Open Privacy Settings…") {
+                AppGroupSettings.defaults.set("privacy", forKey: "settings.selectedTab")
+                openSettingsAndDismiss()
+            }
+            Button("Pause Capture for 60s") {
+                NotificationCenter.default.post(name: .pauseCaptureRequested, object: nil)
             }
 
-            Menu("Clear Older Than") {
-                Button("1 day") {
-                    NotificationCenter.default.post(name: .clearClipboardOlderThanRequested, object: 1)
-                }
-                Button("7 days") {
-                    NotificationCenter.default.post(name: .clearClipboardOlderThanRequested, object: 7)
-                }
-                Button("30 days") {
-                    NotificationCenter.default.post(name: .clearClipboardOlderThanRequested, object: 30)
-                }
+            Divider()
+
+            Button("Clear Older Than 1 Day") {
+                NotificationCenter.default.post(name: .clearClipboardOlderThanRequested, object: 1)
+            }
+            Button("Clear Older Than 7 Days") {
+                NotificationCenter.default.post(name: .clearClipboardOlderThanRequested, object: 7)
+            }
+            Button("Clear Older Than 30 Days") {
+                NotificationCenter.default.post(name: .clearClipboardOlderThanRequested, object: 30)
             }
 
             Divider()
 
             Button("Open Settings…") {
                 AppGroupSettings.defaults.set("general", forKey: "settings.selectedTab")
-                openSettings()
+                openSettingsAndDismiss()
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -40,6 +45,18 @@ struct DockMoreMenu: View {
                 .foregroundStyle(.secondary)
         }
         .menuStyle(.borderlessButton)
+        // Drop the trailing ▾ chevron — the ellipsis itself is a clear
+        // affordance, the chevron is visual noise.
+        .menuIndicator(.hidden)
         .frame(width: 28, height: 28)
+    }
+
+    private func openSettingsAndDismiss() {
+        dismissDock()
+        // Activate the LSUIElement app and bring up the SwiftUI Settings
+        // scene. The dock has been dismissed so the Settings window won't be
+        // covered by our `.popUpMenu`-level panel.
+        NSApp.activate(ignoringOtherApps: true)
+        openSettings()
     }
 }

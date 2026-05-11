@@ -31,6 +31,14 @@ final class PinboardStoreTests: XCTestCase {
         XCTAssertEqual(list.map(\.name), ["First", "Second"])
     }
 
+    func testReorderUpdatesListOrder() throws {
+        let a = try store.create(name: "A")
+        let b = try store.create(name: "B")
+        let c = try store.create(name: "C")
+        try store.reorder(orderedIDs: [c.id, a.id, b.id])
+        XCTAssertEqual(try store.list().map(\.name), ["C", "A", "B"])
+    }
+
     func testAddItemInsertsAtIndex() throws {
         let p = try store.create(name: "Board")
         let id1 = RecordID.generate()

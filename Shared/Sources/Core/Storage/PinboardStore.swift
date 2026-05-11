@@ -73,6 +73,21 @@ public final class PinboardStore {
         }
     }
 
+    /// Persist a new tab order. IDs not present in the input list keep their
+    /// current `sort_order` and float to the end (unchanged relative order).
+    /// Atomic — all rows updated in one write transaction.
+    public func reorder(orderedIDs: [RecordID]) throws {
+        guard !orderedIDs.isEmpty else { return }
+        try db.queue.write { conn in
+            for (index, id) in orderedIDs.enumerated() {
+                try conn.execute(
+                    sql: "UPDATE pinboards SET sort_order = ? WHERE id = ?",
+                    arguments: [index, id.rawValue]
+                )
+            }
+        }
+    }
+
     private func fetch(id: RecordID) throws -> Pinboard {
         try db.queue.read { conn in
             guard let row = try Row.fetchOne(

@@ -2,31 +2,52 @@ import AppKit
 import QuartzCore
 
 enum DockAnimator {
-    static let showDuration: TimeInterval = 0.22
-    static let hideDuration: TimeInterval = 0.18
+    static let showDuration: TimeInterval = 0.18
+    static let hideDuration: TimeInterval = 0.14
 
+    /// Slide a borderless NSPanel up to `finalOrigin` from below the screen.
+    ///
+    /// Implementation note: NSWindow.setFrame(animate: true) blocks the main
+    /// thread for the full duration (~200ms) — that made every ⌘⇧V feel
+    /// janky. window.animator().setFrameOrigin doesn't move borderless
+    /// nonactivating panels at all. The reliable non-blocking path is to
+    /// snap the window to its final position and animate the CONTENT VIEW's
+    /// layer (translation + opacity) via Core Animation.
     static func slideUp(_ window: NSWindow, finalOrigin: NSPoint, completion: @escaping () -> Void) {
+        let finalFrame = NSRect(origin: finalOrigin, size: window.frame.size)
+        window.setFrame(finalFrame, display: true)
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if reduceMotion {
-            window.setFrameOrigin(finalOrigin)
             window.alphaValue = 1
             completion()
             return
         }
 
-        var startFrame = window.frame
-        startFrame.origin.y = finalOrigin.y - startFrame.height
-        window.setFrame(startFrame, display: false)
-        window.alphaValue = 0
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = showDuration
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
-            window.animator().setFrameOrigin(finalOrigin)
-            window.animator().alphaValue = 1
-        } completionHandler: {
+        guard let layer = window.contentView?.layer ?? makeLayerBackedContentView(window: window) else {
+            window.alphaValue = 1
             completion()
+            return
         }
+        window.alphaValue = 1
+
+        let height = finalFrame.height
+        let translate = CABasicAnimation(keyPath: "transform.translation.y")
+        translate.fromValue = -height
+        translate.toValue = 0
+        translate.duration = showDuration
+        translate.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = showDuration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock(completion)
+        layer.add(translate, forKey: "slide-up-y")
+        layer.add(fade, forKey: "slide-up-opacity")
+        CATransaction.commit()
     }
 
     static func slideDown(_ window: NSWindow, completion: @escaping () -> Void) {
@@ -37,15 +58,38 @@ enum DockAnimator {
             return
         }
 
-        var endFrame = window.frame
-        endFrame.origin.y -= endFrame.height
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = hideDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            window.animator().setFrame(endFrame, display: true)
-            window.animator().alphaValue = 0
-        } completionHandler: {
+        guard let layer = window.contentView?.layer else {
+            window.alphaValue = 0
             completion()
+            return
         }
+
+        let height = window.frame.height
+        let translate = CABasicAnimation(keyPath: "transform.translation.y")
+        translate.fromValue = 0
+        translate.toValue = -height
+        translate.duration = hideDuration
+        translate.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        translate.fillMode = .forwards
+        translate.isRemovedOnCompletion = false
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.duration = hideDuration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock(completion)
+        layer.add(translate, forKey: "slide-down-y")
+        layer.add(fade, forKey: "slide-down-opacity")
+        CATransaction.commit()
+    }
+
+    private static func makeLayerBackedContentView(window: NSWindow) -> CALayer? {
+        window.contentView?.wantsLayer = true
+        return window.contentView?.layer
     }
 }

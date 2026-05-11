@@ -31,24 +31,37 @@ struct QuickLookContent: View {
                 FullImageView(item: item, loader: imageLoader)
 
             case .file:
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(fileURLs, id: \.self) { url in
-                            HStack(spacing: 6) {
-                                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
-                                    .resizable()
-                                    .frame(width: 18, height: 18)
-                                Text(url.path)
-                                    .textSelection(.enabled)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                // If the file is an image (single URL with a recognised
+                // image extension), inline-preview it rather than showing
+                // its path as text — Space-to-preview is supposed to show
+                // the actual content, especially for screenshot files
+                // dropped from CleanShot etc.
+                Group {
+                    if fileURLs.count == 1, Self.isImageURL(fileURLs[0]) {
+                        FileImagePreview(url: fileURLs[0])
+                    } else if !fileURLs.isEmpty {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(fileURLs, id: \.self) { url in
+                                    HStack(spacing: 6) {
+                                        Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                                            .resizable()
+                                            .frame(width: 18, height: 18)
+                                        Text(url.path)
+                                            .textSelection(.enabled)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                    .onTapGesture(count: 2) {
+                                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                                    }
+                                }
                             }
-                            .onTapGesture(count: 2) {
-                                NSWorkspace.shared.activateFileViewerSelecting([url])
-                            }
+                            .padding(12)
                         }
+                    } else {
+                        ProgressView()
                     }
-                    .padding(12)
                 }
                 .task(id: item.id) {
                     fileURLs = await fileLoader.urls(recordID: item.id) ?? []
@@ -108,6 +121,13 @@ struct QuickLookContent: View {
         }
         return false
     }
+
+    /// File extensions we render inline as images instead of showing the
+    /// path. Anything else falls through to the file-list view.
+    fileprivate static func isImageURL(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ["png", "jpg", "jpeg", "gif", "heic", "heif", "webp", "tiff", "tif", "bmp"].contains(ext)
+    }
 }
 
 private struct FullImageView: View {
@@ -163,6 +183,65 @@ private struct FullImageView: View {
             } else {
                 dataSize = nil
             }
+        }
+    }
+}
+
+/// Inline image preview for `.file` cards whose URL points to an image
+/// file. Loads from disk async so a large screenshot doesn't block the
+/// SwiftUI render. Same zoom gesture as `FullImageView` for consistency.
+private struct FileImagePreview: View {
+    let url: URL
+    @State private var image: NSImage?
+    @State private var zoom: CGFloat = 1.0
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .scaleEffect(zoom)
+                        .gesture(
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    zoom = max(0.25, min(8, value))
+                                }
+                        )
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            HStack(spacing: 8) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                    .resizable()
+                    .frame(width: 14, height: 14)
+                Text(url.lastPathComponent)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text("Open")
+                    .font(.caption)
+                    .foregroundStyle(.tint)
+                    .onTapGesture {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+            }
+            .padding(.horizontal, 8)
+        }
+        .padding(.vertical, 8)
+        .task(id: url) {
+            zoom = 1.0
+            // Loaded off the main thread so a 12 MB CleanShot screenshot
+            // doesn't lock up the dock while decoding.
+            image = await Task.detached(priority: .userInitiated) {
+                NSImage(contentsOf: url)
+            }.value
         }
     }
 }

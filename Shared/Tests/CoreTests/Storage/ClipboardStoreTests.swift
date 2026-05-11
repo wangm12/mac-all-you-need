@@ -86,4 +86,13 @@ final class ClipboardStoreTests: XCTestCase {
         )
         XCTAssertThrowsError(try other.body(for: items[0].id))
     }
+
+    func testSetCustomLabelPersists() throws {
+        let r = try store.append(ClipboardRecord.text("hello"))
+        XCTAssertNil(try store.list(limit: 10).first?.customLabel)
+        try store.setCustomLabel(id: r.id, label: "My Snippet")
+        XCTAssertEqual(try store.list(limit: 10).first?.customLabel, "My Snippet")
+        try store.setCustomLabel(id: r.id, label: nil)
+        XCTAssertNil(try store.list(limit: 10).first?.customLabel)
+    }
 }

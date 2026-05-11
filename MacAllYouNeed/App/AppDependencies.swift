@@ -11,8 +11,14 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
     let appIcons = AppIconResolver()
     let imageLoader: ImageBlobLoader
     let fileLoader: FileURLLoader
+    let fileThumbnailLoader: FileThumbnailLoader
     let pinboardStore: PinboardStore
     let snippetStore: SnippetStore
+    /// Exposed so non-dock readers (the menu bar popover) can copy a card's
+    /// content to NSPasteboard via the same `restoreToPasteboard` path the
+    /// dock uses — handles RTF/HTML/image/file URLs, not just plain text.
+    let clip: ClipboardStore
+    let blobs: BlobStore
     let dockModel: ClipboardDockModel
 
     /// Pinboards, snippets, the clipboard store, and the blob store are all
@@ -34,20 +40,26 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
 
         let imageLoader = ImageBlobLoader(xpc: client, clip: clip, blobs: blobs)
         let fileLoader = FileURLLoader(xpc: client, clip: clip)
+        let fileThumbnailLoader = FileThumbnailLoader()
         self.imageLoader = imageLoader
         self.fileLoader = fileLoader
+        self.fileThumbnailLoader = fileThumbnailLoader
 
         pinboardStore = pinboards
         snippetStore = snippets
+        self.clip = clip
+        self.blobs = blobs
 
         dockModel = ClipboardDockModel(
             xpc: client,
             appIcons: appIcons,
             imageLoader: imageLoader,
             fileLoader: fileLoader,
+            fileThumbnailLoader: fileThumbnailLoader,
             pinboards: pinboards,
             snippets: snippets,
-            clip: clip
+            clip: clip,
+            blobs: blobs
         )
 
         super.init()

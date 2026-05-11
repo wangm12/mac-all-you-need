@@ -25,7 +25,6 @@ struct ImageCard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(10)
-        .draggable(image ?? NSImage())
         .task(id: item.id) {
             failed = false
             let loadedImage = await loader.thumbnail(recordID: item.id, maxDim: 240)

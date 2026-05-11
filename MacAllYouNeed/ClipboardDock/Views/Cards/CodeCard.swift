@@ -16,7 +16,7 @@ struct CodeCard: View {
                 .padding(.vertical, 2)
                 .background(Color.secondary.opacity(0.15))
                 .clipShape(Capsule())
-            Text(item.preview)
+            Text(item.displayLabel)
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(8)
                 .foregroundStyle(.primary)

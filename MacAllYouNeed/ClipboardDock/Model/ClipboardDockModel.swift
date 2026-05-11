@@ -1,7 +1,9 @@
+import AppKit
 import Core
 import Foundation
 import Observation
 import Platform
+import SwiftUI
 
 @MainActor
 @Observable
@@ -10,6 +12,7 @@ final class ClipboardDockModel {
     let appIcons: AppIconResolver
     let imageLoader: ImageBlobLoader
     let fileLoader: FileURLLoader
+    let fileThumbnailLoader: FileThumbnailLoader
     let pinboards: PinboardStore
     let snippets: SnippetStore
     /// Optional in-process read path. When non-nil, the History tab reads
@@ -19,6 +22,9 @@ final class ClipboardDockModel {
     /// fails — a known macOS Sequoia issue with SMAppService.loginItem.
     /// Writes (paste/delete/transform) still go through XPC.
     let clip: ClipboardStore?
+    /// Companion to `clip`. Required for copy-to-pasteboard / delete /
+    /// rename to work when XPC is unavailable.
+    let blobs: BlobStore?
 
     var items: [DockItem] = []
     var snippetItems: [Snippet] = []
@@ -31,6 +37,11 @@ final class ClipboardDockModel {
     var pendingTransform: TextTransform?
     var showTransformMenu: Bool = false
     var showCheatsheet: Bool = false
+    /// Bundle ID of whichever app was frontmost just before the dock was
+    /// shown. Captured by `DockWindowController.show()` so the right-click
+    /// "Paste to <App>" menu item can name the right target — by the time
+    /// the user clicks the menu, NSWorkspace's frontmost is the dock itself.
+    var previousFrontmostBundleID: String?
 
     private var refreshDebounceTask: Task<Void, Never>?
     private var refreshSequence: UInt64 = 0
@@ -40,35 +51,58 @@ final class ClipboardDockModel {
         appIcons: AppIconResolver,
         imageLoader: ImageBlobLoader,
         fileLoader: FileURLLoader,
+        fileThumbnailLoader: FileThumbnailLoader,
         pinboards: PinboardStore,
         snippets: SnippetStore,
-        clip: ClipboardStore? = nil
+        clip: ClipboardStore? = nil,
+        blobs: BlobStore? = nil
     ) {
         self.xpc = xpc
         self.appIcons = appIcons
         self.imageLoader = imageLoader
         self.fileLoader = fileLoader
+        self.fileThumbnailLoader = fileThumbnailLoader
         self.pinboards = pinboards
         self.snippets = snippets
         self.clip = clip
+        self.blobs = blobs
     }
 
     func loadAvailableLists() async {
-        availableLists = PinnedPinboard.userVisibleLists((try? pinboards.list()) ?? [])
+        // Bootstrap the auto-created "Pinned" list so brand-new users have a
+        // sensible default destination in the Pin-to-list menu. Idempotent.
+        _ = try? PinnedPinboard.findOrCreate(in: pinboards)
+        // No filter — Pinned is now treated as just another pinboard, ordered
+        // alongside user-created lists by sort_order (insertion time).
+        availableLists = (try? pinboards.list()) ?? []
     }
 
     func switchList(_ selector: DockListSelector) async {
         activeList = selector
         search = ""
         focusedIndex = 0
-        await refresh()
+        // Drop the previous list's items so performRefresh doesn't carry a
+        // stale previousID across the tab switch — user expects the new tab
+        // to land on its first (newest) card.
+        items = []
+        await performRefresh(sequence: nextRefreshSequence(), preserveFocus: false)
     }
 
     func refresh() async {
         refreshDebounceTask?.cancel()
         refreshDebounceTask = nil
         let sequence = nextRefreshSequence()
-        await performRefresh(sequence: sequence)
+        await performRefresh(sequence: sequence, preserveFocus: true)
+    }
+
+    /// Animated variant of `refresh` — wraps the items-array assignment in
+    /// the supplied animation so transitions on individual cards (vanish on
+    /// delete, slide on insert) play instead of just popping.
+    func refreshAnimated(_ animation: Animation) async {
+        refreshDebounceTask?.cancel()
+        refreshDebounceTask = nil
+        let sequence = nextRefreshSequence()
+        await performRefresh(sequence: sequence, preserveFocus: true, animation: animation)
     }
 
     func refreshDebounced() {
@@ -77,7 +111,7 @@ final class ClipboardDockModel {
         refreshDebounceTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
-            await self?.performRefresh(sequence: sequence)
+            await self?.performRefresh(sequence: sequence, preserveFocus: true)
         }
     }
 
@@ -95,9 +129,125 @@ final class ClipboardDockModel {
             }
         }
 
-        if activeList == .pinned || activeList == .history {
+        if activeList == .history {
+            await refresh()
+        } else if case .pinboard = activeList {
             await refresh()
         }
+    }
+
+    /// True if `itemID` is currently in the implicit "📌 Pinned" pinboard.
+    /// Used by the right-click menu to flip its label between Pin / Unpin.
+    func isPinned(itemID: String) -> Bool {
+        guard let rid = RecordID(rawValue: itemID),
+              let pinned = try? PinnedPinboard.findOrCreate(in: pinboards)
+        else { return false }
+        return pinned.itemIDs.contains(rid)
+    }
+
+    /// True if the user can drag-reorder cards in the currently-active list.
+    /// All lists are reorderable from the UI's perspective; persistence
+    /// behavior differs:
+    ///   • Pinboard → committed to PinboardStore.itemIDs (durable).
+    ///   • History  → in-memory only; the next refresh resorts by recency.
+    /// (Snippets uses a separate list view that doesn't surface this.)
+    var isActiveListReorderable: Bool { true }
+
+    /// IDs the always-visible action bar should operate on. Prefers the
+    /// explicit multi-select; falls back to the focused (highlighted) card
+    /// when nothing is selected so the bar is useful immediately after the
+    /// dock opens — no need to click a card first.
+    var effectiveActionTargets: [String] {
+        if !selection.isEmpty {
+            return items.map(\.id).filter { selection.contains($0) }
+        }
+        if items.indices.contains(focusedIndex) {
+            return [items[focusedIndex].id]
+        }
+        return []
+    }
+
+    /// Show a brief floating "Copied / Pinned / Deleted" toast centered on
+    /// the active screen. Routed through `CopyHUD` so the same chip is used
+    /// regardless of whether the action came from the dock, the menu bar,
+    /// or a context menu — and so it survives the dock dismissing.
+    func triggerFeedback(_ message: String, symbol: String) {
+        CopyHUD.show(message, symbol: symbol)
+    }
+
+    /// Copy a single card's content onto the system clipboard. Local path —
+    /// no XPC required. The dock stays open; the user is expected to ⌘V into
+    /// their target app themselves.
+    func copyToClipboard(itemID: String) async {
+        guard let rid = RecordID(rawValue: itemID),
+              let clip,
+              let blobs,
+              let body = try? clip.body(for: rid)
+        else { return }
+        await MainActor.run {
+            ClipboardXPCService.restoreToPasteboard(body: body, blobs: blobs, pasteboard: .general)
+            // Mark this write so the daemon's PasteboardObserver skips it
+            // — otherwise copying our own card right back into the
+            // clipboard would re-capture as a brand-new history record on
+            // the next poll, duplicating the same content forever.
+            Self.markAsLocalWrite(.general)
+        }
+    }
+
+    /// Copy every selected card's text onto the system clipboard, joined by
+    /// newlines, in carousel order (newest first). Non-text bodies (images,
+    /// files) are skipped — copy-many is only meaningful for text-like kinds.
+    func copySelectionToClipboard() async {
+        let ordered = items.map(\.id).filter { selection.contains($0) }
+        guard !ordered.isEmpty, let clip else { return }
+        let texts = ordered.compactMap { id -> String? in
+            guard let rid = RecordID(rawValue: id),
+                  let body = try? clip.body(for: rid)
+            else { return nil }
+            switch body {
+            case let .text(s): return s
+            case let .html(s): return s
+            default: return nil
+            }
+        }
+        guard !texts.isEmpty else { return }
+        let joined = texts.joined(separator: "\n")
+        await MainActor.run {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(joined, forType: .string)
+            Self.markAsLocalWrite(.general)
+        }
+    }
+
+    /// Delete a single card. Local path: removes the row, the FTS index
+    /// entry isn't touched here (no SearchStore handle), and the image blob
+    /// (if any) is unlinked. The carousel's per-card `.transition` plays
+    /// the vanish animation when this fires inside `withAnimation`.
+    func deleteItem(itemID: String) async {
+        guard let rid = RecordID(rawValue: itemID), let clip else { return }
+        if let blobs,
+           let body = try? clip.body(for: rid),
+           case let .image(blobID, _, _) = body
+        {
+            try? blobs.delete(id: blobID)
+        }
+        try? clip.delete(id: rid)
+        // Notify other readers (menu bar popover) so they reload immediately
+        // instead of waiting on their poll interval.
+        NotificationCenter.default.post(name: .clipboardStoreDidChange, object: nil)
+        // Animate the items array shrinking so the carousel visually
+        // collapses the gap and the deleted card scales out instead of
+        // popping. snappy = quick spring, no bouncy overshoot.
+        await refreshAnimated(.snappy(duration: 0.28))
+    }
+
+    /// Apply or clear a user-set rename for a card. Empty string clears.
+    func renameItem(itemID: String, label: String) async {
+        guard let rid = RecordID(rawValue: itemID), let clip else { return }
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        try? clip.setCustomLabel(id: rid, label: trimmed.isEmpty ? nil : trimmed)
+        NotificationCenter.default.post(name: .clipboardStoreDidChange, object: nil)
+        await refresh()
     }
 
     func addToPinboard(itemIDs: [String], boardID: RecordID) async {
@@ -108,16 +258,130 @@ final class ClipboardDockModel {
                 board.itemIDs.append(rid)
             }
         }
+        // If the user is currently looking at this pinboard, refresh so the
+        // newly-added card shows up immediately.
+        if case let .pinboard(active) = activeList, active == boardID {
+            await refresh()
+        }
+        let boardName: String = {
+            if let board = (try? pinboards.list())?.first(where: { $0.id == boardID }) {
+                return board.name
+            }
+            return "list"
+        }()
+        let label = recordIDs.count > 1 ? "Pinned \(recordIDs.count) to \(boardName)" : "Pinned to \(boardName)"
+        triggerFeedback(label, symbol: "pin.fill")
+    }
+
+    /// Move a card to a different position within the currently-active
+    /// list. For pinboards the new order is persisted via PinboardStore;
+    /// for History it's in-memory only (lost on the next refresh — History
+    /// is fundamentally a recency-sorted view).
+    func reorderCardInActivePinboard(movingID: String, beforeID: String) async {
+        guard movingID != beforeID,
+              let from = items.firstIndex(where: { $0.id == movingID }),
+              items.contains(where: { $0.id == beforeID })
+        else { return }
+
+        // Pinboard branch: durable reorder.
+        if case let .pinboard(boardID) = activeList,
+           let movingRID = RecordID(rawValue: movingID),
+           let targetRID = RecordID(rawValue: beforeID)
+        {
+            try? pinboards.mutate(id: boardID) { board in
+                board.itemIDs.removeAll { $0 == movingRID }
+                // Recompute the target's index AFTER removal — when the
+                // dragged card was earlier in the array, removing shifted
+                // every subsequent index down by 1, including the target's.
+                if let targetIdx = board.itemIDs.firstIndex(of: targetRID) {
+                    board.itemIDs.insert(movingRID, at: targetIdx)
+                } else {
+                    board.itemIDs.append(movingRID)
+                }
+            }
+            await refreshAnimated(.snappy(duration: 0.22))
+            return
+        }
+
+        // History (or any non-pinboard) branch: in-memory only. Mutate the
+        // current items array under withAnimation so the carousel slides.
+        // The next refresh() will rewind this back to recency order, which
+        // is the documented behavior — for durable manual order, pin to a
+        // list.
+        var ids = items.map(\.id)
+        ids.remove(at: from)
+        // Recompute the target's index AFTER removal — when the dragged
+        // card was earlier in the array, removing shifted every subsequent
+        // index (including the target's) down by 1. Using the pre-removal
+        // `to` would land the dragged card one slot too late.
+        let insertIndex = ids.firstIndex(of: beforeID) ?? ids.count
+        ids.insert(movingID, at: insertIndex)
+        withAnimation(.snappy(duration: 0.22)) {
+            reorderCardsLocally(orderedIDs: ids)
+        }
+    }
+
+    /// Synchronous, in-memory reorder — mirrors `reorderPinboardsLocally`
+    /// for cards. Drives the live shift animation as the user drags a card
+    /// across its neighbors. `persistCardOrderInActivePinboard()` commits
+    /// the final order on drop.
+    func reorderCardsLocally(orderedIDs: [String]) {
+        let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        items = orderedIDs.compactMap { byID[$0] }
+    }
+
+    /// Write the in-memory `items` order back to the active pinboard.
+    /// Call after a live drag has settled so the order survives a relaunch.
+    func persistCardOrderInActivePinboard() async {
+        guard case let .pinboard(boardID) = activeList else { return }
+        let orderedRIDs = items.compactMap { RecordID(rawValue: $0.id) }
+        try? pinboards.mutate(id: boardID) { board in
+            // Preserve any IDs that aren't currently in `items` (e.g. items
+            // hidden by a search filter) by appending them after the
+            // explicit order.
+            let visibleSet = Set(orderedRIDs)
+            let leftovers = board.itemIDs.filter { !visibleSet.contains($0) }
+            board.itemIDs = orderedRIDs + leftovers
+        }
+    }
+
+    /// Reorder user-created pinboards. `orderedIDs` is the new full ordering of
+    /// `availableLists`; the store persists `sort_order` atomically. Reloads
+    /// `availableLists` so the tab bar reflects the change immediately.
+    func reorderPinboards(orderedIDs: [RecordID]) async {
+        try? pinboards.reorder(orderedIDs: orderedIDs)
+        await loadAvailableLists()
+    }
+
+    /// Synchronous, in-memory reorder used during a live drag. Mutating
+    /// `availableLists` immediately lets the tab bar slide as the dragged tab
+    /// crosses each neighbor, without paying for a disk write per hover event.
+    /// Pair with `persistPinboardOrder()` on drop to commit the final order.
+    func reorderPinboardsLocally(orderedIDs: [RecordID]) {
+        let byID = Dictionary(uniqueKeysWithValues: availableLists.map { ($0.id, $0) })
+        availableLists = orderedIDs.compactMap { byID[$0] }
+    }
+
+    /// Persist whatever the current `availableLists` ordering is. Call after a
+    /// live drag has settled so the in-memory order survives a relaunch.
+    func persistPinboardOrder() async {
+        try? pinboards.reorder(orderedIDs: availableLists.map(\.id))
     }
 
     func focusForward() {
         guard !items.isEmpty else { return }
-        focusedIndex = min(items.count - 1, focusedIndex + 1)
+        let next = min(items.count - 1, focusedIndex + 1)
+        // Replace selection with the newly-focused card so the highlight
+        // border follows arrow keys (Finder-style). Without this, focus
+        // and selection diverge after a click — the dock card stops
+        // showing the accent border even though arrows moved focus.
+        selectOnly(itemID: items[next].id)
     }
 
     func focusBackward() {
         guard !items.isEmpty else { return }
-        focusedIndex = max(0, focusedIndex - 1)
+        let prev = max(0, focusedIndex - 1)
+        selectOnly(itemID: items[prev].id)
     }
 
     func toggleSelection(itemID: String) {
@@ -126,6 +390,49 @@ final class ClipboardDockModel {
         } else {
             selection.insert(itemID)
         }
+    }
+
+    /// Anchor index for shift-click range selection. Set whenever the user
+    /// performs a "fresh" single-click (replace-selection) or a Cmd-click
+    /// (multi-select toggle). Shift-click extends from this anchor to the
+    /// shift-clicked target, mirroring Finder's behavior.
+    var selectionAnchorIndex: Int?
+
+    /// Replace the entire selection with this single card and move focus to
+    /// it. Standard macOS single-click semantics — a bare click does NOT
+    /// extend an existing multi-select. Use `toggleSelection` from ⌘+click
+    /// to actually multi-select.
+    func selectOnly(itemID: String) {
+        selection = [itemID]
+        if let idx = items.firstIndex(where: { $0.id == itemID }) {
+            focusedIndex = idx
+            selectionAnchorIndex = idx
+        }
+    }
+
+    /// ⌘-click semantics: toggle the card in/out of the selection AND move
+    /// the anchor (and focus) to it, mirroring Finder. A subsequent
+    /// ⇧-click extends from this card.
+    func cmdToggleSelection(itemID: String) {
+        toggleSelection(itemID: itemID)
+        if let idx = items.firstIndex(where: { $0.id == itemID }) {
+            focusedIndex = idx
+            selectionAnchorIndex = idx
+        }
+    }
+
+    /// ⇧-click semantics: extend selection from the current anchor to the
+    /// clicked card, inclusive. Existing selection outside the range is
+    /// preserved (Finder adds to it). Anchor stays where it was.
+    func shiftExtendSelection(toItemID itemID: String) {
+        guard let target = items.firstIndex(where: { $0.id == itemID }) else { return }
+        let anchor = selectionAnchorIndex ?? focusedIndex
+        let lower = min(anchor, target)
+        let upper = max(anchor, target)
+        for rangeIndex in lower ... upper where items.indices.contains(rangeIndex) {
+            selection.insert(items[rangeIndex].id)
+        }
+        focusedIndex = target
     }
 
     func extendSelectionRight() {
@@ -158,6 +465,84 @@ final class ClipboardDockModel {
         let orderedIDs = items.map(\.id).filter { selection.contains($0) }
         guard !orderedIDs.isEmpty else { return }
         _ = await xpc.pasteMany(itemIDs: orderedIDs, delimiter: delimiter, plainText: plainText)
+    }
+
+    /// Paste whatever the always-visible action bar should target — the
+    /// multi-selection if present, otherwise the focused card alone.
+    func pasteEffectiveTargets(plainText: Bool) async {
+        let ids = effectiveActionTargets
+        guard !ids.isEmpty else { return }
+        if ids.count == 1 {
+            _ = await xpc.paste(itemID: ids[0], plainText: plainText)
+        } else {
+            _ = await xpc.pasteMany(itemIDs: ids, delimiter: "\n", plainText: plainText)
+        }
+    }
+
+    /// Copy the effective targets to the system clipboard. Dock stays open;
+    /// the user pastes manually with ⌘V into their target app. For multi-
+    /// select, all text-like bodies are concatenated with newlines.
+    func copyEffectiveTargets(plainText: Bool) async {
+        let ids = effectiveActionTargets
+        guard !ids.isEmpty, let clip else { return }
+
+        if ids.count == 1, !plainText {
+            // Rich-fidelity single-card copy reuses the daemon's pasteboard
+            // restore (handles RTF, HTML, image, file URLs).
+            await copyToClipboard(itemID: ids[0])
+            triggerFeedback("Copied", symbol: "checkmark.circle.fill")
+            return
+        }
+
+        // Plain-text path: extract a string from each body. Multi-select
+        // also collapses to plain so we can join cards.
+        let strings: [String] = ids.compactMap { id -> String? in
+            guard let rid = RecordID(rawValue: id),
+                  let body = try? clip.body(for: rid)
+            else { return nil }
+            return Self.plainString(from: body)
+        }
+        guard !strings.isEmpty else { return }
+        let joined = strings.joined(separator: "\n")
+        await MainActor.run {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(joined, forType: .string)
+            Self.markAsLocalWrite(.general)
+        }
+        let label = ids.count > 1 ? "Copied \(ids.count) items" : "Copied"
+        triggerFeedback(label, symbol: "checkmark.circle.fill")
+    }
+
+    /// Tag a pasteboard write so the daemon's `PasteboardObserver.tick()`
+    /// recognises it as our own and skips re-capturing the content as a
+    /// new history record. The sentinel UTI is the same one
+    /// `ClipboardXPCService.markAsDaemonWrite()` uses.
+    private static func markAsLocalWrite(_ pasteboard: NSPasteboard) {
+        pasteboard.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
+    }
+
+    /// Strip a clipboard body to a plain string. Returns nil for kinds that
+    /// have no meaningful text representation (images).
+    private static func plainString(from body: ClipboardRecord) -> String? {
+        switch body {
+        case let .text(s): return s
+        case let .html(s): return s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        case let .rtf(data): return NSAttributedString(rtf: data, documentAttributes: nil)?.string
+        case .image: return nil
+        case let .files(urls): return urls.map(\.path).joined(separator: "\n")
+        }
+    }
+
+    /// Delete the bar's effective targets (multi-select or focused card).
+    func deleteEffectiveTargets() async {
+        let ids = effectiveActionTargets
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            await deleteItem(itemID: id)
+        }
+        clearSelection()
+        let label = ids.count > 1 ? "Deleted \(ids.count) items" : "Deleted"
+        triggerFeedback(label, symbol: "trash.fill")
     }
 
     func deleteSelected() async {
@@ -230,17 +615,21 @@ final class ClipboardDockModel {
         return refreshSequence
     }
 
-    private func performRefresh(sequence: UInt64) async {
+    private func performRefresh(
+        sequence: UInt64,
+        preserveFocus: Bool,
+        animation: Animation? = nil
+    ) async {
         let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let query: String? = trimmed.isEmpty ? nil : trimmed
-        let previousID: String? = items.indices.contains(focusedIndex) ? items[focusedIndex].id : nil
+        let previousID: String? = preserveFocus && items.indices.contains(focusedIndex)
+            ? items[focusedIndex].id
+            : nil
 
         let newItems: [DockItem]
         switch activeList {
         case .history:
             newItems = await loadFromXPC(query: query)
-        case .pinned:
-            newItems = await loadPinned(query: query)
         case let .pinboard(id):
             newItems = await loadPinboard(id: id, query: query)
         case .snippets:
@@ -250,18 +639,28 @@ final class ClipboardDockModel {
 
         guard sequence == refreshSequence else { return }
 
-        items = newItems
-        if activeList == .snippets {
-            focusedIndex = 0
-            selection.removeAll()
-            return
+        // Apply state changes inside withAnimation when caller asked for it,
+        // so per-card transitions on the carousel actually play (delete
+        // vanish, insert slide).
+        let apply = {
+            self.items = newItems
+            if self.activeList == .snippets {
+                self.focusedIndex = 0
+                self.selection.removeAll()
+                return
+            }
+            if let previousID, let newIndex = self.items.firstIndex(where: { $0.id == previousID }) {
+                self.focusedIndex = newIndex
+            } else {
+                self.focusedIndex = 0
+            }
+            self.selection.removeAll()
         }
-        if let previousID, let newIndex = items.firstIndex(where: { $0.id == previousID }) {
-            focusedIndex = newIndex
+        if let animation {
+            withAnimation(animation, apply)
         } else {
-            focusedIndex = 0
+            apply()
         }
-        selection.removeAll()
     }
 
     private func loadFromXPC(query: String?) async -> [DockItem] {
@@ -299,19 +698,55 @@ final class ClipboardDockModel {
         clip: ClipboardStore, query: String?, limit: Int
     ) async -> [ClipboardXPCMeta] {
         await Task.detached {
-            let metas: [ClipboardItemMeta]
+            // Over-fetch so dedup has room to collapse multi-record pastes
+            // (e.g. CleanShot writes png + file URL + sometimes rtf for one
+            // copy action) before we trim to the requested limit.
+            let fetchLimit = max(limit * 3, limit + 30)
+            let raw: [ClipboardItemMeta]
             if let query, !query.isEmpty {
-                // Without an injected SearchStore, do an in-memory contains
-                // filter over the most recent rows. Same fallback the menu-bar
-                // popover uses, and tolerable up to a few hundred items.
-                let recent = (try? clip.list(limit: max(limit, 200))) ?? []
+                let recent = (try? clip.list(limit: max(fetchLimit, 200))) ?? []
                 let lower = query.lowercased()
-                metas = Array(recent.filter { $0.preview.lowercased().contains(lower) }.prefix(limit))
+                raw = Array(recent.filter { $0.preview.lowercased().contains(lower) })
             } else {
-                metas = (try? clip.list(limit: limit)) ?? []
+                raw = (try? clip.list(limit: fetchLimit)) ?? []
             }
-            return metas.map { Self.xpcMeta(from: $0, clip: clip) }
+            let deduped = Self.dedupSamePaste(raw, limit: limit)
+            return deduped.map { Self.xpcMeta(from: $0, clip: clip) }
         }.value
+    }
+
+    /// Collapse multiple records produced by a single copy action into one.
+    /// Apps like CleanShot write `image/png`, `public.file-url`, and
+    /// sometimes other flavors in quick succession — daemon stores each as a
+    /// separate row. Within a 0.5s window we keep the most informative one;
+    /// file URLs win because they carry the filename + extension. List is
+    /// sorted by `modified DESC`, so we walk from newest to oldest.
+    nonisolated private static func dedupSamePaste(
+        _ sortedNewestFirst: [ClipboardItemMeta], limit: Int
+    ) -> [ClipboardItemMeta] {
+        var result: [ClipboardItemMeta] = []
+        for item in sortedNewestFirst {
+            if let last = result.last,
+               abs(last.modified.timeIntervalSince(item.modified)) < 0.5
+            {
+                if pastePriority(item.preview) > pastePriority(last.preview) {
+                    result[result.count - 1] = item
+                }
+                continue
+            }
+            result.append(item)
+            if result.count >= limit { break }
+        }
+        return result
+    }
+
+    /// Higher = preferred when collapsing duplicates. file > image > everything
+    /// else; reasoning: a file URL is enough to reconstruct the image AND tells
+    /// the user where it came from, so it's strictly more informative.
+    nonisolated private static func pastePriority(_ preview: String) -> Int {
+        if preview.hasPrefix("(") && preview.contains("file") { return 2 }
+        if preview.hasPrefix("(image ") { return 1 }
+        return 0
     }
 
     private func loadPinned(query: String?) async -> [DockItem] {
@@ -385,7 +820,8 @@ final class ClipboardDockModel {
             sourceAppBundleID: meta.sourceAppBundleID,
             imageWidth: imgWidth,
             imageHeight: imgHeight,
-            imageBlobID: imgBlobID
+            imageBlobID: imgBlobID,
+            customLabel: meta.customLabel
         )
     }
 

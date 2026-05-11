@@ -291,7 +291,8 @@ import Foundation
             sourceAppBundleID: meta.sourceAppBundleID,
             imageWidth: imgWidth,
             imageHeight: imgHeight,
-            imageBlobID: imgBlobID
+            imageBlobID: imgBlobID,
+            customLabel: meta.customLabel
         )
     }
 
@@ -310,7 +311,7 @@ import Foundation
         }
     }
 
-    static func restoreToPasteboard(body: ClipboardRecord, blobs: BlobStore, pasteboard: NSPasteboard) {
+    public static func restoreToPasteboard(body: ClipboardRecord, blobs: BlobStore, pasteboard: NSPasteboard) {
         pasteboard.clearContents()
         switch body {
         case let .text(s): pasteboard.setString(s, forType: .string)

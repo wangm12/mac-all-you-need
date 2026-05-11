@@ -42,7 +42,6 @@ struct ColorCard: View {
                 picker.present(initial: nsColor)
             }
         }
-        .draggable(formattedColor())
     }
 
     private func formattedColor() -> String {

@@ -62,6 +62,7 @@ struct SettingsRoot: View {
                 .tabItem { Label("Advanced", systemImage: "wrench") }
         }
         .frame(width: 600, height: 480)
+        .background(SettingsWindowConfig())
     }
 
     private var selectedTabBinding: Binding<SettingsTab> {

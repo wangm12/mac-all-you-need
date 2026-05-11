@@ -85,6 +85,7 @@ final class SelectionStateTests: XCTestCase {
             appIcons: AppIconResolver(),
             imageLoader: ImageBlobLoader(xpc: mock),
             fileLoader: FileURLLoader(xpc: mock),
+            fileThumbnailLoader: FileThumbnailLoader(),
             pinboards: pinboards,
             snippets: snippets
         )

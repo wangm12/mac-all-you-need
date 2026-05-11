@@ -21,6 +21,13 @@ final class AppController {
     // Snippet expansion runs in the main app so it uses the app's Accessibility permission
     private let snippetExpander: SnippetExpander
 
+    // Stores retained so menu actions (e.g. Clear Older Than) can run locally
+    // when the daemon's XPC mach service isn't available.
+    private let clipStore: ClipboardStore
+    private let blobStore: BlobStore
+    private let searchStore: SearchStore
+    private let pinboardStore: PinboardStore
+
     private let hotkeyRegistry = HotkeyRegistry()
     private var fallbackHotkey: GlobalHotkey?
     private var browseFolderObserver: NSObjectProtocol?
@@ -50,6 +57,11 @@ final class AppController {
         // with ImageBlobLoader lets image cards render their thumbnails
         // locally without an XPC roundtrip.
         let blobStore = Self.makeBlobStore(key: clipKey)
+        // SearchStore for FTS index cleanup during local retention. Same
+        // reasoning as clipStore — one DatabaseQueue per file, daemon may
+        // also write but XPC for retention is broken so users get nothing
+        // unless we run it locally.
+        let searchStore = try Self.makeSearchStore()
 
         let deps = AppDependencies(
             pinboards: pinboardStore,
@@ -68,6 +80,11 @@ final class AppController {
         self.clipboardDeps = deps
         self.clipboardDock = clipboardDock
         clipboardDock.dockHeight = Self.currentDockHeight()
+
+        self.clipStore = clipboardStore
+        self.blobStore = blobStore
+        self.searchStore = searchStore
+        self.pinboardStore = pinboardStore
 
         self.clipboardReader = LocalClipboardReader(store: clipboardStore)
         self.snippetExpander = Self.makeSnippetExpander(store: snippetStore)
@@ -172,14 +189,32 @@ final class AppController {
 
     func clearClipboardOlderThan(days: Int) {
         guard days > 0 else { return }
-        // Route through XPC so the daemon (writer of these SQLite files) owns
-        // the deletion. Opening competing DatabaseQueue instances here racing
-        // against the daemon caused intermittent BUSY errors and bypassed the
-        // FTS cleanup path.
-        Task {
-            _ = await self.clipboardDeps.xpc.runRetention(maxAgeDays: days)
-            await self.clipboardDeps.dockModel.refresh()
+        // Local retention path. The XPC route into the daemon is unreliable
+        // because the daemon's mach service registration fails (the
+        // SMAppService.loginItem issue), so menu actions silently did
+        // nothing. Run the same RetentionPolicy here against the stores
+        // we already hold; pinned items stay protected.
+        let policy = RetentionPolicy(
+            maxItems: nil,
+            maxAgeSeconds: TimeInterval(days) * 86_400,
+            maxImageBytes: nil
+        )
+        let protected = (try? PinboardStore.protectedIDs(from: pinboardStore)) ?? []
+        do {
+            try policy.enforceMaxAge(
+                store: clipStore,
+                blobs: blobStore,
+                search: searchStore,
+                protectedIDs: protected
+            )
+        } catch {
+            Logging.logger(for: "AppController", category: "retention")
+                .error("local retention failed: \(error.localizedDescription, privacy: .public)")
         }
+        // Notify the menu bar popover so it reloads immediately instead of
+        // waiting on its 1s poll.
+        NotificationCenter.default.post(name: .clipboardStoreDidChange, object: nil)
+        Task { await self.clipboardDeps.dockModel.refresh() }
     }
 
     private static func makePinboardStore(key: SymmetricKey) throws -> PinboardStore {
@@ -203,6 +238,12 @@ final class AppController {
     private static func makeBlobStore(key: SymmetricKey) -> BlobStore {
         let root = AppGroup.containerURL().appendingPathComponent("blobs", isDirectory: true)
         return BlobStore(rootURL: root, key: key)
+    }
+
+    private static func makeSearchStore() throws -> SearchStore {
+        let url = AppGroup.containerURL().appendingPathComponent("databases/search.sqlite")
+        let db = try Database(url: url, migrations: SearchStore.migrations)
+        return SearchStore(database: db)
     }
 
     private static func makeSnippetExpander(store: SnippetStore) -> SnippetExpander {
