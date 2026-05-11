@@ -21,4 +21,18 @@ final class ExclusionRulesTests: XCTestCase {
         let rules = ExclusionRules()
         XCTAssertFalse(rules.shouldExclude(types: ["public.utf8-plain-text"], appBundleID: nil))
     }
+
+    func testExcludesTransientType() {
+        let rules = ExclusionRules(transientUTIs: ["org.nspasteboard.TransientType"])
+        XCTAssertTrue(rules.shouldExclude(types: ["org.nspasteboard.TransientType"], appBundleID: nil))
+    }
+
+    func testExcludesViaRegex() {
+        let rules = ExclusionRules(
+            blockedBundleIDs: [],
+            regexBlocklist: RegexBlocklist(patterns: [#"^secret-"#])
+        )
+        XCTAssertTrue(rules.shouldExcludeText("secret-token"))
+        XCTAssertFalse(rules.shouldExcludeText("public-token"))
+    }
 }

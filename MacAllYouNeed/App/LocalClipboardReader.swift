@@ -6,12 +6,25 @@ import Foundation
 final class LocalClipboardReader {
     private(set) var items: [ClipboardItemMeta] = []
     private var query: String = ""
-    private var store: ClipboardStore?
+    /// Exposed so other read paths (e.g. the dock) can share this store rather
+    /// than opening a second DatabaseQueue against the same SQLite file.
+    let store: ClipboardStore?
     private var pollTask: Task<Void, Never>?
+    private var changeObserver: NSObjectProtocol?
 
     init(store: ClipboardStore) {
         self.store = store
         startPolling()
+        // Reload immediately whenever the dock model mutates the store
+        // (delete, rename, retention) so the menu bar popover stays in
+        // sync without waiting up to a full poll interval. The observer
+        // captures `weak self` and is collected with the reader; we don't
+        // need an explicit removeObserver in deinit.
+        changeObserver = NotificationCenter.default.addObserver(
+            forName: .clipboardStoreDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in await self?.reload() }
+        }
     }
 
     func search(query: String) {
@@ -80,4 +93,11 @@ final class LocalClipboardReader {
         if preview.hasPrefix("(") && preview.contains("file") { return 0 }
         return 2
     }
+}
+
+extension Notification.Name {
+    /// Posted by any in-process mutation of the shared ClipboardStore (dock
+    /// delete, rename, local retention) so other readers (menu bar popover)
+    /// reload immediately instead of waiting up to a full poll interval.
+    static let clipboardStoreDidChange = Notification.Name("clipboardStoreDidChange")
 }

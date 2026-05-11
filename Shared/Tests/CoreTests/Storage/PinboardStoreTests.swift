@@ -31,6 +31,14 @@ final class PinboardStoreTests: XCTestCase {
         XCTAssertEqual(list.map(\.name), ["First", "Second"])
     }
 
+    func testReorderUpdatesListOrder() throws {
+        let a = try store.create(name: "A")
+        let b = try store.create(name: "B")
+        let c = try store.create(name: "C")
+        try store.reorder(orderedIDs: [c.id, a.id, b.id])
+        XCTAssertEqual(try store.list().map(\.name), ["C", "A", "B"])
+    }
+
     func testAddItemInsertsAtIndex() throws {
         let p = try store.create(name: "Board")
         let id1 = RecordID.generate()
@@ -67,5 +75,40 @@ final class PinboardStoreTests: XCTestCase {
         let p = try store.create(name: "ToDelete")
         try store.delete(id: p.id)
         XCTAssertTrue(try store.list().isEmpty)
+    }
+
+    func testMutateAppliesChangeAndStampsModified() throws {
+        var p = try store.create(name: "Pin")
+        let before = p.modified
+        Thread.sleep(forTimeInterval: 0.005)
+        let id1 = RecordID.generate()
+        p = try store.mutate(id: p.id) { $0.itemIDs.append(id1) }
+        XCTAssertEqual(p.itemIDs, [id1])
+        XCTAssertGreaterThan(p.modified, before)
+        let reread = try store.list().first { $0.id == p.id }
+        XCTAssertEqual(reread?.itemIDs, [id1])
+    }
+
+    func testMutateConcurrentAppendsAreSerializedNotLost() throws {
+        let p = try store.create(name: "Race")
+        let count = 100
+        let queue = DispatchQueue(label: "PinboardStoreTests.race", attributes: .concurrent)
+        let group = DispatchGroup()
+        for index in 0..<count {
+            group.enter()
+            queue.async {
+                let id = RecordID.generate()
+                _ = try? self.store.mutate(id: p.id) { board in
+                    // append a unique-per-iteration value so a lost update is detectable
+                    board.itemIDs.append(id)
+                    _ = index
+                }
+                group.leave()
+            }
+        }
+        group.wait()
+        let final = try store.list().first { $0.id == p.id }!
+        XCTAssertEqual(final.itemIDs.count, count,
+                       "Atomic mutate must preserve every concurrent append; got \(final.itemIDs.count) of \(count)")
     }
 }

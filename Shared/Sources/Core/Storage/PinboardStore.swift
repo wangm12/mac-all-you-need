@@ -28,8 +28,8 @@ public final class PinboardStore {
     ]
 
     @discardableResult
-    public func create(name: String) throws -> Pinboard {
-        let pinboard = Pinboard(name: name)
+    public func create(name: String, color: String? = nil) throws -> Pinboard {
+        let pinboard = Pinboard(name: name, color: color)
         try persist(pinboard, order: maxOrder() + 1)
         return pinboard
     }
@@ -73,6 +73,21 @@ public final class PinboardStore {
         }
     }
 
+    /// Persist a new tab order. IDs not present in the input list keep their
+    /// current `sort_order` and float to the end (unchanged relative order).
+    /// Atomic — all rows updated in one write transaction.
+    public func reorder(orderedIDs: [RecordID]) throws {
+        guard !orderedIDs.isEmpty else { return }
+        try db.queue.write { conn in
+            for (index, id) in orderedIDs.enumerated() {
+                try conn.execute(
+                    sql: "UPDATE pinboards SET sort_order = ? WHERE id = ?",
+                    arguments: [index, id.rawValue]
+                )
+            }
+        }
+    }
+
     private func fetch(id: RecordID) throws -> Pinboard {
         try db.queue.read { conn in
             guard let row = try Row.fetchOne(
@@ -99,7 +114,7 @@ public final class PinboardStore {
         }
     }
 
-    private func update(_ pinboard: Pinboard) throws {
+    public func update(_ pinboard: Pinboard) throws {
         let env = try Cipher.seal(JSONEncoder().encode(pinboard), with: key)
         try db.queue.write { conn in
             try conn.execute(sql: """
@@ -108,6 +123,33 @@ public final class PinboardStore {
                 pinboard.name, env.combined, pinboard.modified.timeIntervalSince1970,
                 pinboard.deviceID?.rawValue, pinboard.lamport, pinboard.id.rawValue
             ])
+        }
+    }
+
+    /// Atomic read-modify-write: fetch, run the closure on the decoded pinboard,
+    /// then persist the mutated value — all inside a single GRDB write transaction
+    /// so concurrent callers cannot stomp each other.
+    @discardableResult
+    public func mutate(id: RecordID, _ change: (inout Pinboard) -> Void) throws -> Pinboard {
+        try db.queue.write { conn in
+            guard let row = try Row.fetchOne(
+                conn,
+                sql: "SELECT envelope FROM pinboards WHERE id = ?",
+                arguments: [id.rawValue]
+            ) else {
+                throw NSError(domain: "PinboardStore", code: 404)
+            }
+            var pinboard = try self.decode(row: row)
+            change(&pinboard)
+            pinboard.modified = Date()
+            let env = try Cipher.seal(JSONEncoder().encode(pinboard), with: self.key)
+            try conn.execute(sql: """
+                UPDATE pinboards SET name = ?, envelope = ?, modified = ?, device_id = ?, lamport = ? WHERE id = ?
+            """, arguments: [
+                pinboard.name, env.combined, pinboard.modified.timeIntervalSince1970,
+                pinboard.deviceID?.rawValue, pinboard.lamport, pinboard.id.rawValue
+            ])
+            return pinboard
         }
     }
 

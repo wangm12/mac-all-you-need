@@ -17,6 +17,14 @@ Requires Xcode 15+ and macOS 14+.
 open MacAllYouNeed.xcworkspace
 ```
 
+## Codex (Project MCP)
+
+Use the repo-local launcher so `XcodeBuildMCP` is enabled only for this project/session:
+
+```bash
+./scripts/codex-project
+```
+
 ## License
 
 TBD before public launch.

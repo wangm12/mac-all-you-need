@@ -8,6 +8,7 @@ struct ClipboardDaemonMain {
         let container = try DaemonContainer()
         let server = ClipboardXPCServer(container: container)
         container.observer.start { change in
+            if container.isCaptureSuspended() { return }
             for item in change.items {
                 do {
                     try container.persist(item: item, source: change.frontmostAppBundleID)

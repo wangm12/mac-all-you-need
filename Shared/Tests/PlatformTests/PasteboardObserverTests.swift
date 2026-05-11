@@ -24,6 +24,34 @@ final class PasteboardObserverTests: XCTestCase {
         }
     }
 
+    final class PrivatePasteboardReader: PasteboardReading {
+        private let pb: NSPasteboard
+
+        init(pb: NSPasteboard) {
+            self.pb = pb
+        }
+
+        func currentChangeCount() -> Int {
+            pb.changeCount
+        }
+
+        func currentTypes() -> [String] {
+            (pb.types ?? []).map(\.rawValue)
+        }
+
+        func currentItems() -> [PasteboardItem] {
+            var items: [PasteboardItem] = []
+            if let s = pb.string(forType: .string) {
+                items.append(.text(s))
+            }
+            return items
+        }
+
+        func frontmostBundleID() -> String? {
+            "com.test"
+        }
+    }
+
     func testEmitsOnlyOnChange() {
         let reader = FakeReader()
         let obs = PasteboardObserver(reader: reader, rules: ExclusionRules(), pollInterval: 0.05)
@@ -82,5 +110,22 @@ final class PasteboardObserverTests: XCTestCase {
         wait(for: [inverted], timeout: 0.2)
 
         XCTAssertEqual(changes.count, 0)
+    }
+
+    func testTickSkipsChangesContainingDaemonWriteSentinel() {
+        let pb = NSPasteboard(name: NSPasteboard.Name("test-\(UUID())"))
+        let reader = PrivatePasteboardReader(pb: pb)
+        let obs = PasteboardObserver(reader: reader, rules: ExclusionRules(), pollInterval: 0.05)
+
+        var fired = false
+        obs.start { _ in fired = true }
+        defer { obs.stop() }
+
+        pb.clearContents()
+        pb.setString("hello", forType: .string)
+        pb.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
+        Thread.sleep(forTimeInterval: 0.2)
+
+        XCTAssertFalse(fired, "observer must skip changes carrying the daemonWrite sentinel")
     }
 }

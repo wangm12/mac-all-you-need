@@ -10,4 +10,5 @@ public enum PasteboardUTI {
     public static let fileURL = NSPasteboard.PasteboardType("public.file-url")
     public static let finderNode = NSPasteboard.PasteboardType("com.apple.finder.node")
     public static let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    public static let daemonWrite = NSPasteboard.PasteboardType("com.macallyouneed.shared.daemon-write")
 }
