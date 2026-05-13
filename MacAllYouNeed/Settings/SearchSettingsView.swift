@@ -1,21 +1,41 @@
+import CoreFoundation
 import Core
 import SwiftUI
-import CoreFoundation
 
 struct SearchSettingsView: View {
     @State private var sortMode: String = AppGroupSettings.defaults.string(forKey: "history.sortMode") ?? "recency"
     @State private var fuzzy: Bool = AppGroupSettings.defaults.object(forKey: "search.fuzzy") as? Bool ?? false
 
     var body: some View {
-        Form {
-            Picker("Sort history by", selection: $sortMode) {
-                Text("Recency").tag("recency")
-                Text("Frequency").tag("frequency")
-                Text("Recently used").tag("recentlyUsed")
+        MAYNSettingsPage(
+            title: "Search",
+            subtitle: "Choose how clipboard history is ranked and matched in the dock."
+        ) {
+            MAYNSection(title: "Ranking") {
+                MAYNSettingsRow(
+                    title: "Sort history by",
+                    subtitle: "Default ordering used when browsing previous clipboard items."
+                ) {
+                    Picker("", selection: $sortMode) {
+                        Text("Recency").tag("recency")
+                        Text("Frequency").tag("frequency")
+                        Text("Recently used").tag("recentlyUsed")
+                    }
+                    .labelsHidden()
+                    .frame(width: 150)
+                }
             }
-            Toggle("Fuzzy search", isOn: $fuzzy)
+
+            MAYNSection(title: "Matching") {
+                MAYNSettingsRow(
+                    title: "Fuzzy search",
+                    subtitle: "Allow approximate text matches in clipboard search."
+                ) {
+                    Toggle("", isOn: $fuzzy)
+                        .labelsHidden()
+                }
+            }
         }
-        .padding()
         .onChange(of: sortMode) { _, value in
             AppGroupSettings.defaults.set(value, forKey: "history.sortMode")
             postSettingsChangedDarwin()

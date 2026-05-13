@@ -84,13 +84,18 @@ public final class PasteboardObserver {
     private func tick() {
         let count = reader.currentChangeCount()
         guard count != lastCount else { return }
-        lastCount = count
         let types = reader.currentTypes()
+        lastCount = reader.currentChangeCount()
         if types.contains(PasteboardUTI.daemonWrite.rawValue) { return }
         let bundleID = reader.frontmostBundleID()
         if rules.shouldExclude(types: types, appBundleID: bundleID) { return }
         let items = reader.currentItems()
-        guard !items.isEmpty else { return }
+        let countAfterReadingItems = reader.currentChangeCount()
+        if items.isEmpty {
+            lastCount = count
+            return
+        }
+        lastCount = countAfterReadingItems
         callback?(PasteboardChange(changeCount: count, frontmostAppBundleID: bundleID, items: items))
     }
 }

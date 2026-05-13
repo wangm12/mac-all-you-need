@@ -9,7 +9,7 @@ struct ClipboardDaemonMain {
         let server = ClipboardXPCServer(container: container)
         container.observer.start { change in
             if container.isCaptureSuspended() { return }
-            for item in change.items {
+            for item in change.historyCaptureItems {
                 do {
                     try container.persist(item: item, source: change.frontmostAppBundleID)
                 } catch {

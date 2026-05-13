@@ -8,17 +8,36 @@ enum FuzzyMatcher {
         var scored: [(index: Int, score: Double)] = []
         for (index, candidate) in candidates.enumerated() {
             let normalizedCandidate = candidate.lowercased()
+            let candidateTokens = tokens(in: normalizedCandidate)
+
+            if normalizedCandidate == normalizedQuery {
+                scored.append((index: index, score: 1200))
+                continue
+            }
+
+            if candidateTokens.contains(normalizedQuery) {
+                scored.append((index: index, score: 1150))
+                continue
+            }
+
             if normalizedCandidate.contains(normalizedQuery) {
-                scored.append((index: index, score: 1000))
+                let startIndex = normalizedCandidate.range(of: normalizedQuery)?.lowerBound
+                let offset = startIndex.map {
+                    normalizedCandidate.distance(from: normalizedCandidate.startIndex, to: $0)
+                } ?? 0
+                let lengthPenalty = max(0, normalizedCandidate.count - normalizedQuery.count)
+                scored.append((index: index, score: 1000 - Double(offset * 2 + lengthPenalty)))
                 continue
             }
 
             if normalizedQuery.count <= 6 {
-                let limit = min(normalizedCandidate.count, max(8, normalizedQuery.count + 4))
-                let prefix = String(normalizedCandidate.prefix(limit))
-                let distance = editDistance(normalizedQuery, prefix)
-                let threshold = max(1, normalizedQuery.count / 3)
-                if distance <= threshold {
+                let distance = bestShortDistance(
+                    query: normalizedQuery,
+                    candidate: normalizedCandidate,
+                    tokens: candidateTokens
+                )
+                let threshold = max(2, normalizedQuery.count / 3)
+                if let distance, distance <= threshold {
                     scored.append((index: index, score: 100 - Double(distance)))
                     continue
                 }
@@ -38,6 +57,22 @@ enum FuzzyMatcher {
                 return lhs.score > rhs.score
             }
             .map { candidates[$0.index] }
+    }
+
+    private static func tokens(in text: String) -> [String] {
+        text
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
+    }
+
+    private static func bestShortDistance(query: String, candidate: String, tokens: [String]) -> Int? {
+        let terms = (tokens.isEmpty ? [candidate] : tokens) + [candidate]
+        return terms.compactMap { term -> Int? in
+            guard !term.isEmpty else { return nil }
+            let sameLengthPrefix = String(term.prefix(query.count))
+            let nearLengthPrefix = String(term.prefix(min(term.count, query.count + 1)))
+            return min(editDistance(query, sameLengthPrefix), editDistance(query, nearLengthPrefix))
+        }.min()
     }
 
     private static func trigrams(_ text: String) -> Set<String> {

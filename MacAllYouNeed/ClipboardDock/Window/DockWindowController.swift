@@ -40,6 +40,27 @@ final class DockWindowController {
         }
     }
 
+#if DEBUG
+    var debugWindowForTesting: BottomDockWindow? { window }
+
+    func debugSetWindowForTesting(_ window: BottomDockWindow?) {
+        self.window = window
+    }
+
+    func debugTearDownForTesting() {
+        stopOutsideClickMonitor()
+        stopDragMonitor()
+        stopKeyMonitor()
+        stopSpaceChangeMonitor()
+        stopPasteIntentObserver()
+        stopHideRequestObserver()
+        window?.contentView?.layer?.removeAllAnimations()
+        window?.orderOut(nil)
+        window?.close()
+        window = nil
+    }
+#endif
+
     func show() {
         // Capture the user's app FIRST — before any activation our own panel
         // would do — so right-click "Paste to <App>" knows the target.
@@ -67,11 +88,16 @@ final class DockWindowController {
             log.info("  screen[\(i)] frame=\(NSStringFromRect(s.frame), privacy: .public) visibleFrame=\(NSStringFromRect(s.visibleFrame), privacy: .public)")
         }
 
-        // Always build a fresh panel. Reusing a cached BottomDockWindow across
-        // screens caused DockAnimator.slideUp to read the old window.frame
-        // (still in the prior screen's coordinate space) and compute a slide-
-        // from origin that placed the panel off the laptop screen when the
-        // first ⌘⇧V had been on the external monitor.
+        if let panel = window, panel.isVisible {
+            showExistingPanel(panel, frame: frame)
+            log.info("show: reused visible panel.frame=\(NSStringFromRect(panel.frame), privacy: .public)")
+            return
+        }
+
+        // Build a fresh panel when the dock is not currently visible. Reusing a
+        // hidden cached BottomDockWindow across screens caused DockAnimator.slideUp
+        // to read the old window.frame and compute a slide-from origin in the
+        // prior screen's coordinate space.
         let panel = BottomDockWindow(contentRect: frame)
         panel.setFrame(frame, display: false)
         let hosting = NSHostingView(
@@ -105,6 +131,22 @@ final class DockWindowController {
                 log.info("show: post-animate panel.frame=\(NSStringFromRect(panel.frame), privacy: .public), panel.screen.frame=\(NSStringFromRect(panel.screen?.frame ?? .zero), privacy: .public)")
             }
         }
+
+        startOutsideClickMonitor()
+        startDragMonitor()
+        startKeyMonitor()
+        startSpaceChangeMonitor()
+        startPasteIntentObserver()
+        startHideRequestObserver()
+    }
+
+    private func showExistingPanel(_ panel: BottomDockWindow, frame: NSRect) {
+        panel.contentView?.layer?.removeAllAnimations()
+        panel.alphaValue = 1
+        panel.setFrame(frame, display: true)
+        panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
+        panel.orderFrontRegardless()
+        panel.makeKey()
 
         startOutsideClickMonitor()
         startDragMonitor()

@@ -8,7 +8,7 @@ public struct VideoMetadata: Sendable {
 }
 
 public enum MetadataFetcher {
-    public static func fetch(url: String, ytdlp: URL) async -> VideoMetadata? {
+    public static func fetch(url: String, ytdlp: URL, cookieFile: URL? = nil) async -> VideoMetadata? {
         await Task.detached(priority: .utility) {
             let p = Process()
             p.executableURL = ytdlp
@@ -23,6 +23,9 @@ public enum MetadataFetcher {
             if let node = findNode() {
                 args += ["--js-runtime", "node:\(node)"]
             }
+            if let cookieFile {
+                args += ["--cookies", cookieFile.path]
+            }
             args.append(url)
             p.arguments = args
             var env = ProcessInfo.processInfo.environment
@@ -32,7 +35,7 @@ public enum MetadataFetcher {
             p.standardOutput = pipe
             p.standardError = Pipe()
             do { try p.run() } catch { return nil }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 20) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 25) {
                 if p.isRunning { p.terminate() }
             }
             p.waitUntilExit()
@@ -64,3 +67,4 @@ public enum MetadataFetcher {
             .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }
+

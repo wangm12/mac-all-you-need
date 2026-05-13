@@ -27,7 +27,7 @@ struct NewListSheet: View {
                         .frame(width: 22, height: 22)
                         .overlay {
                             Circle()
-                                .stroke(color == hex ? Color.accentColor : .clear, lineWidth: 2)
+                                .stroke(color == hex ? MAYNTheme.focusRing : .clear, lineWidth: 2)
                         }
                         .onTapGesture {
                             color = hex

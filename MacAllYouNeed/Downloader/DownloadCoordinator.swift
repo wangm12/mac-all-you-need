@@ -59,6 +59,7 @@ final class DownloadCoordinator {
                     case .success:
                         try? storeRef.updateState(id: id, to: .completed)
                         Self.postStateChanged(id: id, state: .completed)
+                        CopyHUD.show("Download finished", symbol: "checkmark.circle.fill")
                     case .failure:
                         try? storeRef.updateState(id: id, to: .failed)
                         Self.postStateChanged(id: id, state: .failed)
@@ -174,49 +175,79 @@ final class DownloadCoordinator {
             let dest = try makeDestinationURL(for: url)
             let record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
             try store.insert(record)
-            let ytdlp = try binaries.ytdlpPath()
-            let ffmpeg = try binaries.ffmpegPath()
-            let (cookies, cookieHadErrors) = cookieArgs()
-            postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
-            NSLog("▶️ enqueue: url=\(url) ytdlp=\(ytdlp.path)")
-            let job = DownloadJob(
-                recordID: record.id, url: url, destination: dest,
-                ytdlp: ytdlp, ffmpeg: ffmpeg,
-                extraArgs: cookies
-            )
-            await queue.enqueue(job)
-            fetchMetadata(for: record.id, url: url)
+            // Fire-and-forget: fetch metadata first, then start the download.
+            // The record is visible in the list immediately with a "Fetching info…" phase.
+            Task { [weak self] in await self?.fetchMetadataThenStart(record: record, url: url, dest: dest) }
         } catch {
             NSLog("❌ enqueue FAILED: \(error)")
             log.error("enqueue failed: \(error.localizedDescription)")
         }
     }
 
-    private func makeDestinationURL(for url: String) throws -> URL {
-        let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: "/tmp")
-        let outputDir = downloadsDir.appendingPathComponent("MacAllYouNeed", isDirectory: true)
-        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        let template = AppGroupSettings.defaults.string(forKey: "downloadOutputTemplate")
-            ?? "%(title)s - %(uploader)s.%(ext)s"
-        return URL(fileURLWithPath: outputDir.path + "/" + template)
-    }
+    private func fetchMetadataThenStart(record: DownloadRecord, url: String, dest: URL) async {
+        // Signal that we're fetching info before the download starts
+        NotificationCenter.default.post(
+            name: .downloadPhase, object: nil,
+            userInfo: ["id": record.id.rawValue, "phase": "Fetching info…"]
+        )
 
-    private func fetchMetadata(for recordID: RecordID, url: String) {
-        Task(priority: .background) { [weak self] in
-            guard let self else { return }
-            guard let ytdlpPath = try? binaries.ytdlpPath(),
-                  let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath)
-            else { return }
-            guard var updated = try? store.fetch(id: recordID) else { return }
+        // Prepare cookies (also writes the cookie file so metadata fetch can use it)
+        let (cookieArgsList, cookieHadErrors) = cookieArgs()
+        postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
+
+        // Extract cookie file path from the cookie args (["--cookies", "/path/..."]) if present
+        let cookieFileURL: URL? = {
+            guard let idx = cookieArgsList.firstIndex(of: "--cookies"),
+                  cookieArgsList.indices.contains(idx + 1) else { return nil }
+            return URL(fileURLWithPath: cookieArgsList[idx + 1])
+        }()
+
+        // Fetch title, channel, duration, thumbnail — before starting the download
+        if let ytdlpPath = try? binaries.ytdlpPath(),
+           let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath, cookieFile: cookieFileURL)
+        {
+            var updated = record
             updated.videoTitle = meta.title
             updated.channelName = meta.channelName
             updated.durationSeconds = meta.durationSeconds
             updated.thumbnailURL = meta.thumbnailURL
             updated.modified = Date()
             try? store.update(updated)
-            Self.postStateChanged(id: recordID, state: updated.state)
+            Self.postStateChanged(id: record.id, state: .queued)
         }
+
+        // Now start the actual download
+        do {
+            let ytdlp = try binaries.ytdlpPath()
+            let ffmpeg = try binaries.ffmpegPath()
+            NSLog("▶️ enqueue: url=\(url) ytdlp=\(ytdlp.path)")
+            let job = DownloadJob(
+                recordID: record.id, url: url, destination: dest,
+                ytdlp: ytdlp, ffmpeg: ffmpeg,
+                extraArgs: cookieArgsList
+            )
+            await queue.enqueue(job)
+        } catch {
+            log.error("enqueue start failed: \(error.localizedDescription)")
+            try? store.updateState(id: record.id, to: .failed)
+            Self.postStateChanged(id: record.id, state: .failed)
+        }
+    }
+
+    private func makeDestinationURL(for url: String) throws -> URL {
+        let configured = AppGroupSettings.defaults.string(forKey: "downloadDirectory") ?? ""
+        let outputDir: URL = {
+            if !configured.isEmpty {
+                return URL(fileURLWithPath: configured)
+            }
+            let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: "/tmp")
+            return downloads.appendingPathComponent("MacAllYouNeed", isDirectory: true)
+        }()
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        let template = AppGroupSettings.defaults.string(forKey: "downloadOutputTemplate")
+            ?? "%(title)s - %(uploader)s.%(ext)s"
+        return URL(fileURLWithPath: outputDir.path + "/" + template)
     }
 
     func prepareInterruptedDownloadsForRetry() async {
@@ -243,6 +274,7 @@ public extension Notification.Name {
     static let downloadProgress = Notification.Name("downloadProgress")
     static let downloadStateChanged = Notification.Name("downloadStateChanged")
     static let downloadPhase = Notification.Name("downloadPhase")
+    static let downloadDestinationPath = Notification.Name("downloadDestinationPath")
     static let cookieWarning = Notification.Name("cookieWarning")
     static let downloaderUpdateRequested = Notification.Name("downloaderUpdateRequested")
 }

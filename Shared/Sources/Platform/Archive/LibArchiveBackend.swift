@@ -13,7 +13,6 @@ public final class LibArchiveBackend: ArchiveBackend {
         guard r == ARCHIVE_OK else { throw NSError(domain: "LibArchive", code: Int(r)) }
 
         var entries: [ArchiveEntry] = []
-        var totalSize: Int64 = 0
         var entry: OpaquePointer?
         while archive_read_next_header(archive, &entry) == ARCHIVE_OK, let e = entry {
             try ArchiveSafety.checkEntryCount(entries.count + 1, limits: limits)
@@ -31,12 +30,8 @@ public final class LibArchiveBackend: ArchiveBackend {
             if isDir {
                 size = 0
             } else {
-                try ArchiveSafety.checkKnownSize(archive_entry_size_is_set(e) != 0)
-                size = archive_entry_size(e)
-                try ArchiveSafety.checkPerFileSize(size, limits: limits)
-                totalSize += size
+                size = archive_entry_size_is_set(e) != 0 ? archive_entry_size(e) : 0
             }
-            try ArchiveSafety.checkTotalUncompressed(totalSize, limits: limits)
             let mtime = Date(timeIntervalSince1970: TimeInterval(archive_entry_mtime(e)))
             entries.append(ArchiveEntry(path: cpath, isDirectory: isDir, uncompressedSize: size, modified: mtime))
             archive_read_data_skip(archive)

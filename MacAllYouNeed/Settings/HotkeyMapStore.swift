@@ -1,4 +1,5 @@
 import Core
+import Carbon.HIToolbox
 import Foundation
 import Platform
 
@@ -78,5 +79,40 @@ enum HotkeyMapStore {
         if let data = try? JSONEncoder().encode(dict) {
             defaults.set(data, forKey: key)
         }
+    }
+}
+
+struct HotkeyValidationIssue: Equatable {
+    let message: String
+}
+
+enum HotkeyValidation {
+    static func issue(
+        forVoiceShortcut descriptor: HotkeyDescriptor,
+        appHotkeys: [HotkeyAction: [HotkeyDescriptor]]
+    ) -> HotkeyValidationIssue? {
+        if isReservedForSystemUse(descriptor) {
+            return HotkeyValidationIssue(message: "This shortcut is reserved for system use.")
+        }
+
+        for action in HotkeyAction.allCases {
+            guard appHotkeys[action]?.contains(descriptor) == true else { continue }
+            return HotkeyValidationIssue(message: "This shortcut is already used by \(action.label).")
+        }
+
+        return nil
+    }
+
+    private static func isReservedForSystemUse(_ descriptor: HotkeyDescriptor) -> Bool {
+        if descriptor.modifiers.isEmpty {
+            return true
+        }
+
+        let commandOnly = descriptor.modifiers == [.command]
+        if commandOnly, [UInt32(kVK_Space), UInt32(kVK_Tab), UInt32(kVK_Escape)].contains(descriptor.keyCode) {
+            return true
+        }
+
+        return false
     }
 }

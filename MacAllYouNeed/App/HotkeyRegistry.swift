@@ -19,6 +19,11 @@ enum HotkeyRegistryError: LocalizedError {
 final class HotkeyRegistry {
     private var handles: [HotkeyAction: [GlobalHotkey]] = [:]
 
+    func unregisterAll() {
+        handles.values.flatMap { $0 }.forEach { $0.unregister() }
+        handles = [:]
+    }
+
     func apply(_ map: [HotkeyAction: [HotkeyDescriptor]], controller: AppController) throws {
         var seen: [HotkeyDescriptor: HotkeyAction] = [:]
         for (action, descriptors) in map {
@@ -51,7 +56,7 @@ final class HotkeyRegistry {
             throw HotkeyRegistryError.registrationFailed(failed, error)
         }
 
-        handles.values.flatMap { $0 }.forEach { $0.unregister() }
+        unregisterAll()
         handles = next
     }
 }

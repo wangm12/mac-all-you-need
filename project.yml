@@ -16,6 +16,9 @@ settings:
 packages:
   Shared:
     path: Shared
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio
+    exactVersion: 0.14.5
 
 targets:
 
@@ -28,9 +31,9 @@ targets:
       path: MacAllYouNeed/Info.plist
       properties:
         CFBundleName: MacAllYouNeed
-        LSUIElement: YES
         MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
         MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
+        NSMicrophoneUsageDescription: MacAllYouNeed needs microphone access for voice dictation.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app
@@ -42,6 +45,8 @@ targets:
         product: UI
       - package: Shared
         product: Platform
+      - package: FluidAudio
+        product: FluidAudio
       - target: ClipboardDaemon
         embed: false
         copy: false

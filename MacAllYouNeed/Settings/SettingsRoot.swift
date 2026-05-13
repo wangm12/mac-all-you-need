@@ -2,74 +2,265 @@ import Core
 import SwiftUI
 
 struct SettingsRoot: View {
-    private enum SettingsTab: String, Hashable {
-        case general
-        case clipboard
-        case downloads
-        case folderPreview
-        case sync
-        case hotkeys
-        case shortcuts
-        case privacy
-        case storage
-        case search
-        case appearance
-        case advanced
-    }
-
     let controller: AppController
-    @State private var shortcuts = ShortcutRegistry.shared
-    @AppStorage("settings.selectedTab", store: AppGroupSettings.defaults)
-    private var selectedTabRaw = SettingsTab.general.rawValue
 
     var body: some View {
-        TabView(selection: selectedTabBinding) {
-            GeneralSettingsView(controller: controller)
-                .tag(SettingsTab.general)
-                .tabItem { Label("General", systemImage: "gearshape") }
-            ClipboardSettingsView(controller: controller)
-                .tag(SettingsTab.clipboard)
-                .tabItem { Label("Clipboard", systemImage: "doc.on.clipboard") }
-            DownloadsSettingsView(controller: controller)
-                .tag(SettingsTab.downloads)
-                .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
-            FolderPreviewSettingsView(controller: controller)
-                .tag(SettingsTab.folderPreview)
-                .tabItem { Label("FolderPreview", systemImage: "folder") }
-            SyncSettingsView(controller: controller)
-                .tag(SettingsTab.sync)
-                .tabItem { Label("Sync", systemImage: "icloud") }
-            HotkeysSettingsView(controller: controller)
-                .tag(SettingsTab.hotkeys)
-                .tabItem { Label("Hotkeys", systemImage: "keyboard") }
-            ShortcutsSettingsView(registry: shortcuts)
-                .tag(SettingsTab.shortcuts)
-                .tabItem { Label("Shortcuts", systemImage: "command.square") }
-            PrivacySettingsView()
-                .tag(SettingsTab.privacy)
-                .tabItem { Label("Privacy", systemImage: "hand.raised") }
-            StorageSettingsView()
-                .tag(SettingsTab.storage)
-                .tabItem { Label("Storage", systemImage: "internaldrive") }
-            SearchSettingsView()
-                .tag(SettingsTab.search)
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }
-            AppearanceSettingsView(controller: controller)
-                .tag(SettingsTab.appearance)
-                .tabItem { Label("Appearance", systemImage: "paintbrush") }
-            AdvancedSettingsView(controller: controller)
-                .tag(SettingsTab.advanced)
-                .tabItem { Label("Advanced", systemImage: "wrench") }
+        SettingsContainer(
+            controller: controller,
+            style: .standalone,
+            groups: SettingsSidebarGroup.all,
+            fallback: .clipboard
+        )
+    }
+}
+
+struct EmbeddedSettingsView: View {
+    let controller: AppController
+
+    var body: some View {
+        SettingsContainer(
+            controller: controller,
+            style: .embedded,
+            groups: SettingsSidebarGroup.systemOnly,
+            fallback: .general
+        )
+    }
+}
+
+private enum SettingsContainerStyle {
+    case standalone
+    case embedded
+}
+
+private struct SettingsContainer: View {
+    let controller: AppController
+    let style: SettingsContainerStyle
+    let groups: [SettingsSidebarGroup]
+    let fallback: SettingsDestination
+    @State private var shortcuts = ShortcutRegistry.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("settings.selectedTab", store: AppGroupSettings.defaults)
+    private var selectedRaw = SettingsDestination.clipboard.rawValue
+    @State private var selected: SettingsDestination = .clipboard
+
+    var body: some View {
+        Group {
+            switch style {
+            case .standalone:
+                standaloneBody
+            case .embedded:
+                embeddedBody
+            }
         }
-        .frame(width: 600, height: 480)
-        .background(SettingsWindowConfig())
+        .onAppear {
+            selected = availableSelection(for: selectedRaw)
+            selectedRaw = selected.rawValue
+        }
+        .onChange(of: selectedRaw) { _, raw in
+            let destination = availableSelection(for: raw)
+            if selected != destination {
+                selected = destination
+            }
+        }
+        .onChange(of: selected) { _, destination in
+            selectedRaw = destination.rawValue
+        }
     }
 
-    private var selectedTabBinding: Binding<SettingsTab> {
-        Binding {
-            SettingsTab(rawValue: selectedTabRaw) ?? .general
-        } set: { tab in
-            selectedTabRaw = tab.rawValue
+    private var standaloneBody: some View {
+        MAYNSettingsShell {
+            SettingsSidebarList(selected: $selected, groups: groups)
+            .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 260)
+        } detail: {
+            SettingsDetailContent(
+                controller: controller,
+                shortcuts: shortcuts,
+                selected: selected
+            )
+                .id(selected)
+                .animation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion), value: selected)
+        }
+    }
+
+    private var embeddedBody: some View {
+        VStack(spacing: 0) {
+            EmbeddedSettingsHeader(
+                selected: $selected,
+                groups: groups,
+                title: "System",
+                subtitle: "Global app behavior, permissions, privacy, storage, and diagnostics."
+            )
+
+            Rectangle()
+                .fill(MAYNTheme.divider)
+                .frame(height: 1)
+
+            SettingsDetailContent(
+                controller: controller,
+                shortcuts: shortcuts,
+                selected: selected
+            )
+            .id(selected)
+            .animation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion), value: selected)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(MAYNTheme.window)
+    }
+
+    private func availableSelection(for raw: String?) -> SettingsDestination {
+        let destination = SettingsDestination.legacySelection(raw)
+        let available = groups.flatMap(\.destinations)
+        return available.contains(destination) ? destination : fallback
+    }
+}
+
+private struct SettingsSidebarList: View {
+    @Binding var selected: SettingsDestination
+    let groups: [SettingsSidebarGroup]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(groups) { group in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(group.title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.top, group.id == groups.first?.id ? 4 : 0)
+
+                        ForEach(group.destinations) { destination in
+                            SettingsSidebarButton(
+                                destination: destination,
+                                isSelected: selected == destination
+                            ) {
+                                selected = destination
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 18)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .background(MAYNTheme.panel)
+    }
+}
+
+private struct SettingsSidebarButton: View {
+    let destination: SettingsDestination
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Label(destination.title, systemImage: destination.symbolName)
+                .font(.callout)
+                .foregroundStyle(isSelected ? .primary : .secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(rowBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+
+    private var rowBackground: Color {
+        if isSelected { return Color.primary.opacity(0.14) }
+        if isHovering { return MAYNTheme.hover }
+        return .clear
+    }
+}
+
+private struct EmbeddedSettingsHeader: View {
+    @Binding var selected: SettingsDestination
+    let groups: [SettingsSidebarGroup]
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 22, weight: .semibold))
+                Text(subtitle)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Menu {
+                ForEach(groups) { group in
+                    Section(group.title) {
+                        ForEach(group.destinations) { destination in
+                            Button {
+                                selected = destination
+                            } label: {
+                                Label(destination.title, systemImage: destination.symbolName)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label(selected.title, systemImage: selected.symbolName)
+                    .font(.callout.weight(.medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                    )
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.horizontal, 32)
+        .padding(.top, 24)
+        .padding(.bottom, 16)
+        .background(MAYNTheme.window)
+    }
+}
+
+private struct SettingsDetailContent: View {
+    let controller: AppController
+    let shortcuts: ShortcutRegistry
+    let selected: SettingsDestination
+
+    var body: some View {
+        detailView
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selected {
+        case .clipboard:
+            ClipboardSettingsView(controller: controller)
+        case .voice:
+            VoiceSettingsView(controller: controller)
+        case .downloads:
+            DownloadsSettingsView(controller: controller)
+        case .folderPreview:
+            FolderPreviewSettingsView(controller: controller)
+        case .snippets:
+            ShortcutsSettingsView(registry: shortcuts)
+        case .hotkeys:
+            HotkeysSettingsView(controller: controller)
+        case .search:
+            SearchSettingsView()
+        case .permissions:
+            PermissionsSettingsView()
+        case .privacy:
+            PrivacySettingsView()
+        case .storage:
+            StorageSettingsView()
+        case .general:
+            GeneralSettingsView(controller: controller)
+        case .advanced:
+            AdvancedSettingsView(controller: controller)
         }
     }
 }

@@ -46,6 +46,17 @@ public enum ProgressParser {
         return Int64(bytes)
     }
 
+    /// Extracts the actual output file path from a "[download] Destination: /path" line.
+    /// Returns the path with any trailing ".part" suffix stripped (we want the final name).
+    public static func extractDestination(line: String) -> String? {
+        guard line.hasPrefix("[download]"), line.contains("Destination:") else { return nil }
+        let parts = line.components(separatedBy: "Destination: ")
+        guard parts.count > 1 else { return nil }
+        var path = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.hasSuffix(".part") { path = String(path.dropLast(5)) }
+        return path
+    }
+
     public static func detectPhase(line: String) -> String? {
         if line.hasPrefix("[download]") {
             if line.contains("Destination:") { return "Downloading..." }

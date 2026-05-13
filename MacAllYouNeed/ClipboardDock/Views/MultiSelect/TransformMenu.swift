@@ -20,8 +20,12 @@ struct TransformMenu: View {
             }
         }
         .padding(8)
-        .background(.regularMaterial)
+        .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+        )
     }
 
     private func label(for transform: TextTransform) -> String {

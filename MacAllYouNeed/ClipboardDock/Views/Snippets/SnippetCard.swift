@@ -45,7 +45,7 @@ struct SnippetCard: View {
         .cornerRadius(10)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(isFocused ? Color.accentColor : .clear, lineWidth: 2)
+                .stroke(isFocused ? MAYNTheme.focusRing : .clear, lineWidth: 2)
         )
         .onTapGesture {
             onPaste(NSEvent.modifierFlags.contains(.option))

@@ -40,8 +40,7 @@ struct ClipCard: View {
 }
 
 /// Paste-style header: kind label + relative timestamp on the left,
-/// source app icon on the right. Background is tinted with the average
-/// color of the source app's icon so the dock has visible per-app rhythm.
+/// source app icon on the right.
 private struct CardHeader: View {
     let item: DockItem
 
@@ -61,14 +60,7 @@ private struct CardHeader: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            ZStack {
-                Rectangle().fill(.ultraThinMaterial)
-                if let tint = headerTint {
-                    Rectangle().fill(tint.opacity(0.35))
-                }
-            }
-        }
+        .background(Color.primary.opacity(0.04))
     }
 
     @ViewBuilder
@@ -80,17 +72,6 @@ private struct CardHeader: View {
                 .clipShape(RoundedRectangle(cornerRadius: 7))
                 .help(app.displayName)
         }
-    }
-
-    /// Synchronous tint extraction — AppIconColor.dominant runs in <1ms on
-    /// a 32×32 bitmap and is cached by NSImage identity, so the colored
-    /// header appears on the FIRST render frame instead of after a brief
-    /// gray flash.
-    private var headerTint: Color? {
-        guard let icon = item.sourceApp?.icon,
-              let nsColor = AppIconColor.dominant(of: icon)
-        else { return nil }
-        return Color(nsColor)
     }
 
     private var kindLabel: String {

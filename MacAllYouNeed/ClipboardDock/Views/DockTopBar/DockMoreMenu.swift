@@ -1,3 +1,4 @@
+import AppKit
 import Core
 import SwiftUI
 
@@ -6,7 +7,6 @@ struct DockMoreMenu: View {
     /// window sits at `.popUpMenu` level which would otherwise cover the
     /// Settings window and make it look like nothing happened.
     let dismissDock: () -> Void
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Menu {
@@ -14,8 +14,7 @@ struct DockMoreMenu: View {
             // borderless nonactivating NSPanel are unreliable; clicks on
             // nested items frequently never reach the action closure.
             Button("Open Privacy Settings…") {
-                AppGroupSettings.defaults.set("privacy", forKey: "settings.selectedTab")
-                openSettingsAndDismiss()
+                openSettingsAndDismiss(.privacy)
             }
             Button("Pause Capture for 60s") {
                 NotificationCenter.default.post(name: .pauseCaptureRequested, object: nil)
@@ -36,8 +35,7 @@ struct DockMoreMenu: View {
             Divider()
 
             Button("Open Settings…") {
-                AppGroupSettings.defaults.set("general", forKey: "settings.selectedTab")
-                openSettingsAndDismiss()
+                openSettingsAndDismiss(.general)
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -51,12 +49,28 @@ struct DockMoreMenu: View {
         .frame(width: 28, height: 28)
     }
 
-    private func openSettingsAndDismiss() {
-        dismissDock()
-        // Activate the LSUIElement app and bring up the SwiftUI Settings
-        // scene. The dock has been dismissed so the Settings window won't be
-        // covered by our `.popUpMenu`-level panel.
-        NSApp.activate(ignoringOtherApps: true)
-        openSettings()
+    private func openSettingsAndDismiss(_ destination: SettingsDestination) {
+        DockSettingsNavigation.request(destination, dismissDock: dismissDock)
     }
+}
+
+enum DockSettingsNavigation {
+    static let settingsSelectionKey = "settings.selectedTab"
+
+    static func request(
+        _ destination: SettingsDestination,
+        defaults: UserDefaults = AppGroupSettings.defaults,
+        notificationCenter: NotificationCenter = .default,
+        dismissDock: () -> Void,
+        activateApp: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
+    ) {
+        defaults.set(destination.rawValue, forKey: settingsSelectionKey)
+        dismissDock()
+        activateApp()
+        notificationCenter.post(name: .mainWindowSettingsRequested, object: destination.rawValue)
+    }
+}
+
+extension Notification.Name {
+    static let mainWindowSettingsRequested = Notification.Name("mainWindowSettingsRequested")
 }

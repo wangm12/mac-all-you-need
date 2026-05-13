@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+exec codex \
+  --cd "$ROOT" \
+  -c 'mcp_servers.XcodeBuildMCP.command="npx"' \
+  -c 'mcp_servers.XcodeBuildMCP.args=["-y","xcodebuildmcp@latest","mcp"]' \
+  "$@"

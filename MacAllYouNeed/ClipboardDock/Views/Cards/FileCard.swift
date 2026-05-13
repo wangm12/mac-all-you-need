@@ -94,7 +94,7 @@ struct FileCard: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.92))
     }
 
     private func fallbackCount() -> Int {

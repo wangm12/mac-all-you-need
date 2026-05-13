@@ -2,6 +2,56 @@ import CryptoKit
 import Foundation
 import GRDB
 
+private enum ClipboardVoiceMigration {
+    static let sql = """
+        CREATE TABLE IF NOT EXISTS voice_transcripts (
+            id TEXT PRIMARY KEY NOT NULL,
+            started_at INTEGER NOT NULL,
+            ended_at INTEGER NOT NULL,
+            duration_ms INTEGER NOT NULL,
+            raw_text TEXT NOT NULL,
+            cleaned_text TEXT NOT NULL,
+            app_bundle_id TEXT,
+            language TEXT NOT NULL,
+            model_identifier TEXT NOT NULL,
+            audio_path TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_voice_transcripts_started_at
+            ON voice_transcripts(started_at DESC);
+
+        CREATE TABLE IF NOT EXISTS audio_archives (
+            id TEXT PRIMARY KEY NOT NULL,
+            transcript_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER,
+            FOREIGN KEY(transcript_id) REFERENCES voice_transcripts(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS voice_dictionary (
+            id TEXT PRIMARY KEY NOT NULL,
+            phrase TEXT NOT NULL,
+            replacement TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS app_profiles (
+            id TEXT PRIMARY KEY NOT NULL,
+            bundle_id TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        ALTER TABLE clipboard_records ADD COLUMN capture_origin TEXT;
+        ALTER TABLE clipboard_records ADD COLUMN voice_transcript_id TEXT;
+        CREATE INDEX IF NOT EXISTS idx_clipboard_records_capture_origin
+            ON clipboard_records(capture_origin);
+    """
+}
+
 public final class ClipboardStore {
     private let db: Database
     private let key: SymmetricKey
@@ -49,6 +99,9 @@ public final class ClipboardStore {
             try conn.execute(sql: """
                 ALTER TABLE clipboard_records ADD COLUMN custom_label TEXT;
             """)
+        },
+        Migration(identifier: "004-voice-schema") { conn in
+            try conn.execute(sql: ClipboardVoiceMigration.sql)
         }
     ]
 
@@ -102,7 +155,7 @@ public final class ClipboardStore {
             try Row.fetchAll(conn, sql: """
                 SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
                        frequency, last_accessed, custom_label
-                FROM clipboard_records ORDER BY modified DESC LIMIT ? OFFSET ?
+                FROM clipboard_records ORDER BY modified DESC, lamport DESC LIMIT ? OFFSET ?
             """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
         }
     }
@@ -228,7 +281,9 @@ public final class ClipboardStore {
             ("&ldquo;", "\u{201C}"), ("&rdquo;", "\u{201D}"),
             ("&lsquo;", "\u{2018}"), ("&rsquo;", "\u{2019}")
         ]
-        for (k, v) in entities { s = s.replacingOccurrences(of: k, with: v) }
+        for (entity, replacement) in entities {
+            s = s.replacingOccurrences(of: entity, with: replacement)
+        }
         // Collapse runs of whitespace (incl. newlines) to single spaces.
         s = s.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return s.trimmingCharacters(in: .whitespacesAndNewlines)

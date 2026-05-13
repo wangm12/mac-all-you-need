@@ -18,11 +18,11 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>LSUIElement</key>
-	<true/>
 	<key>MAYNKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)com.macallyouneed.shared</string>
 	<key>MAYNTeamIdentifier</key>
 	<string>$(DEVELOPMENT_TEAM)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MacAllYouNeed needs microphone access for voice dictation.</string>
 </dict>
 </plist>

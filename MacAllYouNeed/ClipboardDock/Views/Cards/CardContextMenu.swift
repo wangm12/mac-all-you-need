@@ -1,5 +1,6 @@
 import AppKit
 import Core
+import Platform
 import SwiftUI
 
 /// Right-click context menu attached to every clipboard card. Items reuse
@@ -19,6 +20,15 @@ struct CardContextMenu: View {
         }
         Button("Copy") {
             Task { await model.copyToClipboard(itemID: item.id) }
+        }
+
+        if let videoURL = URLDetector.videoBearingURL(in: item.preview) {
+            Divider()
+            Button {
+                NotificationCenter.default.post(name: .clipboardDownloadRequested, object: videoURL)
+            } label: {
+                Label("Download Video", systemImage: "arrow.down.circle")
+            }
         }
 
         Divider()

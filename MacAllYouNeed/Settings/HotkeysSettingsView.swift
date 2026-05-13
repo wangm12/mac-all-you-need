@@ -12,59 +12,75 @@ struct HotkeysSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            ForEach(HotkeyAction.allCases) { action in
-                let descriptors = map[action] ?? [action.defaultDescriptor]
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(action.label)
-                        Spacer()
-                        HotkeyRecorder(descriptor: binding(for: action, index: 0, defaultValue: action.defaultDescriptor))
-                            .frame(width: 100, height: 24)
-                        Button {
-                            var updated = descriptors
-                            guard updated.count < 3 else { return }
-                            updated.append(action.defaultDescriptor)
-                            map[action] = updated
-                        } label: {
-                            Image(systemName: "plus.circle")
+        MAYNSettingsPage(
+            title: "Hotkeys",
+            subtitle: "Set global keyboard triggers for app-wide commands."
+        ) {
+            MAYNSection(title: "Global triggers") {
+                ForEach(Array(HotkeyAction.allCases.enumerated()), id: \.element.id) { offset, action in
+                    let descriptors = map[action] ?? [action.defaultDescriptor]
+                    MAYNSettingsRow(
+                        title: action.label,
+                        subtitle: "Add up to three trigger combinations.",
+                        minHeight: descriptors.count > 1 ? 46 + CGFloat(descriptors.count - 1) * 32 : 46
+                    ) {
+                        VStack(alignment: .trailing, spacing: 8) {
+                            HStack(spacing: 8) {
+                                HotkeyRecorder(descriptor: binding(for: action, index: 0, defaultValue: action.defaultDescriptor))
+                                    .frame(width: 100, height: 24)
+                                Button {
+                                    var updated = descriptors
+                                    guard updated.count < 3 else { return }
+                                    updated.append(action.defaultDescriptor)
+                                    map[action] = updated
+                                } label: {
+                                    Image(systemName: "plus.circle")
+                                }
+                                .buttonStyle(.plain)
+                                .help("Add another trigger")
+                            }
+
+                            ForEach(Array(descriptors.dropFirst().enumerated()), id: \.offset) { offset, _ in
+                                let index = offset + 1
+                                HStack(spacing: 8) {
+                                    HotkeyRecorder(descriptor: binding(for: action, index: index, defaultValue: action.defaultDescriptor))
+                                        .frame(width: 100, height: 24)
+                                    Button {
+                                        var updated = descriptors
+                                        updated.remove(at: index)
+                                        map[action] = updated
+                                    } label: {
+                                        Image(systemName: "delete.left")
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Remove trigger")
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .help("Add another trigger")
                     }
 
-                    ForEach(Array(descriptors.dropFirst().enumerated()), id: \.offset) { offset, _ in
-                        let index = offset + 1
-                        HStack {
-                            Spacer()
-                            HotkeyRecorder(descriptor: binding(for: action, index: index, defaultValue: action.defaultDescriptor))
-                                .frame(width: 100, height: 24)
-                            Button {
-                                var updated = descriptors
-                                updated.remove(at: index)
-                                map[action] = updated
-                            } label: {
-                                Image(systemName: "delete.left")
-                            }
-                            .buttonStyle(.plain)
-                            .help("Remove trigger")
-                        }
+                    if offset != HotkeyAction.allCases.count - 1 {
+                        MAYNDivider()
                     }
                 }
             }
 
-            HStack {
-                Spacer()
-                Button("Apply") { apply() }
-            }
+            MAYNSection(title: "Changes") {
+                MAYNSettingsRow(
+                    title: "Apply hotkeys",
+                    subtitle: "Validate conflicts, save the map, and register the new shortcuts."
+                ) {
+                    Button("Apply") { apply() }
+                }
 
-            if let errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-                    .font(.caption)
+                if let errorMessage {
+                    MAYNDivider()
+                    MAYNSettingsRow(title: "Validation error") {
+                        StatusPill(text: errorMessage, kind: .danger)
+                    }
+                }
             }
         }
-        .padding()
     }
 
     private func binding(for action: HotkeyAction, index: Int, defaultValue: HotkeyDescriptor) -> Binding<HotkeyDescriptor> {

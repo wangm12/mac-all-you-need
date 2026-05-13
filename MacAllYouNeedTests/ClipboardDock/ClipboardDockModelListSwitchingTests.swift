@@ -1,6 +1,6 @@
-@testable import MacAllYouNeed
 import Core
 import CryptoKit
+@testable import MacAllYouNeed
 import XCTest
 
 @MainActor
@@ -11,7 +11,7 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
         var nilQueryResults: [ClipboardXPCMeta] = []
         var metasByIDsResults: [ClipboardXPCMeta] = []
 
-        func listItems(query: String?, pageToken: String?, limit: Int) async -> ClipboardXPCList {
+        func listItems(query: String?, pageToken _: String?, limit _: Int) async -> ClipboardXPCList {
             lastQuery = query
             if let query {
                 return ClipboardXPCList(items: resultsByQuery[query] ?? [], nextPageToken: nil)
@@ -19,19 +19,45 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
             return ClipboardXPCList(items: nilQueryResults, nextPageToken: nil)
         }
 
-        func metasByIDs(ids: [String]) async -> ClipboardXPCList {
+        func metasByIDs(ids _: [String]) async -> ClipboardXPCList {
             ClipboardXPCList(items: metasByIDsResults, nextPageToken: nil)
         }
 
-        func bodyText(forID id: String) async -> String? { nil }
-        func bodyFileURLs(forID id: String) async -> [String]? { nil }
-        func paste(itemID: String, plainText: Bool) async -> String { "injected" }
-        func pasteMany(itemIDs: [String], delimiter: String, plainText: Bool) async -> String { "injected" }
-        func pasteText(text: String, plainText: Bool, saveAsNew: Bool) async -> String { "injected" }
-        func transformAndCopy(itemID: String, transform: String, saveAsNew: Bool) async -> String? { nil }
-        func imageThumbnail(forID id: String, maxDim: Int) async -> Data? { nil }
-        func listSnippets() async -> [SnippetXPCDTO] { [] }
-        func deleteItem(id: String) async -> Bool { false }
+        func bodyText(forID _: String) async -> String? {
+            nil
+        }
+
+        func bodyFileURLs(forID _: String) async -> [String]? {
+            nil
+        }
+
+        func paste(itemID _: String, plainText _: Bool) async -> String {
+            "injected"
+        }
+
+        func pasteMany(itemIDs _: [String], delimiter _: String, plainText _: Bool) async -> String {
+            "injected"
+        }
+
+        func pasteText(text _: String, plainText _: Bool, saveAsNew _: Bool) async -> String {
+            "injected"
+        }
+
+        func transformAndCopy(itemID _: String, transform _: String, saveAsNew _: Bool) async -> String? {
+            nil
+        }
+
+        func imageThumbnail(forID _: String, maxDim _: Int) async -> Data? {
+            nil
+        }
+
+        func listSnippets() async -> [SnippetXPCDTO] {
+            []
+        }
+
+        func deleteItem(id _: String) async -> Bool {
+            false
+        }
     }
 
     private var dir: URL!
@@ -78,7 +104,8 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
         XCTAssertEqual(model.activeList, .history)
     }
 
-    func testSwitchingListClearsSearchAndResetsFocus() async {
+    func testSwitchingListClearsSearchAndResetsFocus() async throws {
+        let pinned = try PinnedPinboard.findOrCreate(in: pinboards)
         mock.nilQueryResults = [
             ClipboardXPCMeta(id: RecordID.generate().rawValue, modified: Date(), kind: "clipboardItem", preview: "x")
         ]
@@ -87,9 +114,9 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
         model.search = "needle"
         model.focusedIndex = 5
 
-        await model.switchList(.pinned)
+        await model.switchList(.pinboard(pinned.id))
 
-        XCTAssertEqual(model.activeList, .pinned)
+        XCTAssertEqual(model.activeList, .pinboard(pinned.id))
         XCTAssertEqual(model.search, "")
         XCTAssertEqual(model.focusedIndex, 0)
     }
@@ -116,17 +143,17 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
         await model.togglePin(itemID: id.rawValue)
         await model.togglePin(itemID: id.rawValue)
 
-        let pinned = try XCTUnwrap(try pinboards.list().first(where: { $0.name == PinnedPinboard.reservedName }))
+        let pinned = try XCTUnwrap(try pinboards.list().first(where: { $0.name == PinnedPinboard.displayName }))
         XCTAssertFalse(pinned.itemIDs.contains(id))
     }
 
-    func testAvailableListsExcludesReservedPinned() async throws {
+    func testAvailableListsIncludesPinnedPinboard() async throws {
         _ = try PinnedPinboard.findOrCreate(in: pinboards)
         _ = try pinboards.create(name: "Useful")
 
         await model.loadAvailableLists()
 
-        XCTAssertEqual(model.availableLists.map(\.name), ["Useful"])
+        XCTAssertEqual(model.availableLists.map(\.name), [PinnedPinboard.displayName, "Useful"])
     }
 
     func testSnippetsListLoadsWhenActiveListIsSnippets() async throws {

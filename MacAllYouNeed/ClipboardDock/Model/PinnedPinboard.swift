@@ -12,8 +12,9 @@ import Foundation
 enum PinnedPinboard {
     /// Display name used after migration. New installs create with this name.
     static let displayName = "Pinned"
-    /// Color hex applied so the dot in the tab bar reads as a pin marker.
-    static let displayColor = "#FF3B30"
+    /// Neutral color used so the default Pinned tab does not inherit a
+    /// user/system accent color.
+    static let displayColor = "#8E8E93"
     /// Legacy reserved-name for the old hidden Pinned list. Migrated forward
     /// in `findOrCreate` so existing users keep their pinned items.
     private static let legacyReservedName = "__pinned__"

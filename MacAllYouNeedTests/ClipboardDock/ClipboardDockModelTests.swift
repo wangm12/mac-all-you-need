@@ -69,6 +69,15 @@ final class ClipboardDockModelTests: XCTestCase {
         )
     }
 
+    private func closeVisibleDockWindows() {
+        NSApp.windows
+            .compactMap { $0 as? BottomDockWindow }
+            .forEach { window in
+                window.orderOut(nil)
+                window.close()
+            }
+    }
+
     func testRefreshLoadsItemsFromXPC() async {
         let mock = MockClient()
         mock.listResults = [
@@ -79,6 +88,35 @@ final class ClipboardDockModelTests: XCTestCase {
         await model.refresh()
         XCTAssertEqual(model.items.count, 2)
         XCTAssertEqual(model.items.first?.preview, "alpha")
+    }
+
+    func testDockWindowShowReusesVisiblePanel() {
+        closeVisibleDockWindows()
+        let mock = MockClient()
+        let controller = DockWindowController(
+            model: makeModel(mock),
+            pasteCoordinator: DockPasteCoordinator(xpc: mock),
+            favicons: FaviconCache(),
+            registry: ShortcutRegistry()
+        )
+        let frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+        let panel = BottomDockWindow(contentRect: frame)
+        panel.contentView = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        panel.orderFrontRegardless()
+        controller.debugSetWindowForTesting(panel)
+        defer {
+            controller.debugTearDownForTesting()
+            closeVisibleDockWindows()
+        }
+
+        controller.show()
+
+        let visibleDockWindows = NSApp.windows
+            .compactMap { $0 as? BottomDockWindow }
+            .filter(\.isVisible)
+        XCTAssertEqual(visibleDockWindows.count, 1)
+        XCTAssertTrue(controller.debugWindowForTesting === panel)
+        XCTAssertTrue(visibleDockWindows.first === panel)
     }
 
     func testFocusedIndexResetsToZeroAfterRefresh() async {

@@ -1,0 +1,1043 @@
+import AppKit
+import ApplicationServices
+import AVFAudio
+import AVFoundation
+import Core
+import FluidAudio
+import Platform
+import SwiftUI
+
+// swiftlint:disable file_length
+struct VoiceOnboardingWizardView: View {
+    let controller: AppController
+    @State private var step: VoiceOnboardingStep
+    @State private var tryItSucceeded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(controller: AppController) {
+        self.controller = controller
+        let progress = VoiceOnboardingProgressStore.load()
+        _step = State(initialValue: progress.isCompleted ? .welcome : progress.currentStep)
+    }
+
+    var body: some View {
+        SetupWizardShell(
+            title: "Voice Setup",
+            subtitle: "Dictation workflow",
+            steps: stepDescriptors,
+            currentStep: step,
+            canGoBack: step.previous != nil,
+            canSkip: canSkipCurrentStep,
+            primaryTitle: primaryTitle,
+            canAdvance: canAdvanceCurrentStep,
+            back: { move(to: step.previous ?? step) },
+            skip: skipCurrentStep,
+            primaryAction: step == .done ? finish : advance
+        ) {
+            currentStepView
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .trailing)))
+        }
+        .frame(width: 860, height: 640)
+        .onAppear { VoiceOnboardingProgressStore.saveStep(step) }
+    }
+
+    @ViewBuilder
+    private var currentStepView: some View {
+        switch step {
+        case .welcome:
+            VoiceWelcomeStepView()
+        case .microphone:
+            VoiceMicrophoneStepView(autoAdvance: { move(to: .accessibility) })
+        case .accessibility:
+            VoiceAccessibilityStepView(autoAdvance: { move(to: .asr) })
+        case .asr:
+            VoiceASRStepView()
+        case .llm:
+            VoiceLLMStepView(controller: controller)
+        case .hotkey:
+            VoiceHotkeyStepView(controller: controller)
+        case .languages:
+            VoiceLanguagesStepView()
+        case .tryIt:
+            VoiceTryItStepView(controller: controller) {
+                tryItSucceeded = true
+            }
+        case .done:
+            VoiceDoneStepView()
+        }
+    }
+
+    private var canSkipCurrentStep: Bool {
+        step.canSkip
+    }
+
+    private var canAdvanceCurrentStep: Bool {
+        step != .tryIt || tryItSucceeded
+    }
+
+    private var primaryTitle: String {
+        switch step {
+        case .welcome:
+            "Get Started"
+        case .done:
+            "Done"
+        case .microphone, .accessibility, .asr, .llm, .hotkey, .languages, .tryIt:
+            "Continue"
+        }
+    }
+
+    private var stepDescriptors: [SetupStepDescriptor<VoiceOnboardingStep>] {
+        let currentIndex = VoiceOnboardingStep.orderedCases.firstIndex(of: step) ?? 0
+        return VoiceOnboardingStep.orderedCases.enumerated().map { index, candidate in
+            SetupStepDescriptor(
+                id: candidate,
+                title: candidate.title,
+                subtitle: candidate.setupSubtitle,
+                symbol: candidate.setupSymbol,
+                isCompleted: index < currentIndex
+            )
+        }
+    }
+
+    private func advance() {
+        guard let next = step.next else {
+            finish()
+            return
+        }
+        move(to: next)
+    }
+
+    private func skipCurrentStep() {
+        if step == .llm {
+            controller.disableVoiceCleanup()
+        }
+        advance()
+    }
+
+    private func move(to newStep: VoiceOnboardingStep) {
+        if reduceMotion {
+            step = newStep
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                step = newStep
+            }
+        }
+        VoiceOnboardingProgressStore.saveStep(newStep)
+    }
+
+    private func finish() {
+        VoiceOnboardingProgressStore.markCompleted()
+        controller.closeVoiceOnboarding()
+        controller.showMainWindowIfReady()
+    }
+}
+
+private extension VoiceOnboardingStep {
+    var setupSubtitle: String {
+        switch self {
+        case .welcome:
+            "Overview"
+        case .microphone:
+            "Capture audio"
+        case .accessibility:
+            "Paste anywhere"
+        case .asr:
+            "Local engine"
+        case .llm:
+            "Cleanup"
+        case .hotkey:
+            "Activation"
+        case .languages:
+            "Recognition bias"
+        case .tryIt:
+            "Confirm"
+        case .done:
+            "Finish"
+        }
+    }
+
+    var setupSymbol: String {
+        switch self {
+        case .welcome:
+            "mic.badge.plus"
+        case .microphone:
+            "mic"
+        case .accessibility:
+            "accessibility"
+        case .asr:
+            "waveform"
+        case .llm:
+            "text.bubble"
+        case .hotkey:
+            "keyboard"
+        case .languages:
+            "globe"
+        case .tryIt:
+            "square.and.pencil"
+        case .done:
+            "checkmark"
+        }
+    }
+}
+
+private struct VoiceWelcomeStepView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let phrases = [
+        "Write emails 5x faster",
+        "用中英文混合 dictate",
+        "Translate as you speak",
+        "Polish your writing automatically"
+    ]
+    @State private var phraseIndex = 0
+    private let timer = Timer.publish(every: 2.1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        SetupTaskPage(
+            symbol: "mic.badge.plus",
+            title: phrases[phraseIndex],
+            subtitle: "Press a shortcut, speak naturally, and paste polished text into any Mac app."
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Local ASR keeps audio on this Mac by default.", systemImage: "lock")
+                Label("Mixed Chinese and English dictation is supported.", systemImage: "globe")
+                Label("Cleanup can be local or provider-based, depending on your settings.", systemImage: "text.bubble")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+            )
+            .id(phraseIndex)
+            .transition(.opacity)
+        }
+        .onReceive(timer) { _ in
+            if reduceMotion {
+                phraseIndex = (phraseIndex + 1) % phrases.count
+            } else {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    phraseIndex = (phraseIndex + 1) % phrases.count
+                }
+            }
+        }
+    }
+}
+
+private struct VoiceMicrophoneStepView: View {
+    let autoAdvance: () -> Void
+    @State private var permission = AVCaptureDevice.authorizationStatus(for: .audio)
+    @State private var audio = AudioCaptureService()
+    @State private var isCapturing = false
+    @State private var visualLevel = 0.0
+    @State private var audioDetectedAt: Date?
+    @State private var didAutoAdvance = false
+    @State private var statusMessage = "macOS will ask for permission when you continue."
+    private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        SetupTaskPage(
+            symbol: "mic",
+            title: "Allow microphone access",
+            subtitle: "Voice dictation needs microphone access to capture audio locally before transcription."
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                PermissionCard(
+                    title: "Microphone",
+                    reason: "macOS will ask once. After access is granted, speak briefly to confirm input level.",
+                    state: permissionCardState,
+                    actionTitle: permission == .authorized ? "Microphone granted" : "Request access",
+                    action: requestPermission
+                )
+                InstructionStrip(
+                    text: permission == .authorized
+                        ? "Speak for a moment so setup can confirm input level."
+                        : "Choose Allow in the macOS microphone prompt.",
+                    symbol: permission == .authorized ? "waveform" : "mic.badge.plus"
+                )
+                if permission == .authorized {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ProgressView(value: visualLevel, total: 1)
+                        Text("This step advances automatically after audio is detected.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(12)
+                    .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                    )
+                }
+                Button("Open Microphone Settings") {
+                    openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+                }
+                .buttonStyle(.link)
+                permissionLabel
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onAppear {
+            if permission == .authorized {
+                startCapture()
+            }
+        }
+        .onDisappear {
+            stopCapture()
+        }
+        .onReceive(timer) { _ in
+            updateAudioDetection()
+        }
+    }
+
+    private var permissionCardState: PermissionCard.StateKind {
+        switch permission {
+        case .authorized:
+            .granted
+        case .denied, .restricted:
+            .denied
+        case .notDetermined:
+            .needed
+        @unknown default:
+            .needed
+        }
+    }
+
+    @ViewBuilder
+    private var permissionLabel: some View {
+        switch permission {
+        case .authorized:
+            Label("Granted", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.primary)
+        case .denied, .restricted:
+            Label("Permission is blocked. Enable it in System Settings.", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.secondary)
+        case .notDetermined:
+            Text("Waiting for permission.")
+                .foregroundStyle(.secondary)
+        @unknown default:
+            Text("Unknown microphone permission state.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func requestPermission() {
+        Task {
+            let granted = await Self.requestRecordPermission()
+            permission = granted ? .authorized : .denied
+            statusMessage = granted
+                ? "Microphone granted. Starting live level check..."
+                : "Microphone access was denied."
+            if granted {
+                startCapture()
+            }
+        }
+    }
+
+    private func startCapture() {
+        guard !isCapturing else { return }
+        do {
+            try audio.start()
+            isCapturing = true
+            statusMessage = "Listening for input level..."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    private func stopCapture() {
+        _ = audio.stop()
+        isCapturing = false
+        audioDetectedAt = nil
+    }
+
+    private func updateAudioDetection() {
+        guard permission == .authorized, isCapturing, !didAutoAdvance else { return }
+        let peak = Double(audio.peakLevel)
+        visualLevel = min(max(peak * 4, 0), 1)
+        guard peak > 0.02 else { return }
+
+        let now = Date()
+        if audioDetectedAt == nil {
+            audioDetectedAt = now
+            statusMessage = "Audio detected. Keep speaking briefly..."
+        }
+        guard let audioDetectedAt,
+              now.timeIntervalSince(audioDetectedAt) >= 1.5
+        else {
+            return
+        }
+        didAutoAdvance = true
+        stopCapture()
+        autoAdvance()
+    }
+
+    private static func requestRecordPermission() async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVAudioApplication.requestRecordPermission { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+    }
+}
+
+private struct VoiceAccessibilityStepView: View {
+    let autoAdvance: () -> Void
+    @State private var granted = AXIsProcessTrusted()
+    private let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        SetupTaskPage(
+            symbol: "accessibility",
+            title: "Type into any app",
+            subtitle: "Accessibility lets Mac All You Need paste dictated text into Cursor, Notes, browsers, and other apps."
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                PermissionCard(
+                    title: "Accessibility",
+                    reason: "Required so voice output can be inserted into the currently focused app.",
+                    state: granted ? .granted : .needed,
+                    actionTitle: "Open System Settings"
+                ) {
+                    _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+                    openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                }
+                InstructionStrip(
+                    text: "Enable Accessibility for Mac All You Need, then return here.",
+                    symbol: "switch.2"
+                )
+                if granted {
+                    StatusPill(text: "Ready to paste dictated text", kind: .neutral)
+                } else {
+                    Text("This step advances automatically once macOS reports the permission as granted.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .onReceive(timer) { _ in
+            let nowGranted = AXIsProcessTrusted()
+            if nowGranted, !granted {
+                granted = true
+                autoAdvance()
+            } else {
+                granted = nowGranted
+            }
+        }
+    }
+}
+
+private struct VoiceASRStepView: View {
+    @State private var selectedModelID = "qwen3-asr-0.6b-f32"
+    @State private var isPreparing = false
+    @State private var downloadFraction: Double?
+    @State private var showsMoreOptions = false
+    @State private var statusMessage = "Qwen3-ASR is the active local engine for this MVP."
+
+    private let primaryOptions: [VoiceASROption] = [
+        VoiceASROption(id: "qwen3-asr-0.6b-f32", title: "Qwen3-ASR-0.6B", subtitle: "Recommended, zh+en mixed", available: true),
+        VoiceASROption(id: "parakeet-tdt-v3", title: "Parakeet TDT v3", subtitle: "Streaming engine, planned for 8d", available: false),
+        VoiceASROption(id: "sensevoice-small", title: "SenseVoice Small", subtitle: "Lightweight engine, planned for 8d", available: false)
+    ]
+    private let moreOptions: [VoiceASROption] = [
+        VoiceASROption(
+            id: "whisper-large-v3-turbo",
+            title: "Whisper large-v3 turbo",
+            subtitle: "Large multilingual model, planned for 8d",
+            available: false
+        ),
+        VoiceASROption(id: "soniox", title: "Soniox", subtitle: "Cloud BYOK, planned for 8d", available: false)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Choose speech recognition")
+                .font(.title)
+                .bold()
+            Text("Audio stays local by default. Future engines are visible here so the setup matches the v1 catalog.")
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                ForEach(primaryOptions) { option in
+                    optionButton(option)
+                }
+            }
+            DisclosureGroup("More options", isExpanded: $showsMoreOptions) {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(moreOptions) { option in
+                        optionButton(option)
+                    }
+                }
+            }
+            HStack {
+                Button(isPreparing ? "Preparing..." : "Prepare Qwen3 model") { prepareDefaultModel() }
+                    .disabled(isPreparing)
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let downloadFraction {
+                ProgressView(value: downloadFraction)
+            }
+            Spacer()
+        }
+    }
+
+    private func optionButton(_ option: VoiceASROption) -> some View {
+        Button {
+            guard option.available else { return }
+            selectedModelID = option.id
+            prepareDefaultModel()
+        } label: {
+            VoiceASROptionView(option: option, isSelected: selectedModelID == option.id)
+        }
+        .buttonStyle(.plain)
+        .disabled(!option.available)
+    }
+
+    private func prepareDefaultModel() {
+        guard #available(macOS 15, *) else {
+            statusMessage = "Qwen3-ASR preparation requires macOS 15 or later."
+            return
+        }
+        guard !isPreparing else { return }
+        isPreparing = true
+        downloadFraction = 0
+        statusMessage = "Downloading or verifying Qwen3-ASR in the local model cache..."
+        Task {
+            do {
+                _ = try await Qwen3AsrModels.download(variant: .f32) { progress in
+                    Task { @MainActor in
+                        downloadFraction = progress.fractionCompleted
+                        statusMessage = Self.describe(progress)
+                    }
+                }
+                await MainActor.run {
+                    statusMessage = "Qwen3-ASR model is ready."
+                    downloadFraction = 1
+                    isPreparing = false
+                }
+            } catch {
+                await MainActor.run {
+                    statusMessage = error.localizedDescription
+                    downloadFraction = nil
+                    isPreparing = false
+                }
+            }
+        }
+    }
+
+    private static func describe(_ progress: DownloadUtils.DownloadProgress) -> String {
+        switch progress.phase {
+        case .listing:
+            "Listing Qwen3-ASR model files..."
+        case let .downloading(completedFiles, totalFiles):
+            "Downloading Qwen3-ASR model files \(completedFiles)/\(totalFiles)..."
+        case let .compiling(modelName):
+            "Compiling \(modelName)..."
+        }
+    }
+}
+
+private struct VoiceASROption: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let available: Bool
+}
+
+private struct VoiceASROptionView: View {
+    let option: VoiceASROption
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(option.title)
+                    .font(.headline)
+                Spacer()
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+            Text(option.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !option.available {
+                Text("Coming in multi-engine phase")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.primary.opacity(0.45) : Color.secondary.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .opacity(option.available ? 1 : 0.55)
+    }
+}
+
+private struct VoiceLLMStepView: View {
+    let controller: AppController
+    @State private var cleanupEnabled: Bool
+    @State private var provider: VoiceCleanupProviderKind
+    @State private var model: String
+    @State private var baseURLString: String
+    @State private var apiKey: String
+    @State private var timeoutSeconds: Int
+    @State private var statusMessage: String?
+    @State private var isTesting = false
+
+    init(controller: AppController) {
+        self.controller = controller
+        let settings = controller.voiceCleanupSettings()
+        _cleanupEnabled = State(initialValue: settings.isEnabled)
+        _provider = State(initialValue: settings.provider)
+        _model = State(initialValue: settings.model)
+        _baseURLString = State(initialValue: settings.baseURLString)
+        _apiKey = State(initialValue: controller.voiceCleanupAPIKey(for: settings.provider))
+        _timeoutSeconds = State(initialValue: settings.timeoutSeconds)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("AI cleanup")
+                .font(.title)
+                .bold()
+            Text("This step is optional. Local filler cleanup and your dictionary still work when AI cleanup is off.")
+                .foregroundStyle(.secondary)
+            Text("Cloud cleanup sends transcript text to the provider you choose. Audio stays local.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Toggle("Enable AI cleanup", isOn: $cleanupEnabled)
+            HStack(spacing: 10) {
+                ForEach(VoiceCleanupProviderKind.allCases) { kind in
+                    Button {
+                        provider = kind
+                    } label: {
+                        VoiceCleanupProviderCard(
+                            provider: kind,
+                            isSelected: provider == kind
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            TextField("Model", text: $model)
+            TextField("Base URL", text: $baseURLString)
+            SecureField("API key", text: $apiKey)
+            Stepper("Timeout: \(timeoutSeconds)s", value: $timeoutSeconds, in: 1 ... 30)
+            HStack {
+                Button(isTesting ? "Testing..." : "Test") { testSettings() }
+                    .disabled(isTesting)
+                Button("Apply") { applySettings() }
+                Button("Skip AI cleanup") {
+                    cleanupEnabled = false
+                    controller.disableVoiceCleanup()
+                    statusMessage = "AI cleanup disabled. Local cleanup remains active."
+                }
+            }
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .onChange(of: provider) { _, nextProvider in
+            model = nextProvider.defaultModel
+            baseURLString = nextProvider.defaultBaseURLString
+            apiKey = controller.voiceCleanupAPIKey(for: nextProvider)
+        }
+    }
+
+    private var draft: VoiceCleanupSettings {
+        VoiceCleanupSettings(
+            isEnabled: cleanupEnabled,
+            provider: provider,
+            model: model,
+            baseURLString: baseURLString,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+
+    private func testSettings() {
+        isTesting = true
+        statusMessage = "Sending provider ping..."
+        Task {
+            let message = await controller.testVoiceCleanupSettings(draft, apiKey: apiKey)
+            await MainActor.run {
+                statusMessage = message
+                isTesting = false
+            }
+        }
+    }
+
+    private func applySettings() {
+        do {
+            try controller.applyVoiceCleanupSettings(draft, apiKey: apiKey)
+            statusMessage = "Cleanup settings saved."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct VoiceCleanupProviderCard: View {
+    let provider: VoiceCleanupProviderKind
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                    .font(.headline)
+                Spacer()
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.primary.opacity(0.45) : Color.secondary.opacity(0.25), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var title: String {
+        switch provider {
+        case .anthropic:
+            "Claude Haiku 4.5"
+        case .openAICompatible:
+            "OpenAI gpt-5-nano"
+        case .ollama:
+            "Ollama"
+        }
+    }
+
+    private var subtitle: String {
+        switch provider {
+        case .anthropic:
+            "Recommended cloud cleanup"
+        case .openAICompatible:
+            "OpenAI-compatible endpoint"
+        case .ollama:
+            "Local cleanup provider"
+        }
+    }
+}
+
+private struct VoiceHotkeyStepView: View {
+    let controller: AppController
+    @State private var shortcut: HotkeyDescriptor
+    @State private var mode: VoiceActivationMode
+    @State private var hybridThresholdMs = 500.0
+    @State private var statusMessage: String?
+    @State private var showsHUDPreview = false
+
+    init(controller: AppController) {
+        self.controller = controller
+        let settings = VoiceActivationSettingsStore.load()
+        _shortcut = State(initialValue: settings.shortcut)
+        _mode = State(initialValue: settings.mode)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Set your voice shortcut")
+                .font(.title)
+                .bold()
+            Text(
+                "Default is \(VoiceActivationSettings.default.shortcut.display). "
+                    + "Fn / Globe is optional because it can conflict with input switching."
+            )
+            .foregroundStyle(.secondary)
+            VoiceKeyboardPreview(shortcutDisplay: shortcut.display)
+            HStack {
+                Text("Shortcut")
+                Spacer()
+                HotkeyRecorder(descriptor: $shortcut)
+                    .frame(width: 140, height: 26)
+            }
+            VoiceActivationModePicker(mode: $mode)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Hybrid threshold")
+                    Slider(value: $hybridThresholdMs, in: 200 ... 1200, step: 50)
+                    Text("\(Int(hybridThresholdMs))ms")
+                        .monospacedDigit()
+                }
+                .disabled(true)
+                Text("Hybrid and Auto-VAD are visible here for the v1 setup catalog; runtime support lands in the multi-engine phase.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Apply shortcut") { apply() }
+                Button("Test now") {
+                    showsHUDPreview = true
+                    statusMessage = "HUD preview only. Recording will not start from this button."
+                }
+            }
+            if showsHUDPreview {
+                VoiceHUDPreview()
+            }
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+
+    private func apply() {
+        do {
+            try controller.applyVoiceActivationSettings(VoiceActivationSettings(shortcut: shortcut, mode: mode))
+            statusMessage = "Voice shortcut saved."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct VoiceKeyboardPreview: View {
+    let shortcutDisplay: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(["⌃", "⌥", "Space"], id: \.self) { key in
+                Text(key)
+                    .font(.headline)
+                    .frame(width: key == "Space" ? 120 : 42, height: 34)
+                    .background(Color.primary.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.primary.opacity(0.30), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            Text(shortcutDisplay)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 8)
+        }
+    }
+}
+
+private struct VoiceActivationModePicker: View {
+    @Binding var mode: VoiceActivationMode
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Activation mode")
+                .font(.headline)
+            Picker("Activation mode", selection: $mode) {
+                Text("Toggle (MVP default)").tag(VoiceActivationMode.toggle)
+                Text("PTT / Hold to talk").tag(VoiceActivationMode.hold)
+            }
+            .pickerStyle(.radioGroup)
+            HStack(spacing: 10) {
+                Label("Hybrid", systemImage: "clock")
+                Label("Auto-VAD", systemImage: "waveform")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct VoiceHUDPreview: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "mic.fill")
+                .foregroundStyle(.primary)
+            Text("Listening")
+                .font(.headline)
+            ProgressView(value: 0.55)
+                .frame(width: 140)
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct VoiceLanguagesStepView: View {
+    @State private var selected: Set<VoiceOnboardingLanguage>
+    @State private var autoDetectEverything: Bool
+    @State private var statusMessage: String?
+
+    init() {
+        let selection = VoiceOnboardingProgressStore.loadLanguageSelection()
+        _selected = State(initialValue: Set(selection.selectedLanguages))
+        _autoDetectEverything = State(initialValue: selection.autoDetectEverything)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Pick languages")
+                .font(.title)
+                .bold()
+            Text("Use Auto for mixed Chinese and English. Single-language choices bias the current Qwen3-ASR engine.")
+                .foregroundStyle(.secondary)
+            Toggle("Auto-detect everything", isOn: $autoDetectEverything)
+                .onChange(of: autoDetectEverything) { _, _ in save() }
+            ForEach(VoiceOnboardingLanguage.allCases) { language in
+                Toggle(language.label, isOn: binding(for: language))
+                    .disabled(autoDetectEverything)
+                    .opacity(autoDetectEverything ? 0.55 : 1)
+            }
+            HStack {
+                Button("Apply languages") { save() }
+            }
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+
+    private func binding(for language: VoiceOnboardingLanguage) -> Binding<Bool> {
+        Binding {
+            selected.contains(language)
+        } set: { isOn in
+            if isOn {
+                selected.insert(language)
+            } else {
+                selected.remove(language)
+            }
+        }
+    }
+
+    private func save() {
+        let selection = VoiceOnboardingLanguageSelection(
+            selectedLanguages: Array(selected),
+            autoDetectEverything: autoDetectEverything
+        )
+        VoiceOnboardingProgressStore.saveLanguageSelection(selection)
+        VoiceASRSettingsStore.save(VoiceASRSettings(languageHint: selection.asrLanguageHint))
+        statusMessage = "Language preference saved as \(selection.asrLanguageHint.label)."
+    }
+}
+
+private struct VoiceTryItStepView: View {
+    let controller: AppController
+    let markSucceeded: () -> Void
+    @State private var text = ""
+    @State private var statusMessage = "Click inside the editor, then use the shortcut or buttons to dictate."
+    @State private var canConfirm = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Try it now")
+                .font(.title)
+                .bold()
+            Text("Suggested phrase: 嗨 mingjie, 我们今天 deploy 这个 service 到 production")
+                .foregroundStyle(.secondary)
+            TextEditor(text: $text)
+                .font(.body)
+                .frame(minHeight: 150)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+            HStack {
+                Button("Start recording") {
+                    canConfirm = false
+                    Task { await controller.voiceCoordinator.startRecording() }
+                }
+                .disabled(controller.voiceCoordinator.state != .idle)
+                Button("Stop and insert") {
+                    Task {
+                        await controller.voiceCoordinator.stopRecordingAndPaste()
+                        if controller.voiceCoordinator.lastTranscript != nil {
+                            canConfirm = true
+                            statusMessage = "Transcript completed. Confirm it worked to continue."
+                        } else {
+                            statusMessage = "No transcript was produced. Try again or check microphone/model status."
+                        }
+                    }
+                }
+                .disabled(controller.voiceCoordinator.state != .recording)
+                Button("Open Notes") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Notes.app"))
+                }
+                Button("It works!") {
+                    markSucceeded()
+                    statusMessage = "Confirmed. You can continue."
+                }
+                .disabled(!canConfirm)
+            }
+            if let transcript = controller.voiceCoordinator.lastTranscript {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Raw ASR")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(transcript.rawText)
+                        .foregroundStyle(.secondary)
+                    Text("Cleaned text")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(transcript.cleanedText)
+                        .fontWeight(.semibold)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            Text(statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .onChange(of: controller.voiceCoordinator.lastTranscript) { _, transcript in
+            guard transcript != nil else {
+                canConfirm = false
+                return
+            }
+            canConfirm = true
+            statusMessage = "Transcript completed. Confirm it worked to continue."
+        }
+    }
+}
+
+private struct VoiceDoneStepView: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 54))
+                .foregroundStyle(.primary)
+            Text("All set")
+                .font(.largeTitle)
+                .bold()
+            Text("Press your voice shortcut anywhere on your Mac to dictate.")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            Text("Advanced features like per-app prompts, dictionary, and AI cleanup live in Voice Settings.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+}
+
+private func openSystemSettings(_ urlString: String) {
+    guard let url = URL(string: urlString) else { return }
+    NSWorkspace.shared.open(url)
+}

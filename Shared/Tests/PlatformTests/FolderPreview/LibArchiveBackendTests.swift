@@ -41,4 +41,27 @@ final class LibArchiveBackendTests: XCTestCase {
         let backend = LibArchiveBackend()
         XCTAssertThrowsError(try backend.list(archiveURL: zipURL, limits: limits))
     }
+
+    func testListIgnoresExtractionSizeLimits() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("la3-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("large-metadata.txt")
+        try "hi".write(to: fileURL, atomically: true, encoding: .utf8)
+        let zipURL = dir.appendingPathComponent("test.zip")
+        let proc = Process()
+        proc.launchPath = "/usr/bin/zip"
+        proc.arguments = ["-j", zipURL.path, fileURL.path]
+        try proc.run(); proc.waitUntilExit()
+
+        let limits = ArchiveSafety.Limits(
+            maxEntries: 10,
+            maxDepth: 64,
+            maxTotalUncompressedBytes: 1,
+            maxPerFileBytes: 1
+        )
+        let backend = LibArchiveBackend()
+        let entries = try backend.list(archiveURL: zipURL, limits: limits)
+        XCTAssertTrue(entries.contains { $0.path.hasSuffix("large-metadata.txt") })
+    }
 }

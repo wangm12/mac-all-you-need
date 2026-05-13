@@ -1,83 +1,49 @@
+import CoreFoundation
 import Core
 import Platform
 import SwiftUI
-import CoreFoundation
 
 struct PrivacySettingsView: View {
     @State private var ignored: [String] = AppGroupSettings.defaults.stringArray(forKey: "clipboardExcludedBundleIDs") ?? []
     @State private var regexes: [String] = AppGroupSettings.defaults.stringArray(forKey: "clipboardRegexBlocklist") ?? []
-    @State private var newBundleID = ""
-    @State private var newRegex = ""
     @State private var regexError: String?
 
     var body: some View {
-        Form {
-            Section("Don't capture from these apps") {
-                ForEach(ignored, id: \.self) { bundleID in
-                    HStack {
-                        Text(bundleID)
-                        Spacer()
-                        Button("Remove") {
-                            ignored.removeAll { $0 == bundleID }
-                            save()
-                        }
-                    }
-                }
-                HStack {
-                    TextField("com.example.app", text: $newBundleID)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Add") {
-                        let trimmed = newBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmed.isEmpty else { return }
-                        ignored.append(trimmed)
-                        newBundleID = ""
-                        save()
-                    }
+        MAYNSettingsPage(
+            title: "Privacy",
+            subtitle: "Decide what never enters local history. Clipboard content stays on this Mac by default."
+        ) {
+            MAYNSection(
+                title: "Local capture",
+                subtitle: "These safeguards run before data is written to the App Group database."
+            ) {
+                MAYNSettingsRow(
+                    title: "Your data stays private",
+                    subtitle: "Clipboard history is local and encrypted. Excluded apps and text patterns are skipped before storage."
+                ) {
+                    StatusPill(text: "Local only", kind: .success)
                 }
             }
 
-            Section("Don't capture text matching") {
-                ForEach(regexes, id: \.self) { pattern in
-                    HStack {
-                        Text(pattern)
-                            .font(.system(.body, design: .monospaced))
-                        Spacer()
-                        Button("Remove") {
-                            regexes.removeAll { $0 == pattern }
-                            save()
-                        }
-                    }
+            MAYNSection(title: "Do not capture from these apps") {
+                BundleIDExclusionEditor(bundleIDs: $ignored) { values in
+                    ignored = values
+                    save()
                 }
-                HStack {
-                    TextField(#"\d{16}"#, text: $newRegex)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Add") {
-                        let trimmed = newRegex.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmed.isEmpty else { return }
-                        do {
-                            try RegexBlocklist.validate(trimmed)
-                            regexes.append(trimmed)
-                            newRegex = ""
-                            regexError = nil
-                            save()
-                        } catch {
-                            regexError = "Invalid regex: \(error.localizedDescription)"
-                        }
-                    }
-                }
-                if let regexError {
-                    Text(regexError)
-                        .foregroundStyle(.red)
-                        .font(.caption)
+            }
+
+            MAYNSection(title: "Do not capture matching text") {
+                RegexExclusionEditor(patterns: $regexes, errorMessage: $regexError) { values in
+                    regexes = values
+                    save()
                 }
             }
         }
-        .padding()
     }
 
     private func save() {
-        ignored = Array(Set(ignored)).sorted()
-        regexes = Array(Set(regexes))
+        ignored = SettingsExclusionList.normalizedBundleIDs(ignored)
+        regexes = SettingsExclusionList.normalizedRegexPatterns(regexes)
         AppGroupSettings.defaults.set(ignored, forKey: "clipboardExcludedBundleIDs")
         AppGroupSettings.defaults.set(regexes, forKey: "clipboardRegexBlocklist")
         postSettingsChangedDarwin()

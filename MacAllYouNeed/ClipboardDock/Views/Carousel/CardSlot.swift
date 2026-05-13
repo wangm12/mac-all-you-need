@@ -20,7 +20,7 @@ struct CardSlot: View {
         Color(NSColor.controlBackgroundColor)
     }
 
-    /// Show the accent border when the card is in the selection set OR is
+    /// Show a neutral focus border when the card is in the selection set OR is
     /// the focused (keyboard arrow) target with no explicit selection. With
     /// `selectOnly` semantics, single-clicking a card both focuses it AND
     /// makes it the only selection — both signals collapse to the same
@@ -41,13 +41,13 @@ struct CardSlot: View {
             cardBackground: cardBackground
         )
         .frame(width: 220, height: 240)
-        // Selection border. Any selected card gets the accent stroke — single
+        // Selection border. Any selected card gets the neutral stroke — single
         // or multi-select look identical, matching Paste-style UX. Focus
         // (arrow-key target) shares the indicator since the focused card is
         // always the most-recently single-selected one.
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(isHighlighted ? Color.accentColor : .clear, lineWidth: 2)
+                .stroke(isHighlighted ? MAYNTheme.focusRing : .clear, lineWidth: 2)
         )
         .overlay(alignment: .bottomLeading) {
             if index < 9 {
@@ -103,7 +103,7 @@ struct CardSlot: View {
                dragged != item.id
             {
                 Rectangle()
-                    .fill(Color.accentColor)
+                    .fill(MAYNTheme.focusRing)
                     .frame(width: 4)
                     .padding(.vertical, 4)
                     .transition(.opacity)
@@ -203,11 +203,11 @@ private struct DockDragPreview: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(maxWidth: 220)
-        .background(.regularMaterial)
+        .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.accentColor.opacity(0.4), lineWidth: 1)
+                .stroke(Color.secondary.opacity(0.24), lineWidth: 1)
         )
     }
 

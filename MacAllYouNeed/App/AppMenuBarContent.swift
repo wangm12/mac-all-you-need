@@ -1,4 +1,6 @@
 import AppKit
+import ApplicationServices
+import AVFoundation
 import Core
 import Platform
 import SwiftUI
@@ -8,27 +10,54 @@ struct AppMenuBarContent: View {
     @State private var tab: Tab = .clipboard
     @Environment(\.openSettings) private var openSettings
 
-    enum Tab: Hashable { case clipboard, downloads, snippets }
+    enum Tab: String, CaseIterable, Hashable {
+        case clipboard = "Clipboard"
+        case voice = "Voice"
+        case downloads = "Downloads"
+        case snippets = "Snippets"
+
+        var symbol: String {
+            switch self {
+            case .clipboard: "doc.on.clipboard"
+            case .voice: "waveform"
+            case .downloads: "arrow.down.circle"
+            case .snippets: "text.quote"
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Mac All You Need").font(.system(size: 13, weight: .semibold))
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Command Center")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("Mac All You Need")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 SyncStatusChip()
                 Button {
                     NSApp.activate(ignoringOtherApps: true)
                     openSettings()
-                } label: { Image(systemName: "gear") }
-                .buttonStyle(.borderless)
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .background(Color.primary.opacity(0.07), in: Circle())
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 10).padding(.top, 8)
-            Picker("", selection: $tab) {
-                Text("Clipboard").tag(Tab.clipboard)
-                Text("Downloads").tag(Tab.downloads)
-                Text("Snippets").tag(Tab.snippets)
-            }.pickerStyle(.segmented).padding(8)
-            Divider()
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            CommandCenterTabBar(selection: $tab)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+
+            Divider().overlay(Color.primary.opacity(0.12))
 
             Group {
                 switch tab {
@@ -38,8 +67,10 @@ struct AppMenuBarContent: View {
                         imageLoader: controller.clipboardDeps.imageLoader,
                         blobs: controller.clipboardDeps.blobs
                     )
+                case .voice:
+                    VoiceCommandCenterView(controller: controller)
                 case .downloads:
-                    DownloadsListView(vm: controller.downloaderVM)
+                    downloadsTab
                 case .snippets:
                     SnippetsListView(xpc: controller.clipboardDeps.xpc)
                 }
@@ -48,18 +79,29 @@ struct AppMenuBarContent: View {
 
             Divider()
             HStack {
-                Text("⌘⇧V").font(.system(.caption, design: .monospaced))
-                Text("clipboard dock").font(.caption).foregroundStyle(.secondary)
+                Text("⌘⇧V")
+                    .font(.system(.caption, design: .monospaced))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.primary.opacity(0.08), in: Capsule())
+                Text("clipboard dock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("Pause 60s") {
                     controller.suspendCaptureFor60Seconds()
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .font(.caption)
-                Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.borderless).font(.caption)
-            }.padding(.horizontal, 10).padding(.vertical, 6)
+                Button("Quit") { NSApp.terminate(nil) }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
-        .frame(width: 480, height: 580)
+        .frame(width: 500, height: 600)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             // Opening the menu-bar popover dismisses the dock — having both
             // visible at once is messy and the user clicked the menu icon
@@ -70,14 +112,278 @@ struct AppMenuBarContent: View {
             PreviewPanel.dismiss()
         }
     }
+
+    @ViewBuilder
+    private var downloadsTab: some View {
+        DownloadsListView(vm: controller.downloaderVM)
+    }
+}
+
+private struct CommandCenterTabBar: View {
+    @Binding var selection: AppMenuBarContent.Tab
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(AppMenuBarContent.Tab.allCases, id: \.self) { tab in
+                Button {
+                    selection = tab
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: tab.symbol)
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(tab.rawValue)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .foregroundStyle(selection == tab ? Color(nsColor: .windowBackgroundColor) : Color.primary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(selection == tab ? Color.primary : Color.primary.opacity(0.06), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(Color.primary.opacity(0.06), in: Capsule())
+        .overlay(Capsule().stroke(Color.primary.opacity(0.10), lineWidth: 1))
+    }
 }
 
 struct SyncStatusChip: View {
     var body: some View {
         HStack(spacing: 4) {
-            Circle().fill(Color.gray).frame(width: 6, height: 6)
-            Text("Local only").font(.caption2).foregroundStyle(.secondary)
+            Circle()
+                .strokeBorder(Color.primary.opacity(0.45), lineWidth: 1)
+                .background(Circle().fill(Color.primary.opacity(0.12)))
+                .frame(width: 6, height: 6)
+            Text("Local only")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.primary.opacity(0.06), in: Capsule())
+    }
+}
+
+struct VoiceCommandCenterView: View {
+    let controller: AppController
+
+    @State private var micPermission = AVCaptureDevice.authorizationStatus(for: .audio)
+
+    private var coordinator: VoiceCoordinator {
+        controller.voiceCoordinator
+    }
+
+    private var activationSettings: VoiceActivationSettings {
+        VoiceActivationSettingsStore.load()
+    }
+
+    private var asrSettings: VoiceASRSettings {
+        VoiceASRSettingsStore.load()
+    }
+
+    private var onboardingProgress: VoiceOnboardingProgress {
+        VoiceOnboardingProgressStore.load()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Voice")
+                            .font(.system(size: 22, weight: .semibold))
+                        Text(stateTitle)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(activationSettings.shortcut.display)
+                        .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color.primary.opacity(0.08), in: Capsule())
+                }
+
+                HStack(spacing: 8) {
+                    VoiceCommandButton(
+                        title: coordinator.state == .recording ? "Stop & Paste" : "Start",
+                        symbol: coordinator.state == .recording ? "checkmark" : "mic"
+                    ) {
+                        if coordinator.state == .recording {
+                            Task { await coordinator.stopRecordingAndPaste() }
+                        } else {
+                            Task { await coordinator.startRecording() }
+                        }
+                    }
+                    .disabled(!canToggleRecording)
+
+                    VoiceCommandButton(title: "Setup", symbol: "slider.horizontal.3") {
+                        NSApp.activate(ignoringOtherApps: true)
+                        controller.showVoiceOnboarding()
+                    }
+
+                    VoiceCommandButton(title: "Mic", symbol: "mic.badge.plus") {
+                        Task { await refreshMicrophonePermission(requestIfNeeded: true) }
+                    }
+                    .disabled(micPermission == .authorized)
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    VoiceStatusTile(title: "Mode", value: activationSettings.mode.label, symbol: "switch.2")
+                    VoiceStatusTile(title: "Language", value: asrSettings.languageHint.label, symbol: "textformat")
+                    VoiceStatusTile(title: "Microphone", value: microphoneStatusText, symbol: "mic")
+                    VoiceStatusTile(title: "Accessibility", value: accessibilityStatusText, symbol: "keyboard")
+                    VoiceStatusTile(title: "Setup", value: onboardingProgress.isCompleted ? "Complete" : onboardingProgress.currentStep.title, symbol: "checklist")
+                    VoiceStatusTile(title: "Cleanup", value: cleanupStatusText, symbol: "sparkles")
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Last transcript")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if let transcript = coordinator.lastTranscript {
+                            Text(transcript.usedLLM ? "LLM" : "Local")
+                                .font(.system(size: 10, weight: .semibold))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.primary.opacity(0.08), in: Capsule())
+                        }
+                    }
+
+                    Text(lastTranscriptText)
+                        .font(.system(size: 13))
+                        .foregroundStyle(coordinator.lastTranscript == nil ? .tertiary : .primary)
+                        .lineLimit(6)
+                        .frame(maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
+                        .padding(12)
+                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.10), lineWidth: 1))
+                }
+            }
+            .padding(16)
+        }
+        .task {
+            await refreshMicrophonePermission(requestIfNeeded: false)
+        }
+    }
+
+    private var canToggleRecording: Bool {
+        switch coordinator.state {
+        case .idle, .recording:
+            true
+        case .transcribing, .pasting, .error:
+            false
+        }
+    }
+
+    private var stateTitle: String {
+        switch coordinator.state {
+        case .idle:
+            "Ready for dictation"
+        case .recording:
+            "Listening"
+        case .transcribing:
+            "Transcribing audio"
+        case .pasting:
+            "Pasting into the focused app"
+        case let .error(message):
+            message
+        }
+    }
+
+    private var lastTranscriptText: String {
+        guard let transcript = coordinator.lastTranscript else {
+            return "No transcript captured yet."
+        }
+        return transcript.cleanedText.isEmpty ? transcript.rawText : transcript.cleanedText
+    }
+
+    private var microphoneStatusText: String {
+        switch micPermission {
+        case .authorized:
+            "Granted"
+        case .notDetermined:
+            "Not requested"
+        case .denied:
+            "Denied"
+        case .restricted:
+            "Restricted"
+        @unknown default:
+            "Unknown"
+        }
+    }
+
+    private var accessibilityStatusText: String {
+        AXIsProcessTrusted() ? "Granted" : "Needs access"
+    }
+
+    private var cleanupStatusText: String {
+        let settings = controller.voiceCleanupSettings()
+        return settings.isEnabled ? settings.provider.label : "Local"
+    }
+
+    private func refreshMicrophonePermission(requestIfNeeded: Bool) async {
+        if requestIfNeeded, micPermission == .notDetermined {
+            let granted = await AVCaptureDevice.requestAccess(for: .audio)
+            micPermission = granted ? .authorized : AVCaptureDevice.authorizationStatus(for: .audio)
+        } else {
+            micPermission = AVCaptureDevice.authorizationStatus(for: .audio)
+        }
+    }
+}
+
+private struct VoiceStatusTile: View {
+    let title: String
+    let value: String
+    let symbol: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .background(Color.primary.opacity(0.08), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                Text(value)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(minHeight: 58, alignment: .topLeading)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.10), lineWidth: 1))
+    }
+}
+
+private struct VoiceCommandButton: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(Color.primary, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -86,10 +392,9 @@ struct ClipboardMenuBarContent: View {
     let imageLoader: ImageBlobLoader
     let blobs: BlobStore
 
-    /// Currently-highlighted row. Click only sets this — copying requires
-    /// an explicit ⌘C (matches the dock's Finder-style click semantics).
-    @State private var selectedID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var listFocused: Bool
+    @State private var keyMonitor: Any? = nil
 
     var body: some View {
         Group {
@@ -105,13 +410,11 @@ struct ClipboardMenuBarContent: View {
                                 ClipboardItemRow2(
                                     item: item,
                                     imageLoader: imageLoader,
-                                    isSelected: selectedID == item.id.rawValue,
-                                    onSelect: { selectedID = item.id.rawValue },
+                                    isSelected: reader.selectedIDs.contains(item.id.rawValue),
+                                    onTap: { handleTap(id: item.id.rawValue) },
                                     onActivate: {
-                                        // Double-click = "I want this one":
-                                        // make sure it's the selection,
-                                        // then copy + dismiss the popover.
-                                        selectedID = item.id.rawValue
+                                        reader.selectedIDs = [item.id.rawValue]
+                                        reader.anchorID = item.id.rawValue
                                         copySelectedAndDismiss()
                                     }
                                 )
@@ -120,14 +423,15 @@ struct ClipboardMenuBarContent: View {
                             }
                         }
                     }
-                    .onChange(of: selectedID) { _, newID in
+                    .onChange(of: reader.anchorID) { _, newID in
                         guard let newID else { return }
-                        withAnimation(.easeOut(duration: 0.15)) {
+                        if reduceMotion {
                             proxy.scrollTo(newID, anchor: .center)
+                        } else {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                proxy.scrollTo(newID, anchor: .center)
+                            }
                         }
-                        // If the preview window is open, swap to the newly
-                        // selected item so the user can scrub through
-                        // images by holding ↑/↓ while previewing.
                         if PreviewPanel.isVisible {
                             previewSelected()
                         }
@@ -141,52 +445,220 @@ struct ClipboardMenuBarContent: View {
         .onAppear {
             listFocused = true
             // Default to the most recent item so ⌘C works immediately
-            // without needing a prior click.
-            if selectedID == nil {
-                selectedID = reader.items.first?.id.rawValue
+            if reader.anchorID == nil {
+                reader.anchorID = reader.items.first?.id.rawValue
+                if let a = reader.anchorID { reader.selectedIDs = [a] }
             }
+            installKeyMonitor()
+        }
+        .onDisappear {
+            if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
+            reader.selectedIDs = []
+            reader.anchorID = nil
         }
         .onChange(of: reader.items.map(\.id.rawValue)) { _, ids in
-            // Keep selection valid across reader reloads — fall back to the
-            // newest item when the previously-selected one was deleted.
-            if let selectedID, !ids.contains(selectedID) {
-                self.selectedID = ids.first
-            } else if selectedID == nil {
-                selectedID = ids.first
+            // Only PRUNE invalid selections — don't auto-select anything.
+            // Auto-selecting after a delete is dangerous: the user just freed
+            // their selection with Cmd+Delete; the next Cmd+Delete shouldn't
+            // immediately wipe whatever happened to land at the top.
+            reader.selectedIDs = reader.selectedIDs.intersection(ids)
+            if let a = reader.anchorID, !ids.contains(a) {
+                reader.anchorID = nil
             }
         }
-        .onKeyPress(keys: ["c"]) { keyPress in
-            guard keyPress.modifiers.contains(.command) else { return .ignored }
-            copySelectedAndDismiss()
-            return .handled
-        }
-        .onKeyPress(.space) {
-            previewSelected()
-            return .handled
-        }
-        .onKeyPress(.downArrow) { moveSelection(by: 1); return .handled }
-        .onKeyPress(.upArrow) { moveSelection(by: -1); return .handled }
-        .onKeyPress(.return) { copySelectedAndDismiss(); return .handled }
     }
 
-    private func moveSelection(by delta: Int) {
+    // MARK: - Selection
+
+    private func handleTap(id: String) {
+        listFocused = true
+        claimKeyWindow()
+        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        let isCmd = flags.contains(.command)
+        let isShift = flags.contains(.shift)
+
+        if isCmd {
+            if reader.selectedIDs.contains(id) {
+                reader.selectedIDs.remove(id)
+            } else {
+                reader.selectedIDs.insert(id)
+                reader.anchorID = id
+            }
+        } else if isShift, let anchor = reader.anchorID {
+            let ids = reader.items.map(\.id.rawValue)
+            if let start = ids.firstIndex(of: anchor),
+               let end = ids.firstIndex(of: id) {
+                let lo = min(start, end), hi = max(start, end)
+                reader.selectedIDs = Set(ids[lo...hi])
+            }
+        } else {
+            reader.selectedIDs = [id]
+            reader.anchorID = id
+        }
+    }
+
+    // MARK: - Key handling
+
+    private func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        claimKeyWindow()
+        let reader = self.reader  // capture class reference — always live
+        let blobs = self.blobs
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let cmd = mods.contains(.command)
+            let char = event.charactersIgnoringModifiers ?? ""
+            let isDeleteKey = event.keyCode == 51 || event.keyCode == 117
+                || char == "\u{7F}" || char == "\u{F728}"
+
+            NSLog("🔑 CB keyDown: keyCode=\(event.keyCode) char=\(char.debugDescription) cmd=\(cmd) sel=\(reader.selectedIDs.count) isDel=\(isDeleteKey)")
+
+            if cmd && isDeleteKey {  // Cmd+⌫: delete selected
+                guard !reader.selectedIDs.isEmpty else { return event }
+                let store = reader.store
+                let initialIDs = Array(reader.selectedIDs)
+
+                // Briefly tell the daemon to stop capturing. The daemon checks
+                // `captureSuspendUntil` at the start of every poll callback —
+                // this prevents ANY re-capture during the 2s window, regardless
+                // of whether something (CleanShot, etc.) re-asserts pasteboard
+                // ownership. Same mechanism the "Pause 60s" feature uses.
+                let until = Date().addingTimeInterval(2.0).timeIntervalSince1970
+                AppGroupSettings.defaults.set(until, forKey: "captureSuspendUntil")
+
+                // Expand to include all sibling records from the same copy
+                // event (within 2.0s). The daemon writes one record per
+                // pasteboard representation (.png + .tiff + .fileURL for a
+                // screenshot), and image blob writes can spread them across
+                // hundreds of ms. Dedup hides them but leaves them in the DB.
+                var allIDsSet = Set(initialIDs)
+                for id in initialIDs {
+                    for sibling in reader.relatedItems(toID: id) {
+                        allIDsSet.insert(sibling.id.rawValue)
+                    }
+                }
+                let idsToDelete = Array(allIDsSet)
+
+                reader.selectedIDs = []
+                reader.anchorID = nil
+                Task { @MainActor in
+                    guard let store else { return }
+                    for idStr in idsToDelete {
+                        guard let rid = RecordID(rawValue: idStr) else { continue }
+                        if let body = try? store.body(for: rid),
+                           case let .image(blobID, _, _) = body {
+                            try? blobs.delete(id: blobID)
+                        }
+                        try? store.delete(id: rid)
+                    }
+                    NotificationCenter.default.post(name: .clipboardStoreDidChange, object: nil)
+                    CopyHUD.show(initialIDs.count == 1 ? "Deleted" : "Deleted \(initialIDs.count)", symbol: "trash.fill")
+                }
+                return nil
+            }
+            if cmd && char == "a" {  // Cmd+A: select all
+                let ids = reader.items.map(\.id.rawValue)
+                reader.selectedIDs = Set(ids)
+                reader.anchorID = ids.first
+                return nil
+            }
+            if cmd && char == "c" {  // Cmd+C: copy anchor
+                Task { @MainActor in Self.copyAndDismiss(reader: reader, blobs: blobs) }
+                return nil
+            }
+            if event.keyCode == 53 {  // Escape: clear multi-selection (back to anchor)
+                if reader.selectedIDs.count > 1, let a = reader.anchorID {
+                    reader.selectedIDs = [a]
+                    return nil
+                }
+                return event
+            }
+            if event.keyCode == 36 {  // Return: copy + dismiss
+                Task { @MainActor in Self.copyAndDismiss(reader: reader, blobs: blobs) }
+                return nil
+            }
+            if event.keyCode == 49 {  // Space: preview
+                Task { @MainActor in Self.previewAnchor(reader: reader, blobs: blobs) }
+                return nil
+            }
+            if event.keyCode == 125 {  // Down arrow
+                let ids = reader.items.map(\.id.rawValue)
+                guard !ids.isEmpty else { return nil }
+                let cur = reader.anchorID.flatMap { ids.firstIndex(of: $0) } ?? 0
+                let next = min(ids.count - 1, cur + 1)
+                if next != cur {
+                    reader.anchorID = ids[next]
+                    reader.selectedIDs = [ids[next]]
+                }
+                return nil
+            }
+            if event.keyCode == 126 {  // Up arrow
+                let ids = reader.items.map(\.id.rawValue)
+                guard !ids.isEmpty else { return nil }
+                let cur = reader.anchorID.flatMap { ids.firstIndex(of: $0) } ?? 0
+                let next = max(0, cur - 1)
+                if next != cur {
+                    reader.anchorID = ids[next]
+                    reader.selectedIDs = [ids[next]]
+                }
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func claimKeyWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async {
+            for window in NSApp.windows {
+                let name = String(describing: type(of: window))
+                if name.contains("MenuBarExtra") || name.contains("NSStatusBarWindow") {
+                    window.makeKeyAndOrderFront(nil)
+                    return
+                }
+            }
+        }
+    }
+
+    // MARK: - Static helpers (called from NSEvent monitor — capture reader/blobs only)
+
+    @MainActor
+    private static func moveAnchor(reader: LocalClipboardReader, by delta: Int) {
         let ids = reader.items.map(\.id.rawValue)
         guard !ids.isEmpty else { return }
-        let currentIdx = selectedID.flatMap { ids.firstIndex(of: $0) } ?? 0
+        let currentIdx = reader.anchorID.flatMap { ids.firstIndex(of: $0) } ?? 0
         let nextIdx = max(0, min(ids.count - 1, currentIdx + delta))
-        // Boundary no-op: at the start (delta=-1) or end (delta=+1) of the
-        // list, don't re-set selectedID — that would re-fire onChange and
-        // (if preview is open) cause a perceptible flash.
         guard nextIdx != currentIdx else { return }
-        selectedID = ids[nextIdx]
+        let newID = ids[nextIdx]
+        reader.anchorID = newID
+        reader.selectedIDs = [newID]
     }
 
-    /// ⌘C path: write the selected item to NSPasteboard with the daemon-
-    /// write sentinel (so the daemon doesn't re-capture it as a duplicate),
-    /// dismiss the popover, and float the "Copied" HUD.
-    private func copySelectedAndDismiss() {
-        guard let selectedID,
-              let item = reader.items.first(where: { $0.id.rawValue == selectedID }),
+    @MainActor
+    private static func deleteSelected(reader: LocalClipboardReader, blobs: BlobStore) {
+        guard let store = reader.store else { return }
+        let count = reader.selectedIDs.count
+        for idStr in reader.selectedIDs {
+            guard let rid = RecordID(rawValue: idStr) else { continue }
+            // Mirror ClipboardDockModel.deleteItem: clean image blob first
+            if let body = try? store.body(for: rid),
+               case let .image(blobID, _, _) = body {
+                try? blobs.delete(id: blobID)
+            }
+            try? store.delete(id: rid)
+        }
+        reader.selectedIDs = []
+        reader.anchorID = nil
+        // Notify dock + reader so both views refresh immediately
+        NotificationCenter.default.post(name: .clipboardStoreDidChange, object: nil)
+        CopyHUD.show(count == 1 ? "Deleted" : "Deleted \(count)", symbol: "trash.fill")
+    }
+
+    @MainActor
+    private static func copyAndDismiss(reader: LocalClipboardReader, blobs: BlobStore) {
+        let id = reader.anchorID ?? reader.selectedIDs.first
+        guard let id,
+              let item = reader.items.first(where: { $0.id.rawValue == id }),
               let store = reader.store,
               let body = try? store.body(for: item.id)
         else { return }
@@ -196,50 +668,23 @@ struct ClipboardMenuBarContent: View {
         CopyHUD.show("Copied")
     }
 
-    /// Programmatically close the MenuBarExtra `.window`-style popover.
-    /// `NSApp.deactivate()` alone is unreliable here because the popover
-    /// panel is non-activating — deactivating the app is a no-op for it.
-    /// We walk `NSApp.windows` looking for the MenuBarExtra panel (its
-    /// class name contains "MenuBarExtra") and order it out, which is the
-    /// same effect as clicking the status item again.
-    static func dismissMenuBarPopover() {
-        for window in NSApp.windows {
-            let name = String(describing: type(of: window))
-            if name.contains("MenuBarExtra") || name.contains("NSStatusBarWindow") {
-                window.orderOut(nil)
-            }
-        }
-        // Belt-and-suspenders: also deactivate the app so any other
-        // attached popovers tear down via the standard path.
-        NSApp.deactivate()
-    }
-
-    /// Space path: open the floating preview panel for the currently-
-    /// selected item. Images render inline; text/code/html/rtf render as
-    /// scrollable, selectable text. Other kinds (color/link/multi-file)
-    /// fall through silently.
-    private func previewSelected() {
-        guard let selectedID,
-              let item = reader.items.first(where: { $0.id.rawValue == selectedID }),
+    @MainActor
+    private static func previewAnchor(reader: LocalClipboardReader, blobs: BlobStore) {
+        let id = reader.anchorID ?? reader.selectedIDs.first
+        guard let id,
+              let item = reader.items.first(where: { $0.id.rawValue == id }),
               let store = reader.store,
               let body = try? store.body(for: item.id)
         else { return }
         switch body {
         case let .image(blobID, _, _):
             if let data = try? blobs.read(id: blobID),
-               let image = NSImage(data: data)
-            {
-                PreviewPanel.show(.image(image))
-            }
+               let image = NSImage(data: data) { PreviewPanel.show(.image(image)) }
         case let .files(urls) where urls.count == 1 && Self.isImageURL(urls[0]):
-            if let image = NSImage(contentsOf: urls[0]) {
-                PreviewPanel.show(.image(image))
-            }
+            if let image = NSImage(contentsOf: urls[0]) { PreviewPanel.show(.image(image)) }
         case let .text(s):
             PreviewPanel.show(.text(s, monospaced: false))
         case let .html(s):
-            // Strip tags for the preview pane (full HTML rendering would
-            // need a WKWebView and isn't worth the complexity here).
             let plain = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             PreviewPanel.show(.text(plain, monospaced: false))
         case let .rtf(data):
@@ -247,9 +692,23 @@ struct ClipboardMenuBarContent: View {
                 PreviewPanel.show(.text(attr.string, monospaced: false))
             }
         case .files:
-            // Multi-file or non-image file — no inline preview.
             break
         }
+    }
+
+    /// Used by inner ScrollView's onChange (which captures self) for parity.
+    private func copySelectedAndDismiss() { Self.copyAndDismiss(reader: reader, blobs: blobs) }
+    private func previewSelected() { Self.previewAnchor(reader: reader, blobs: blobs) }
+
+    /// Programmatically close the MenuBarExtra `.window`-style popover.
+    static func dismissMenuBarPopover() {
+        for window in NSApp.windows {
+            let name = String(describing: type(of: window))
+            if name.contains("MenuBarExtra") || name.contains("NSStatusBarWindow") {
+                window.orderOut(nil)
+            }
+        }
+        NSApp.deactivate()
     }
 
     private static func isImageURL(_ url: URL) -> Bool {
@@ -262,7 +721,7 @@ private struct ClipboardItemRow2: View {
     let item: ClipboardItemMeta
     let imageLoader: ImageBlobLoader
     let isSelected: Bool
-    let onSelect: () -> Void
+    let onTap: () -> Void
     let onActivate: () -> Void
 
     @State private var isHovering = false
@@ -314,14 +773,13 @@ private struct ClipboardItemRow2: View {
         .contentShape(Rectangle())
         .background(rowBackground)
         .overlay(alignment: .leading) {
-            // 3pt accent stripe on the leading edge of the selected row —
-            // mirrors the dock's accent border, but list-row friendlier.
+            // 3pt stripe keeps selected rows visible in the monochrome popover.
             Rectangle()
-                .fill(isSelected ? Color.accentColor : .clear)
+                .fill(isSelected ? Color.primary.opacity(0.65) : .clear)
                 .frame(width: 3)
         }
         .onHover { isHovering = $0 }
-        .onTapGesture { onSelect() }
+        .onTapGesture { onTap() }
         // Double-click = activate (copy + dismiss popover). Same
         // simultaneousGesture trick as the dock carousel so the
         // single-tap doesn't wait on double-tap disambiguation.
@@ -331,8 +789,8 @@ private struct ClipboardItemRow2: View {
     }
 
     private var rowBackground: Color {
-        if isSelected { return Color.accentColor.opacity(0.18) }
-        if isHovering { return Color.secondary.opacity(0.10) }
+        if isSelected { return Color.primary.opacity(0.10) }
+        if isHovering { return Color.primary.opacity(0.06) }
         return .clear
     }
 }
@@ -372,17 +830,39 @@ struct SnippetsListView: View {
     let xpc: ClipboardXPCClient
     @State private var snippets: [SnippetXPCDTO] = []
     var body: some View {
-        List(snippets) { snippet in
-            VStack(alignment: .leading, spacing: 2) {
-                Text(snippet.name)
-                if let trigger = snippet.trigger {
-                    Text(trigger).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .overlay {
+        Group {
             if snippets.isEmpty {
-                Text("No snippets yet").foregroundStyle(.secondary)
+                Text("No snippets yet")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(snippets) { snippet in
+                            HStack(spacing: 10) {
+                                Image(systemName: "text.quote")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .frame(width: 30, height: 30)
+                                    .background(Color.primary.opacity(0.08), in: Circle())
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(snippet.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                    if let trigger = snippet.trigger {
+                                        Text(trigger)
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            .padding(10)
+                            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.10), lineWidth: 1))
+                        }
+                    }
+                    .padding(12)
+                }
             }
         }
         .task { await refresh() }

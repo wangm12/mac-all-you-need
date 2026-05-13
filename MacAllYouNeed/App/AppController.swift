@@ -1,9 +1,20 @@
 import AppKit
 import Core
+import CoreFoundation
 import CryptoKit
 import Foundation
-import CoreFoundation
 import Platform
+
+private struct StartupStores {
+    let pinboard: PinboardStore
+    let snippet: SnippetStore
+    let clipboard: ClipboardStore
+    let voiceTranscripts: VoiceTranscriptStore
+    let voiceDictionary: VoiceDictionaryStore
+    let voiceAppProfiles: VoiceAppProfileStore
+    let blob: BlobStore
+    let search: SearchStore
+}
 
 @MainActor
 @Observable
@@ -18,7 +29,7 @@ final class AppController {
     let downloaderVM: DownloaderViewModel
     let downloaderDock: DockProgressController
     var onboarding: OnboardingState
-    // Snippet expansion runs in the main app so it uses the app's Accessibility permission
+    /// Snippet expansion runs in the main app so it uses the app's Accessibility permission
     private let snippetExpander: SnippetExpander
 
     // Stores retained so menu actions (e.g. Clear Older Than) can run locally
@@ -27,6 +38,9 @@ final class AppController {
     private let blobStore: BlobStore
     private let searchStore: SearchStore
     private let pinboardStore: PinboardStore
+    let voiceDictionaryStore: VoiceDictionaryStore
+    let voiceAppProfileStore: VoiceAppProfileStore
+    let voiceCoordinator: VoiceCoordinator
 
     private let hotkeyRegistry = HotkeyRegistry()
     private var fallbackHotkey: GlobalHotkey?
@@ -34,41 +48,28 @@ final class AppController {
     private var downloadRequestObserver: NSObjectProtocol?
     private var pauseCaptureObserver: NSObjectProtocol?
     private var clearOlderThanObserver: NSObjectProtocol?
+    private var mainWindowSettingsObserver: NSObjectProtocol?
+    private var hotkeyRecorderStartObserver: NSObjectProtocol?
+    private var hotkeyRecorderStopObserver: NSObjectProtocol?
+    private var activeHotkeyRecorderCount = 0
+    private(set) var mainWindow: MainWindowController!
     private(set) var onboardingWindow: OnboardingWindowController!
+    private(set) var voiceOnboardingWindow: VoiceOnboardingWindowController!
 
     init() throws {
-        self.deviceID = try DeviceIdentityStore.loadOrCreate()
+        deviceID = try DeviceIdentityStore.loadOrCreate()
 
         // Load the device key up front. If the keychain is locked or the entry
         // is missing/corrupt, fail fast — every encrypted store needs this key,
         // and constructing fallback in-memory stores silently orphans user data.
-        let clipKey = try KeyManager(keychain: SystemKeychain()).deviceKey()
-        let pinboardStore = try Self.makePinboardStore(key: clipKey)
-        // One SnippetStore per process — both the dock UI and the CGEventTap
-        // expander must share it. Two GRDB DatabaseQueues to the same SQLite
-        // file race on writes and contend for locks.
-        let snippetStore = try Self.makeSnippetStore(key: clipKey)
-        // Same rule for ClipboardStore: one DatabaseQueue, shared between the
-        // menu-bar popover (LocalClipboardReader) and the dock model. Lets
-        // the dock display items even when the daemon's XPC mach service
-        // can't register (the SMAppService.loginItem registration issue).
-        let clipboardStore = try Self.makeClipboardStore(deviceID: deviceID, key: clipKey)
-        // BlobStore wraps the on-disk encrypted-blob directory. Sharing it
-        // with ImageBlobLoader lets image cards render their thumbnails
-        // locally without an XPC roundtrip.
-        let blobStore = Self.makeBlobStore(key: clipKey)
-        // SearchStore for FTS index cleanup during local retention. Same
-        // reasoning as clipStore — one DatabaseQueue per file, daemon may
-        // also write but XPC for retention is broken so users get nothing
-        // unless we run it locally.
-        let searchStore = try Self.makeSearchStore()
-
-        let deps = AppDependencies(
-            pinboards: pinboardStore,
-            snippets: snippetStore,
-            clip: clipboardStore,
-            blobs: blobStore
+        let keychain = SystemKeychain()
+        let stores = try Self.makeStartupStores(
+            deviceID: deviceID,
+            key: KeyManager(keychain: keychain).deviceKey()
         )
+        let cleanupKeyStore = VoiceCleanupKeyStore(keychain: keychain)
+
+        let deps = makeAppDependencies(stores: stores)
         let pasteCoordinator = DockPasteCoordinator(xpc: deps.xpc)
         let favicons = FaviconCache()
         let clipboardDock = DockWindowController(
@@ -77,89 +78,49 @@ final class AppController {
             favicons: favicons,
             registry: .shared
         )
-        self.clipboardDeps = deps
+        clipboardDeps = deps
         self.clipboardDock = clipboardDock
         clipboardDock.dockHeight = Self.currentDockHeight()
 
-        self.clipStore = clipboardStore
-        self.blobStore = blobStore
-        self.searchStore = searchStore
-        self.pinboardStore = pinboardStore
+        clipStore = stores.clipboard
+        blobStore = stores.blob
+        searchStore = stores.search
+        pinboardStore = stores.pinboard
+        voiceDictionaryStore = stores.voiceDictionary
+        voiceAppProfileStore = stores.voiceAppProfiles
+        voiceCoordinator = makeVoiceCoordinator(stores: stores, cleanupKeyStore: cleanupKeyStore)
 
-        self.clipboardReader = LocalClipboardReader(store: clipboardStore)
-        self.snippetExpander = Self.makeSnippetExpander(store: snippetStore)
+        clipboardReader = LocalClipboardReader(store: stores.clipboard)
+        clipboardReader.blobsRef = stores.blob
+        snippetExpander = Self.makeSnippetExpander(store: stores.snippet)
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
-        self.folderCoordinator = coordinator
-        self.folder = browser
+        folderCoordinator = coordinator
+        folder = browser
 
         let coord = try DownloadCoordinator()
-        self.downloader = coord
+        downloader = coord
         let dlVM = DownloaderViewModel(coordinator: coord)
-        self.downloaderVM = dlVM
+        downloaderVM = dlVM
         let dockCtrl = DockProgressController(vm: dlVM)
         dockCtrl.start()
-        self.downloaderDock = dockCtrl
+        downloaderDock = dockCtrl
 
-        self.onboarding = OnboardingState.load()
+        onboarding = OnboardingState.load()
         LoginItemController.reconcileLaunchAtLogin()
 
-        Task { await coord.startDispatchServer() }
-        Task {
-            await coord.prepareInterruptedDownloadsForRetry()
-            await dlVM.refresh()
-        }
+        startDownloadTasks(coordinator: coord, viewModel: dlVM)
+        voiceCoordinator.start()
 
-        // Register hotkeys from stored map; fall back to clipboard-only default on failure
-        do {
-            try hotkeyRegistry.apply(HotkeyMapStore.load(), controller: self)
-        } catch {
-            let hk = GlobalHotkey(descriptor: .defaultClipboard) { [weak clipboardDock] in
-                Task { @MainActor in clipboardDock?.toggle() }
-            }
-            try? hk.register()
-            fallbackHotkey = hk
-        }
-
-        browseFolderObserver = NotificationCenter.default.addObserver(
-            forName: .browseFolderRequested, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let url = note.object as? URL else { return }
-            self?.folder.show(at: url)
-        }
-        downloadRequestObserver = NotificationCenter.default.addObserver(
-            forName: .clipboardDownloadRequested, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let url = note.object as? URL else { return }
-            Task { await self?.downloader.enqueue(url: url.absoluteString, title: nil) }
-        }
-        pauseCaptureObserver = NotificationCenter.default.addObserver(
-            forName: .pauseCaptureRequested, object: nil, queue: .main
-        ) { [weak self] _ in
-            self?.suspendCaptureFor60Seconds()
-        }
-        clearOlderThanObserver = NotificationCenter.default.addObserver(
-            forName: .clearClipboardOlderThanRequested, object: nil, queue: .main
-        ) { [weak self] note in
-            let days = (note.object as? NSNumber)?.intValue ?? (note.object as? Int) ?? 0
-            self?.clearClipboardOlderThan(days: days)
-        }
+        registerConfiguredHotkeys()
+        registerAppObservers()
 
         // Initialize after all stored properties are set
+        mainWindow = MainWindowController(controller: self)
         onboardingWindow = OnboardingWindowController(controller: self)
-    }
-
-    func setOnboarding(_ state: OnboardingState) {
-        onboarding = state
-        state.save()
-    }
-
-    func resetOnboarding() { setOnboarding(.notStarted) }
-
-    func showOnboardingIfNeeded() {
-        guard onboarding != .completed else { return }
-        onboardingWindow.show()
+        voiceOnboardingWindow = VoiceOnboardingWindowController(controller: self)
+        startAutoDownloadPromptLoop()
     }
 
     func applyHotkeyMap(_ map: [HotkeyAction: [HotkeyDescriptor]]) throws {
@@ -196,7 +157,7 @@ final class AppController {
         // we already hold; pinned items stay protected.
         let policy = RetentionPolicy(
             maxItems: nil,
-            maxAgeSeconds: TimeInterval(days) * 86_400,
+            maxAgeSeconds: TimeInterval(days) * 86400,
             maxImageBytes: nil
         )
         let protected = (try? PinboardStore.protectedIDs(from: pinboardStore)) ?? []
@@ -223,16 +184,139 @@ final class AppController {
         return PinboardStore(database: db, deviceKey: key)
     }
 
+    private static func makeStartupStores(
+        deviceID: DeviceID,
+        key: SymmetricKey
+    ) throws -> StartupStores {
+        let pinboardStore = try makePinboardStore(key: key)
+        let snippetStore = try makeSnippetStore(key: key)
+        let clipboardDatabase = try makeClipboardDatabase()
+        let clipboardStore = try ClipboardStore(database: clipboardDatabase, deviceKey: key, deviceID: deviceID)
+        let searchStore = try makeSearchStore()
+        return StartupStores(
+            pinboard: pinboardStore,
+            snippet: snippetStore,
+            clipboard: clipboardStore,
+            voiceTranscripts: VoiceTranscriptStore(database: clipboardDatabase),
+            voiceDictionary: VoiceDictionaryStore(database: clipboardDatabase),
+            voiceAppProfiles: VoiceAppProfileStore(database: clipboardDatabase),
+            blob: makeBlobStore(key: key),
+            search: searchStore
+        )
+    }
+
+    private func registerConfiguredHotkeys() {
+        do {
+            try hotkeyRegistry.apply(HotkeyMapStore.load(), controller: self)
+        } catch {
+            let hk = GlobalHotkey(descriptor: .defaultClipboard) { [weak clipboardDock] in
+                Task { @MainActor in clipboardDock?.toggle() }
+            }
+            try? hk.register()
+            fallbackHotkey = hk
+        }
+    }
+
+    private func startDownloadTasks(coordinator: DownloadCoordinator, viewModel: DownloaderViewModel) {
+        Task { await coordinator.startDispatchServer() }
+        Task {
+            await coordinator.prepareInterruptedDownloadsForRetry()
+            await viewModel.refresh()
+        }
+    }
+
+    private func registerAppObservers() {
+        browseFolderObserver = NotificationCenter.default.addObserver(
+            forName: .browseFolderRequested, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let url = note.object as? URL else { return }
+            Task { @MainActor in self?.folder.show(at: url) }
+        }
+        downloadRequestObserver = NotificationCenter.default.addObserver(
+            forName: .clipboardDownloadRequested, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let url = note.object as? URL else { return }
+            Task { await self?.downloaderVM.add(url: url.absoluteString) }
+        }
+        pauseCaptureObserver = NotificationCenter.default.addObserver(
+            forName: .pauseCaptureRequested, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.suspendCaptureFor60Seconds() }
+        }
+        clearOlderThanObserver = NotificationCenter.default.addObserver(
+            forName: .clearClipboardOlderThanRequested, object: nil, queue: .main
+        ) { [weak self] note in
+            let days = (note.object as? NSNumber)?.intValue ?? (note.object as? Int) ?? 0
+            Task { @MainActor in self?.clearClipboardOlderThan(days: days) }
+        }
+        mainWindowSettingsObserver = NotificationCenter.default.addObserver(
+            forName: .mainWindowSettingsRequested, object: nil, queue: .main
+        ) { [weak self] note in
+            let destination = SettingsDestination.legacySelection(note.object as? String)
+            AppGroupSettings.defaults.set(destination.rawValue, forKey: DockSettingsNavigation.settingsSelectionKey)
+            Task { @MainActor in self?.showMainWindow(destination: .settings) }
+        }
+        hotkeyRecorderStartObserver = NotificationCenter.default.addObserver(
+            forName: .hotkeyRecorderDidStartRecording, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.suspendShortcutTriggersForHotkeyRecording() }
+        }
+        hotkeyRecorderStopObserver = NotificationCenter.default.addObserver(
+            forName: .hotkeyRecorderDidStopRecording, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.resumeShortcutTriggersAfterHotkeyRecording() }
+        }
+    }
+
+    private func suspendShortcutTriggersForHotkeyRecording() {
+        activeHotkeyRecorderCount += 1
+        guard activeHotkeyRecorderCount == 1 else { return }
+        hotkeyRegistry.unregisterAll()
+        fallbackHotkey?.unregister()
+        fallbackHotkey = nil
+        voiceCoordinator.suspendActivationMonitoring()
+    }
+
+    private func resumeShortcutTriggersAfterHotkeyRecording() {
+        guard activeHotkeyRecorderCount > 0 else { return }
+        activeHotkeyRecorderCount -= 1
+        guard activeHotkeyRecorderCount == 0 else { return }
+        voiceCoordinator.resumeActivationMonitoring()
+        registerConfiguredHotkeys()
+    }
+
+    private func startAutoDownloadPromptLoop() {
+        // Auto-detect video URLs: when a new item appears at the top of the
+        // clipboard history and it contains a recognisable video URL, show the
+        // AutoDownloadHUD so the user can enqueue it with a single tap.
+        Task { @MainActor [weak self] in
+            // Let the reader do one initial poll before establishing the baseline
+            // so we don't prompt for whatever was already on the clipboard at launch.
+            try? await Task.sleep(for: .seconds(2))
+            guard let self else { return }
+            var lastTopID = clipboardReader.items.first?.id.rawValue
+            while true {
+                try? await Task.sleep(for: .milliseconds(800))
+                let items = clipboardReader.items
+                let first = items.first
+                guard let first, first.id.rawValue != lastTopID else { continue }
+                lastTopID = first.id.rawValue
+                if let url = URLDetector.videoBearingURL(in: first.preview) {
+                    AutoDownloadHUD.prompt(for: url)
+                }
+            }
+        }
+    }
+
     private static func makeSnippetStore(key: SymmetricKey) throws -> SnippetStore {
         let url = AppGroup.containerURL().appendingPathComponent("databases/snippets.sqlite")
         let db = try Database(url: url, migrations: SnippetStore.migrations)
         return SnippetStore(database: db, deviceKey: key)
     }
 
-    private static func makeClipboardStore(deviceID: DeviceID, key: SymmetricKey) throws -> ClipboardStore {
+    private static func makeClipboardDatabase() throws -> Database {
         let url = AppGroup.containerURL().appendingPathComponent("databases/clipboard.sqlite")
-        let db = try Database(url: url, migrations: ClipboardStore.migrations)
-        return try ClipboardStore(database: db, deviceKey: key, deviceID: deviceID)
+        return try Database(url: url, migrations: ClipboardStore.migrations)
     }
 
     private static func makeBlobStore(key: SymmetricKey) -> BlobStore {
@@ -267,6 +351,29 @@ final class AppController {
             true
         )
     }
+}
+
+@MainActor
+private func makeAppDependencies(stores: StartupStores) -> AppDependencies {
+    AppDependencies(
+        pinboards: stores.pinboard,
+        snippets: stores.snippet,
+        clip: stores.clipboard,
+        blobs: stores.blob
+    )
+}
+
+@MainActor
+private func makeVoiceCoordinator(
+    stores: StartupStores,
+    cleanupKeyStore: VoiceCleanupKeyStore
+) -> VoiceCoordinator {
+    VoiceCoordinator(
+        transcripts: stores.voiceTranscripts,
+        dictionary: stores.voiceDictionary,
+        appProfiles: stores.voiceAppProfiles,
+        cleanupKeyStore: cleanupKeyStore
+    )
 }
 
 extension Notification.Name {

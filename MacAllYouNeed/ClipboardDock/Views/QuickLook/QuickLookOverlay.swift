@@ -35,8 +35,12 @@ struct QuickLookOverlay: View {
                     .padding(.horizontal, 12)
                 }
                 .padding(20)
-                .background(.regularMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+                )
             }
         }
         .transition(.opacity)

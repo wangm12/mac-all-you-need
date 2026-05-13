@@ -8,11 +8,53 @@ struct AdvancedSettingsView: View {
     @AppStorage("betaUpdates", store: AppGroupSettings.defaults) private var beta = false
     @State private var confirmingReset = false
     var body: some View {
-        Form {
-            Toggle("Beta updates", isOn: $beta)
-            Button("Export diagnostic bundle") { exportDiagnostics() }
-            Button("Reset all data", role: .destructive) { confirmingReset = true }
-            Button("Re-run onboarding") { controller.resetOnboarding() }
+        MAYNSettingsPage(
+            title: "Advanced",
+            subtitle: "Diagnostics, reset controls, and release-channel options."
+        ) {
+            MAYNSection(title: "Updates") {
+                MAYNSettingsRow(
+                    title: "Beta updates",
+                    subtitle: "Include pre-release builds when update checks run."
+                ) {
+                    Toggle("", isOn: $beta)
+                        .labelsHidden()
+                }
+            }
+
+            MAYNSection(title: "Diagnostics") {
+                MAYNSettingsRow(
+                    title: "Diagnostic bundle",
+                    subtitle: "Export sanitized settings to a zip file for troubleshooting."
+                ) {
+                    Button("Export") { exportDiagnostics() }
+                }
+            }
+
+            MAYNSection(title: "Sync") {
+                MAYNSettingsRow(
+                    title: "Multi-device sync",
+                    subtitle: "Planned for a future phase. Current builds keep clipboard, downloads, snippets, and voice data local to this Mac."
+                ) {
+                    StatusPill(text: "Future", kind: .neutral)
+                }
+            }
+
+            MAYNSection(title: "Setup and data") {
+                MAYNSettingsRow(
+                    title: "Onboarding",
+                    subtitle: "Show the first-run setup flow again."
+                ) {
+                    Button("Re-run") { controller.resetOnboarding() }
+                }
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: "Reset all data",
+                    subtitle: "Remove local databases, blobs, thumbnails, and downloader checkpoints."
+                ) {
+                    Button("Reset", role: .destructive) { confirmingReset = true }
+                }
+            }
         }
         .confirmationDialog("Reset all local data?", isPresented: $confirmingReset) {
             Button("Reset", role: .destructive) { resetAllData() }
@@ -20,7 +62,6 @@ struct AdvancedSettingsView: View {
         } message: {
             Text("This removes local databases, blobs, thumbnails, and downloader checkpoints.")
         }
-        .padding()
     }
 
     private func exportDiagnostics() {
@@ -51,6 +92,7 @@ struct AdvancedSettingsView: View {
             try? FileManager.default.removeItem(at: root.appendingPathComponent(name))
         }
         OnboardingState.reset()
+        VoiceOnboardingProgressStore.reset()
         AppGroupSettings.defaults.removeObject(forKey: "syncFolderPath")
         AppGroupSettings.defaults.removeObject(forKey: "syncDownloadHistory")
     }

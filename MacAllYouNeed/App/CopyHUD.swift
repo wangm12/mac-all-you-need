@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import SwiftUI
 
 /// System-wide floating toast used to confirm an action that originated
@@ -53,17 +54,20 @@ enum CopyHUD {
 
         panel.alphaValue = 0
         panel.orderFrontRegardless()
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.16
+            ctx.duration = reduceMotion ? 0 : 0.16
             panel.animator().alphaValue = 1
         }
 
         hideTask?.cancel()
         hideTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(800))
+            let ms = AppGroupSettings.defaults.integer(forKey: "hudDurationMs")
+            let duration = ms > 0 ? ms : 2000
+            try? await Task.sleep(for: .milliseconds(duration))
             guard !Task.isCancelled else { return }
             NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.22
+                ctx.duration = reduceMotion ? 0 : 0.22
                 panel.animator().alphaValue = 0
             }, completionHandler: {
                 panel.orderOut(nil)
@@ -79,20 +83,21 @@ private struct HUDChip: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
-                .symbolRenderingMode(.hierarchical)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(Color.white.opacity(0.12), in: Circle())
             Text(message)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.primary)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 14)
-        .background(.regularMaterial, in: Capsule())
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.black, in: Capsule())
         .overlay(
-            Capsule().stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+            Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.25), radius: 18, y: 6)
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

@@ -7,6 +7,8 @@ final class PasteboardObserverTests: XCTestCase {
         var types: [String] = []
         var items: [PasteboardItem] = []
         var frontmost: String? = "com.test"
+        var bumpsChangeCountOnItemsRead = false
+        var itemReadResults: [[PasteboardItem]] = []
         func currentChangeCount() -> Int {
             changeCount
         }
@@ -16,7 +18,13 @@ final class PasteboardObserverTests: XCTestCase {
         }
 
         func currentItems() -> [PasteboardItem] {
-            items
+            if bumpsChangeCountOnItemsRead {
+                changeCount += 1
+            }
+            if !itemReadResults.isEmpty {
+                return itemReadResults.removeFirst()
+            }
+            return items
         }
 
         func frontmostBundleID() -> String? {
@@ -90,6 +98,54 @@ final class PasteboardObserverTests: XCTestCase {
         wait(for: [inverted], timeout: 0.2)
 
         XCTAssertEqual(changes.count, 0)
+    }
+
+    func testBaselinesChangeCountBumpedWhileReadingItems() {
+        let reader = FakeReader()
+        reader.bumpsChangeCountOnItemsRead = true
+        let obs = PasteboardObserver(reader: reader, rules: ExclusionRules(), pollInterval: 0.05)
+        var changes: [PasteboardChange] = []
+        let first = expectation(description: "first change")
+        let duplicate = expectation(description: "same pasteboard data should not emit twice")
+        duplicate.isInverted = true
+        obs.start {
+            changes.append($0)
+            if changes.count == 1 {
+                first.fulfill()
+            } else if changes.count == 2 {
+                duplicate.fulfill()
+            }
+        }
+        defer { obs.stop() }
+
+        reader.changeCount = 1
+        reader.types = ["public.utf8-plain-text"]
+        reader.items = [.text("hello")]
+        wait(for: [first], timeout: 1)
+        wait(for: [duplicate], timeout: 0.2)
+
+        XCTAssertEqual(changes.count, 1)
+    }
+
+    func testRetriesWhenReadingItemsBumpsChangeCountButReturnsNoItemsYet() {
+        let reader = FakeReader()
+        reader.bumpsChangeCountOnItemsRead = true
+        reader.itemReadResults = [[], [.png(Data([1, 2, 3]))]]
+        let obs = PasteboardObserver(reader: reader, rules: ExclusionRules(), pollInterval: 0.05)
+        var changes: [PasteboardChange] = []
+        let captured = expectation(description: "promised item captured on bumped change count")
+        obs.start {
+            changes.append($0)
+            captured.fulfill()
+        }
+        defer { obs.stop() }
+
+        reader.changeCount = 1
+        reader.types = ["public.png"]
+        wait(for: [captured], timeout: 1)
+
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes.first?.items, [.png(Data([1, 2, 3]))])
     }
 
     func testFiltersConcealed() {

@@ -39,4 +39,23 @@ final class FolderEnumeratorTests: XCTestCase {
         let inv = try await FolderEnumerator.enumerate(url: dir, maxEntries: 1)
         XCTAssertTrue(inv.isPartial)
     }
+
+    func testImmediateEnumerationSkipsNestedChildren() async throws {
+        let inv = try await FolderEnumerator.enumerateImmediate(url: dir, maxEntries: 1000)
+        let names = inv.entries.map(\.name)
+
+        XCTAssertTrue(names.contains("a.txt"))
+        XCTAssertTrue(names.contains("b.png"))
+        XCTAssertTrue(names.contains("sub"))
+        XCTAssertFalse(names.contains("c.swift"))
+        XCTAssertEqual(inv.largest.first?.name, "b.png")
+        XCTAssertNil(inv.breakdown[.code])
+    }
+
+    func testImmediateCapMarksPartial() async throws {
+        let inv = try await FolderEnumerator.enumerateImmediate(url: dir, maxEntries: 1)
+
+        XCTAssertEqual(inv.entries.count, 1)
+        XCTAssertTrue(inv.isPartial)
+    }
 }

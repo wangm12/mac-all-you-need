@@ -24,7 +24,7 @@ struct DockListTabs: View {
                 // user-created pinboard, ordered by creation time via
                 // PinboardStore.sort_order.
                 ForEach(model.availableLists, id: \.id) { board in
-                    tab(label: board.name, selector: .pinboard(board.id), dotColor: board.color)
+                    tab(label: board.name, selector: .pinboard(board.id), dotColor: displayDotColor(for: board))
                         .onDrag {
                             draggedTabID = board.id
                             // Safety: clear the drag state if no drop fires
@@ -130,15 +130,10 @@ struct DockListTabs: View {
             .overlay {
                 if isDropping {
                     Capsule()
-                        .stroke(Color.accentColor, lineWidth: 2)
+                        .stroke(Color.primary.opacity(0.45), lineWidth: 1)
                 }
             }
-            .scaleEffect(isConfirmed ? 1.5 : (isDropping ? 1.32 : 1.0))
-            .shadow(
-                color: isDropping ? Color.accentColor.opacity(0.6) : .clear,
-                radius: isDropping ? 14 : 0,
-                x: 0, y: 0
-            )
+            .scaleEffect(isConfirmed ? 1.12 : (isDropping ? 1.06 : 1.0))
             // Dim ONLY when this exact tab is being dragged. Original
             // condition (`draggedTabID == pinboardID(of: selector)`)
             // collapsed to nil == nil for non-pinboard tabs at rest, so
@@ -179,7 +174,7 @@ struct DockListTabs: View {
     }
 
     private func tabBackground(active: Bool, isDropping: Bool) -> Color {
-        if isDropping { return Color.accentColor.opacity(0.28) }
+        if isDropping { return Color.primary.opacity(0.10) }
         if active { return Color(nsColor: Self.activeTabFill) }
         return .clear
     }
@@ -297,6 +292,13 @@ struct DockListTabs: View {
         )
     }
 
+    private func displayDotColor(for board: Pinboard) -> String? {
+        if board.name == PinnedPinboard.displayName {
+            return PinnedPinboard.displayColor
+        }
+        return board.color
+    }
+
     @ViewBuilder
     private func tabDragPreview(label: String, dotColor: String?) -> some View {
         HStack(spacing: 4) {
@@ -307,9 +309,9 @@ struct DockListTabs: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
-        .background(.regularMaterial)
+        .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(Color.accentColor.opacity(0.5), lineWidth: 1))
+        .overlay(Capsule().stroke(Color.secondary.opacity(0.24), lineWidth: 1))
     }
 }
 

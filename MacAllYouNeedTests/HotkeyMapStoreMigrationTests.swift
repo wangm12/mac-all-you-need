@@ -1,4 +1,5 @@
 @testable import MacAllYouNeed
+import Carbon.HIToolbox
 import Platform
 import XCTest
 
@@ -75,5 +76,29 @@ final class HotkeyMapStoreMigrationTests: XCTestCase {
 
         let map = HotkeyMapStore.load(from: defaults)
         XCTAssertEqual(map[.clipboard], [.defaultClipboard, .defaultDownload])
+    }
+
+    func testVoiceShortcutValidationRejectsSystemReservedShortcut() {
+        let descriptor = HotkeyDescriptor(keyCode: UInt32(kVK_Space), modifiers: [.command])
+
+        let issue = HotkeyValidation.issue(forVoiceShortcut: descriptor, appHotkeys: [:])
+
+        XCTAssertEqual(issue?.message, "This shortcut is reserved for system use.")
+    }
+
+    func testVoiceShortcutValidationRejectsExistingAppHotkeyConflict() {
+        let descriptor = HotkeyDescriptor.defaultClipboard
+
+        let issue = HotkeyValidation.issue(forVoiceShortcut: descriptor, appHotkeys: HotkeyMapStore.load(from: defaults))
+
+        XCTAssertEqual(issue?.message, "This shortcut is already used by Open clipboard popup.")
+    }
+
+    func testVoiceShortcutValidationAllowsUniqueShortcut() {
+        let descriptor = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_R), modifiers: [.control, .option])
+
+        let issue = HotkeyValidation.issue(forVoiceShortcut: descriptor, appHotkeys: HotkeyMapStore.load(from: defaults))
+
+        XCTAssertNil(issue)
     }
 }

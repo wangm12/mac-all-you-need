@@ -4,6 +4,7 @@ import XCTest
 
 final class ClipboardStoreTests: XCTestCase {
     var tempDir: URL!
+    var db: Database!
     var store: ClipboardStore!
     var key: SymmetricKey!
     let device = DeviceID.generate()
@@ -13,7 +14,7 @@ final class ClipboardStoreTests: XCTestCase {
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ClipStoreTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        let db = try! Database(
+        db = try! Database(
             url: tempDir.appendingPathComponent("clipboard.sqlite"),
             migrations: ClipboardStore.migrations
         )
@@ -38,6 +39,21 @@ final class ClipboardStoreTests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.002)
         let b = try store.append(ClipboardRecord.text("b"))
         let items = try store.list(limit: 10)
+        XCTAssertEqual(items.map(\.id), [b.id, a.id])
+    }
+
+    func testListUsesLamportAsTieBreakerForSameModifiedTimestamp() throws {
+        let a = try store.append(ClipboardRecord.text("a"))
+        let b = try store.append(ClipboardRecord.text("b"))
+        try db.queue.write { conn in
+            try conn.execute(
+                sql: "UPDATE clipboard_records SET modified = ? WHERE id IN (?, ?)",
+                arguments: [123_456, a.id.rawValue, b.id.rawValue]
+            )
+        }
+
+        let items = try store.list(limit: 10)
+
         XCTAssertEqual(items.map(\.id), [b.id, a.id])
     }
 
