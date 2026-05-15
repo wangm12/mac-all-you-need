@@ -1391,6 +1391,12 @@ private struct VoiceMainPage: View {
     @State private var mode: VoiceActivationMode
     @State private var selectedASRModelID: VoiceASRModelID
     @State private var languageHint: VoiceASRLanguageHint
+    @State private var asrProviderKind: VoiceASRProviderKind
+    @State private var groqModelID: GroqASRModelID
+    @State private var groqLanguageHint: VoiceASRLanguageHint
+    @State private var groqAPIKey: String
+    @State private var groqStatusMessage: String?
+    @State private var isTestingGroq = false
     @State private var cleanupEnabled: Bool
     @State private var cleanupProvider: VoiceCleanupProviderKind
     @State private var cleanupModel: String
@@ -1413,11 +1419,16 @@ private struct VoiceMainPage: View {
         self.controller = controller
         let activationSettings = VoiceActivationSettingsStore.load()
         let asrSettings = VoiceASRSettingsStore.load()
+        let groqSettings = GroqASRSettingsStore.load()
         let cleanupSettings = controller.voiceCleanupSettings()
         _shortcut = State(initialValue: activationSettings.shortcut)
         _mode = State(initialValue: activationSettings.mode)
         _selectedASRModelID = State(initialValue: asrSettings.modelID)
         _languageHint = State(initialValue: asrSettings.languageHint)
+        _asrProviderKind = State(initialValue: asrSettings.providerKind)
+        _groqModelID = State(initialValue: groqSettings.modelID)
+        _groqLanguageHint = State(initialValue: groqSettings.languageHint)
+        _groqAPIKey = State(initialValue: controller.groqASRAPIKey())
         _cleanupEnabled = State(initialValue: cleanupSettings.isEnabled)
         _cleanupProvider = State(initialValue: cleanupSettings.provider)
         _cleanupModel = State(initialValue: cleanupSettings.model)
@@ -1483,6 +1494,7 @@ private struct VoiceMainPage: View {
                     voiceLanguageSection
                     voiceAudioSection
                     voiceCleanupSection
+                    voiceASRProviderSection
                 }
             }
         }
@@ -1763,6 +1775,103 @@ private struct VoiceMainPage: View {
         )
         selectedTranscriptIDs = state.selectedIDs
         transcriptAnchorID = state.anchorID
+    }
+
+    // MARK: - ASR Provider section
+
+    private var voiceASRProviderSection: some View {
+        MAYNSection(
+            title: "Recognition provider",
+            subtitle: "Local uses on-device Qwen3-ASR. Groq sends audio to Groq's servers for better code-switching quality."
+        ) {
+            MAYNSettingsRow(title: "Provider") {
+                MAYNDropdown(
+                    selection: $asrProviderKind,
+                    options: VoiceASRProviderKind.allCases,
+                    title: { $0.label }
+                )
+                .onChange(of: asrProviderKind) { _, _ in saveASRProviderSettings() }
+            }
+
+            if asrProviderKind == .groq {
+                MAYNDivider()
+                MAYNSettingsRow(title: "Model") {
+                    MAYNDropdown(
+                        selection: $groqModelID,
+                        options: GroqASRModelID.allCases,
+                        title: { $0.title }
+                    )
+                    .onChange(of: groqModelID) { _, _ in saveASRProviderSettings() }
+                }
+                MAYNDivider()
+                MAYNSettingsRow(title: "Language") {
+                    MAYNDropdown(
+                        selection: $groqLanguageHint,
+                        options: VoiceASRLanguageHint.allCases,
+                        title: { $0.label }
+                    )
+                    .onChange(of: groqLanguageHint) { _, _ in saveASRProviderSettings() }
+                }
+                MAYNDivider()
+                MAYNSettingsRow(title: "API key") {
+                    MAYNSecureField(
+                        placeholder: "gsk_…",
+                        text: $groqAPIKey,
+                        width: MAYNControlMetrics.wideTextFieldWidth
+                    )
+                }
+                MAYNDivider()
+                MAYNSettingsRow(title: "Connection") {
+                    HStack(spacing: 8) {
+                        MAYNButton(isTestingGroq ? "Testing…" : "Test") {
+                            testGroqConnection()
+                        }
+                        .disabled(isTestingGroq)
+                        MAYNButton("Apply", role: .primary) {
+                            saveASRProviderSettings()
+                        }
+                    }
+                }
+                if let status = groqStatusMessage {
+                    MAYNSettingsRow(title: "") {
+                        Text(status)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func saveASRProviderSettings() {
+        let asrSettings = VoiceASRSettings(
+            modelID: selectedASRModelID,
+            languageHint: languageHint,
+            providerKind: asrProviderKind
+        )
+        controller.applyVoiceASRSettings(asrSettings)
+
+        let groqSettings = GroqASRSettings(modelID: groqModelID, languageHint: groqLanguageHint)
+        do {
+            try controller.applyGroqASRSettings(groqSettings, apiKey: groqAPIKey)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func testGroqConnection() {
+        isTestingGroq = true
+        groqStatusMessage = "Connecting…"
+        let groqSettings = GroqASRSettings(modelID: groqModelID, languageHint: groqLanguageHint)
+        let key = groqAPIKey
+        Task {
+            let result = await controller.testGroqASRSettings(groqSettings, apiKey: key)
+            await MainActor.run {
+                groqStatusMessage = result
+                isTestingGroq = false
+            }
+        }
     }
 
     private func handleVoiceHistoryKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {

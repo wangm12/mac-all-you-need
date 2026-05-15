@@ -51,6 +51,55 @@ extension AppController {
         VoicePersonalizationSettingsStore.save(settings)
     }
 
+    func voiceASRSettings() -> VoiceASRSettings {
+        VoiceASRSettingsStore.load()
+    }
+
+    func voiceGroqASRSettings() -> GroqASRSettings {
+        GroqASRSettingsStore.load()
+    }
+
+    func groqASRAPIKey() -> String {
+        let keyStore = GroqASRKeyStore(keychain: SystemKeychain())
+        return (try? keyStore.apiKey()) ?? ""
+    }
+
+    func applyVoiceASRSettings(_ settings: VoiceASRSettings) {
+        VoiceASRSettingsStore.save(settings)
+    }
+
+    func applyGroqASRSettings(_ settings: GroqASRSettings, apiKey: String) throws {
+        let keyStore = GroqASRKeyStore(keychain: SystemKeychain())
+        try keyStore.saveAPIKey(apiKey)
+        GroqASRSettingsStore.save(settings)
+    }
+
+    func testGroqASRSettings(_ settings: GroqASRSettings, apiKey: String) async -> String {
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "API key is required."
+        }
+        let keyStore = GroqASRKeyStore(keychain: SystemKeychain())
+        let engine = GroqASREngine(settings: { settings }, keyStore: keyStore)
+        // Silence: 0.5s of zeros is enough to get a valid (empty) response from Groq
+        let silence = [Float](repeating: 0.0, count: 8000)
+        do {
+            try keyStore.saveAPIKey(apiKey)
+            _ = try await engine.transcribe(samples: silence, sampleRate: 16000, options: VoiceTranscriptionOptions(preferredModelIdentifier: nil))
+            return "Connection succeeded."
+        } catch GroqASRError.missingAPIKey {
+            return "API key not saved."
+        } catch GroqASRError.httpError(let code) {
+            return "HTTP \(code) — check your API key."
+        } catch {
+            // Empty transcription (silence) is OK — connection worked
+            let msg = error.localizedDescription
+            if msg.lowercased().contains("empty") || msg.lowercased().contains("too short") {
+                return "Connection succeeded."
+            }
+            return "Ping failed: \(msg)"
+        }
+    }
+
     func voiceCleanupSettings() -> VoiceCleanupSettings {
         VoiceCleanupSettingsStore.load()
     }

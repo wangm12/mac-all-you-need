@@ -176,17 +176,28 @@ enum VoiceASRModelTitlePresentation {
 struct VoiceASRSettings: Codable, Equatable {
     var modelID: VoiceASRModelID
     var languageHint: VoiceASRLanguageHint
+    var providerKind: VoiceASRProviderKind
 
-    static let `default` = VoiceASRSettings(modelID: .qwen3ASR06BF32, languageHint: .automatic)
+    static let `default` = VoiceASRSettings(
+        modelID: .qwen3ASR06BF32,
+        languageHint: .automatic,
+        providerKind: .local
+    )
 
-    init(modelID: VoiceASRModelID = .qwen3ASR06BF32, languageHint: VoiceASRLanguageHint = .automatic) {
+    init(
+        modelID: VoiceASRModelID = .qwen3ASR06BF32,
+        languageHint: VoiceASRLanguageHint = .automatic,
+        providerKind: VoiceASRProviderKind = .local
+    ) {
         self.modelID = modelID
         self.languageHint = languageHint
+        self.providerKind = providerKind
     }
 
     private enum CodingKeys: String, CodingKey {
         case modelID
         case languageHint
+        case providerKind
     }
 
     init(from decoder: Decoder) throws {
@@ -194,6 +205,7 @@ struct VoiceASRSettings: Codable, Equatable {
         let storedModelID = try container.decodeIfPresent(String.self, forKey: .modelID)
         modelID = VoiceASRModelID(storedIdentifier: storedModelID) ?? VoiceASRSettings.default.modelID
         languageHint = try container.decodeIfPresent(VoiceASRLanguageHint.self, forKey: .languageHint) ?? VoiceASRSettings.default.languageHint
+        providerKind = try container.decodeIfPresent(VoiceASRProviderKind.self, forKey: .providerKind) ?? VoiceASRSettings.default.providerKind
     }
 
     func resolvedModelID(preferredModelIdentifier: String?) -> VoiceASRModelID {

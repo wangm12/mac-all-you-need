@@ -446,6 +446,7 @@ private func makeVoiceCoordinator(
     stores: StartupStores,
     cleanupKeyStore: VoiceCleanupKeyStore
 ) -> VoiceCoordinator {
+    let keychain = SystemKeychain()
     let summarizer = VoicePersonalizationSummarizer(
         store: stores.voicePersonalization,
         settings: { VoicePersonalizationSettingsStore.load() },
@@ -454,11 +455,25 @@ private func makeVoiceCoordinator(
             return try VoiceCleanupProviderFactory.makeTextGenerationProvider(settings: settings, keyStore: cleanupKeyStore)
         }
     )
+
+    let asrSettings = VoiceASRSettingsStore.load()
+    let engine: any VoiceTranscriptionEngine
+    switch asrSettings.providerKind {
+    case .local:
+        engine = Qwen3Engine()
+    case .groq:
+        engine = GroqASREngine(
+            settings: { GroqASRSettingsStore.load() },
+            keyStore: GroqASRKeyStore(keychain: keychain)
+        )
+    }
+
     return VoiceCoordinator(
         transcripts: stores.voiceTranscripts,
         dictionary: stores.voiceDictionary,
         personalizationStore: stores.voicePersonalization,
         personalizationSettings: { VoicePersonalizationSettingsStore.load() },
+        engine: engine,
         cleanupKeyStore: cleanupKeyStore,
         summarizer: summarizer
     )

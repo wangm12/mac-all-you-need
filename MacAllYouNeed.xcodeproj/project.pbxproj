@@ -98,6 +98,7 @@
 		77EF22454D9346F8333FB377 /* ClipboardDaemonMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */; };
 		781FF1A46EB255D33FBD1B0F /* DownloaderViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B0AC988278F3B3487E57FCD /* DownloaderViewModel.swift */; };
 		78C887616C77E85869F25229 /* DownloadsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A320BFFB4CB076E26BB0770C /* DownloadsSettingsView.swift */; };
+		79B0FC2EF33E58EC4694A459 /* GroqASREngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81DD8D6F061705CFB5E3845C /* GroqASREngine.swift */; };
 		7B1DE4BE4207077CAC76A87E /* MainWindowRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99553B32911A5BFE1237CAEC /* MainWindowRoot.swift */; };
 		7E254FAC6365E40A2B47C1CB /* DockItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193B1C23ED15167FD5274FB8 /* DockItem.swift */; };
 		7E28F30326CC4386E48A4041 /* FolderPreviewSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D70C5F8D0645F8C7B7BAA1 /* FolderPreviewSettingsView.swift */; };
@@ -112,6 +113,7 @@
 		89D5E105D7BC49FB7A5783D9 /* VoiceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FA39F8E6AF2A1720ACB256A /* VoiceCoordinator.swift */; };
 		8A3A0E666C7E365F80A867DF /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 3ECCEAEFDCCE0914CC9AA6E1 /* Core */; };
 		8DF88BB39CA0552367EF68FA /* TextCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B9B79A7149BEA0570931B4 /* TextCard.swift */; };
+		8E9F0044747C26388C09F500 /* GroqASRKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C2E6B5AFA441139380518E7 /* GroqASRKeyStore.swift */; };
 		93A69A5ABDABE057553451B8 /* VoiceActivationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60F2E878EE4D45E41DF3706 /* VoiceActivationSettings.swift */; };
 		94BB8CD6B068AB5444A61D5C /* VoiceASRSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3E15B164F5F227BAA37A6C /* VoiceASRSettings.swift */; };
 		97027A28DFE827C719336FA8 /* SettingsDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADFF290F1DBB0DF5D983F9FA /* SettingsDestination.swift */; };
@@ -119,6 +121,7 @@
 		99F9679CA4CEBCDC5A076E4C /* DockItemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0AD9146D00B55140B9A154C /* DockItemTests.swift */; };
 		9A52810140F39A2464A6AA80 /* DockRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FD6E040F3D59D75457BA942 /* DockRootView.swift */; };
 		9B576FBC9DA86AEC8500A3EE /* PermissionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 785DD52CE7E2564E48EF1DF0 /* PermissionsSettingsView.swift */; };
+		9CEF66093EE2A145C1B964DC /* GroqASREngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB4C4AE4541A7E50F1EBAE31 /* GroqASREngineTests.swift */; };
 		9E7FF2ECED4E0025E89DC4BE /* AppController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E83A433923D384A05F933F /* AppController.swift */; };
 		A1A90D9D6AE0CF8FD88BF3BC /* SettingsDestinationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC457C1856583EC4590A7EAD /* SettingsDestinationTests.swift */; };
 		A2B49177550A4B446BA37124 /* SettingsExclusionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8B6055293BC1502FA1F9D9A /* SettingsExclusionEditor.swift */; };
@@ -166,6 +169,7 @@
 		DC735024CCED5F4A650D1CF0 /* FileURLLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C507D201DC60F643BE53EF82 /* FileURLLoaderTests.swift */; };
 		DDC43A3FE1AFA2F69AFC0B29 /* VoiceCleanupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94DF47C6807C5BC6FB53C228 /* VoiceCleanupSettings.swift */; };
 		DE426C3EEF5D4F4CB0F71B8F /* FileURLLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2624D38CF44DD95A5AE649F0 /* FileURLLoader.swift */; };
+		DF49838F276BFCE9C253C42C /* GroqASRSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF39F5185B9122BA3645316 /* GroqASRSettings.swift */; };
 		DF695E312AABAACFDA076892 /* CheatsheetOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673C0CFAD8357810A40CBB3B /* CheatsheetOverlay.swift */; };
 		E0438F66610597C697EB648B /* OpenAICompatibleVoiceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0706F4898C02F9FF4289BD2 /* OpenAICompatibleVoiceProvider.swift */; };
 		E1D92F8FF11CF827C48701A3 /* HotkeyMapStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044427E436B002B16EDA1075 /* HotkeyMapStoreMigrationTests.swift */; };
@@ -288,6 +292,7 @@
 		48F94CAA62E9153A576A6BBE /* VoiceCleanupSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCleanupSettingsTests.swift; sourceTree = "<group>"; };
 		492DE154454B27F9AB550B54 /* VoiceCleanupPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCleanupPipelineTests.swift; sourceTree = "<group>"; };
 		49B9BC60F2E1D3AA37BEB915 /* SourceApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceApp.swift; sourceTree = "<group>"; };
+		4BF39F5185B9122BA3645316 /* GroqASRSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqASRSettings.swift; sourceTree = "<group>"; };
 		4C94D8F3D4C9DB6F0CB4BFBF /* VoiceShortcutMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceShortcutMatcher.swift; sourceTree = "<group>"; };
 		4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAllYouNeedApp.swift; sourceTree = "<group>"; };
 		4F584B87D7F58AE5B83FADC1 /* DockListTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockListTabs.swift; sourceTree = "<group>"; };
@@ -309,6 +314,7 @@
 		6A3D5A34DBBE574D545D8D80 /* VoicePersonalizationPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePersonalizationPage.swift; sourceTree = "<group>"; };
 		6ACC57B1DF2998DD88110D9B /* VoiceLLMProviderError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLLMProviderError.swift; sourceTree = "<group>"; };
 		6BC48168DB6EB1529C64CEDF /* AppMenuBarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBarContent.swift; sourceTree = "<group>"; };
+		6C2E6B5AFA441139380518E7 /* GroqASRKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqASRKeyStore.swift; sourceTree = "<group>"; };
 		6E1A984A7EE9AEB13955E475 /* AppIconColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconColor.swift; sourceTree = "<group>"; };
 		6F1AA10BC029C6182FEA023F /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
 		6F66B6A3251A9F0369ED4FD6 /* CardSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardSlot.swift; sourceTree = "<group>"; };
@@ -323,6 +329,7 @@
 		789D9719CDE8B2C6B3D14D4B /* TransformMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransformMenu.swift; sourceTree = "<group>"; };
 		7BB49E2E3D4615E0473EB8F2 /* MacAllYouNeed.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MacAllYouNeed.entitlements; sourceTree = "<group>"; };
 		7C2A494C80615908EBF87BC9 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		81DD8D6F061705CFB5E3845C /* GroqASREngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqASREngine.swift; sourceTree = "<group>"; };
 		837289CB6522B643D1E95BDC /* CardContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardContextMenu.swift; sourceTree = "<group>"; };
 		859055D315C52EC6D6F50CE0 /* VoicePersonalizationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePersonalizationSettings.swift; sourceTree = "<group>"; };
 		85B9B79A7149BEA0570931B4 /* TextCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextCard.swift; sourceTree = "<group>"; };
@@ -400,6 +407,7 @@
 		E3F2359150C892558B6A7FB3 /* CursorPaster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorPaster.swift; sourceTree = "<group>"; };
 		E698DACB526F887522CD22A0 /* AudioCaptureServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureServiceTests.swift; sourceTree = "<group>"; };
 		EA69C93A707658137819D776 /* DockAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockAnimator.swift; sourceTree = "<group>"; };
+		EB4C4AE4541A7E50F1EBAE31 /* GroqASREngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqASREngineTests.swift; sourceTree = "<group>"; };
 		ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EF23BB95BEC2DDAA69E88DE2 /* VoiceASRSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceASRSettingsStoreTests.swift; sourceTree = "<group>"; };
 		F2316DD48BA6E95C007CF9FB /* HotkeyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyController.swift; sourceTree = "<group>"; };
@@ -492,6 +500,7 @@
 			isa = PBXGroup;
 			children = (
 				E698DACB526F887522CD22A0 /* AudioCaptureServiceTests.swift */,
+				EB4C4AE4541A7E50F1EBAE31 /* GroqASREngineTests.swift */,
 				526CB0A5555D860A2711277B /* MiniVoiceHUDTests.swift */,
 				CD3F1216A77BA8E1F9970B44 /* VoiceActivationSettingsStoreTests.swift */,
 				EF23BB95BEC2DDAA69E88DE2 /* VoiceASRSettingsStoreTests.swift */,
@@ -924,6 +933,9 @@
 		E6F8E5EFC388DFA24C31B26A /* ASR */ = {
 			isa = PBXGroup;
 			children = (
+				81DD8D6F061705CFB5E3845C /* GroqASREngine.swift */,
+				6C2E6B5AFA441139380518E7 /* GroqASRKeyStore.swift */,
+				4BF39F5185B9122BA3645316 /* GroqASRSettings.swift */,
 				9005CAFFBC8E8A328E09A36E /* Qwen3Engine.swift */,
 				BB3E15B164F5F227BAA37A6C /* VoiceASRSettings.swift */,
 			);
@@ -1177,6 +1189,7 @@
 				DC735024CCED5F4A650D1CF0 /* FileURLLoaderTests.swift in Sources */,
 				C12C8B648DBF69A0D2999AF2 /* FunctionTabsTests.swift in Sources */,
 				C8EBE19B6C152D9232897101 /* FuzzyMatcherTests.swift in Sources */,
+				9CEF66093EE2A145C1B964DC /* GroqASREngineTests.swift in Sources */,
 				E1D92F8FF11CF827C48701A3 /* HotkeyMapStoreMigrationTests.swift in Sources */,
 				E852FAE2BB311E081968E98E /* HotkeyRecorderTests.swift in Sources */,
 				B2D13425C45F611C5106886D /* ImageBlobLoaderTests.swift in Sources */,
@@ -1289,6 +1302,9 @@
 				1C63A0DE3B87D470FB1D0C14 /* FunctionTabs.swift in Sources */,
 				1529A36DBC005C38B5D60795 /* FuzzyMatcher.swift in Sources */,
 				0FEFAB96778B425E0FCDD79F /* GeneralSettingsView.swift in Sources */,
+				79B0FC2EF33E58EC4694A459 /* GroqASREngine.swift in Sources */,
+				8E9F0044747C26388C09F500 /* GroqASRKeyStore.swift in Sources */,
+				DF49838F276BFCE9C253C42C /* GroqASRSettings.swift in Sources */,
 				4B8A4F878B4C5A9566DCDAB5 /* HotkeyController.swift in Sources */,
 				CE5988BCECE0B86E99A9E68C /* HotkeyMapStore.swift in Sources */,
 				C2A5A19F0D9C4933ACF908E0 /* HotkeyRecorder.swift in Sources */,
