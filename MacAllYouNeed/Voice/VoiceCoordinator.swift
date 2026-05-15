@@ -212,7 +212,7 @@ final class VoiceCoordinator {
             startLearningMonitor(
                 pastedText: text,
                 transcriptID: savedTranscript.id,
-                contextID: effectiveCtx?.id,
+                appBundleID: appBundleID,
                 isAutoSubmit: isAutoSubmit,
                 snapshot: axSnapshot
             )
@@ -272,18 +272,57 @@ final class VoiceCoordinator {
         return samples.map { ($0.before, $0.after) }
     }
 
-    private func startLearningMonitor(
+    // Internal for testing via VoiceCoordinatorPersonalizationTests.
+    func startLearningMonitor(
         pastedText: String,
         transcriptID: String?,
-        contextID: String?,
+        appBundleID: String?,
         isAutoSubmit: Bool,
         snapshot: AXTargetSnapshot?
     ) {
-        guard personalizationSettings().learnFromEditsEnabled,
-              let snapshot,
-              let ctxID = contextID,
-              let store = personalizationStore
-        else { return }
+        guard personalizationSettings().learnFromEditsEnabled else { return }
+        guard let snapshot, let store = personalizationStore else { return }
+
+        // C1: enforce privacy filter BEFORE starting the monitor.
+        guard VoicePersonalizationPrivacyFilter.shouldCapture(snapshot.metadata) else { return }
+
+        // I3: if an app context exists and the user has disabled it, respect that.
+        // Do NOT fall through to global when the user explicitly opted this app out.
+        if let bundleID = appBundleID,
+           let existing = try? store.fetchContext(bundleID: bundleID),
+           !existing.enabled
+        {
+            return
+        }
+
+        // C2: ensure a context row exists for this app. Create on first use.
+        let ctxID: String
+        if let bundleID = appBundleID {
+            if let existing = try? store.fetchContext(bundleID: bundleID) {
+                ctxID = existing.id
+            } else {
+                let displayName = NSRunningApplication
+                    .runningApplications(withBundleIdentifier: bundleID)
+                    .first?.localizedName ?? bundleID
+                guard let created = try? store.upsertContext(
+                    .init(bundleID: bundleID, displayName: displayName)
+                ) else { return }
+                ctxID = created.id
+            }
+        } else {
+            // No app bundle ID — fall back to global, ensuring it exists.
+            if let global = try? store.fetchContext(bundleID: VoicePersonalizationContext.globalBundleID) {
+                ctxID = global.id
+            } else {
+                guard let created = try? store.upsertContext(
+                    .init(bundleID: VoicePersonalizationContext.globalBundleID,
+                          displayName: VoicePersonalizationContext.globalDisplayName)
+                ) else { return }
+                ctxID = created.id
+            }
+        }
+
+        let maxSamples = personalizationSettings().rollingCacheMaxSamples
 
         monitorTask = Task { [weak self] in
             guard let self else { return }
@@ -296,6 +335,10 @@ final class VoiceCoordinator {
             )
             guard let draft else { return }
             try? store.appendSample(draft)
+            // I4: enforce retention limits on every append so they hold even when
+            // the LLM provider is unavailable and the summarizer never fires.
+            try? store.expireSamplesByCount(contextID: ctxID, max: maxSamples)
+            try? store.expireSamplesByDate()
             await self.summarizer?.maybeRun(contextID: ctxID)
         }
     }
