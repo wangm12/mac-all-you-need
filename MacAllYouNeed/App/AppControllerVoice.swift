@@ -66,6 +66,7 @@ extension AppController {
 
     func applyVoiceASRSettings(_ settings: VoiceASRSettings) {
         VoiceASRSettingsStore.save(settings)
+        voiceCoordinator.applyASRProvider(settings.providerKind, keychain: SystemKeychain())
     }
 
     func applyGroqASRSettings(_ settings: GroqASRSettings, apiKey: String) throws {
@@ -78,12 +79,13 @@ extension AppController {
         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return "API key is required."
         }
-        let keyStore = GroqASRKeyStore(keychain: SystemKeychain())
-        let engine = GroqASREngine(settings: { settings }, keyStore: keyStore)
-        // Silence: 0.5s of zeros is enough to get a valid (empty) response from Groq
+        // Use the key in-memory only — do NOT write to Keychain before we know it works.
+        let engine = GroqASREngine(
+            settings: { settings },
+            apiKeyProvider: { apiKey }
+        )
         let silence = [Float](repeating: 0.0, count: 8000)
         do {
-            try keyStore.saveAPIKey(apiKey)
             _ = try await engine.transcribe(samples: silence, sampleRate: 16000, options: VoiceTranscriptionOptions(preferredModelIdentifier: nil))
             return "Connection succeeded."
         } catch GroqASRError.missingAPIKey {
@@ -91,7 +93,6 @@ extension AppController {
         } catch GroqASRError.httpError(let code) {
             return "HTTP \(code) — check your API key."
         } catch {
-            // Empty transcription (silence) is OK — connection worked
             let msg = error.localizedDescription
             if msg.lowercased().contains("empty") || msg.lowercased().contains("too short") {
                 return "Connection succeeded."

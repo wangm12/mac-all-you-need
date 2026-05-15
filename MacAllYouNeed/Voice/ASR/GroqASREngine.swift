@@ -49,6 +49,13 @@ actor GroqASREngine: VoiceTranscriptionEngine {
 
         log.info("Groq ASR: \(resampled.count / 16000, privacy: .public)s audio → \(currentSettings.modelID.rawValue, privacy: .public)")
 
+        // Free tier limit: 25 MB. Use 24 MB as safe ceiling to leave room for
+        // multipart overhead. A 13-minute WAV at 16kHz 16-bit is ~24.96 MB.
+        let maxBytes = 24 * 1024 * 1024
+        guard wavData.count <= maxBytes else {
+            throw GroqASRError.fileTooLarge(seconds: resampled.count / 16000)
+        }
+
         let text = try await uploadToGroq(
             wavData: wavData,
             apiKey: apiKey,
@@ -215,6 +222,7 @@ enum GroqASRError: LocalizedError {
     case missingAPIKey
     case httpError(Int)
     case invalidResponse
+    case fileTooLarge(seconds: Int)
 
     var errorDescription: String? {
         switch self {
@@ -224,6 +232,8 @@ enum GroqASRError: LocalizedError {
             "Groq API returned HTTP \(code). Check your API key."
         case .invalidResponse:
             "Groq API returned an unexpected response."
+        case .fileTooLarge(let seconds):
+            "Recording (\(seconds)s) exceeds Groq's 25 MB upload limit (~13 min). Split into shorter segments."
         }
     }
 }

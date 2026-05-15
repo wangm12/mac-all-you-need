@@ -16,7 +16,7 @@ final class VoiceCoordinator {
     }
 
     private let audio = AudioCaptureService()
-    private let engine: any VoiceTranscriptionEngine
+    private var engine: any VoiceTranscriptionEngine
     private let transcripts: VoiceTranscriptStore
     private let dictionary: VoiceDictionaryStore?
     private let personalizationStore: VoicePersonalizationStore?
@@ -91,6 +91,21 @@ final class VoiceCoordinator {
 
     func applyCleanupSettings(_ settings: VoiceCleanupSettings) {
         cleanupSettings = settings
+    }
+
+    /// Hot-swaps the ASR engine so provider changes in Settings take effect
+    /// on the next dictation without requiring an app restart.
+    func applyASRProvider(_ providerKind: VoiceASRProviderKind, keychain: KeychainBackend) {
+        switch providerKind {
+        case .local:
+            engine = Qwen3Engine()
+        case .groq:
+            let keyStore = GroqASRKeyStore(keychain: keychain)
+            engine = GroqASREngine(
+                settings: { GroqASRSettingsStore.load() },
+                keyStore: keyStore
+            )
+        }
     }
 
     func stop() {
