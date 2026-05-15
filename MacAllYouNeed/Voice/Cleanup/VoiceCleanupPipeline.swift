@@ -7,19 +7,40 @@ struct VoiceCleanupRequest: Equatable {
     let language: VoiceLanguage
     let dictionaryEntries: [VoiceDictionaryEntry]
     let appInstructions: String?
+    let personalStyleNotes: String?
+    let personalizationSummary: String?
+    let recentExamples: [(before: String, after: String)]
 
     init(
         rawText: String,
         appBundleID: String?,
         language: VoiceLanguage,
         dictionaryEntries: [VoiceDictionaryEntry] = [],
-        appInstructions: String? = nil
+        appInstructions: String? = nil,
+        personalStyleNotes: String? = nil,
+        personalizationSummary: String? = nil,
+        recentExamples: [(before: String, after: String)] = []
     ) {
         self.rawText = rawText
         self.appBundleID = appBundleID
         self.language = language
         self.dictionaryEntries = dictionaryEntries
         self.appInstructions = appInstructions
+        self.personalStyleNotes = personalStyleNotes
+        self.personalizationSummary = personalizationSummary
+        self.recentExamples = recentExamples
+    }
+
+    // Equatable: manually handle tuple array.
+    static func == (lhs: VoiceCleanupRequest, rhs: VoiceCleanupRequest) -> Bool {
+        lhs.rawText == rhs.rawText
+            && lhs.appBundleID == rhs.appBundleID
+            && lhs.language == rhs.language
+            && lhs.dictionaryEntries == rhs.dictionaryEntries
+            && lhs.appInstructions == rhs.appInstructions
+            && lhs.personalStyleNotes == rhs.personalStyleNotes
+            && lhs.personalizationSummary == rhs.personalizationSummary
+            && lhs.recentExamples.count == rhs.recentExamples.count
     }
 }
 
@@ -31,6 +52,9 @@ struct VoiceLLMRequest: Equatable {
     let dictionaryEntries: [VoiceDictionaryEntry]
     let translationTarget: VoiceLanguage?
     let appInstructions: String?
+    let personalStyleNotes: String?
+    let personalizationSummary: String?
+    let recentExamples: [(before: String, after: String)]
 
     init(
         text: String,
@@ -39,7 +63,10 @@ struct VoiceLLMRequest: Equatable {
         language: VoiceLanguage,
         dictionaryEntries: [VoiceDictionaryEntry] = [],
         translationTarget: VoiceLanguage? = nil,
-        appInstructions: String? = nil
+        appInstructions: String? = nil,
+        personalStyleNotes: String? = nil,
+        personalizationSummary: String? = nil,
+        recentExamples: [(before: String, after: String)] = []
     ) {
         self.text = text
         self.rawText = rawText
@@ -48,6 +75,9 @@ struct VoiceLLMRequest: Equatable {
         self.dictionaryEntries = dictionaryEntries
         self.translationTarget = translationTarget
         self.appInstructions = appInstructions
+        self.personalStyleNotes = personalStyleNotes
+        self.personalizationSummary = personalizationSummary
+        self.recentExamples = recentExamples
     }
 
     var promptContext: VoicePromptContext {
@@ -56,8 +86,25 @@ struct VoiceLLMRequest: Equatable {
             appBundleID: appBundleID,
             dictionaryEntries: dictionaryEntries,
             translationTarget: translationTarget,
-            appInstructions: appInstructions
+            appInstructions: appInstructions,
+            personalStyleNotes: personalStyleNotes,
+            personalizationSummary: personalizationSummary,
+            recentExamples: recentExamples
         )
+    }
+
+    // Equatable: manually handle tuple array.
+    static func == (lhs: VoiceLLMRequest, rhs: VoiceLLMRequest) -> Bool {
+        lhs.text == rhs.text
+            && lhs.rawText == rhs.rawText
+            && lhs.appBundleID == rhs.appBundleID
+            && lhs.language == rhs.language
+            && lhs.dictionaryEntries == rhs.dictionaryEntries
+            && lhs.translationTarget == rhs.translationTarget
+            && lhs.appInstructions == rhs.appInstructions
+            && lhs.personalStyleNotes == rhs.personalStyleNotes
+            && lhs.personalizationSummary == rhs.personalizationSummary
+            && lhs.recentExamples.count == rhs.recentExamples.count
     }
 }
 
@@ -107,7 +154,10 @@ struct VoiceCleanupPipeline {
             appBundleID: request.appBundleID,
             language: request.language,
             dictionaryEntries: request.dictionaryEntries,
-            appInstructions: request.appInstructions
+            appInstructions: request.appInstructions,
+            personalStyleNotes: request.personalStyleNotes,
+            personalizationSummary: request.personalizationSummary,
+            recentExamples: request.recentExamples
         )
 
         do {
