@@ -7,9 +7,6 @@ final class VoicePostEditLearningMonitorTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        // Create a synthetic snapshot using the test process's own AX element.
-        // The monitor's AX calls are injected via closures so this element is never
-        // actually read from; we only need a non-nil AXTargetSnapshot instance.
         let element = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
         let meta = AXTargetMetadata(
             bundleID: "com.apple.TextEdit",
@@ -21,11 +18,61 @@ final class VoicePostEditLearningMonitorTests: XCTestCase {
         testSnapshot = AXTargetSnapshot(metadata: meta, element: element)
     }
 
-    func testHappyPathReturnsSampleWhenEditDetected() async {
-        let monitor = monitor(
-            alwaysMatches: true,
-            valueSequence: ["hello world", "Hello, world."]
-        )
+    // MARK: - extractEditSpan unit tests
+
+    func testExtractEditSpanIsolatesChangedWord() {
+        let (before, after) = VoicePostEditLearningMonitor.extractEditSpan(
+            initial: "The quick brown fox.",
+            final: "The quick red fox."
+        )!
+        XCTAssertEqual(before, "brown")
+        XCTAssertEqual(after, "red")
+    }
+
+    func testExtractEditSpanHandlesFullReplacement() {
+        let (before, after) = VoicePostEditLearningMonitor.extractEditSpan(
+            initial: "hello world",
+            final: "Hello, world."
+        )!
+        // No common prefix (h vs H differ), no common suffix (d vs .)
+        XCTAssertEqual(before, "hello world")
+        XCTAssertEqual(after, "Hello, world.")
+    }
+
+    func testExtractEditSpanHandlesPrefixAndSuffix() {
+        let (before, after) = VoicePostEditLearningMonitor.extractEditSpan(
+            initial: "Existing text. hello world. More text.",
+            final: "Existing text. Hello, world! More text."
+        )!
+        // Common suffix is " More text." (11 chars) — but '.' vs '!' differ before that,
+        // so the period after "hello world" is included in the changed span.
+        XCTAssertEqual(before, "hello world.")
+        XCTAssertEqual(after, "Hello, world!")
+        // Surrounding content "Existing text. " and " More text." do NOT appear in spans.
+        XCTAssertFalse(before.contains("Existing"), "prefix leaked into before")
+        XCTAssertFalse(after.contains("More"), "suffix leaked into after")
+    }
+
+    func testExtractEditSpanHandlesInsertionAtEnd() {
+        let (before, after) = VoicePostEditLearningMonitor.extractEditSpan(
+            initial: "hello",
+            final: "hello world"
+        )!
+        XCTAssertEqual(before, "")
+        XCTAssertEqual(after, " world")
+    }
+
+    // MARK: - observe() integration tests
+
+    func testHappyPathReturnsSampleWithExtractedEditSpan() async {
+        // Simulates: paste "hello world" into a document "Before. hello world. After."
+        // User edits to "Before. Hello, world. After."
+        // Common suffix includes " world. After." because "world" is unchanged in position,
+        // so the extracted span is "hello" → "Hello," — still useful for the LLM summarizer.
+        let initial = "Before. hello world. After."
+        let final_ = "Before. Hello, world. After."
+
+        let monitor = monitor(alwaysMatches: true, valueSequence: [initial, final_])
 
         let draft = await monitor.observe(
             pastedText: "hello world",
@@ -36,17 +83,41 @@ final class VoicePostEditLearningMonitorTests: XCTestCase {
         )
 
         XCTAssertNotNil(draft)
-        XCTAssertEqual(draft?.before, "hello world")
-        XCTAssertEqual(draft?.after, "Hello, world.")
+        XCTAssertEqual(draft?.before, "hello")     // greedy suffix matched " world. After."
+        XCTAssertEqual(draft?.after, "Hello,")
         XCTAssertEqual(draft?.transcriptID, "tx-1")
         XCTAssertEqual(draft?.contextID, "ctx-1")
+        // No surrounding content in sample
+        XCTAssertFalse(draft?.before.contains("Before") ?? false)
+        XCTAssertFalse(draft?.after.contains("After") ?? false)
+    }
+
+    func testSurroundingDocumentContentNotIncludedInSample() async {
+        // The document has significant surrounding content around the pasted text.
+        let surrounding = String(repeating: "A", count: 500)
+        let initial = "\(surrounding) hello world \(surrounding)"
+        let final_ = "\(surrounding) Hello. \(surrounding)"
+
+        let monitor = monitor(alwaysMatches: true, valueSequence: [initial, final_])
+
+        let draft = await monitor.observe(
+            pastedText: "hello world",
+            transcriptID: nil,
+            contextID: "ctx-1",
+            isAutoSubmitContext: false,
+            snapshot: testSnapshot
+        )
+
+        XCTAssertNotNil(draft)
+        // Surrounding content must NOT appear in either span.
+        XCTAssertFalse(draft?.before.contains(surrounding) ?? false, "surrounding leaked into before")
+        XCTAssertFalse(draft?.after.contains(surrounding) ?? false, "surrounding leaked into after")
+        XCTAssertEqual(draft?.before, "hello world")
+        XCTAssertEqual(draft?.after, "Hello.")
     }
 
     func testNoEditReturnsNil() async {
-        let monitor = monitor(
-            alwaysMatches: true,
-            valueSequence: ["hello world", "hello world"]
-        )
+        let monitor = monitor(alwaysMatches: true, valueSequence: ["hello world", "hello world"])
 
         let draft = await monitor.observe(
             pastedText: "hello world",
@@ -103,11 +174,7 @@ final class VoicePostEditLearningMonitorTests: XCTestCase {
     }
 
     func testPastedTextNotFoundInDocumentReturnsNil() async {
-        // AX value doesn't contain the pasted text (e.g. app cleared it)
-        let monitor = monitor(
-            alwaysMatches: true,
-            valueSequence: ["completely different content", "still different"]
-        )
+        let monitor = monitor(alwaysMatches: true, valueSequence: ["completely different content", "still different"])
 
         let draft = await monitor.observe(
             pastedText: "hello world",
@@ -125,10 +192,7 @@ final class VoicePostEditLearningMonitorTests: XCTestCase {
         let monitor = VoicePostEditLearningMonitor(
             config: fastConfig(),
             isCancelled: { cancellationToggle },
-            matchesFocused: { [self] _ in
-                cancellationToggle = true
-                return true
-            },
+            matchesFocused: { _ in cancellationToggle = true; return true },
             readCurrentValue: { _ in "hello world" }
         )
 
@@ -167,10 +231,7 @@ final class VoicePostEditLearningMonitorTests: XCTestCase {
         return c
     }
 
-    private func monitor(
-        alwaysMatches: Bool,
-        valueSequence: [String]
-    ) -> VoicePostEditLearningMonitor {
+    private func monitor(alwaysMatches: Bool, valueSequence: [String]) -> VoicePostEditLearningMonitor {
         var values = valueSequence
         return VoicePostEditLearningMonitor(
             config: fastConfig(),

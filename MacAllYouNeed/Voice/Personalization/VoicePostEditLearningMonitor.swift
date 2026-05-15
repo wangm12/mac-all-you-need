@@ -9,13 +9,11 @@ private let log = Logger(subsystem: "com.macallyouneed.voice", category: "learni
 /// if the user modifies the pasted text within 60 seconds.
 ///
 /// Two-phase design:
-/// 1. First stable read: confirm the pasted text is present in the document (anchoring).
-///    If the document doesn't contain the pasted text, skip — we're not in the right field.
-/// 2. Idle detection: once the value has been stable for idleThreshold, capture the
-///    final document value as "after". Sample = (pastedText, finalValue).
-///
-/// The LLM summarizer receives both and can infer what style corrections were made.
-/// finalValue is capped at maxByteLength to avoid capturing large documents.
+/// 1. Anchor: first stable AX value read that contains the pasted text. Records
+///    the initial document value so surrounding context can be stripped later.
+/// 2. Idle detection: poll until 1.5s of no value change, then extract the edit
+///    span via common-prefix/suffix comparison between the initial and final values.
+///    Only the changed region is stored — surrounding document content is excluded.
 @MainActor
 final class VoicePostEditLearningMonitor {
     struct Config {
@@ -65,8 +63,8 @@ final class VoicePostEditLearningMonitor {
 
         let deadline = ContinuousClock.now + .seconds(config.maxObservationSeconds)
 
-        // Phase 1: wait for first stable read that confirms the pasted text is present.
         var anchorConfirmed = false
+        var initialValue: String? = nil
         var lastValue: String? = nil
         var lastChangeTime = ContinuousClock.now
 
@@ -83,18 +81,20 @@ final class VoicePostEditLearningMonitor {
                 lastValue = value
                 lastChangeTime = ContinuousClock.now
 
-                // Confirm anchor on first read: pasted text must be visible in the document.
                 if !anchorConfirmed {
                     guard value.contains(pastedText) else { return nil }
                     anchorConfirmed = true
+                    initialValue = value
                 }
             }
 
             let idle = ContinuousClock.now - lastChangeTime
-            if anchorConfirmed, idle >= config.idleThreshold, let finalValue = lastValue {
+            if anchorConfirmed, idle >= config.idleThreshold,
+               let finalValue = lastValue, let initial = initialValue
+            {
                 return makeDraft(
-                    pastedText: pastedText,
-                    finalValue: finalValue,
+                    initial: initial,
+                    final: finalValue,
                     transcriptID: transcriptID,
                     contextID: contextID
                 )
@@ -108,26 +108,72 @@ final class VoicePostEditLearningMonitor {
 
     // MARK: - Private
 
+    /// Extracts only the changed region between `initial` and `final` using
+    /// common-prefix / common-suffix trimming. This prevents surrounding document
+    /// content (text before or after the dictation) from leaking into the sample.
     private func makeDraft(
-        pastedText: String,
-        finalValue: String,
+        initial: String,
+        final finalValue: String,
         transcriptID: String?,
         contextID: String
     ) -> VoicePersonalizationSampleDraft? {
-        guard finalValue != pastedText else { return nil }
-        guard finalValue.utf8.count <= config.maxByteLength else { return nil }
+        guard let (before, after) = Self.extractEditSpan(initial: initial, final: finalValue) else { return nil }
+        guard !before.isEmpty || !after.isEmpty else { return nil }
+        guard before != after else { return nil }
+        guard before.utf8.count <= config.maxByteLength,
+              after.utf8.count <= config.maxByteLength else { return nil }
 
         log.debug(
-            "Learning sample: before=\(pastedText.utf8.count, privacy: .public)B after=\(finalValue.utf8.count, privacy: .public)B"
+            "Learning sample: before=\(before.utf8.count, privacy: .public)B after=\(after.utf8.count, privacy: .public)B"
         )
 
         return VoicePersonalizationSampleDraft(
             contextID: contextID,
             transcriptID: transcriptID,
-            before: pastedText,
-            after: finalValue,
+            before: before,
+            after: after,
             diffOffset: 0,
-            diffLength: pastedText.count
+            diffLength: before.count
         )
+    }
+
+    /// Returns the substring of `initial` and `final` that differs, by stripping
+    /// the longest common prefix and longest common suffix. Both strings are compared
+    /// character-by-character to find the exact changed region.
+    static func extractEditSpan(initial: String, final finalValue: String) -> (before: String, after: String)? {
+        let ic = Array(initial.unicodeScalars)
+        let fc = Array(finalValue.unicodeScalars)
+
+        var prefixLen = 0
+        let minLen = min(ic.count, fc.count)
+        while prefixLen < minLen && ic[prefixLen] == fc[prefixLen] {
+            prefixLen += 1
+        }
+
+        var suffixLen = 0
+        let maxSuffix = min(ic.count - prefixLen, fc.count - prefixLen)
+        while suffixLen < maxSuffix
+            && ic[ic.count - 1 - suffixLen] == fc[fc.count - 1 - suffixLen]
+        {
+            suffixLen += 1
+        }
+
+        let beforeStart = initial.unicodeScalars.index(
+            initial.unicodeScalars.startIndex, offsetBy: prefixLen
+        )
+        let beforeEnd = suffixLen == 0
+            ? initial.unicodeScalars.endIndex
+            : initial.unicodeScalars.index(initial.unicodeScalars.endIndex, offsetBy: -suffixLen)
+        let before = String(initial.unicodeScalars[beforeStart ..< beforeEnd])
+
+        let afterStart = finalValue.unicodeScalars.index(
+            finalValue.unicodeScalars.startIndex, offsetBy: prefixLen
+        )
+        let afterEnd = suffixLen == 0
+            ? finalValue.unicodeScalars.endIndex
+            : finalValue.unicodeScalars.index(finalValue.unicodeScalars.endIndex, offsetBy: -suffixLen)
+        let after = String(finalValue.unicodeScalars[afterStart ..< afterEnd])
+
+        return (before, after)
     }
 }

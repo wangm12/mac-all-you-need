@@ -158,19 +158,19 @@ enum VoiceCleanupProviderFactory {
         guard settings.isEnabled else { return nil }
         switch settings.provider {
         case .anthropic:
-            guard let apiKey = try? keyStore.apiKey(for: .anthropic),
+            guard let apiKey = try keyStore.apiKey(for: .anthropic),
                   let baseURL = URL(string: settings.effectiveBaseURLString)
             else { return nil }
             return AnthropicVoiceProvider(apiKey: apiKey, model: settings.effectiveModel, baseURL: baseURL)
         case .openAICompatible:
-            guard let apiKey = try? keyStore.apiKey(for: .openAICompatible),
+            guard let apiKey = try keyStore.apiKey(for: .openAICompatible),
                   let baseURL = URL(string: settings.effectiveBaseURLString)
             else { return nil }
             return OpenAICompatibleVoiceProvider(apiKey: apiKey, model: settings.effectiveModel, baseURL: baseURL)
         case .ollama:
             guard let baseURL = URL(string: settings.effectiveBaseURLString) else { return nil }
             return OpenAICompatibleVoiceProvider(
-                apiKey: (try? keyStore.apiKey(for: .ollama)) ?? "",
+                apiKey: try keyStore.apiKey(for: .ollama) ?? "",
                 model: settings.effectiveModel,
                 baseURL: baseURL
             )
