@@ -145,34 +145,30 @@ final class VoiceCoordinator {
 
             // Load personalization context for this app (overrides + style hints).
             let (appCtx, globalCtx) = loadContexts(bundleID: appBundleID)
-            let effectiveCtx = appCtx ?? globalCtx
+            let overrides = Self.effectiveOverrides(appContext: appCtx, globalContext: globalCtx)
+            let recentExamplesContext = (appCtx?.enabled == false)
+                ? nil
+                : (appCtx ?? globalCtx)
 
             let result = try await engine.transcribe(
                 samples: captured.samples,
                 sampleRate: captured.sampleRate,
                 options: VoiceTranscriptionOptions(
-                    preferredModelIdentifier: effectiveCtx?.asrModelID
+                    preferredModelIdentifier: overrides.asrModelID
                 )
             )
             guard isCurrentOperation(generation), state == .transcribing else { return }
             let dictionaryEntries = (try? dictionary?.list()) ?? []
 
-            // Build personalization-enriched cleanup request.
-            let recentExamples = loadRecentExamples(context: effectiveCtx)
-            let cleanupRequest = VoiceCleanupRequest(
+            // Build personalization-enriched cleanup request via the testable builder.
+            let recentExamples = loadRecentExamples(context: recentExamplesContext)
+            let cleanupRequest = Self.buildCleanupRequest(
                 rawText: result.text,
                 appBundleID: appBundleID,
                 language: result.language,
                 dictionaryEntries: dictionaryEntries,
-                appInstructions: effectiveCtx?.customPromptOverride.flatMap {
-                    $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
-                },
-                personalStyleNotes: globalCtx?.styleNotes.flatMap {
-                    $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
-                },
-                personalizationSummary: (appCtx?.summary ?? globalCtx?.summary).flatMap {
-                    $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
-                },
+                appContext: appCtx,
+                globalContext: globalCtx,
                 recentExamples: recentExamples
             )
 
@@ -200,8 +196,8 @@ final class VoiceCoordinator {
                 onPrimary: makeDismissAction()
             )
 
-            // Auto-submit (app-specific).
-            let autoSubmitKey = effectiveCtx?.autoSubmitKey
+            // Auto-submit (app-specific, respects disabled-context opt-out).
+            let autoSubmitKey = overrides.autoSubmitKey
             if pasteResult.didPostPasteEvent, let key = autoSubmitKey, key != .none {
                 try? await Task.sleep(for: .milliseconds(80))
                 autoSubmit.submit(key)
@@ -260,9 +256,9 @@ final class VoiceCoordinator {
     private func loadContexts(bundleID: String?) -> (app: VoicePersonalizationContext?, global: VoicePersonalizationContext?) {
         let global = try? personalizationStore?.fetchContext(bundleID: VoicePersonalizationContext.globalBundleID)
         guard let bundleID else { return (nil, global) }
-        let app = (try? personalizationStore?.fetchContext(bundleID: bundleID)).flatMap {
-            $0.enabled ? $0 : nil
-        }
+        // Return raw app context regardless of enabled — callers decide how to interpret
+        // a disabled context. buildCleanupRequest treats disabled = full personalization opt-out.
+        let app = try? personalizationStore?.fetchContext(bundleID: bundleID)
         return (app, global)
     }
 
@@ -270,6 +266,56 @@ final class VoiceCoordinator {
         guard let ctxID = context?.id, let store = personalizationStore else { return [] }
         let samples = (try? store.listRecentSamples(contextID: ctxID, limit: 10)) ?? []
         return samples.map { ($0.before, $0.after) }
+    }
+
+    /// Builds the cleanup request, honoring disabled-app-context as a full personalization
+    /// opt-out (no global fallback for any field). Internal+static so it is testable in
+    /// isolation without spinning up the full coordinator.
+    static func buildCleanupRequest(
+        rawText: String,
+        appBundleID: String?,
+        language: VoiceLanguage,
+        dictionaryEntries: [VoiceDictionaryEntry],
+        appContext: VoicePersonalizationContext?,
+        globalContext: VoicePersonalizationContext?,
+        recentExamples: [(before: String, after: String)]
+    ) -> VoiceCleanupRequest {
+        // If the user explicitly disabled personalization for this app, skip ALL
+        // personalization fields. No global fallback. The disable toggle is a hard
+        // opt-out for both learning and prompt enrichment.
+        if let appCtx = appContext, !appCtx.enabled {
+            return VoiceCleanupRequest(
+                rawText: rawText,
+                appBundleID: appBundleID,
+                language: language,
+                dictionaryEntries: dictionaryEntries
+            )
+        }
+
+        let effectiveCtx = appContext ?? globalContext
+
+        return VoiceCleanupRequest(
+            rawText: rawText,
+            appBundleID: appBundleID,
+            language: language,
+            dictionaryEntries: dictionaryEntries,
+            appInstructions: effectiveCtx?.customPromptOverride.flatMap { Self.trimmedOrNil($0) },
+            personalStyleNotes: globalContext?.styleNotes.flatMap { Self.trimmedOrNil($0) },
+            personalizationSummary: (appContext?.summary ?? globalContext?.summary).flatMap { Self.trimmedOrNil($0) },
+            recentExamples: recentExamples
+        )
+    }
+
+    /// Resolves the ASR override / auto-submit honoring disabled-context opt-out.
+    private static func effectiveOverrides(
+        appContext: VoicePersonalizationContext?,
+        globalContext: VoicePersonalizationContext?
+    ) -> (asrModelID: String?, autoSubmitKey: VoiceAutoSubmitKey?) {
+        if let appCtx = appContext, !appCtx.enabled {
+            return (nil, nil)
+        }
+        let effective = appContext ?? globalContext
+        return (effective?.asrModelID, effective?.autoSubmitKey)
     }
 
     // Internal for testing via VoiceCoordinatorPersonalizationTests.
@@ -286,9 +332,15 @@ final class VoiceCoordinator {
         // C1: enforce privacy filter BEFORE starting the monitor.
         guard VoicePersonalizationPrivacyFilter.shouldCapture(snapshot.metadata) else { return }
 
+        // B-3: prefer the snapshot's bundleID for context resolution. The captured
+        // appBundleID was taken before cleanup; if the user switched apps during the
+        // (potentially multi-second) cloud LLM round-trip, the paste — and the edit —
+        // happen in the new app. Sample attribution must follow where the paste landed.
+        let learningBundleID = snapshot.metadata.bundleID ?? appBundleID
+
         // I3: if an app context exists and the user has disabled it, respect that.
         // Do NOT fall through to global when the user explicitly opted this app out.
-        if let bundleID = appBundleID,
+        if let bundleID = learningBundleID,
            let existing = try? store.fetchContext(bundleID: bundleID),
            !existing.enabled
         {
@@ -297,7 +349,7 @@ final class VoiceCoordinator {
 
         // C2: ensure a context row exists for this app. Create on first use.
         let ctxID: String
-        if let bundleID = appBundleID {
+        if let bundleID = learningBundleID {
             if let existing = try? store.fetchContext(bundleID: bundleID) {
                 ctxID = existing.id
             } else {
@@ -341,6 +393,11 @@ final class VoiceCoordinator {
             try? store.expireSamplesByDate()
             await self.summarizer?.maybeRun(contextID: ctxID)
         }
+    }
+
+    private static func trimmedOrNil(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func makeCleanupPipeline() -> VoiceCleanupPipeline {

@@ -228,6 +228,43 @@ final class VoicePersonalizationStoreTests: XCTestCase {
         XCTAssertEqual(beforeCutoff.map(\.before), ["early"])
     }
 
+    // MARK: - B-2: Corruption resilience
+
+    func testCorruptedSampleIsSkippedNotBlocking() throws {
+        let ctx = try store.upsertContext(.init(bundleID: "com.apple.TextEdit", displayName: "TextEdit"))
+        let good = try store.appendSample(.init(
+            contextID: ctx.id, transcriptID: nil,
+            before: "hello", after: "Hello.", diffOffset: 0, diffLength: 5
+        ))
+
+        // Insert a deliberately corrupt encrypted_payload that will fail to decrypt
+        // (random bytes are not a valid AES-GCM envelope).
+        try db.queue.write { conn in
+            try conn.execute(sql: """
+                INSERT INTO voice_personalization_samples (
+                    id, context_id, transcript_id, encrypted_payload,
+                    observed_at, expires_at, summarized
+                ) VALUES (?, ?, NULL, ?, ?, ?, 0)
+            """, arguments: [
+                "corrupt-id",
+                ctx.id,
+                Data([0x00, 0x01, 0x02, 0x03]),
+                Int64(Date().timeIntervalSince1970 * 1000),
+                Int64(Date().addingTimeInterval(60 * 60).timeIntervalSince1970 * 1000)
+            ])
+        }
+
+        // listRecentSamples must skip the corrupt row and still return the good one.
+        let recent = try store.listRecentSamples(contextID: ctx.id, limit: 10)
+        XCTAssertEqual(recent.count, 1, "good sample must remain readable when a sibling row is corrupt")
+        XCTAssertEqual(recent.first?.id, good.id)
+
+        // listUnsummarizedSamples must also skip the corrupt row.
+        let unsummarized = try store.listUnsummarizedSamples(contextID: ctx.id)
+        XCTAssertEqual(unsummarized.count, 1)
+        XCTAssertEqual(unsummarized.first?.id, good.id)
+    }
+
     // MARK: - Summary
 
     func testSetAndReadSummary() throws {

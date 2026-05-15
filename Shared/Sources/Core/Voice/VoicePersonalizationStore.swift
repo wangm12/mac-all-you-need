@@ -6,6 +6,7 @@ public final class VoicePersonalizationStore: @unchecked Sendable {
     private let db: Database
     private let key: SymmetricKey
     private let now: () -> Date
+    private let log = Logging.logger(for: "voice", category: "personalization-store")
 
     public init(database: Database, deviceKey: SymmetricKey, now: @escaping () -> Date = Date.init) {
         db = database
@@ -185,7 +186,7 @@ public final class VoicePersonalizationStore: @unchecked Sendable {
                 ORDER BY observed_at DESC
                 LIMIT ?
             """, arguments: [contextID, normalizedLimit])
-            return try rows.map { try self.sample(from: $0) }
+            return rows.compactMap { decodeSampleOrSkip($0) }
         }
     }
 
@@ -209,7 +210,20 @@ public final class VoicePersonalizationStore: @unchecked Sendable {
                     ORDER BY observed_at ASC
                 """, arguments: [contextID])
             }
-            return try rows.map { try self.sample(from: $0) }
+            return rows.compactMap { decodeSampleOrSkip($0) }
+        }
+    }
+
+    /// Decrypts and decodes a sample row, returning nil and logging on any failure.
+    /// Used so a single corrupted payload (key rotation, future schema bump, disk
+    /// rot) cannot make the entire context's samples invisible to learning.
+    private func decodeSampleOrSkip(_ row: Row) -> VoicePersonalizationSample? {
+        do {
+            return try sample(from: row)
+        } catch {
+            let id: String = row["id"]
+            log.error("Personalization: skipped corrupt sample \(id, privacy: .public): \(error.localizedDescription, privacy: .private)")
+            return nil
         }
     }
 

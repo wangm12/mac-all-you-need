@@ -168,7 +168,137 @@ final class VoiceCoordinatorPersonalizationTests: XCTestCase {
                        "global must not receive samples when app is explicitly disabled")
     }
 
-    // MARK: - I4: Retention limits enforced on append
+    // MARK: - B-1: Disabled context = full personalization opt-out (no global fallback)
+
+    func testBuildCleanupRequest_disabledAppContextSkipsAllPersonalization() {
+        let appCtx = makeContext(
+            bundleID: "com.apple.TextEdit", enabled: false,
+            customPromptOverride: "casual",
+            summary: "App style summary"
+        )
+        let globalCtx = makeContext(
+            bundleID: "global", enabled: true,
+            customPromptOverride: "global override",
+            styleNotes: "Global style notes",
+            summary: "Global summary"
+        )
+
+        let req = VoiceCoordinator.buildCleanupRequest(
+            rawText: "raw",
+            appBundleID: "com.apple.TextEdit",
+            language: .english,
+            dictionaryEntries: [],
+            appContext: appCtx,
+            globalContext: globalCtx,
+            recentExamples: [("a", "b"), ("c", "d")]
+        )
+
+        XCTAssertNil(req.appInstructions, "disabled app must skip ALL personalization, including global custom prompt")
+        XCTAssertNil(req.personalStyleNotes, "disabled app must skip global style notes")
+        XCTAssertNil(req.personalizationSummary, "disabled app must skip global summary")
+        XCTAssertTrue(req.recentExamples.isEmpty, "disabled app must skip recent examples")
+    }
+
+    func testBuildCleanupRequest_enabledAppContextUsesAppOverridesAndGlobalStyleNotes() {
+        let appCtx = makeContext(
+            bundleID: "com.apple.TextEdit", enabled: true,
+            customPromptOverride: "App custom",
+            summary: "App summary"
+        )
+        let globalCtx = makeContext(
+            bundleID: "global", enabled: true,
+            styleNotes: "Global notes",
+            summary: "Global summary"
+        )
+
+        let req = VoiceCoordinator.buildCleanupRequest(
+            rawText: "raw",
+            appBundleID: "com.apple.TextEdit",
+            language: .english,
+            dictionaryEntries: [],
+            appContext: appCtx,
+            globalContext: globalCtx,
+            recentExamples: [("a", "b")]
+        )
+
+        XCTAssertEqual(req.appInstructions, "App custom", "app override wins")
+        XCTAssertEqual(req.personalStyleNotes, "Global notes", "style notes always come from global")
+        XCTAssertEqual(req.personalizationSummary, "App summary", "summary prefers app context")
+        XCTAssertEqual(req.recentExamples.count, 1)
+    }
+
+    func testBuildCleanupRequest_noAppContextFallsBackToGlobal() {
+        let globalCtx = makeContext(
+            bundleID: "global", enabled: true,
+            customPromptOverride: "Global custom",
+            styleNotes: "Global notes",
+            summary: "Global summary"
+        )
+
+        let req = VoiceCoordinator.buildCleanupRequest(
+            rawText: "raw",
+            appBundleID: "com.apple.TextEdit",
+            language: .english,
+            dictionaryEntries: [],
+            appContext: nil,
+            globalContext: globalCtx,
+            recentExamples: []
+        )
+
+        XCTAssertEqual(req.appInstructions, "Global custom")
+        XCTAssertEqual(req.personalStyleNotes, "Global notes")
+        XCTAssertEqual(req.personalizationSummary, "Global summary")
+    }
+
+    func testBuildCleanupRequest_emptyContextsProducesPersonalizationFreeRequest() {
+        let req = VoiceCoordinator.buildCleanupRequest(
+            rawText: "raw",
+            appBundleID: nil,
+            language: .english,
+            dictionaryEntries: [],
+            appContext: nil,
+            globalContext: nil,
+            recentExamples: []
+        )
+
+        XCTAssertNil(req.appInstructions)
+        XCTAssertNil(req.personalStyleNotes)
+        XCTAssertNil(req.personalizationSummary)
+        XCTAssertTrue(req.recentExamples.isEmpty)
+    }
+
+    // MARK: - B-3: Snapshot bundleID overrides stale appBundleID for context resolution
+
+    func testLearningUsesSnapshotBundleIDNotStaleAppBundleID() async throws {
+        // Simulates: user dictated in TextEdit, then switched to Mail before paste
+        // landed. The snapshot's bundleID reflects the actual paste target (Mail).
+        // The sample must be attributed to Mail, not the stale TextEdit.
+        let element = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        let mailMeta = AXTargetMetadata(
+            bundleID: "com.apple.mail",
+            pid: ProcessInfo.processInfo.processIdentifier,
+            role: "AXTextArea",
+            subrole: nil,
+            isEditable: true
+        )
+        let mailSnapshot = AXTargetSnapshot(metadata: mailMeta, element: element)
+
+        let coordinator = makeCoordinator(pastedText: "hello world", editValue: "Hello, world.")
+        coordinator.startLearningMonitor(
+            pastedText: "hello world",
+            transcriptID: "tx-1",
+            appBundleID: "com.apple.TextEdit", // STALE — captured before app switch
+            isAutoSubmit: false,
+            snapshot: mailSnapshot
+        )
+        try await Task.sleep(for: .milliseconds(150))
+
+        // Sample must go to Mail (where snapshot points), not TextEdit (the stale param).
+        XCTAssertEqual(sampleCount(bundleID: "com.apple.mail"), 1,
+                       "sample must follow snapshot.metadata.bundleID, not the stale appBundleID")
+        XCTAssertEqual(sampleCount(bundleID: "com.apple.TextEdit"), 0,
+                       "stale appBundleID must not receive samples")
+    }
 
     func testSampleCountCappedAtMaxAfterAppend() async throws {
         let maxSamples = 3
@@ -258,5 +388,35 @@ final class VoiceCoordinatorPersonalizationTests: XCTestCase {
         c.idleThreshold = .milliseconds(5)
         c.maxObservationSeconds = 1
         return c
+    }
+
+    /// Builds a synthetic VoicePersonalizationContext for unit-testing
+    /// buildCleanupRequest without going through the store.
+    private func makeContext(
+        bundleID: String,
+        enabled: Bool,
+        asrModelID: String? = nil,
+        autoSubmitKey: VoiceAutoSubmitKey? = nil,
+        customPromptOverride: String? = nil,
+        styleNotes: String? = nil,
+        summary: String? = nil
+    ) -> VoicePersonalizationContext {
+        VoicePersonalizationContext(
+            id: UUID().uuidString,
+            bundleID: bundleID,
+            displayName: bundleID,
+            enabled: enabled,
+            asrModelID: asrModelID,
+            autoSubmitKey: autoSubmitKey,
+            customPromptOverride: customPromptOverride,
+            styleNotes: styleNotes,
+            summary: summary,
+            summarySourceCount: 0,
+            summaryGeneratedAt: nil,
+            sampleCount: 0,
+            lastLearnedAt: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
     }
 }
