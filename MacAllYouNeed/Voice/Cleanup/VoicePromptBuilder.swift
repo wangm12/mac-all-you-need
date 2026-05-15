@@ -124,22 +124,25 @@ enum VoicePromptBuilder {
 
     // MARK: - Private
 
-    /// Applies per-example char cap, limits to maxExamples, and drops oldest
-    /// pairs once the combined character budget is exceeded.
+    /// Takes a newest-first slice (as returned by VoicePersonalizationStore.listRecentSamples),
+    /// keeps the newest examples that fit within the combined budget, and returns them in
+    /// oldest-first order for the prompt (more natural reading order).
     static func cappedExamples(_ examples: [(before: String, after: String)]) -> [(before: String, after: String)] {
         var result: [(before: String, after: String)] = []
         var combined = 0
 
-        for ex in examples.reversed().prefix(maxExamples) {
+        // Iterate newest-first; collect until budget or max count exceeded.
+        for ex in examples.prefix(maxExamples) {
             let b = String(ex.before.prefix(exampleCharCap))
             let a = String(ex.after.prefix(exampleCharCap))
             let cost = b.count + a.count
             guard combined + cost <= maxExamplesCombinedChars else { break }
             combined += cost
-            result.insert((b, a), at: 0)
+            result.append((b, a))
         }
 
-        return result
+        // Reverse to oldest-first for the prompt.
+        return result.reversed()
     }
 
     private static func label(for language: VoiceLanguage) -> String {

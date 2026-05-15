@@ -3,12 +3,17 @@ import Core
 import XCTest
 
 final class VoicePromptBuilderPersonalizationTests: XCTestCase {
-    /// Golden baseline: the prompt produced by the current VoicePromptBuilder
-    /// when all personalization fields are empty. Any change to this expected
-    /// string means the cleanup behaviour changed — update intentionally.
-    private static let baseline: String = {
-        VoicePromptBuilder.systemPrompt(context: .empty)
-    }()
+    /// Golden baseline: the exact system prompt produced for an empty context.
+    /// This string is hardcoded — it must be updated intentionally if the base
+    /// cleanup instructions change. If this test fails after a prompt change,
+    /// that means caller behaviour changed and the change needs to be reviewed.
+    private static let baseline = """
+    You clean up dictated text before it is pasted into a macOS app.
+    Source language: English.
+    Preserve the user's meaning, code-switching, product names, code terms, and commands.
+    Remove filler words, duplicated starts, ASR artifacts, and hallucinated markup.
+    Return only the final cleaned text. Do not explain your edits.
+    """
 
     // MARK: - Regression
 
@@ -94,7 +99,8 @@ final class VoicePromptBuilderPersonalizationTests: XCTestCase {
     }
 
     func testExamplesDropOldestWhenOverCombinedBudget() {
-        // 10 examples of 250 chars each = 2500 chars > 2048 budget
+        // 10 examples at ~500 chars each (250 before + 250 after) in newest-first order.
+        // Input simulates VoicePersonalizationStore.listRecentSamples newest-first output.
         let examples = (0 ..< 10).map { i in
             (before: "before\(i)" + String(repeating: "x", count: 244),
              after: "after\(i)" + String(repeating: "y", count: 244))
@@ -104,10 +110,20 @@ final class VoicePromptBuilderPersonalizationTests: XCTestCase {
         XCTAssertLessThanOrEqual(capped.count, VoicePromptBuilder.maxExamples)
         let combined = capped.reduce(0) { $0 + $1.before.count + $1.after.count }
         XCTAssertLessThanOrEqual(combined, VoicePromptBuilder.maxExamplesCombinedChars)
-        // Most recent examples are kept (not oldest).
-        if let first = capped.first {
-            XCTAssertTrue(first.before.hasPrefix("before"), "oldest should be dropped, not newest")
+
+        // cappedExamples keeps newest (index 0–4) and drops oldest (5–9).
+        // Output is returned oldest-first so the prompt reads chronologically.
+        // The newest example retained is index 0 = "before0...", oldest in output = index 4 = "before4...".
+        let outputIndices = capped.map { ex -> Int in
+            // Extract the digit after "before"
+            let suffix = ex.before.dropFirst("before".count)
+            return Int(String(suffix.prefix(1)))!
         }
+        // Input convention: index 0 = newest. cappedExamples keeps newest (0..N-1)
+        // and returns them oldest-first (descending index order) for the prompt.
+        XCTAssertEqual(outputIndices, outputIndices.sorted(by: >), "output should be oldest-first (descending index = ascending time)")
+        XCTAssertTrue(outputIndices.contains(0), "newest sample (index 0) must be included")
+        XCTAssertFalse(outputIndices.contains(9), "oldest sample (index 9) must be excluded")
     }
 }
 

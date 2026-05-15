@@ -77,19 +77,27 @@ final class VoicePostEditLearningMonitor {
                 continue
             }
 
+            if !anchorConfirmed {
+                // AX can briefly report the pre-paste document value while the
+                // paste is still in flight. Keep polling until the pasted text
+                // appears, focus changes, or the deadline expires.
+                if value.contains(pastedText) {
+                    anchorConfirmed = true
+                    initialValue = value
+                    lastValue = value
+                    lastChangeTime = ContinuousClock.now
+                }
+                try? await Task.sleep(for: config.pollInterval)
+                continue
+            }
+
             if value != lastValue {
                 lastValue = value
                 lastChangeTime = ContinuousClock.now
-
-                if !anchorConfirmed {
-                    guard value.contains(pastedText) else { return nil }
-                    anchorConfirmed = true
-                    initialValue = value
-                }
             }
 
             let idle = ContinuousClock.now - lastChangeTime
-            if anchorConfirmed, idle >= config.idleThreshold,
+            if idle >= config.idleThreshold,
                let finalValue = lastValue, let initial = initialValue
             {
                 return makeDraft(

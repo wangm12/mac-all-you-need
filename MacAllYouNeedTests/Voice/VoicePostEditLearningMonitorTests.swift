@@ -173,8 +173,20 @@ final class VoicePostEditLearningMonitorTests: XCTestCase {
         XCTAssertNil(draft)
     }
 
-    func testPastedTextNotFoundInDocumentReturnsNil() async {
-        let monitor = monitor(alwaysMatches: true, valueSequence: ["completely different content", "still different"])
+    func testPastedTextNeverFoundReturnsNilAfterTimeout() async {
+        // With the new keep-polling-for-anchor behavior, the monitor polls
+        // until the deadline rather than returning nil on the first mismatch.
+        // Configure an extremely short timeout so the test completes quickly.
+        var config = VoicePostEditLearningMonitor.Config()
+        config.pollInterval = .milliseconds(1)
+        config.idleThreshold = .milliseconds(5)
+        config.maxObservationSeconds = 0  // expires immediately
+        let monitor = VoicePostEditLearningMonitor(
+            config: config,
+            isCancelled: { false },
+            matchesFocused: { _ in true },
+            readCurrentValue: { _ in "completely different content" }
+        )
 
         let draft = await monitor.observe(
             pastedText: "hello world",

@@ -102,9 +102,17 @@ actor VoicePersonalizationSummarizer {
         )
 
         do {
-            let summary = try await provider.generate(systemPrompt: systemPrompt, userText: userText)
+            let raw = try await provider.generate(systemPrompt: systemPrompt, userText: userText)
+            // Treat summary as untrusted: strip XML-like delimiter tags that could inject
+            // structure into the system prompt, then hard-cap at 1500 chars.
+            let sanitized = String(
+                raw
+                    .replacingOccurrences(of: "<", with: "‹")
+                    .replacingOccurrences(of: ">", with: "›")
+                    .prefix(1500)
+            )
             let ids = toSummarize.map(\.id)
-            try store.setSummary(contextID: contextID, summary: summary, sourceSampleCount: toSummarize.count)
+            try store.setSummary(contextID: contextID, summary: sanitized, sourceSampleCount: toSummarize.count)
             try store.markSamplesSummarized(ids: ids)
             try store.expireSamplesByDate()
             log.info("Summarizer: summary saved for \(contextID, privacy: .public)")
