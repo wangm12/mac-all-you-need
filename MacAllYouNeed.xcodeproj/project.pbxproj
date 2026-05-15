@@ -134,6 +134,7 @@
 		B94A9A907877BAE04A278C77 /* FileThumbnailLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 936D125A1E5785B4C3BBA80D /* FileThumbnailLoader.swift */; };
 		BAB11CE90AD4E9225962E59F /* VoiceCleanupPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECB27CB5E779C51222A756D /* VoiceCleanupPipeline.swift */; };
 		BB3F916DDD9845C2752F35CC /* AppDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A2C8634B13A5A9A7BFC6D8 /* AppDependencies.swift */; };
+		BD4926E6D5917FFC508B8509 /* VoicePersonalizationPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3D5A34DBBE574D545D8D80 /* VoicePersonalizationPage.swift */; };
 		BEACB98FF6CF97A84878266D /* DockTopBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2EA7485787D8573BAF5914 /* DockTopBar.swift */; };
 		BF2FE67769BA290A188D4C52 /* OnboardingWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D3189EA90B56114283E8400 /* OnboardingWizardView.swift */; };
 		C12C8B648DBF69A0D2999AF2 /* FunctionTabsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E444AD4FF1939B4AE78A34D /* FunctionTabsTests.swift */; };
@@ -304,6 +305,7 @@
 		673C0CFAD8357810A40CBB3B /* CheatsheetOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheatsheetOverlay.swift; sourceTree = "<group>"; };
 		68118F753D7238BD7FE4BAA9 /* VoiceOnboardingStepTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceOnboardingStepTests.swift; sourceTree = "<group>"; };
 		683127BBC977746393332166 /* LoginItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItemController.swift; sourceTree = "<group>"; };
+		6A3D5A34DBBE574D545D8D80 /* VoicePersonalizationPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePersonalizationPage.swift; sourceTree = "<group>"; };
 		6ACC57B1DF2998DD88110D9B /* VoiceLLMProviderError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLLMProviderError.swift; sourceTree = "<group>"; };
 		6BC48168DB6EB1529C64CEDF /* AppMenuBarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBarContent.swift; sourceTree = "<group>"; };
 		6E1A984A7EE9AEB13955E475 /* AppIconColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconColor.swift; sourceTree = "<group>"; };
@@ -812,6 +814,7 @@
 			children = (
 				CC4122E7FF9ED23208C2073A /* MiniVoiceHUD.swift */,
 				1A6AFCF189BFDB7B2985CF54 /* VoiceDictionaryPage.swift */,
+				6A3D5A34DBBE574D545D8D80 /* VoicePersonalizationPage.swift */,
 				FAFDAEF70524C30FC90157E5 /* Onboarding */,
 			);
 			path = UI;
@@ -1344,6 +1347,7 @@
 				637C8AF50E3FB2C6A0DD2931 /* VoiceOnboardingState.swift in Sources */,
 				207DAD770B0FAF0D89187A5C /* VoiceOnboardingWindowController.swift in Sources */,
 				3AB948990A9AF5379893EC70 /* VoiceOnboardingWizardView.swift in Sources */,
+				BD4926E6D5917FFC508B8509 /* VoicePersonalizationPage.swift in Sources */,
 				D0CBA387D05A4BF6037AC15F /* VoicePersonalizationPrivacyFilter.swift in Sources */,
 				DB294CD7301DFE4C8276F643 /* VoicePersonalizationSettings.swift in Sources */,
 				A490C2359FB4B227345E93B7 /* VoicePersonalizationSummarizer.swift in Sources */,

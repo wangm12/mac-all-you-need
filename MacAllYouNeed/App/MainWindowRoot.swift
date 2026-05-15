@@ -1473,10 +1473,9 @@ private struct VoiceMainPage: View {
                 }
             case .dictionary:
                 VoiceDictionaryPage(controller: controller, showsHeader: false)
-            case .profiles:
+            case .personalization:
                 FunctionPageScrollContent {
-                    // Placeholder — VoicePersonalizationPage lands in T8.
-                    Text("Personalization").foregroundStyle(.secondary)
+                    VoicePersonalizationPage(controller: controller)
                 }
             case .settings:
                 FunctionPageScrollContent {

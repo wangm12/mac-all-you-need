@@ -692,6 +692,7 @@ private struct VoiceLLMStepView: View {
     @State private var cleanupEnabled: Bool
     @State private var provider: VoiceCleanupProviderKind
     @State private var model: String
+    @State private var learnFromEdits: Bool
     @State private var baseURLString: String
     @State private var apiKey: String
     @State private var timeoutSeconds: Int
@@ -707,6 +708,7 @@ private struct VoiceLLMStepView: View {
         _baseURLString = State(initialValue: settings.baseURLString)
         _apiKey = State(initialValue: controller.voiceCleanupAPIKey(for: settings.provider))
         _timeoutSeconds = State(initialValue: settings.timeoutSeconds)
+        _learnFromEdits = State(initialValue: controller.voicePersonalizationSettings().learnFromEditsEnabled)
     }
 
     var body: some View {
@@ -756,6 +758,21 @@ private struct VoiceLLMStepView: View {
                     controller.disableVoiceCleanup()
                     statusMessage = "AI cleanup disabled. Local cleanup remains active."
                 }
+            }
+            Divider()
+            Toggle(isOn: $learnFromEdits) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Improve cleanup over time by learning from your edits")
+                        .font(.body)
+                    Text("Edit samples are stored locally and encrypted. Older samples are summarized via your selected cleanup LLM provider to refine your style profile.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .onChange(of: learnFromEdits) { _, value in
+                var s = controller.voicePersonalizationSettings()
+                s.learnFromEditsEnabled = value
+                controller.applyVoicePersonalizationSettings(s)
             }
             if let statusMessage {
                 Text(statusMessage)

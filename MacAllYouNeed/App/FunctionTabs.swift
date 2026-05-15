@@ -78,7 +78,7 @@ enum VoiceFunctionTab: String, FunctionTabDestination {
     case models
     case history
     case dictionary
-    case profiles
+    case personalization = "profiles"
     case settings
 
     static let storageKey = "main.voice.selectedTab"
@@ -90,7 +90,7 @@ enum VoiceFunctionTab: String, FunctionTabDestination {
         case .models: "Models"
         case .history: "History"
         case .dictionary: "Dictionary"
-        case .profiles: "Profiles"
+        case .personalization: "Personalization"
         case .settings: "Settings"
         }
     }
@@ -101,7 +101,7 @@ enum VoiceFunctionTab: String, FunctionTabDestination {
         case .models: "square.stack.3d.down.right"
         case .history: "clock"
         case .dictionary: "text.book.closed"
-        case .profiles: "app.badge"
+        case .personalization: "sparkles"
         case .settings: "slider.horizontal.3"
         }
     }
