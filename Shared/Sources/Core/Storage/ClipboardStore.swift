@@ -102,6 +102,9 @@ public final class ClipboardStore {
         },
         Migration(identifier: "004-voice-schema") { conn in
             try conn.execute(sql: ClipboardVoiceMigration.sql)
+        },
+        Migration(identifier: "005-personalization") { conn in
+            try conn.execute(sql: VoicePersonalizationMigration.sql)
         }
     ]
 
