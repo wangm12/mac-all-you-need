@@ -129,9 +129,9 @@ final class AudioCaptureService {
             let mono = Self.floatMonoSamples(from: buffer)
             let peak = mono.map(abs).max() ?? 0
             self?.accumulator.append(mono, peak: peak)
-            Task { @MainActor in
-                guard self?.captureID == captureID else { return }
-                self?.peakLevel = max(self?.peakLevel ?? 0, peak)
+            Task { @MainActor [weak self] in
+                guard let self, self.captureID == captureID else { return }
+                peakLevel = Self.livePeakLevel(previous: peakLevel, incomingPeak: peak)
             }
         }
         engine.prepare()
@@ -186,6 +186,10 @@ final class AudioCaptureService {
             let fraction = Float(sourceIndex - Double(lower))
             return samples[lower] + (samples[upper] - samples[lower]) * fraction
         }
+    }
+
+    nonisolated static func livePeakLevel(previous: Float, incomingPeak: Float) -> Float {
+        max(max(incomingPeak, 0), previous * 0.72)
     }
 
     private func stopWithoutResult() {

@@ -13,6 +13,13 @@ final class MiniVoiceHUD {
     }
 
     private var panel: NSPanel?
+    private var hostingView: FirstMouseHostingView<MiniVoiceHUDView>?
+
+    #if DEBUG
+    var testingContentView: NSView? {
+        panel?.contentView
+    }
+    #endif
 
     func show(
         _ state: State,
@@ -22,19 +29,32 @@ final class MiniVoiceHUD {
         let panel = panel ?? makePanel()
         self.panel = panel
         let wasVisible = panel.isVisible
-        panel.setContentSize(MiniVoiceHUDLayout.size(for: state))
-        panel.contentView = FirstMouseHostingView(rootView: MiniVoiceHUDView(
+        let previousSize = panel.frame.size
+        let nextSize = MiniVoiceHUDLayout.size(for: state)
+        let nextView = MiniVoiceHUDView(
             state: state,
             onCancel: onCancel,
             onPrimary: onPrimary
-        ))
-        position(panel)
+        )
+        if let hostingView {
+            hostingView.rootView = nextView
+        } else {
+            let hostingView = FirstMouseHostingView(rootView: nextView)
+            self.hostingView = hostingView
+            panel.contentView = hostingView
+        }
+        if previousSize != nextSize {
+            panel.setContentSize(nextSize)
+        }
+        if !wasVisible || previousSize != nextSize {
+            position(panel)
+        }
         if !wasVisible {
             panel.alphaValue = 0
         }
-        FloatingHUDWindowLayering.orderFront(panel)
-        guard !wasVisible else { return }
+        if wasVisible { return }
 
+        FloatingHUDWindowLayering.orderFront(panel)
         let duration = MAYNMotionBridge.effectiveDuration(.toastIn)
         guard duration > 0 else {
             panel.alphaValue = 1
@@ -168,7 +188,8 @@ private extension MiniVoiceHUD.State {
     var displayState: MiniVoiceHUD.State {
         if case let .error(message) = self,
            message.localizedCaseInsensitiveContains("no usable audio")
-            || message.localizedCaseInsensitiveContains("transcript was empty") {
+           || message.localizedCaseInsensitiveContains("transcript was empty")
+        {
             return .noSpeech(message)
         }
         return self
@@ -214,7 +235,6 @@ private struct MiniVoiceHUDView: View {
             }
             .frame(width: MiniVoiceHUDLayout.controlWidth, height: MiniVoiceHUDLayout.controlHeight)
             .background(Color.black, in: Capsule())
-            .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
         }
         .frame(
             width: MiniVoiceHUDLayout.size(for: state).width,
@@ -376,5 +396,7 @@ private typealias VoiceHUDPanel = NSPanel
 /// buttons in the floating HUD respond on the first click without requiring
 /// the panel to become key first.
 private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool {
+        true
+    }
 }

@@ -8,21 +8,33 @@ final class MiniVoiceHUDTests: XCTestCase {
         XCTAssertLessThanOrEqual(MiniVoiceHUDLayout.controlWidth, 132)
     }
 
-    func testTipOnlyAppearsForVoiceEntryStates() {
-        XCTAssertEqual(MiniVoiceHUDPresentationState(state: .idlePreview).tipTitle, "Ask anything")
-        XCTAssertEqual(MiniVoiceHUDPresentationState(state: .recording(level: 0.4)).tipTitle, "Ask anything")
+    func testTipNeverAppearsInCompactVoiceHUD() {
+        XCTAssertNil(MiniVoiceHUDPresentationState(state: .idlePreview).tipTitle)
+        XCTAssertNil(MiniVoiceHUDPresentationState(state: .recording(level: 0.4)).tipTitle)
         XCTAssertNil(MiniVoiceHUDPresentationState(state: .transcribing).tipTitle)
         XCTAssertNil(MiniVoiceHUDPresentationState(state: .pasted).tipTitle)
         XCTAssertNil(MiniVoiceHUDPresentationState(state: .noSpeech("empty")).tipTitle)
         XCTAssertNil(MiniVoiceHUDPresentationState(state: .error("failed")).tipTitle)
     }
 
-    func testPanelCollapsesToPillWhenTipIsHidden() {
+    func testPanelUsesPillSizeForRecordingAndTranscribing() {
         let recordingSize = MiniVoiceHUDLayout.size(for: .recording(level: 0.4))
         let transcribingSize = MiniVoiceHUDLayout.size(for: .transcribing)
 
-        XCTAssertGreaterThan(recordingSize.height, transcribingSize.height)
-        XCTAssertLessThanOrEqual(transcribingSize.height, 48)
+        XCTAssertEqual(recordingSize, CGSize(width: MiniVoiceHUDLayout.controlWidth, height: MiniVoiceHUDLayout.controlHeight))
+        XCTAssertEqual(transcribingSize, CGSize(width: MiniVoiceHUDLayout.controlWidth, height: MiniVoiceHUDLayout.controlHeight))
+    }
+
+    @MainActor
+    func testVisibleLevelUpdatesReuseContentView() {
+        let hud = MiniVoiceHUD()
+        hud.show(.recording(level: 0.1), onCancel: {}, onPrimary: {})
+        let firstContentView = hud.testingContentView
+
+        hud.show(.recording(level: 0.5), onCancel: {}, onPrimary: {})
+
+        XCTAssertTrue(hud.testingContentView === firstContentView)
+        hud.dismiss()
     }
 
     func testRecordingActionsEnableCancelAndStop() {

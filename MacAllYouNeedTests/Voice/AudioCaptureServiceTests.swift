@@ -55,4 +55,17 @@ final class AudioCaptureServiceTests: XCTestCase {
             [0, 3]
         )
     }
+
+    func testLivePeakLevelTracksCurrentPeakWithFastDecay() {
+        XCTAssertEqual(
+            AudioCaptureService.livePeakLevel(previous: 0.2, incomingPeak: 0.7),
+            0.7,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            AudioCaptureService.livePeakLevel(previous: 0.8, incomingPeak: 0),
+            0.576,
+            accuracy: 0.0001
+        )
+    }
 }
