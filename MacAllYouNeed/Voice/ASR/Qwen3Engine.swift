@@ -32,7 +32,7 @@ actor Qwen3Engine: VoiceTranscriptionEngine {
         let text = try await qwenManager(for: modelID).transcribe(
             audioSamples: qwenSamples,
             language: languageHint,
-            maxNewTokens: 512
+            maxNewTokens: 2048
         )
         return VoiceTranscriptionResult(text: text, language: .mixed, modelIdentifier: modelID.rawValue)
     }
