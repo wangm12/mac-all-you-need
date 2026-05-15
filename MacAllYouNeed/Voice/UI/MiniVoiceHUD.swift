@@ -23,7 +23,7 @@ final class MiniVoiceHUD {
         self.panel = panel
         let wasVisible = panel.isVisible
         panel.setContentSize(MiniVoiceHUDLayout.size(for: state))
-        panel.contentView = NSHostingView(rootView: MiniVoiceHUDView(
+        panel.contentView = FirstMouseHostingView(rootView: MiniVoiceHUDView(
             state: state,
             onCancel: onCancel,
             onPrimary: onPrimary
@@ -69,7 +69,7 @@ final class MiniVoiceHUD {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(
+        let panel = VoiceHUDPanel(
             contentRect: NSRect(origin: .zero, size: MiniVoiceHUDLayout.panelSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -157,7 +157,7 @@ struct MiniVoiceHUDPresentationState: Equatable {
     init(state: MiniVoiceHUD.State) {
         switch state.displayState {
         case .idlePreview, .recording:
-            tipTitle = "Ask anything"
+            tipTitle = nil
         case .transcribing, .pasted, .noSpeech, .error:
             tipTitle = nil
         }
@@ -332,6 +332,7 @@ private struct VoiceWaveform: View {
                 Capsule()
                     .fill(barColor)
                     .frame(width: 2, height: barHeight(index))
+                    .animation(.easeOut(duration: 0.06), value: barHeight(index))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -365,4 +366,15 @@ private struct VoiceWaveform: View {
             return index.isMultiple(of: 2) ? 6 : 12
         }
     }
+}
+
+/// NSPanel subclass for the voice HUD — plain NSPanel is fine since we fix
+/// first-click on the content view level instead.
+private typealias VoiceHUDPanel = NSPanel
+
+/// NSHostingView subclass that reports acceptsFirstMouse = true so SwiftUI
+/// buttons in the floating HUD respond on the first click without requiring
+/// the panel to become key first.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

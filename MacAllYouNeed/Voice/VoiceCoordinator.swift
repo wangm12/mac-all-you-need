@@ -434,7 +434,7 @@ final class VoiceCoordinator {
         levelTask = Task { @MainActor in
             while !Task.isCancelled, state == .recording {
                 hud.show(.recording(level: audio.peakLevel), onCancel: makeCancelAction(), onPrimary: makeStopAction())
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: .milliseconds(50))
             }
         }
     }
