@@ -35,29 +35,18 @@ final class MainAppDestinationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         MainAppDestination.persist(.settings, to: defaults)
-
         XCTAssertEqual(defaults.string(forKey: MainAppDestination.storageKey), "settings")
         XCTAssertEqual(MainAppDestination.load(from: defaults), .settings)
     }
 
-    func testSettingsDestinationUsesEmbeddedPresentationInsideMainWindow() {
-        XCTAssertEqual(MainAppDestination.settings.contentStyle, .embeddedSettings)
-        XCTAssertEqual(MainAppDestination.dashboard.contentStyle, .standard)
-        XCTAssertEqual(MainAppDestination.clipboard.contentStyle, .standard)
-        XCTAssertEqual(MainAppDestination.voice.contentStyle, .standard)
-        XCTAssertEqual(MainAppDestination.downloads.contentStyle, .standard)
-        XCTAssertEqual(MainAppDestination.folderPreview.contentStyle, .standard)
-        XCTAssertEqual(MainAppDestination.snippets.contentStyle, .standard)
-    }
-
-    func testSettingsDestinationDisplaysAsSystemInMainWindowSidebar() {
-        XCTAssertEqual(MainAppDestination.settings.title, "System")
-        XCTAssertEqual(MainAppDestination.settings.subtitle, "Global settings and maintenance")
+    func testPrimarySidebarDestinationsExcludeFooterSettings() {
+        XCTAssertFalse(MainAppDestination.primarySidebarDestinations.contains(.settings))
+        XCTAssertTrue(MainAppDestination.allCases.contains(.settings))
     }
 }
 
 final class DockSettingsNavigationTests: XCTestCase {
-    func testRequestWritesDestinationAndPostsMainWindowSettingsRequest() {
+    func testRequestClipboardRulesSelectsClipboardRulesAndPostsDedicatedRoute() {
         let suiteName = "DockSettingsNavigationTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         let center = NotificationCenter()
@@ -76,22 +65,64 @@ final class DockSettingsNavigationTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        DockSettingsNavigation.request(
-            .privacy,
+        DockSettingsNavigation.requestClipboardRules(
             defaults: defaults,
             notificationCenter: center,
             dismissDock: { didDismiss = true },
             activateApp: { didActivate = true }
         )
 
-        XCTAssertEqual(defaults.string(forKey: "settings.selectedTab"), "privacy")
+        XCTAssertEqual(defaults.string(forKey: ClipboardFunctionTab.storageKey), ClipboardFunctionTab.rules.rawValue)
         XCTAssertTrue(didDismiss)
         XCTAssertTrue(didActivate)
-        XCTAssertEqual(postedDestination, "privacy")
+        XCTAssertEqual(postedDestination, DockSettingsNavigation.clipboardRulesRoute)
+    }
+
+    func testClipboardRulesRouteAcceptsLegacyPrivacyRequests() {
+        XCTAssertTrue(DockSettingsNavigation.isClipboardRulesRoute(DockSettingsNavigation.clipboardRulesRoute))
+        XCTAssertTrue(DockSettingsNavigation.isClipboardRulesRoute("privacy"))
+        XCTAssertFalse(DockSettingsNavigation.isClipboardRulesRoute("general"))
     }
 }
 
 final class MainClipboardItemPresentationTests: XCTestCase {
+    func testClipboardHistoryFiltersPreviewAndCustomLabelCaseInsensitively() {
+        let items = [
+            makeClipboardItem(preview: "Deploy service"),
+            makeClipboardItem(preview: "Plain text", customLabel: "Production command"),
+            makeClipboardItem(preview: "Meeting notes")
+        ]
+
+        let state = MainClipboardHistoryPresentation.state(
+            items: items,
+            query: "prod",
+            requestedPage: 0,
+            pageSize: 20
+        )
+
+        XCTAssertEqual(state.totalItems, 1)
+        XCTAssertEqual(state.visibleItems.map(\.customLabel), ["Production command"])
+    }
+
+    func testClipboardHistoryPaginatesAllFilteredItemsAndClampsPage() {
+        let items = (0 ..< 45).map { makeClipboardItem(preview: "Item \($0)") }
+
+        let state = MainClipboardHistoryPresentation.state(
+            items: items,
+            query: "",
+            requestedPage: 99,
+            pageSize: 20
+        )
+
+        XCTAssertEqual(state.currentPage, 2)
+        XCTAssertEqual(state.totalPages, 3)
+        XCTAssertEqual(state.totalItems, 45)
+        XCTAssertEqual(state.visibleItems.map(\.preview), ["Item 40", "Item 41", "Item 42", "Item 43", "Item 44"])
+        XCTAssertEqual(state.rangeText, "41-45 of 45")
+        XCTAssertTrue(state.canGoPrevious)
+        XCTAssertFalse(state.canGoNext)
+    }
+
     func testImageClipboardItemUsesThumbnailPreview() {
         let item = ClipboardItemMeta(
             id: RecordID(rawValue: "01H00000000000000000000000")!,
@@ -109,6 +140,185 @@ final class MainClipboardItemPresentationTests: XCTestCase {
         XCTAssertEqual(
             MainClipboardItemPresentation.previewKind(for: item),
             .imageThumbnail(recordID: "01H00000000000000000000000")
+        )
+    }
+
+    func testClipboardHistoryIconUsesSourceAppBundleIDWhenAvailable() {
+        let item = makeClipboardItem(preview: "Deploy service", sourceAppBundleID: "com.apple.Safari")
+
+        XCTAssertEqual(
+            ClipboardHistoryIconPresentation.iconKind(for: item, fallbackSymbol: "doc.plaintext"),
+            .sourceApp(bundleID: "com.apple.Safari", fallbackSymbol: "doc.plaintext")
+        )
+    }
+
+    func testClipboardHistoryIconFallsBackToSymbolWithoutSourceApp() {
+        let item = makeClipboardItem(preview: "Deploy service", sourceAppBundleID: nil)
+
+        XCTAssertEqual(
+            ClipboardHistoryIconPresentation.iconKind(for: item, fallbackSymbol: "doc.plaintext"),
+            .symbol("doc.plaintext")
+        )
+    }
+
+    func testClipboardHistoryIconTreatsBlankSourceAppAsMissing() {
+        let item = makeClipboardItem(preview: "Deploy service", sourceAppBundleID: " ")
+
+        XCTAssertEqual(
+            ClipboardHistoryIconPresentation.iconKind(for: item, fallbackSymbol: "doc.plaintext"),
+            .symbol("doc.plaintext")
+        )
+    }
+
+    func testDashboardPreviewHidesSensitiveText() {
+        XCTAssertEqual(
+            DashboardClipboardPreviewPresentation.displayTitle(
+                customLabel: nil,
+                preview: "CODEX_AUTH_TOKEN=$(usso -ussh genai-api -print)"
+            ),
+            "Sensitive text captured"
+        )
+    }
+
+    func testDashboardPreviewKeepsCustomLabel() {
+        XCTAssertEqual(
+            DashboardClipboardPreviewPresentation.displayTitle(
+                customLabel: "Deploy command",
+                preview: "API_KEY=abc123"
+            ),
+            "Deploy command"
+        )
+    }
+
+    private func makeClipboardItem(
+        preview: String,
+        customLabel: String? = nil,
+        sourceAppBundleID: String? = nil
+    ) -> ClipboardItemMeta {
+        ClipboardItemMeta(
+            id: RecordID.generate(),
+            created: Date(timeIntervalSince1970: 10),
+            modified: Date(timeIntervalSince1970: 20),
+            deviceID: DeviceID(rawValue: "00000000-0000-0000-0000-000000000000")!,
+            lamport: 1,
+            kind: .clipboardItem,
+            preview: preview,
+            sourceAppBundleID: sourceAppBundleID,
+            frequency: 0,
+            lastAccessed: nil,
+            customLabel: customLabel
+        )
+    }
+}
+
+final class MainVoiceTranscriptHistoryPresentationTests: XCTestCase {
+    func testDisplayTextPrefersCleanedTranscriptAndFallsBackToRaw() {
+        XCTAssertEqual(
+            MainVoiceTranscriptHistoryPresentation.displayText(
+                makeTranscript(id: "clean", rawText: "raw transcript", cleanedText: "clean transcript")
+            ),
+            "clean transcript"
+        )
+        XCTAssertEqual(
+            MainVoiceTranscriptHistoryPresentation.displayText(
+                makeTranscript(id: "raw", rawText: "raw transcript", cleanedText: "")
+            ),
+            "raw transcript"
+        )
+        XCTAssertEqual(
+            MainVoiceTranscriptHistoryPresentation.displayText(
+                makeTranscript(id: "empty", rawText: "   ", cleanedText: "\n")
+            ),
+            "Empty transcript"
+        )
+    }
+
+    func testClickSelectionMatchesClipboardHistoryRules() {
+        let orderedIDs = ["one", "two", "three", "four"]
+
+        let single = MainVoiceTranscriptHistoryPresentation.selection(
+            afterClicking: "two",
+            orderedIDs: orderedIDs,
+            selectedIDs: ["one", "three"],
+            anchorID: "one",
+            command: false,
+            shift: false
+        )
+        XCTAssertEqual(single.selectedIDs, ["two"])
+        XCTAssertEqual(single.anchorID, "two")
+
+        let toggled = MainVoiceTranscriptHistoryPresentation.selection(
+            afterClicking: "three",
+            orderedIDs: orderedIDs,
+            selectedIDs: ["two"],
+            anchorID: "two",
+            command: true,
+            shift: false
+        )
+        XCTAssertEqual(toggled.selectedIDs, ["two", "three"])
+        XCTAssertEqual(toggled.anchorID, "three")
+
+        let range = MainVoiceTranscriptHistoryPresentation.selection(
+            afterClicking: "four",
+            orderedIDs: orderedIDs,
+            selectedIDs: ["two"],
+            anchorID: "two",
+            command: false,
+            shift: true
+        )
+        XCTAssertEqual(range.selectedIDs, ["two", "three", "four"])
+        XCTAssertEqual(range.anchorID, "two")
+    }
+
+    func testEffectiveSelectionAndArrowMovementUseVisibleOrder() {
+        let orderedIDs = ["one", "two", "three"]
+
+        XCTAssertEqual(
+            MainVoiceTranscriptHistoryPresentation.effectiveIDs(
+                selectedIDs: ["three", "one"],
+                anchorID: "two",
+                orderedIDs: orderedIDs
+            ),
+            ["one", "three"]
+        )
+        XCTAssertEqual(
+            MainVoiceTranscriptHistoryPresentation.effectiveIDs(
+                selectedIDs: [],
+                anchorID: "two",
+                orderedIDs: orderedIDs
+            ),
+            ["two"]
+        )
+        XCTAssertEqual(
+            MainVoiceTranscriptHistoryPresentation.effectiveIDs(
+                selectedIDs: [],
+                anchorID: nil,
+                orderedIDs: orderedIDs
+            ),
+            ["one"]
+        )
+
+        let moved = MainVoiceTranscriptHistoryPresentation.selection(
+            afterMovingFrom: "two",
+            orderedIDs: orderedIDs,
+            delta: 1
+        )
+        XCTAssertEqual(moved.selectedIDs, ["three"])
+        XCTAssertEqual(moved.anchorID, "three")
+    }
+
+    private func makeTranscript(id: String, rawText: String, cleanedText: String) -> VoiceTranscript {
+        VoiceTranscript(
+            id: id,
+            startedAt: Date(timeIntervalSince1970: 1),
+            endedAt: Date(timeIntervalSince1970: 2),
+            durationMs: 1_000,
+            rawText: rawText,
+            cleanedText: cleanedText,
+            appBundleID: nil,
+            language: .mixed,
+            modelIdentifier: "qwen3-asr-0.6b-f32",
+            audioPath: nil
         )
     }
 }

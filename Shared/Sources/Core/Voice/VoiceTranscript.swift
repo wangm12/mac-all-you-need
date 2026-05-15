@@ -42,4 +42,28 @@ public struct VoiceTranscript: Identifiable, Sendable, Equatable {
     public let language: VoiceLanguage
     public let modelIdentifier: String
     public let audioPath: String?
+
+    public init(
+        id: String,
+        startedAt: Date,
+        endedAt: Date,
+        durationMs: Int,
+        rawText: String,
+        cleanedText: String,
+        appBundleID: String?,
+        language: VoiceLanguage,
+        modelIdentifier: String,
+        audioPath: String?
+    ) {
+        self.id = id
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.durationMs = durationMs
+        self.rawText = rawText
+        self.cleanedText = cleanedText
+        self.appBundleID = appBundleID
+        self.language = language
+        self.modelIdentifier = modelIdentifier
+        self.audioPath = audioPath
+    }
 }

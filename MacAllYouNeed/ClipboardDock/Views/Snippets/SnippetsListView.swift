@@ -34,7 +34,7 @@ struct DockSnippetsListView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 220, height: 240)
                     .background(Color.secondary.opacity(0.08))
-                    .cornerRadius(10)
+                    .cornerRadius(MAYNControlMetrics.cardRadius)
                 }
                 .buttonStyle(.plain)
 

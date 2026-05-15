@@ -27,7 +27,7 @@ struct AdvancedSettingsView: View {
                     title: "Diagnostic bundle",
                     subtitle: "Export sanitized settings to a zip file for troubleshooting."
                 ) {
-                    Button("Export") { exportDiagnostics() }
+                    MAYNButton("Export") { exportDiagnostics() }
                 }
             }
 
@@ -45,14 +45,14 @@ struct AdvancedSettingsView: View {
                     title: "Onboarding",
                     subtitle: "Show the first-run setup flow again."
                 ) {
-                    Button("Re-run") { controller.resetOnboarding() }
+                    MAYNButton("Re-run") { controller.resetOnboarding() }
                 }
                 MAYNDivider()
                 MAYNSettingsRow(
                     title: "Reset all data",
                     subtitle: "Remove local databases, blobs, thumbnails, and downloader checkpoints."
                 ) {
-                    Button("Reset", role: .destructive) { confirmingReset = true }
+                    MAYNButton("Reset", role: .destructive) { confirmingReset = true }
                 }
             }
         }

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Floating chip that appears when a video URL is copied to the clipboard.
 /// Offers a one-click "Download" action for ~4 seconds, then auto-dismisses.
-/// Same `.popUpMenu`-level NSPanel as CopyHUD, but interactive (not mouse-ignoring).
+/// Same top overlay panel layer as CopyHUD, but interactive (not mouse-ignoring).
 @MainActor
 enum AutoDownloadHUD {
     private static var window: NSPanel?
@@ -26,13 +26,12 @@ enum AutoDownloadHUD {
             )
             p.isOpaque = false
             p.backgroundColor = .clear
-            p.hasShadow = false
-            p.level = .popUpMenu
-            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-            p.ignoresMouseEvents = false
+            p.hasShadow = MAYNNotificationPillPresentation.hasOuterShadow
+            FloatingHUDWindowLayering.configure(p, acceptsMouseEvents: true)
             window = p
             return p
         }()
+        FloatingHUDWindowLayering.configure(panel, acceptsMouseEvents: true)
 
         let hosting = NSHostingView(rootView: AutoDownloadChip(url: url) {
             dismiss()
@@ -55,10 +54,9 @@ enum AutoDownloadHUD {
         }
 
         panel.alphaValue = 0
-        panel.orderFrontRegardless()
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        FloatingHUDWindowLayering.orderFront(panel)
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = reduceMotion ? 0 : 0.16
+            ctx.duration = MAYNMotionBridge.effectiveDuration(.toastIn)
             panel.animator().alphaValue = 1
         }
 
@@ -69,7 +67,7 @@ enum AutoDownloadHUD {
         hideTask?.cancel()
         guard let panel = window else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.2
+            ctx.duration = MAYNMotionBridge.effectiveDuration(.toastOut)
             panel.animator().alphaValue = 0
         }, completionHandler: {
             panel.orderOut(nil)
@@ -99,17 +97,19 @@ private struct AutoDownloadChip: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "arrow.down.to.line.circle.fill")
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: CGFloat(MAYNNotificationPillPresentation.iconSize), weight: .bold))
                 .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(Color.white.opacity(0.12), in: Circle())
+                .frame(
+                    width: CGFloat(MAYNNotificationPillPresentation.iconFrameSize),
+                    height: CGFloat(MAYNNotificationPillPresentation.iconFrameSize)
+                )
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Video link copied")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: CGFloat(MAYNNotificationPillPresentation.titleFontSize), weight: .semibold))
                     .foregroundStyle(.white)
                 Text(displayHost)
-                    .font(.system(size: 11))
+                    .font(.system(size: CGFloat(MAYNNotificationPillPresentation.detailFontSize)))
                     .foregroundStyle(Color.white.opacity(0.62))
                     .lineLimit(1)
             }
@@ -121,7 +121,7 @@ private struct AutoDownloadChip: View {
                 AutoDownloadHUD.dismiss()
             } label: {
                 Text("Download")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: CGFloat(MAYNNotificationPillPresentation.detailFontSize), weight: .semibold))
                     .foregroundStyle(.black)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -136,15 +136,17 @@ private struct AutoDownloadChip: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.72))
                     .frame(width: 24, height: 24)
-                    .background(Color.white.opacity(0.10), in: Circle())
             }
             .buttonStyle(.borderless)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, CGFloat(MAYNNotificationPillPresentation.horizontalPadding))
+        .padding(.vertical, CGFloat(MAYNNotificationPillPresentation.verticalPadding))
         .background(Color.black, in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1))
-        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        .overlay {
+            if MAYNNotificationPillPresentation.hasCapsuleStroke {
+                Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

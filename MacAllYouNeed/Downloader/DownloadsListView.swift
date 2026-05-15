@@ -3,8 +3,54 @@ import Core
 import Platform
 import SwiftUI
 
+enum DownloadStatePresentation {
+    static func badgeText(for state: DownloadState, isMerging: Bool) -> String {
+        switch state {
+        case .running: isMerging ? "Merging" : "Downloading"
+        case .paused: "Paused"
+        case .queued: "Queued"
+        case .completed: "Done"
+        case .failed: "Failed"
+        }
+    }
+}
+
+enum DownloadsListFilter {
+    case all
+    case activeQueue
+    case completed
+
+    func includes(_ state: DownloadState) -> Bool {
+        switch self {
+        case .all:
+            true
+        case .activeQueue:
+            switch state {
+            case .queued, .running, .paused, .failed:
+                true
+            case .completed:
+                false
+            }
+        case .completed:
+            state == .completed
+        }
+    }
+
+    var emptyTitle: String {
+        switch self {
+        case .all:
+            "No downloads yet"
+        case .activeQueue:
+            "No queued downloads"
+        case .completed:
+            "No completed downloads"
+        }
+    }
+}
+
 struct DownloadsListView: View {
     @Bindable var vm: DownloaderViewModel
+    var filter: DownloadsListFilter = .all
     @State private var showAdd = false
     @State private var addURL = ""
     @FocusState private var listFocused: Bool
@@ -24,12 +70,12 @@ struct DownloadsListView: View {
 
             Divider()
 
-            if vm.rows.isEmpty {
+            if visibleRows.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "arrow.down.circle")
                         .font(.system(size: 28, weight: .regular))
                         .foregroundStyle(DownloadSurfaceTheme.muted)
-                    Text("No downloads yet")
+                    Text(filter.emptyTitle)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(DownloadSurfaceTheme.secondary)
                 }
@@ -37,7 +83,7 @@ struct DownloadsListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(vm.rows, id: \.id) { record in
+                        ForEach(visibleRows, id: \.id) { record in
                             DownloadCardView(
                                 record: record,
                                 progress: vm.liveProgress[record.id.rawValue],
@@ -85,8 +131,8 @@ struct DownloadsListView: View {
         HStack(spacing: 10) {
             Text("Downloads")
                 .font(.system(size: 13, weight: .semibold))
-            if !vm.rows.isEmpty {
-                Text("\(vm.rows.count)")
+            if !visibleRows.isEmpty {
+                Text("\(visibleRows.count)")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(DownloadSurfaceTheme.secondary)
                     .padding(.horizontal, 6)
@@ -112,16 +158,19 @@ struct DownloadsListView: View {
         .background(DownloadSurfaceTheme.header)
     }
 
+    private var visibleRows: [DownloadRecord] {
+        vm.rows.filter { filter.includes($0.state) }
+    }
+
     @ViewBuilder
     private func cookieWarningBanner(_ warning: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(DownloadSurfaceTheme.warning)
             Text(warning).font(.caption).foregroundStyle(DownloadSurfaceTheme.secondary)
             Spacer()
-            Button("Open Chrome") {
+            MAYNButton("Open Chrome", height: HotkeyChipPresentation.compactHeight) {
                 NSWorkspace.shared.open(URL(string: "https://www.youtube.com")!)
             }
-            .font(.caption)
             Button { vm.dismissCookieWarning() } label: {
                 Image(systemName: "xmark").font(.caption2)
             }.buttonStyle(.plain).foregroundStyle(.secondary)
@@ -135,8 +184,8 @@ struct DownloadsListView: View {
     @ViewBuilder
     private var addURLBar: some View {
         HStack(spacing: 8) {
-            TextField("Paste URL…", text: $addURL).textFieldStyle(.roundedBorder)
-            Button("Download") {
+            MAYNTextField(placeholder: "Paste URL…", text: $addURL, width: 360)
+            MAYNButton("Download", role: .primary) {
                 let url = addURL.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !url.isEmpty else { return }
                 showAdd = false; addURL = ""
@@ -166,21 +215,31 @@ struct DownloadsListView: View {
             let isDeleteKey = event.keyCode == 51 || event.keyCode == 117
                 || char == "\u{7F}" || char == "\u{F728}"
 
+            if MAYNTextEditingShortcutPolicy.shouldYieldToFocusedTextInput(
+                isTextEditingFirstResponder: MAYNTextEditingShortcutPolicy.isTextEditingFirstResponder(
+                    in: event.window ?? NSApp.keyWindow
+                ),
+                keyEquivalent: char,
+                modifiers: event.modifierFlags
+            ) {
+                return event
+            }
+
             NSLog(
                 "🔑 DL keyDown: keyCode=\(event.keyCode) char=\(char.debugDescription) cmd=\(cmd) sel=\(vm.selectedIDs.count) isDel=\(isDeleteKey)"
             )
 
             if cmd, isDeleteKey { // Cmd+⌫ or Cmd+⌦: delete selected
                 guard !vm.selectedIDs.isEmpty else { return event }
-                let ids = vm.rows.filter { vm.selectedIDs.contains($0.id.rawValue) }.map(\.id)
+                let ids = self.visibleRows.filter { vm.selectedIDs.contains($0.id.rawValue) }.map(\.id)
                 vm.selectedIDs = []
                 vm.anchorID = nil
                 Task { @MainActor in await vm.delete(ids: ids) }
                 return nil
             }
             if cmd, char == "a" { // Cmd+A: select all
-                vm.selectedIDs = Set(vm.rows.map(\.id.rawValue))
-                vm.anchorID = vm.rows.first?.id.rawValue
+                vm.selectedIDs = Set(self.visibleRows.map(\.id.rawValue))
+                vm.anchorID = self.visibleRows.first?.id.rawValue
                 return nil
             }
             if cmd, char == "v" { // Cmd+V: paste URL
@@ -233,7 +292,7 @@ struct DownloadsListView: View {
                 vm.anchorID = id
             }
         } else if isShift, let anchor = vm.anchorID {
-            let ids = vm.rows.map(\.id.rawValue)
+            let ids = visibleRows.map(\.id.rawValue)
             if let start = ids.firstIndex(of: anchor),
                let end = ids.firstIndex(of: id)
             {
@@ -455,13 +514,7 @@ struct DownloadCardView: View {
     }
 
     private var stateBadgeText: String {
-        switch record.state {
-        case .running: isMerging ? "Merging" : "Running"
-        case .paused: "Paused"
-        case .queued: "Queued"
-        case .completed: "Done"
-        case .failed: "Failed"
-        }
+        DownloadStatePresentation.badgeText(for: record.state, isMerging: isMerging)
     }
 
     @ViewBuilder

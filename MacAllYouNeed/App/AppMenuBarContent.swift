@@ -8,13 +8,14 @@ import SwiftUI
 struct AppMenuBarContent: View {
     let controller: AppController
     @State private var tab: Tab = .clipboard
-    @Environment(\.openSettings) private var openSettings
 
-    enum Tab: String, CaseIterable, Hashable {
+    enum Tab: String, CaseIterable, Hashable, SegmentedTabDestination {
         case clipboard = "Clipboard"
         case voice = "Voice"
         case downloads = "Downloads"
         case snippets = "Snippets"
+
+        var title: String { rawValue }
 
         var symbol: String {
             switch self {
@@ -24,6 +25,8 @@ struct AppMenuBarContent: View {
             case .snippets: "text.quote"
             }
         }
+
+        var symbolName: String { symbol }
     }
 
     var body: some View {
@@ -37,10 +40,8 @@ struct AppMenuBarContent: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                SyncStatusChip()
                 Button {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openSettings()
+                    controller.showMainWindow(destination: .settings)
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 13, weight: .semibold))
@@ -65,6 +66,7 @@ struct AppMenuBarContent: View {
                     ClipboardMenuBarContent(
                         reader: controller.clipboardReader,
                         imageLoader: controller.clipboardDeps.imageLoader,
+                        appIcons: controller.clipboardDeps.appIcons,
                         blobs: controller.clipboardDeps.blobs
                     )
                 case .voice:
@@ -79,23 +81,20 @@ struct AppMenuBarContent: View {
 
             Divider()
             HStack {
-                Text("⌘⇧V")
-                    .font(.system(.caption, design: .monospaced))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color.primary.opacity(0.08), in: Capsule())
+                ShortcutChip(text: "⌘⇧V", height: HotkeyChipPresentation.compactHeight)
                 Text("clipboard dock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Pause 60s") {
+                MAYNButton("Open", height: HotkeyChipPresentation.compactHeight) {
+                    openSelectedTabInMainWindow()
+                }
+                MAYNButton("Pause 60s", height: HotkeyChipPresentation.compactHeight) {
                     controller.suspendCaptureFor60Seconds()
                 }
-                .buttonStyle(.plain)
-                .font(.caption)
-                Button("Quit") { NSApp.terminate(nil) }
-                    .buttonStyle(.plain)
-                    .font(.caption)
+                MAYNButton("Quit", role: .destructive, height: HotkeyChipPresentation.compactHeight) {
+                    NSApp.terminate(nil)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -111,11 +110,31 @@ struct AppMenuBarContent: View {
             // on a clean canvas.
             PreviewPanel.dismiss()
         }
+        .onDisappear {
+            PreviewPanel.dismiss()
+        }
     }
 
     @ViewBuilder
     private var downloadsTab: some View {
         DownloadsListView(vm: controller.downloaderVM)
+    }
+
+    private func openSelectedTabInMainWindow() {
+        switch tab {
+        case .clipboard:
+            AppGroupSettings.defaults.set(ClipboardFunctionTab.history.rawValue, forKey: ClipboardFunctionTab.storageKey)
+            controller.showMainWindow(destination: .clipboard)
+        case .voice:
+            AppGroupSettings.defaults.set(VoiceFunctionTab.dictate.rawValue, forKey: VoiceFunctionTab.storageKey)
+            controller.showMainWindow(destination: .voice)
+        case .downloads:
+            AppGroupSettings.defaults.set(DownloadsFunctionTab.queue.rawValue, forKey: DownloadsFunctionTab.storageKey)
+            controller.showMainWindow(destination: .downloads)
+        case .snippets:
+            AppGroupSettings.defaults.set(SnippetsFunctionTab.library.rawValue, forKey: SnippetsFunctionTab.storageKey)
+            controller.showMainWindow(destination: .snippets)
+        }
     }
 }
 
@@ -123,47 +142,14 @@ private struct CommandCenterTabBar: View {
     @Binding var selection: AppMenuBarContent.Tab
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(AppMenuBarContent.Tab.allCases, id: \.self) { tab in
-                Button {
-                    selection = tab
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: tab.symbol)
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(tab.rawValue)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .foregroundStyle(selection == tab ? Color(nsColor: .windowBackgroundColor) : Color.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 7)
-                    .background(selection == tab ? Color.primary : Color.primary.opacity(0.06), in: Capsule())
-                }
-                .buttonStyle(.plain)
-            }
+        FunctionSegmentedTabStrip(
+            tabs: Array(AppMenuBarContent.Tab.allCases),
+            selection: selection,
+            fillsAvailableWidth: true,
+            size: .control
+        ) { next in
+            selection = next
         }
-        .padding(4)
-        .background(Color.primary.opacity(0.06), in: Capsule())
-        .overlay(Capsule().stroke(Color.primary.opacity(0.10), lineWidth: 1))
-    }
-}
-
-struct SyncStatusChip: View {
-    var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .strokeBorder(Color.primary.opacity(0.45), lineWidth: 1)
-                .background(Circle().fill(Color.primary.opacity(0.12)))
-                .frame(width: 6, height: 6)
-            Text("Local only")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(Color.primary.opacity(0.06), in: Capsule())
     }
 }
 
@@ -200,11 +186,7 @@ struct VoiceCommandCenterView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(activationSettings.shortcut.display)
-                        .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Color.primary.opacity(0.08), in: Capsule())
+                    ShortcutChip(text: activationSettings.shortcut.display)
                 }
 
                 HStack(spacing: 8) {
@@ -223,6 +205,11 @@ struct VoiceCommandCenterView: View {
                     VoiceCommandButton(title: "Setup", symbol: "slider.horizontal.3") {
                         NSApp.activate(ignoringOtherApps: true)
                         controller.showVoiceOnboarding()
+                    }
+
+                    VoiceCommandButton(title: "Dictionary", symbol: "text.book.closed") {
+                        AppGroupSettings.defaults.set(VoiceFunctionTab.dictionary.rawValue, forKey: VoiceFunctionTab.storageKey)
+                        controller.showMainWindow(destination: .voice)
                     }
 
                     VoiceCommandButton(title: "Mic", symbol: "mic.badge.plus") {
@@ -371,25 +358,22 @@ private struct VoiceCommandButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        MAYNButton(role: .primary, height: MAYNControlMetrics.controlHeight, action: action) {
             HStack(spacing: 6) {
                 Image(systemName: symbol)
                     .font(.system(size: 12, weight: .semibold))
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
             }
-            .foregroundStyle(Color(nsColor: .windowBackgroundColor))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .background(Color.primary, in: Capsule())
         }
-        .buttonStyle(.plain)
     }
 }
 
 struct ClipboardMenuBarContent: View {
     let reader: LocalClipboardReader
     let imageLoader: ImageBlobLoader
+    let appIcons: AppIconResolver
     let blobs: BlobStore
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -410,6 +394,7 @@ struct ClipboardMenuBarContent: View {
                                 ClipboardItemRow2(
                                     item: item,
                                     imageLoader: imageLoader,
+                                    appIcons: appIcons,
                                     isSelected: reader.selectedIDs.contains(item.id.rawValue),
                                     onTap: { handleTap(id: item.id.rawValue) },
                                     onActivate: {
@@ -428,12 +413,9 @@ struct ClipboardMenuBarContent: View {
                         if reduceMotion {
                             proxy.scrollTo(newID, anchor: .center)
                         } else {
-                            withAnimation(.easeOut(duration: 0.15)) {
+                            withAnimation(MAYNMotion.animation(.hover, reduceMotion: reduceMotion)) {
                                 proxy.scrollTo(newID, anchor: .center)
                             }
-                        }
-                        if PreviewPanel.isVisible {
-                            previewSelected()
                         }
                     }
                 }
@@ -455,6 +437,7 @@ struct ClipboardMenuBarContent: View {
             if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
             reader.selectedIDs = []
             reader.anchorID = nil
+            PreviewPanel.dismiss()
         }
         .onChange(of: reader.items.map(\.id.rawValue)) { _, ids in
             // Only PRUNE invalid selections — don't auto-select anything.
@@ -510,6 +493,16 @@ struct ClipboardMenuBarContent: View {
             let char = event.charactersIgnoringModifiers ?? ""
             let isDeleteKey = event.keyCode == 51 || event.keyCode == 117
                 || char == "\u{7F}" || char == "\u{F728}"
+
+            if MAYNTextEditingShortcutPolicy.shouldYieldToFocusedTextInput(
+                isTextEditingFirstResponder: MAYNTextEditingShortcutPolicy.isTextEditingFirstResponder(
+                    in: event.window ?? NSApp.keyWindow
+                ),
+                keyEquivalent: char,
+                modifiers: event.modifierFlags
+            ) {
+                return event
+            }
 
             NSLog("🔑 CB keyDown: keyCode=\(event.keyCode) char=\(char.debugDescription) cmd=\(cmd) sel=\(reader.selectedIDs.count) isDel=\(isDeleteKey)")
 
@@ -581,6 +574,20 @@ struct ClipboardMenuBarContent: View {
                 Task { @MainActor in Self.previewAnchor(reader: reader, blobs: blobs) }
                 return nil
             }
+            if PreviewPanel.isVisible, event.keyCode == 124 {  // Right arrow: next preview
+                Task { @MainActor in
+                    let direction = Self.moveAnchor(reader: reader, by: 1)
+                    Self.previewAnchor(reader: reader, blobs: blobs, direction: direction)
+                }
+                return nil
+            }
+            if PreviewPanel.isVisible, event.keyCode == 123 {  // Left arrow: previous preview
+                Task { @MainActor in
+                    let direction = Self.moveAnchor(reader: reader, by: -1)
+                    Self.previewAnchor(reader: reader, blobs: blobs, direction: direction)
+                }
+                return nil
+            }
             if event.keyCode == 125 {  // Down arrow
                 let ids = reader.items.map(\.id.rawValue)
                 guard !ids.isEmpty else { return nil }
@@ -589,6 +596,9 @@ struct ClipboardMenuBarContent: View {
                 if next != cur {
                     reader.anchorID = ids[next]
                     reader.selectedIDs = [ids[next]]
+                    if PreviewPanel.isVisible {
+                        Task { @MainActor in Self.previewAnchor(reader: reader, blobs: blobs) }
+                    }
                 }
                 return nil
             }
@@ -600,6 +610,9 @@ struct ClipboardMenuBarContent: View {
                 if next != cur {
                     reader.anchorID = ids[next]
                     reader.selectedIDs = [ids[next]]
+                    if PreviewPanel.isVisible {
+                        Task { @MainActor in Self.previewAnchor(reader: reader, blobs: blobs) }
+                    }
                 }
                 return nil
             }
@@ -623,15 +636,19 @@ struct ClipboardMenuBarContent: View {
     // MARK: - Static helpers (called from NSEvent monitor — capture reader/blobs only)
 
     @MainActor
-    private static func moveAnchor(reader: LocalClipboardReader, by delta: Int) {
+    private static func moveAnchor(
+        reader: LocalClipboardReader,
+        by delta: Int
+    ) -> PreviewPanelTransitionDirection {
         let ids = reader.items.map(\.id.rawValue)
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty else { return .none }
         let currentIdx = reader.anchorID.flatMap { ids.firstIndex(of: $0) } ?? 0
         let nextIdx = max(0, min(ids.count - 1, currentIdx + delta))
-        guard nextIdx != currentIdx else { return }
+        guard nextIdx != currentIdx else { return .none }
         let newID = ids[nextIdx]
         reader.anchorID = newID
         reader.selectedIDs = [newID]
+        return .horizontal(from: currentIdx, to: nextIdx)
     }
 
     @MainActor
@@ -669,7 +686,11 @@ struct ClipboardMenuBarContent: View {
     }
 
     @MainActor
-    private static func previewAnchor(reader: LocalClipboardReader, blobs: BlobStore) {
+    private static func previewAnchor(
+        reader: LocalClipboardReader,
+        blobs: BlobStore,
+        direction: PreviewPanelTransitionDirection = .none
+    ) {
         let id = reader.anchorID ?? reader.selectedIDs.first
         guard let id,
               let item = reader.items.first(where: { $0.id.rawValue == id }),
@@ -679,17 +700,41 @@ struct ClipboardMenuBarContent: View {
         switch body {
         case let .image(blobID, _, _):
             if let data = try? blobs.read(id: blobID),
-               let image = NSImage(data: data) { PreviewPanel.show(.image(image)) }
+               let image = NSImage(data: data) {
+                PreviewPanel.show(
+                    .image(image),
+                    metadata: previewMetadata(for: item, kind: "Image"),
+                    direction: direction
+                )
+            }
         case let .files(urls) where urls.count == 1 && Self.isImageURL(urls[0]):
-            if let image = NSImage(contentsOf: urls[0]) { PreviewPanel.show(.image(image)) }
+            if let image = NSImage(contentsOf: urls[0]) {
+                PreviewPanel.show(
+                    .image(image),
+                    metadata: previewMetadata(for: item, kind: "File image"),
+                    direction: direction
+                )
+            }
         case let .text(s):
-            PreviewPanel.show(.text(s, monospaced: false))
+            PreviewPanel.show(
+                .text(s, monospaced: false),
+                metadata: previewMetadata(for: item, kind: "Text"),
+                direction: direction
+            )
         case let .html(s):
             let plain = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            PreviewPanel.show(.text(plain, monospaced: false))
+            PreviewPanel.show(
+                .text(plain, monospaced: false),
+                metadata: previewMetadata(for: item, kind: "HTML"),
+                direction: direction
+            )
         case let .rtf(data):
             if let attr = NSAttributedString(rtf: data, documentAttributes: nil) {
-                PreviewPanel.show(.text(attr.string, monospaced: false))
+                PreviewPanel.show(
+                    .text(attr.string, monospaced: false),
+                    metadata: previewMetadata(for: item, kind: "Rich text"),
+                    direction: direction
+                )
             }
         case .files:
             break
@@ -698,13 +743,36 @@ struct ClipboardMenuBarContent: View {
 
     /// Used by inner ScrollView's onChange (which captures self) for parity.
     private func copySelectedAndDismiss() { Self.copyAndDismiss(reader: reader, blobs: blobs) }
-    private func previewSelected() { Self.previewAnchor(reader: reader, blobs: blobs) }
+
+    private static func previewMetadata(
+        for item: ClipboardItemMeta,
+        kind: String
+    ) -> PreviewPanelMetadata {
+        let title = (item.customLabel ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
+        return PreviewPanelMetadata(
+            title: title.isEmpty ? kind : title,
+            subtitle: "\(kind) · \(CompactTimestamp.format(item.modified))",
+            badge: "Space / Esc",
+            symbol: previewSymbol(for: item)
+        )
+    }
+
+    private static func previewSymbol(for item: ClipboardItemMeta) -> String {
+        if item.preview.hasPrefix("(image ") { return "photo" }
+        if item.preview.hasPrefix("("), item.preview.contains("file") { return "doc" }
+        if item.preview == "(rich text)" { return "textformat" }
+        if item.preview.hasPrefix("http") { return "link" }
+        return "text.alignleft"
+    }
 
     /// Programmatically close the MenuBarExtra `.window`-style popover.
     static func dismissMenuBarPopover() {
+        NotificationCenter.default.post(name: .menuBarPopoverDismissRequested, object: nil)
         for window in NSApp.windows {
             let name = String(describing: type(of: window))
-            if name.contains("MenuBarExtra") || name.contains("NSStatusBarWindow") {
+            if name.contains("MenuBarExtra")
+                || name.contains("NSStatusBarWindow")
+                || name.contains("NSPopover") {
                 window.orderOut(nil)
             }
         }
@@ -720,6 +788,7 @@ struct ClipboardMenuBarContent: View {
 private struct ClipboardItemRow2: View {
     let item: ClipboardItemMeta
     let imageLoader: ImageBlobLoader
+    let appIcons: AppIconResolver
     let isSelected: Bool
     let onTap: () -> Void
     let onActivate: () -> Void
@@ -745,15 +814,32 @@ private struct ClipboardItemRow2: View {
             // falls back to a kind-appropriate SF Symbol.
             Group {
                 if isImage {
-                    MenuBarImageThumbnail(
-                        recordID: item.id.rawValue,
-                        loader: imageLoader
-                    )
+                    ZStack(alignment: .bottomTrailing) {
+                        MenuBarImageThumbnail(
+                            recordID: item.id.rawValue,
+                            loader: imageLoader
+                        )
+                        if ClipboardHistoryIconPresentation.hasSourceApp(item) {
+                            ClipboardHistoryIconView(
+                                item: item,
+                                fallbackSymbol: icon,
+                                appIcons: appIcons,
+                                size: 18,
+                                symbolFontSize: 10,
+                                cornerRadius: 5
+                            )
+                            .offset(x: 2, y: 2)
+                        }
+                    }
                 } else {
-                    Image(systemName: icon)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 36, height: 36)
+                    ClipboardHistoryIconView(
+                        item: item,
+                        fallbackSymbol: icon,
+                        appIcons: appIcons,
+                        size: 36,
+                        symbolFontSize: 16,
+                        cornerRadius: 8
+                    )
                 }
             }
 
@@ -832,10 +918,31 @@ struct SnippetsListView: View {
     var body: some View {
         Group {
             if snippets.isEmpty {
-                Text("No snippets yet")
-                    .font(.callout)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 10) {
+                    Image(systemName: "text.quote")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 34, height: 34)
+                        .background(MAYNTheme.selected, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
+
+                    VStack(spacing: 3) {
+                        Text("No snippets yet")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text("Open the clipboard dock to create reusable text.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, minHeight: 160)
+                .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
+                        .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                )
+                .padding(12)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -857,8 +964,11 @@ struct SnippetsListView: View {
                                 Spacer()
                             }
                             .padding(10)
-                            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.10), lineWidth: 1))
+                            .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
+                                    .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                            )
                         }
                     }
                     .padding(12)

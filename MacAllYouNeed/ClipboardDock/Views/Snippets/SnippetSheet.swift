@@ -35,16 +35,14 @@ struct SnippetSheet: View {
             Text(editing == nil ? "New Snippet" : "Edit Snippet")
                 .font(.headline)
 
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
+            MAYNTextField(placeholder: "Name", text: $name, width: 380)
 
             TextEditor(text: $snippetBody)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 160)
                 .border(Color.secondary.opacity(0.3))
 
-            TextField("Trigger (optional, e.g. ;sig)", text: $trigger)
-                .textFieldStyle(.roundedBorder)
+            MAYNTextField(placeholder: "Trigger (optional, e.g. ;sig)", text: $trigger, width: 380)
 
             if let errorMessage {
                 Text(errorMessage)

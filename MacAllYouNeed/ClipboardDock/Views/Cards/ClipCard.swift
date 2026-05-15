@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ClipCard: View {
@@ -8,16 +9,21 @@ struct ClipCard: View {
     let favicons: FaviconCache
     let cardBackground: Color
 
+    private var appAccent: Color {
+        ClipCardAccentPresentation.accent(for: item)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            CardHeader(item: item)
-            Divider()
-                .opacity(0.4)
+            CardHeader(item: item, appAccent: appAccent)
             cardContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(cardBackground)
-        .cornerRadius(10)
+        .background {
+            cardBackground
+                .overlay(appAccent.opacity(ClipCardAccentPresentation.cardTintOpacity))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
     }
 
     @ViewBuilder
@@ -43,6 +49,7 @@ struct ClipCard: View {
 /// source app icon on the right.
 private struct CardHeader: View {
     let item: DockItem
+    let appAccent: Color
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -60,7 +67,10 @@ private struct CardHeader: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.04))
+        .background {
+            MAYNTheme.elevated
+                .overlay(appAccent.opacity(ClipCardAccentPresentation.headerTintOpacity))
+        }
     }
 
     @ViewBuilder
@@ -68,9 +78,17 @@ private struct CardHeader: View {
         if let app = item.sourceApp, let icon = app.icon {
             Image(nsImage: icon)
                 .resizable()
-                .frame(width: 32, height: 32)
+                .frame(width: 28, height: 28)
                 .clipShape(RoundedRectangle(cornerRadius: 7))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(appAccent.opacity(ClipCardAccentPresentation.iconStrokeOpacity), lineWidth: 1)
+                )
                 .help(app.displayName)
+        } else {
+            Circle()
+                .fill(appAccent.opacity(0.22))
+                .frame(width: 8, height: 8)
         }
     }
 
@@ -105,4 +123,87 @@ private struct CardHeader: View {
         f.unitsStyle = .abbreviated
         return f
     }()
+}
+
+enum ClipCardAccentPresentation {
+    static let topAccentHeight: CGFloat = 0
+    static let cardTintOpacity = 0.16
+    static let headerTintOpacity = 0.36
+    static let dividerAccentOpacity = 0
+    static let iconStrokeOpacity = 0.78
+    static let fallbackAccent = Color.secondary
+    private static let palette: [(key: String, color: NSColor)] = [
+        ("blue", NSColor(srgbRed: 0.02, green: 0.33, blue: 0.92, alpha: 1.0)),
+        ("emerald", NSColor(srgbRed: 0.00, green: 0.48, blue: 0.30, alpha: 1.0)),
+        ("violet", NSColor(srgbRed: 0.38, green: 0.18, blue: 0.88, alpha: 1.0)),
+        ("orange", NSColor(srgbRed: 0.92, green: 0.34, blue: 0.02, alpha: 1.0)),
+        ("magenta", NSColor(srgbRed: 0.82, green: 0.05, blue: 0.40, alpha: 1.0)),
+        ("teal", NSColor(srgbRed: 0.00, green: 0.48, blue: 0.60, alpha: 1.0)),
+        ("amber", NSColor(srgbRed: 0.82, green: 0.48, blue: 0.00, alpha: 1.0)),
+        ("indigo", NSColor(srgbRed: 0.12, green: 0.20, blue: 0.78, alpha: 1.0)),
+        ("red", NSColor(srgbRed: 0.82, green: 0.12, blue: 0.16, alpha: 1.0)),
+        ("mint", NSColor(srgbRed: 0.00, green: 0.56, blue: 0.42, alpha: 1.0)),
+        ("purple", NSColor(srgbRed: 0.56, green: 0.18, blue: 0.72, alpha: 1.0)),
+        ("brown", NSColor(srgbRed: 0.54, green: 0.30, blue: 0.12, alpha: 1.0))
+    ]
+    private static let knownAccentKeys: [String: String] = [
+        "com.google.chrome": "blue",
+        "com.openai.codex": "violet",
+        "com.openai.chat": "violet",
+        "com.openai.chatgpt": "violet",
+        "com.tinyspeck.slackmacgap": "magenta",
+        "com.apple.dt.xcode": "orange",
+        "com.todesktop.230313mzl4w4u92": "amber",
+        "com.microsoft.vscode": "indigo",
+        "com.apple.finder": "teal",
+        "com.apple.safari": "teal",
+        "com.apple.terminal": "emerald",
+        "com.googlecode.iterm2": "emerald",
+        "company.thebrowser.browser": "purple",
+        "com.microsoft.edgemac": "mint",
+        "com.brave.browser": "orange",
+        "com.apple.notes": "amber"
+    ]
+
+    static func shouldShowSourceAccent(hasSourceAppIcon: Bool) -> Bool {
+        hasSourceAppIcon
+    }
+
+    static func stableAccentKey(forBundleID bundleID: String?) -> String {
+        guard let bundleID, !bundleID.isEmpty else { return "fallback" }
+        let normalized = bundleID.lowercased()
+        if let known = knownAccentKeys[normalized] {
+            return known
+        }
+        return palette[stablePaletteIndex(for: normalized)].key
+    }
+
+    static func accent(for item: DockItem) -> Color {
+        if let bundleID = item.sourceApp?.bundleID,
+           let color = stableAccentColor(forBundleID: bundleID)
+        {
+            return Color(nsColor: color)
+        }
+
+        guard let icon = item.sourceApp?.icon,
+              let color = AppIconColor.dominant(of: icon)?.usingColorSpace(.sRGB)
+        else {
+            return fallbackAccent
+        }
+
+        return Color(nsColor: color)
+    }
+
+    private static func stableAccentColor(forBundleID bundleID: String?) -> NSColor? {
+        let key = stableAccentKey(forBundleID: bundleID)
+        return palette.first(where: { $0.key == key })?.color
+    }
+
+    private static func stablePaletteIndex(for normalizedBundleID: String) -> Int {
+        var hash = 2_166_136_261
+        for scalar in normalizedBundleID.unicodeScalars {
+            hash = (hash ^ Int(scalar.value)) &* 16_777_619
+        }
+        return abs(hash) % palette.count
+    }
 }

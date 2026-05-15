@@ -56,6 +56,30 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
         }
     }
 
+    public func listRecent(limit: Int = 20) throws -> [VoiceTranscript] {
+        let normalizedLimit = max(1, limit)
+        return try db.queue.read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT id, started_at, ended_at, duration_ms, raw_text, cleaned_text,
+                       app_bundle_id, language, model_identifier, audio_path
+                FROM voice_transcripts
+                ORDER BY ended_at DESC
+                LIMIT ?
+            """, arguments: [normalizedLimit]).map(Self.transcript(from:))
+        }
+    }
+
+    public func delete(ids: [String]) throws {
+        let uniqueIDs = Array(Set(ids))
+        guard !uniqueIDs.isEmpty else { return }
+
+        try db.queue.write { conn in
+            for id in uniqueIDs {
+                try conn.execute(sql: "DELETE FROM voice_transcripts WHERE id = ?", arguments: [id])
+            }
+        }
+    }
+
     private static func transcript(from row: Row) -> VoiceTranscript {
         VoiceTranscript(
             id: row["id"],

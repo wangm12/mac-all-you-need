@@ -1,28 +1,26 @@
 import Core
 import SwiftUI
 
-enum VoiceDictionaryFilter: String, CaseIterable, Identifiable {
+enum VoiceDictionaryFilter: String, SegmentedTabDestination {
     case all
     case autoAdded
     case manuallyAdded
-
-    var id: String { rawValue }
 
     var title: String {
         switch self {
         case .all:
             "All"
         case .autoAdded:
-            "Auto-added"
+            "Auto"
         case .manuallyAdded:
-            "Manually-added"
+            "Manual"
         }
     }
 
-    var symbolName: String? {
+    var symbolName: String {
         switch self {
         case .all:
-            nil
+            "textformat"
         case .autoAdded:
             "sparkles"
         case .manuallyAdded:
@@ -57,7 +55,8 @@ enum VoiceDictionaryPresentation {
 
 struct VoiceDictionaryPage: View {
     let controller: AppController
-    var onBack: (() -> Void)?
+    let showsHeader: Bool
+    let onBack: (() -> Void)?
 
     @State private var entries: [VoiceDictionaryEntry] = []
     @State private var filter: VoiceDictionaryFilter = .all
@@ -70,20 +69,31 @@ struct VoiceDictionaryPage: View {
         VoiceDictionaryPresentation.filtered(entries, query: searchText, filter: filter)
     }
 
+    init(
+        controller: AppController,
+        showsHeader: Bool = true,
+        onBack: (() -> Void)? = nil
+    ) {
+        self.controller = controller
+        self.showsHeader = showsHeader
+        self.onBack = onBack
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            VoiceDictionaryHeader(
-                onBack: onBack,
-                onNewWord: beginNewWord
-            )
+            if showsHeader {
+                VoiceDictionaryHeader(
+                    onBack: onBack
+                )
+            }
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    HStack(alignment: .center, spacing: 14) {
-                        VoiceDictionaryFilterStrip(selection: $filter)
-                        Spacer(minLength: 12)
-                        VoiceDictionarySearchField(text: $searchText)
-                    }
+                VStack(alignment: .leading, spacing: 18) {
+                    VoiceDictionaryActionBar(
+                        filter: $filter,
+                        searchText: $searchText,
+                        onNewWord: beginNewWord
+                    )
 
                     if let errorMessage {
                         StatusPill(text: errorMessage, kind: .danger)
@@ -92,10 +102,11 @@ struct VoiceDictionaryPage: View {
                     if filteredEntries.isEmpty {
                         VoiceDictionaryEmptyState(
                             title: emptyTitle,
-                            subtitle: emptySubtitle
+                            subtitle: emptySubtitle,
+                            actionTitle: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "New word" : nil,
+                            action: beginNewWord
                         )
                         .frame(maxWidth: .infinity)
-                        .padding(.top, 110)
                     } else {
                         VoiceDictionaryEntriesSection(
                             entries: filteredEntries,
@@ -104,8 +115,9 @@ struct VoiceDictionaryPage: View {
                         )
                     }
                 }
-                .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: 920, alignment: .leading)
                 .padding(.horizontal, 32)
+                .padding(.top, showsHeader ? 18 : 26)
                 .padding(.bottom, 32)
             }
         }
@@ -202,7 +214,6 @@ private struct VoiceDictionaryDraft {
 
 private struct VoiceDictionaryHeader: View {
     let onBack: (() -> Void)?
-    let onNewWord: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -226,9 +237,6 @@ private struct VoiceDictionaryHeader: View {
             }
 
             Spacer()
-
-            Button("New word", action: onNewWord)
-                .buttonStyle(VoiceDictionaryPrimaryButtonStyle())
         }
         .padding(.horizontal, 32)
         .padding(.top, 28)
@@ -236,54 +244,33 @@ private struct VoiceDictionaryHeader: View {
     }
 }
 
-private struct VoiceDictionaryFilterStrip: View {
-    @Binding var selection: VoiceDictionaryFilter
+private struct VoiceDictionaryActionBar: View {
+    @Binding var filter: VoiceDictionaryFilter
+    @Binding var searchText: String
+    let onNewWord: () -> Void
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(VoiceDictionaryFilter.allCases) { filter in
-                Button {
-                    selection = filter
-                } label: {
-                    HStack(spacing: 5) {
-                        if let symbolName = filter.symbolName {
-                            Image(systemName: symbolName)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(filter == .autoAdded ? MAYNTheme.success : .secondary)
-                        }
-                        Text(filter.title)
-                            .font(.callout)
-                    }
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 7)
-                    .background(
-                        selection == filter ? MAYNTheme.window : Color.clear,
-                        in: Capsule()
-                    )
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(selection == filter ? .primary : .secondary)
+        HStack(alignment: .center, spacing: 12) {
+            FunctionSegmentedTabStrip(
+                tabs: VoiceDictionaryFilter.allCases,
+                selection: filter,
+                fillsAvailableWidth: false,
+                size: .control
+            ) { nextFilter in
+                filter = nextFilter
+            }
+
+            VoiceDictionarySearchField(text: $searchText)
+                .frame(maxWidth: 280)
+
+            Spacer(minLength: 12)
+
+            MAYNButton(role: .primary, height: MAYNControlMetrics.controlHeight, action: onNewWord) {
+                Label("New word", systemImage: "plus")
+                    .labelStyle(.titleAndIcon)
             }
         }
-        .padding(3)
-        .background(MAYNTheme.panel, in: Capsule())
-    }
-}
-
-private struct VoiceDictionarySearchField: View {
-    @Binding var text: String
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-            TextField("Search", text: $text)
-                .textFieldStyle(.plain)
-                .font(.callout)
-        }
-        .padding(.horizontal, 10)
-        .frame(width: 210, height: 34)
+        .padding(10)
         .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -292,12 +279,52 @@ private struct VoiceDictionarySearchField: View {
     }
 }
 
+private struct VoiceDictionarySearchField: View {
+    @Binding var text: String
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+            TextField("Search", text: $text)
+                .textFieldStyle(.plain)
+                .font(.callout)
+                .focused($isFocused)
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: MAYNControlMetrics.controlHeight)
+        .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(isFocused ? MAYNTheme.focusRing : MAYNTheme.subtleBorder, lineWidth: 1)
+        )
+    }
+}
+
 private struct VoiceDictionaryEmptyState: View {
     let title: String
     let subtitle: String
+    let actionTitle: String?
+    let action: () -> Void
 
     var body: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 12) {
+            Image(systemName: "text.book.closed")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(.secondary)
             Text(title)
                 .font(.system(size: 19, weight: .semibold))
             Text(subtitle)
@@ -305,7 +332,18 @@ private struct VoiceDictionaryEmptyState: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
+            if let actionTitle {
+                MAYNButton(actionTitle, action: action)
+                    .padding(.top, 4)
+            }
         }
+        .padding(.vertical, 64)
+        .padding(.horizontal, 24)
+        .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+        )
     }
 }
 
@@ -315,7 +353,7 @@ private struct VoiceDictionaryEntriesSection: View {
     let onDelete: (VoiceDictionaryEntry) -> Void
 
     var body: some View {
-        MAYNSection(title: "Words", subtitle: "\(entries.count) entries") {
+        MAYNSection(title: "Words", subtitle: "\(entries.count) \(entries.count == 1 ? "entry" : "entries")") {
             ForEach(Array(entries.enumerated()), id: \.element.id) { offset, entry in
                 if offset > 0 { MAYNDivider() }
                 VoiceDictionaryEntryRow(
@@ -336,27 +374,74 @@ private struct VoiceDictionaryEntryRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(entry.phrase)
-                    .font(.callout.weight(.medium))
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+
                 Text(entry.replacement)
-                    .font(.caption)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button("Edit", action: onEdit)
-                .buttonStyle(.borderless)
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
+            HStack(spacing: 4) {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(VoiceDictionaryIconButtonStyle())
+                .help("Edit word")
+
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(VoiceDictionaryIconButtonStyle(role: .destructive))
+                .help("Delete word")
             }
-            .buttonStyle(.borderless)
+            .opacity(isHovering ? 1 : 0.68)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(minHeight: 54)
+        .padding(.vertical, 11)
+        .frame(minHeight: 52)
         .background(isHovering ? MAYNTheme.hover : Color.clear)
+        .contentShape(Rectangle())
         .onHover { isHovering = $0 }
+    }
+}
+
+private struct VoiceDictionaryIconButtonStyle: ButtonStyle {
+    enum Role {
+        case normal
+        case destructive
+    }
+
+    var role: Role = .normal
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(foregroundColor)
+            .frame(width: 28, height: 28)
+            .background(
+                Color.primary.opacity(configuration.isPressed ? 0.11 : 0.06),
+                in: Circle()
+            )
+    }
+
+    private var foregroundColor: Color {
+        switch role {
+        case .normal:
+            .secondary
+        case .destructive:
+            MAYNTheme.danger
+        }
     }
 }
 
@@ -384,35 +469,22 @@ private struct VoiceDictionaryEditorSheet: View {
                 Text("Heard phrase")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                TextField("Example: 海涛", text: $draft.phrase)
-                    .textFieldStyle(.roundedBorder)
+                MAYNTextField(placeholder: "Example: 海涛", text: $draft.phrase, width: 376)
                 Text("Replacement")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                TextField("Example: 江涛", text: $draft.replacement)
-                    .textFieldStyle(.roundedBorder)
+                MAYNTextField(placeholder: "Example: 江涛", text: $draft.replacement, width: 376)
             }
 
             HStack {
                 Spacer()
-                Button("Cancel", action: onCancel)
-                Button("Save", action: onSave)
+                MAYNButton("Cancel", action: onCancel)
+                MAYNButton("Save", role: .primary, action: onSave)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
             }
         }
         .padding(22)
         .frame(width: 420)
-    }
-}
-
-private struct VoiceDictionaryPrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.callout.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 8)
-            .background(Color.black.opacity(configuration.isPressed ? 0.78 : 0.92), in: Capsule())
     }
 }

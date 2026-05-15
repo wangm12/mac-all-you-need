@@ -89,7 +89,13 @@ struct CardContextMenu: View {
         var payload: [Any] = []
         switch body {
         case let .text(s): payload = [s as NSString]
-        case let .html(s): payload = [s as NSString]
+        case let .html(s):
+            if let data = s.data(using: .utf8),
+               let attr = NSAttributedString(html: data, documentAttributes: nil) {
+                payload = [attr.string.trimmingCharacters(in: .newlines) as NSString]
+            } else {
+                payload = [s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression) as NSString]
+            }
         case let .rtf(data):
             if let attr = NSAttributedString(rtf: data, documentAttributes: nil) {
                 payload = [attr.string as NSString]

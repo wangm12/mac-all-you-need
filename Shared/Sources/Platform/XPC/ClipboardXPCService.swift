@@ -302,9 +302,9 @@ import Foundation
         case let .html(s):
             if let data = s.data(using: .utf8),
                let attributed = NSAttributedString(html: data, documentAttributes: nil) {
-                return attributed.string
+                return attributed.string.trimmingCharacters(in: .newlines)
             }
-            return s
+            return s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
         case let .rtf(data): return NSAttributedString(rtf: data, documentAttributes: nil)?.string
         case let .files(urls): return urls.map(\.path).joined(separator: "\n")
         case .image: return nil
@@ -316,8 +316,8 @@ import Foundation
         switch body {
         case let .text(s): pasteboard.setString(s, forType: .string)
         case let .html(s):
-            pasteboard.setString(s, forType: NSPasteboard.PasteboardType.html)
-            pasteboard.setString(s, forType: .string)
+            let plain = plainText(from: .html(s)) ?? s
+            pasteboard.setString(plain, forType: .string)
         case let .rtf(data):
             pasteboard.setData(data, forType: .rtf)
             if let s = NSAttributedString(rtf: data, documentAttributes: nil)?.string {

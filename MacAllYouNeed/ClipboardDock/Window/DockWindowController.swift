@@ -2,6 +2,56 @@ import AppKit
 import Core
 import SwiftUI
 
+enum DockTypingSearch {
+    static func updatedQuery(
+        current: String,
+        keyCode: UInt16,
+        characters: String?,
+        modifiers: NSEvent.ModifierFlags
+    ) -> String? {
+        let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
+        let textModifiers: NSEvent.ModifierFlags = [.shift, .capsLock]
+        guard relevantModifiers.subtracting(textModifiers).isEmpty else { return nil }
+
+        if keyCode == 51 {
+            guard !current.isEmpty else { return nil }
+            return String(current.dropLast())
+        }
+
+        guard let characters, !characters.isEmpty else { return nil }
+        let blockedCharacters = CharacterSet.controlCharacters.union(.newlines)
+        guard characters.rangeOfCharacter(from: blockedCharacters) == nil else { return nil }
+        return current + characters
+    }
+}
+
+enum DockOutsideClickPolicy {
+    static func shouldHide(
+        panelFrame: NSRect,
+        clickLocationOnScreen: NSPoint,
+        ignoreOutsideClicksUntil: Date,
+        now: Date
+    ) -> Bool {
+        guard now >= ignoreOutsideClicksUntil else { return false }
+        return !panelFrame.contains(clickLocationOnScreen)
+    }
+
+    static func screenLocation(for event: NSEvent) -> NSPoint {
+        guard let eventWindow = event.window else {
+            return NSEvent.mouseLocation
+        }
+        return eventWindow.convertPoint(toScreen: event.locationInWindow)
+    }
+}
+
+enum DockHeightPreviewLayering {
+    static func invokerLevel(above dockLevel: NSWindow.Level) -> NSWindow.Level {
+        let draggingLevel = Int(CGWindowLevelForKey(.draggingWindow))
+        let raisedLevel = min(dockLevel.rawValue + 1, draggingLevel - 1)
+        return NSWindow.Level(rawValue: raisedLevel)
+    }
+}
+
 @MainActor
 final class DockWindowController {
     private let model: ClipboardDockModel
@@ -10,15 +60,23 @@ final class DockWindowController {
     private let registry: ShortcutRegistry
 
     private var window: BottomDockWindow?
-    private var outsideClickMonitor: Any?
+    private var globalOutsideClickMonitor: Any?
+    private var localOutsideClickMonitor: Any?
     private var keyMonitor: Any?
     private var dragMonitor: Any?
+    private var dragSurfaceClearTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
     private var pasteIntentObserver: NSObjectProtocol?
     private var hideRequestObserver: NSObjectProtocol?
     private var ignoreOutsideClicksUntil: Date = .distantPast
+    private weak var heightPreviewInvokerWindow: NSWindow?
+    private var heightPreviewInvokerOriginalLevel: NSWindow.Level?
 
-    var dockHeight: CGFloat = 360
+    var dockHeight: CGFloat = 360 {
+        didSet {
+            resizeVisiblePanelForCurrentHeight()
+        }
+    }
 
     init(
         model: ClipboardDockModel,
@@ -42,12 +100,15 @@ final class DockWindowController {
 
 #if DEBUG
     var debugWindowForTesting: BottomDockWindow? { window }
+    var debugHasGlobalOutsideClickMonitorForTesting: Bool { globalOutsideClickMonitor != nil }
+    var debugHasLocalOutsideClickMonitorForTesting: Bool { localOutsideClickMonitor != nil }
 
     func debugSetWindowForTesting(_ window: BottomDockWindow?) {
         self.window = window
     }
 
     func debugTearDownForTesting() {
+        restoreHeightPreviewInvokerWindowLevel()
         stopOutsideClickMonitor()
         stopDragMonitor()
         stopKeyMonitor()
@@ -125,8 +186,13 @@ final class DockWindowController {
         window = panel
 
         panel.orderFrontRegardless()
-        DockAnimator.slideUp(panel, finalOrigin: NSPoint(x: frame.minX, y: frame.minY)) { [weak panel, log] in
-            panel?.makeKey()
+        raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
+        DockAnimator.slideUp(panel, finalOrigin: NSPoint(x: frame.minX, y: frame.minY)) { [weak self, weak panel, log] in
+            if self?.heightPreviewInvokerWindow == nil {
+                panel?.makeKey()
+            } else {
+                self?.raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
+            }
             if let panel {
                 log.info("show: post-animate panel.frame=\(NSStringFromRect(panel.frame), privacy: .public), panel.screen.frame=\(NSStringFromRect(panel.screen?.frame ?? .zero), privacy: .public)")
             }
@@ -140,13 +206,38 @@ final class DockWindowController {
         startHideRequestObserver()
     }
 
+    func keepHeightPreviewInvokerAboveDockPanel(_ invokerWindow: NSWindow?) {
+        guard window?.isVisible == true, let invokerWindow else { return }
+        beginHeightPreviewLayering(invokerWindow: invokerWindow)
+    }
+
+    func endHeightPreviewLayering() {
+        restoreHeightPreviewInvokerWindowLevel()
+    }
+
+    func previewHeight(_ height: CGFloat, keepingInvokerAbove invokerWindow: NSWindow? = nil) {
+        if let invokerWindow {
+            beginHeightPreviewLayering(invokerWindow: invokerWindow)
+        }
+        dockHeight = height
+        if window?.isVisible != true {
+            show()
+        } else {
+            raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
+        }
+    }
+
     private func showExistingPanel(_ panel: BottomDockWindow, frame: NSRect) {
         panel.contentView?.layer?.removeAllAnimations()
         panel.alphaValue = 1
         panel.setFrame(frame, display: true)
         panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
         panel.orderFrontRegardless()
-        panel.makeKey()
+        if heightPreviewInvokerWindow == nil {
+            panel.makeKey()
+        } else {
+            raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
+        }
 
         startOutsideClickMonitor()
         startDragMonitor()
@@ -156,7 +247,27 @@ final class DockWindowController {
         startHideRequestObserver()
     }
 
+    private func resizeVisiblePanelForCurrentHeight() {
+        guard let panel = window, panel.isVisible,
+              let screen = panel.screen ?? screenWithCursor() ?? NSScreen.main
+        else { return }
+
+        let frame = NSRect(
+            x: screen.frame.minX,
+            y: screen.frame.minY,
+            width: screen.frame.width,
+            height: dockHeight
+        )
+        panel.contentView?.layer?.removeAllAnimations()
+        panel.setFrame(frame, display: true)
+        panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
+        raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
+    }
+
     func hide() {
+        PreviewPanel.dismiss()
+        model.isQuickLooking = false
+        restoreHeightPreviewInvokerWindowLevel()
         stopOutsideClickMonitor()
         stopDragMonitor()
         stopKeyMonitor()
@@ -171,6 +282,34 @@ final class DockWindowController {
             // wrong screen's coordinate space.
             self?.window = nil
         }
+    }
+
+    private func beginHeightPreviewLayering(invokerWindow: NSWindow) {
+        if heightPreviewInvokerWindow !== invokerWindow {
+            restoreHeightPreviewInvokerWindowLevel()
+            heightPreviewInvokerWindow = invokerWindow
+            heightPreviewInvokerOriginalLevel = invokerWindow.level
+        }
+        raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
+    }
+
+    private func raiseHeightPreviewInvokerAboveDockPanelIfNeeded() {
+        guard let invokerWindow = heightPreviewInvokerWindow,
+              let panel = window
+        else { return }
+        invokerWindow.level = DockHeightPreviewLayering.invokerLevel(above: panel.level)
+        invokerWindow.orderFrontRegardless()
+        invokerWindow.makeKey()
+    }
+
+    private func restoreHeightPreviewInvokerWindowLevel() {
+        if let invokerWindow = heightPreviewInvokerWindow,
+           let originalLevel = heightPreviewInvokerOriginalLevel
+        {
+            invokerWindow.level = originalLevel
+        }
+        heightPreviewInvokerWindow = nil
+        heightPreviewInvokerOriginalLevel = nil
     }
 
     private func triggerPaste(at idx: Int, modifiers: EventModifiers) {
@@ -219,24 +358,45 @@ final class DockWindowController {
 
     private func startOutsideClickMonitor() {
         stopOutsideClickMonitor()
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+        globalOutsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] _ in
-            guard let self else { return }
-            if Date() < self.ignoreOutsideClicksUntil {
-                return
-            }
+        ) { [weak self] event in
             Task { @MainActor in
+                guard let self, self.shouldHideForOutsideClick(event) else { return }
                 self.hide()
             }
+        }
+
+        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            guard let self else { return event }
+            if self.shouldHideForOutsideClick(event) {
+                self.hide()
+            }
+            return event
         }
     }
 
     private func stopOutsideClickMonitor() {
-        if let outsideClickMonitor {
-            NSEvent.removeMonitor(outsideClickMonitor)
-            self.outsideClickMonitor = nil
+        if let globalOutsideClickMonitor {
+            NSEvent.removeMonitor(globalOutsideClickMonitor)
+            self.globalOutsideClickMonitor = nil
         }
+        if let localOutsideClickMonitor {
+            NSEvent.removeMonitor(localOutsideClickMonitor)
+            self.localOutsideClickMonitor = nil
+        }
+    }
+
+    private func shouldHideForOutsideClick(_ event: NSEvent) -> Bool {
+        guard let window, window.isVisible else { return false }
+        return DockOutsideClickPolicy.shouldHide(
+            panelFrame: window.frame,
+            clickLocationOnScreen: DockOutsideClickPolicy.screenLocation(for: event),
+            ignoreOutsideClicksUntil: ignoreOutsideClicksUntil,
+            now: Date()
+        )
     }
 
     /// Hide the dock as soon as the user switches to a different Space (3-finger
@@ -411,7 +571,9 @@ final class DockWindowController {
                     let before = model.focusedIndex
                     model.focusForward()
                     if model.focusedIndex != before, PreviewPanel.isVisible {
-                        showFloatingImagePreviewForFocused()
+                        showFloatingImagePreviewForFocused(
+                            direction: .horizontal(from: before, to: model.focusedIndex)
+                        )
                     }
                     return nil
                 }
@@ -419,7 +581,9 @@ final class DockWindowController {
                     let before = model.focusedIndex
                     model.focusBackward()
                     if model.focusedIndex != before, PreviewPanel.isVisible {
-                        showFloatingImagePreviewForFocused()
+                        showFloatingImagePreviewForFocused(
+                            direction: .horizontal(from: before, to: model.focusedIndex)
+                        )
                     }
                     return nil
                 }
@@ -471,20 +635,36 @@ final class DockWindowController {
                 return nil
             }
 
+            if !isTextEditingFirstResponder(in: window),
+               let updatedQuery = DockTypingSearch.updatedQuery(
+                current: model.search,
+                keyCode: event.keyCode,
+                characters: event.characters,
+                modifiers: event.modifierFlags
+               )
+            {
+                model.search = updatedQuery
+                return nil
+            }
+
             if keyMods.isEmpty {
                 switch event.keyCode {
                 case 0x7B:
                     let before = model.focusedIndex
                     model.focusBackward()
                     if model.focusedIndex != before, PreviewPanel.isVisible {
-                        showFloatingImagePreviewForFocused()
+                        showFloatingImagePreviewForFocused(
+                            direction: .horizontal(from: before, to: model.focusedIndex)
+                        )
                     }
                     return nil
                 case 0x7C:
                     let before = model.focusedIndex
                     model.focusForward()
                     if model.focusedIndex != before, PreviewPanel.isVisible {
-                        showFloatingImagePreviewForFocused()
+                        showFloatingImagePreviewForFocused(
+                            direction: .horizontal(from: before, to: model.focusedIndex)
+                        )
                     }
                     return nil
                 default:
@@ -498,7 +678,12 @@ final class DockWindowController {
 
     private func startDragMonitor() {
         stopDragMonitor()
-        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged]) { [weak self] event in
+        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            if event.type == .leftMouseUp {
+                self?.deactivateDockDragSurface()
+                return event
+            }
+
             guard let self,
                   let window = self.window,
                   window.isVisible,
@@ -508,6 +693,7 @@ final class DockWindowController {
                 return event
             }
 
+            self.activateDockDragSurfaceForCurrentDrag()
             self.ignoreOutsideClicksUntil = Date().addingTimeInterval(0.8)
             return event
         }
@@ -518,6 +704,22 @@ final class DockWindowController {
             NSEvent.removeMonitor(dragMonitor)
             self.dragMonitor = nil
         }
+        deactivateDockDragSurface()
+    }
+
+    private func activateDockDragSurfaceForCurrentDrag() {
+        model.isDockDragSurfaceActive = true
+        dragSurfaceClearTask?.cancel()
+        dragSurfaceClearTask = Task { @MainActor [weak model] in
+            try? await Task.sleep(for: .seconds(3))
+            model?.isDockDragSurfaceActive = false
+        }
+    }
+
+    private func deactivateDockDragSurface() {
+        dragSurfaceClearTask?.cancel()
+        dragSurfaceClearTask = nil
+        model.isDockDragSurfaceActive = false
     }
 
     private func stopKeyMonitor() {
@@ -545,7 +747,9 @@ final class DockWindowController {
     /// QuickLookOverlay if false (handled kinds: image, image file URL,
     /// text, html, rtf; falls through for color/link/multi-file).
     @discardableResult
-    func showFloatingImagePreviewForFocused() -> Bool {
+    func showFloatingImagePreviewForFocused(
+        direction: PreviewPanelTransitionDirection = .none
+    ) -> Bool {
         guard model.items.indices.contains(model.focusedIndex),
               let clip = model.clip
         else { return false }
@@ -559,22 +763,47 @@ final class DockWindowController {
                   let data = try? blobs.read(id: blobID),
                   let image = NSImage(data: data)
             else { return false }
-            PreviewPanel.show(.image(image))
+            PreviewPanel.show(
+                .image(image),
+                metadata: previewMetadata(for: item, kind: "Image"),
+                direction: direction,
+                avoiding: window?.frame
+            )
             return true
         case let .files(urls) where urls.count == 1 && Self.isImageURL(urls[0]):
             guard let image = NSImage(contentsOf: urls[0]) else { return false }
-            PreviewPanel.show(.image(image))
+            PreviewPanel.show(
+                .image(image),
+                metadata: previewMetadata(for: item, kind: "File image"),
+                direction: direction,
+                avoiding: window?.frame
+            )
             return true
         case let .text(s):
-            PreviewPanel.show(.text(s, monospaced: false))
+            PreviewPanel.show(
+                .text(s, monospaced: false),
+                metadata: previewMetadata(for: item, kind: "Text"),
+                direction: direction,
+                avoiding: window?.frame
+            )
             return true
         case let .html(s):
             let plain = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            PreviewPanel.show(.text(plain, monospaced: false))
+            PreviewPanel.show(
+                .text(plain, monospaced: false),
+                metadata: previewMetadata(for: item, kind: "HTML"),
+                direction: direction,
+                avoiding: window?.frame
+            )
             return true
         case let .rtf(data):
             if let attr = NSAttributedString(rtf: data, documentAttributes: nil) {
-                PreviewPanel.show(.text(attr.string, monospaced: false))
+                PreviewPanel.show(
+                    .text(attr.string, monospaced: false),
+                    metadata: previewMetadata(for: item, kind: "Rich text"),
+                    direction: direction,
+                    avoiding: window?.frame
+                )
                 return true
             }
             return false
@@ -587,5 +816,32 @@ final class DockWindowController {
     private static func isImageURL(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
         return ["png", "jpg", "jpeg", "gif", "heic", "heif", "webp", "tiff", "tif", "bmp"].contains(ext)
+    }
+
+    private func previewMetadata(for item: DockItem, kind: String) -> PreviewPanelMetadata {
+        let title = item.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PreviewPanelMetadata(
+            title: title.isEmpty ? kind : title,
+            subtitle: "\(kind) · \(CompactTimestamp.format(item.modified))",
+            badge: "Space / Esc",
+            symbol: previewSymbol(for: item)
+        )
+    }
+
+    private func previewSymbol(for item: DockItem) -> String {
+        switch item.kind {
+        case .text, .rtf:
+            return "text.alignleft"
+        case .code:
+            return "chevron.left.forwardslash.chevron.right"
+        case .image:
+            return "photo"
+        case .file:
+            return "doc"
+        case .link:
+            return "link"
+        case .color:
+            return "circle.fill"
+        }
     }
 }

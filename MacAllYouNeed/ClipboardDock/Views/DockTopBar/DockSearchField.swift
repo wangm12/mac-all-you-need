@@ -4,6 +4,7 @@ struct DockSearchField: View {
     @Binding var query: String
     @FocusState private var focused: Bool
     @State private var expanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 6) {
@@ -19,6 +20,7 @@ struct DockSearchField: View {
                 TextField("Search…", text: $query)
                     .textFieldStyle(.plain)
                     .focused($focused)
+                    .font(.callout)
                     .frame(width: 280)
                     .onChange(of: focused) { _, isFocused in
                         if !isFocused, query.isEmpty {
@@ -28,9 +30,12 @@ struct DockSearchField: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.secondary.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .animation(.easeOut(duration: 0.18), value: expanded)
+        .frame(height: MAYNControlMetrics.controlHeight)
+        .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(focused ? MAYNTheme.focusRing : MAYNTheme.subtleBorder, lineWidth: 1)
+        )
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: expanded)
     }
 }

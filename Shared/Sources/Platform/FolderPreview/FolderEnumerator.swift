@@ -24,13 +24,23 @@ public struct FolderInventory: Sendable {
 public enum FolderEnumeratorError: Error { case notADirectory }
 
 public enum FolderEnumerator {
-    public static func enumerate(url: URL, maxEntries: Int = 50000, includeHidden: Bool = false) async throws -> FolderInventory {
+    public static func enumerate(
+        url: URL,
+        maxEntries: Int = 50000,
+        includeHidden: Bool = false,
+        cascade: Bool = true
+    ) async throws -> FolderInventory {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
             throw FolderEnumeratorError.notADirectory
         }
         return try await Task.detached(priority: .utility) {
-            try Self.enumerateSync(url: url, maxEntries: maxEntries, includeHidden: includeHidden)
+            try Self.enumerateSync(
+                url: url,
+                maxEntries: maxEntries,
+                includeHidden: includeHidden,
+                cascade: cascade
+            )
         }.value
     }
 
@@ -44,14 +54,17 @@ public enum FolderEnumerator {
         }.value
     }
 
-    private static func enumerateSync(url: URL, maxEntries: Int, includeHidden: Bool) throws -> FolderInventory {
+    private static func enumerateSync(url: URL, maxEntries: Int, includeHidden: Bool, cascade: Bool) throws -> FolderInventory {
         var entries: [FolderEntry] = []
         var total: Int64 = 0
         var breakdown: [FolderEntryKind: Int] = [:]
         var partial = false
 
         let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .nameKey]
-        let options: FileManager.DirectoryEnumerationOptions = includeHidden ? [] : [.skipsHiddenFiles]
+        var options: FileManager.DirectoryEnumerationOptions = cascade ? [] : [.skipsSubdirectoryDescendants]
+        if !includeHidden {
+            options.insert(.skipsHiddenFiles)
+        }
         guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: keys,
@@ -63,6 +76,9 @@ public enum FolderEnumerator {
             if entries.count >= maxEntries { partial = true; break }
             guard let vals = try? item.resourceValues(forKeys: Set(keys)) else { continue }
             let isDir = vals.isDirectory ?? false
+            if isDir, !cascade {
+                enumerator.skipDescendants()
+            }
             let size = Int64(vals.fileSize ?? 0)
             let kind = isDir ? FolderEntryKind.folder : Self.classify(name: item.lastPathComponent)
             entries.append(FolderEntry(

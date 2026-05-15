@@ -42,9 +42,9 @@ struct SnippetCard: View {
         .frame(width: 220, height: 240, alignment: .topLeading)
         .padding(10)
         .background(cardBackground)
-        .cornerRadius(10)
+        .cornerRadius(8)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 8)
                 .stroke(isFocused ? MAYNTheme.focusRing : .clear, lineWidth: 2)
         )
         .onTapGesture {

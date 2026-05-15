@@ -11,16 +11,15 @@ final class BottomDockWindow: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
-        // Sit above the system Dock and menu bar so the bottom of the
-        // carousel never gets clipped by either. .floating is below the Dock
-        // and we'd lose the bottom row of cards. .popUpMenu (101) is above
-        // both Dock (~20) and statusBar (25).
-        level = .popUpMenu
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         becomesKeyOnlyIfNeeded = false
         isFloatingPanel = true
+        // Sit above the system Dock, but below macOS's native drag-preview
+        // window. `.screenSaver` covers the Dock too, but it also covers
+        // native drag previews, making card drags appear behind this panel.
+        level = .popUpMenu
     }
 
     override var canBecomeKey: Bool { true }

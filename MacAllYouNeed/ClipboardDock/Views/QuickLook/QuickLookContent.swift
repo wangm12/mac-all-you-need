@@ -99,7 +99,7 @@ struct QuickLookContent: View {
                 )
 
                 VStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(Color(nsColor))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     Text(item.preview)
@@ -170,9 +170,13 @@ private struct FullImageView: View {
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
-                Text("⌘+ / ⌘− to zoom")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: 5) {
+                    ShortcutChip(text: "⌘+", height: HotkeyChipPresentation.compactHeight)
+                    ShortcutChip(text: "⌘−", height: HotkeyChipPresentation.compactHeight)
+                    Text("zoom")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .task(id: item.id) {

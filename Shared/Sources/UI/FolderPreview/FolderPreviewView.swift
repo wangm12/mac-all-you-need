@@ -118,11 +118,13 @@ public struct FolderPreviewView: View {
             errorMessage = nil
             let maxEntries = AppGroupSettings.defaults.integer(forKey: "folderPreviewMaxEntries")
             let includeHidden = AppGroupSettings.defaults.bool(forKey: "folderPreviewIncludeHidden")
+            let cascade = FolderPreviewSettings.cascadeEnabled()
             do {
                 let inv = try await FolderEnumerator.enumerate(
                     url: currentURL,
                     maxEntries: maxEntries == 0 ? 50000 : maxEntries,
-                    includeHidden: includeHidden
+                    includeHidden: includeHidden,
+                    cascade: cascade
                 )
                 let sorted = await Task.detached(priority: .userInitiated) {
                     FolderPreviewDisplay.sorted(inv.entries)

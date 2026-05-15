@@ -8,8 +8,8 @@ struct SettingsRoot: View {
         SettingsContainer(
             controller: controller,
             style: .standalone,
-            groups: SettingsSidebarGroup.all,
-            fallback: .clipboard
+            groups: SettingsSidebarGroup.systemOnly,
+            fallback: .general
         )
     }
 }
@@ -88,7 +88,7 @@ private struct SettingsContainer: View {
                 selected: $selected,
                 groups: groups,
                 title: "System",
-                subtitle: "Global app behavior, permissions, privacy, storage, and diagnostics."
+                subtitle: "Global app behavior, permissions, storage, and diagnostics."
             )
 
             Rectangle()
@@ -182,7 +182,7 @@ private struct EmbeddedSettingsHeader: View {
     let subtitle: String
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 22, weight: .semibold))
@@ -190,33 +190,13 @@ private struct EmbeddedSettingsHeader: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Menu {
-                ForEach(groups) { group in
-                    Section(group.title) {
-                        ForEach(group.destinations) { destination in
-                            Button {
-                                selected = destination
-                            } label: {
-                                Label(destination.title, systemImage: destination.symbolName)
-                            }
-                        }
-                    }
-                }
-            } label: {
-                Label(selected.title, systemImage: selected.symbolName)
-                    .font(.callout.weight(.medium))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
-                    )
+            FunctionSegmentedTabStrip(
+                tabs: groups.flatMap(\.destinations),
+                selection: selected
+            ) { destination in
+                selected = destination
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
         }
         .padding(.horizontal, 32)
         .padding(.top, 24)
@@ -253,8 +233,6 @@ private struct SettingsDetailContent: View {
             SearchSettingsView()
         case .permissions:
             PermissionsSettingsView()
-        case .privacy:
-            PrivacySettingsView()
         case .storage:
             StorageSettingsView()
         case .general:

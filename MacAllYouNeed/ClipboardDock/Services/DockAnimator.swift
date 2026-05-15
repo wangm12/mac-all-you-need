@@ -2,8 +2,8 @@ import AppKit
 import QuartzCore
 
 enum DockAnimator {
-    static let showDuration: TimeInterval = 0.18
-    static let hideDuration: TimeInterval = 0.14
+    static let showDuration: TimeInterval = MAYNMotionDuration.panel
+    static let hideDuration: TimeInterval = MAYNMotionDuration.toastIn
 
     /// Slide a borderless NSPanel up to `finalOrigin` from below the screen.
     ///
@@ -34,14 +34,14 @@ enum DockAnimator {
         let translate = CABasicAnimation(keyPath: "transform.translation.y")
         translate.fromValue = -height
         translate.toValue = 0
-        translate.duration = showDuration
-        translate.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+        translate.duration = MAYNMotionBridge.effectiveDuration(.panel, reduceMotion: reduceMotion)
+        translate.timingFunction = MAYNMotionBridge.timingFunction(.panel)
 
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
-        fade.duration = showDuration
-        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        fade.duration = MAYNMotionBridge.effectiveDuration(.panel, reduceMotion: reduceMotion)
+        fade.timingFunction = MAYNMotionBridge.timingFunction(.panel)
 
         CATransaction.begin()
         CATransaction.setCompletionBlock(completion)
@@ -68,16 +68,16 @@ enum DockAnimator {
         let translate = CABasicAnimation(keyPath: "transform.translation.y")
         translate.fromValue = 0
         translate.toValue = -height
-        translate.duration = hideDuration
-        translate.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        translate.duration = MAYNMotionBridge.effectiveDuration(.toastOut, reduceMotion: reduceMotion)
+        translate.timingFunction = MAYNMotionBridge.timingFunction(.toastOut)
         translate.fillMode = .forwards
         translate.isRemovedOnCompletion = false
 
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue = 0
-        fade.duration = hideDuration
-        fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        fade.duration = MAYNMotionBridge.effectiveDuration(.toastOut, reduceMotion: reduceMotion)
+        fade.timingFunction = MAYNMotionBridge.timingFunction(.toastOut)
         fade.fillMode = .forwards
         fade.isRemovedOnCompletion = false
 

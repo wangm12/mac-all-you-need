@@ -2,11 +2,35 @@ import AppKit
 import Core
 import SwiftUI
 
+enum FloatingHUDWindowLayering {
+    static let windowLevel = NSWindow.Level.screenSaver
+    static let collectionBehavior: NSWindow.CollectionBehavior = [
+        .canJoinAllSpaces,
+        .fullScreenAuxiliary,
+        .stationary,
+        .ignoresCycle
+    ]
+
+    static func configure(_ panel: NSPanel, acceptsMouseEvents: Bool) {
+        panel.level = windowLevel
+        panel.collectionBehavior = collectionBehavior
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.isFloatingPanel = true
+        panel.ignoresMouseEvents = !acceptsMouseEvents
+    }
+
+    static func orderFront(_ panel: NSPanel) {
+        panel.level = windowLevel
+        panel.orderFrontRegardless()
+    }
+}
+
 /// System-wide floating toast used to confirm an action that originated
 /// outside the dock (e.g., copying from the menu bar popover, which itself
 /// dismisses immediately and can't host its own feedback view).
 ///
-/// Backed by a borderless `.popUpMenu`-level NSPanel so it appears on top of
+/// Backed by a top-level borderless NSPanel so it appears on top of
 /// any active full-screen Space without stealing focus from the user's
 /// previous app — they should still be able to ⌘V right after copying.
 @MainActor
@@ -18,23 +42,26 @@ enum CopyHUD {
         let panel: NSPanel = {
             if let existing = window { return existing }
             let p = NSPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 280, height: 80),
+                contentRect: NSRect(origin: .zero, size: MAYNNotificationPillPresentation.copyPanelSize(message: message)),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
             )
             p.isOpaque = false
             p.backgroundColor = .clear
-            p.hasShadow = false           // chip's own shadow is enough
-            p.level = .popUpMenu
-            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-            p.ignoresMouseEvents = true
+            p.hasShadow = MAYNNotificationPillPresentation.hasOuterShadow
+            FloatingHUDWindowLayering.configure(p, acceptsMouseEvents: false)
             window = p
             return p
         }()
+        FloatingHUDWindowLayering.configure(panel, acceptsMouseEvents: false)
+
+        let panelSize = MAYNNotificationPillPresentation.copyPanelSize(message: message)
+        panel.setContentSize(panelSize)
+        panel.hasShadow = MAYNNotificationPillPresentation.hasOuterShadow
 
         let hosting = NSHostingView(rootView: HUDChip(message: message, symbol: symbol))
-        hosting.frame = NSRect(origin: .zero, size: panel.frame.size)
+        hosting.frame = NSRect(origin: .zero, size: panelSize)
         hosting.autoresizingMask = [.width, .height]
         panel.contentView = hosting
 
@@ -46,17 +73,16 @@ enum CopyHUD {
         if let screen {
             let f = screen.visibleFrame
             let origin = NSPoint(
-                x: f.midX - panel.frame.width / 2,
-                y: f.midY - panel.frame.height / 2
+                x: f.midX - panelSize.width / 2,
+                y: f.midY - panelSize.height / 2
             )
             panel.setFrameOrigin(origin)
         }
 
         panel.alphaValue = 0
-        panel.orderFrontRegardless()
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        FloatingHUDWindowLayering.orderFront(panel)
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = reduceMotion ? 0 : 0.16
+            ctx.duration = MAYNMotionBridge.effectiveDuration(.toastIn)
             panel.animator().alphaValue = 1
         }
 
@@ -67,7 +93,7 @@ enum CopyHUD {
             try? await Task.sleep(for: .milliseconds(duration))
             guard !Task.isCancelled else { return }
             NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = reduceMotion ? 0 : 0.22
+                ctx.duration = MAYNMotionBridge.effectiveDuration(.toastOut)
                 panel.animator().alphaValue = 0
             }, completionHandler: {
                 panel.orderOut(nil)
@@ -83,21 +109,25 @@ private struct HUDChip: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: CGFloat(MAYNNotificationPillPresentation.iconSize), weight: .bold))
                 .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(Color.white.opacity(0.12), in: Circle())
+                .frame(
+                    width: CGFloat(MAYNNotificationPillPresentation.iconFrameSize),
+                    height: CGFloat(MAYNNotificationPillPresentation.iconFrameSize)
+                )
             Text(message)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: CGFloat(MAYNNotificationPillPresentation.titleFontSize), weight: .semibold))
                 .foregroundStyle(.white)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, CGFloat(MAYNNotificationPillPresentation.horizontalPadding))
+        .padding(.vertical, CGFloat(MAYNNotificationPillPresentation.verticalPadding))
         .background(Color.black, in: Capsule())
-        .overlay(
-            Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            if MAYNNotificationPillPresentation.hasCapsuleStroke {
+                Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
+            }
+        }
+        .frame(width: MAYNNotificationPillPresentation.copyPanelSize(message: message).width,
+               height: MAYNNotificationPillPresentation.copyPanelHeight)
     }
 }

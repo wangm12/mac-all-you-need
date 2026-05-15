@@ -7,4 +7,15 @@ enum DockListSelector: Hashable {
     /// too — it's no longer a special case).
     case pinboard(RecordID)
     case snippets
+
+    var animationID: String {
+        switch self {
+        case .history:
+            return "history"
+        case .snippets:
+            return "snippets"
+        case let .pinboard(id):
+            return "pinboard-\(id.rawValue)"
+        }
+    }
 }

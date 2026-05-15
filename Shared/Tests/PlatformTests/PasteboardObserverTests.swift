@@ -184,4 +184,30 @@ final class PasteboardObserverTests: XCTestCase {
 
         XCTAssertFalse(fired, "observer must skip changes carrying the daemonWrite sentinel")
     }
+
+    func testHistoryCapturePrefersPlainTextOverHTMLForSameCopy() {
+        let change = PasteboardChange(
+            changeCount: 1,
+            frontmostAppBundleID: "com.example",
+            items: [
+                .text("CODEX_AUTH_TOKEN=$(usso -ussh genai-api -print) open -n /Applications/Codex.app"),
+                .html("<div style=\"font-family: monospace; white-space: pre;\">CODEX_AUTH_TOKEN=$(usso -ussh genai-api -print) open -n /Applications/Codex.app</div>")
+            ]
+        )
+
+        XCTAssertEqual(
+            change.historyCaptureItems,
+            [.text("CODEX_AUTH_TOKEN=$(usso -ussh genai-api -print) open -n /Applications/Codex.app")]
+        )
+    }
+
+    func testHistoryCaptureFallsBackToHTMLWhenPlainTextIsUnavailable() {
+        let change = PasteboardChange(
+            changeCount: 1,
+            frontmostAppBundleID: "com.example",
+            items: [.html("<b>Hello</b>")]
+        )
+
+        XCTAssertEqual(change.historyCaptureItems, [.html("<b>Hello</b>")])
+    }
 }

@@ -25,14 +25,25 @@ struct HotkeysSettingsView: View {
                         minHeight: descriptors.count > 1 ? 46 + CGFloat(descriptors.count - 1) * 32 : 46
                     ) {
                         VStack(alignment: .trailing, spacing: 8) {
-                            HStack(spacing: 8) {
-                                HotkeyRecorder(descriptor: binding(for: action, index: 0, defaultValue: action.defaultDescriptor))
-                                    .frame(width: 100, height: 24)
+                            HStack(alignment: .top, spacing: 8) {
+                                HotkeyRecorderControl(
+                                    descriptor: binding(for: action, index: 0, defaultValue: action.defaultDescriptor),
+                                    issueMessage: issueMessage(for: action, index: 0),
+                                    defaultDescriptor: action.defaultDescriptor,
+                                    recorderWidth: 112,
+                                    errorWidth: 240,
+                                    alignment: .trailing,
+                                    errorFrameAlignment: .trailing,
+                                    reset: { setDescriptor(action.defaultDescriptor, for: action, index: 0) }
+                                )
                                 Button {
                                     var updated = descriptors
                                     guard updated.count < 3 else { return }
                                     updated.append(action.defaultDescriptor)
-                                    map[action] = updated
+                                    var next = map
+                                    next[action] = updated
+                                    map = next
+                                    errorMessage = "Record a unique shortcut for the new \(action.label) trigger."
                                 } label: {
                                     Image(systemName: "plus.circle")
                                 }
@@ -42,13 +53,23 @@ struct HotkeysSettingsView: View {
 
                             ForEach(Array(descriptors.dropFirst().enumerated()), id: \.offset) { offset, _ in
                                 let index = offset + 1
-                                HStack(spacing: 8) {
-                                    HotkeyRecorder(descriptor: binding(for: action, index: index, defaultValue: action.defaultDescriptor))
-                                        .frame(width: 100, height: 24)
+                                HStack(alignment: .top, spacing: 8) {
+                                    HotkeyRecorderControl(
+                                        descriptor: binding(for: action, index: index, defaultValue: action.defaultDescriptor),
+                                        issueMessage: issueMessage(for: action, index: index),
+                                        defaultDescriptor: action.defaultDescriptor,
+                                        recorderWidth: 112,
+                                        errorWidth: 240,
+                                        alignment: .trailing,
+                                        errorFrameAlignment: .trailing,
+                                        reset: { setDescriptor(action.defaultDescriptor, for: action, index: index) }
+                                    )
                                     Button {
                                         var updated = descriptors
                                         updated.remove(at: index)
-                                        map[action] = updated
+                                        var next = map
+                                        next[action] = updated.isEmpty ? [action.defaultDescriptor] : updated
+                                        autoApply(next)
                                     } label: {
                                         Image(systemName: "delete.left")
                                     }
@@ -65,17 +86,9 @@ struct HotkeysSettingsView: View {
                 }
             }
 
-            MAYNSection(title: "Changes") {
-                MAYNSettingsRow(
-                    title: "Apply hotkeys",
-                    subtitle: "Validate conflicts, save the map, and register the new shortcuts."
-                ) {
-                    Button("Apply") { apply() }
-                }
-
-                if let errorMessage {
-                    MAYNDivider()
-                    MAYNSettingsRow(title: "Validation error") {
+            if let errorMessage {
+                MAYNSection(title: "Status") {
+                    MAYNSettingsRow(title: "Hotkey status") {
                         StatusPill(text: errorMessage, kind: .danger)
                     }
                 }
@@ -93,20 +106,47 @@ struct HotkeysSettingsView: View {
                 return defaultValue
             },
             set: { newValue in
-                var descriptors = map[action] ?? [defaultValue]
-                while descriptors.count <= index {
-                    descriptors.append(defaultValue)
-                }
-                descriptors[index] = newValue
-                map[action] = descriptors
+                setDescriptor(newValue, for: action, index: index)
             }
         )
     }
 
-    private func apply() {
+    private func setDescriptor(_ descriptor: HotkeyDescriptor, for action: HotkeyAction, index: Int) {
+        var descriptors = map[action] ?? [action.defaultDescriptor]
+        while descriptors.count <= index {
+            descriptors.append(action.defaultDescriptor)
+        }
+        descriptors[index] = descriptor
+        var next = map
+        next[action] = descriptors
+        autoApply(next)
+    }
+
+    private func issueMessage(for action: HotkeyAction, index: Int) -> String? {
+        let descriptors = map[action] ?? [action.defaultDescriptor]
+        guard descriptors.indices.contains(index) else { return nil }
+        return HotkeyValidation.issue(
+            forAppHotkey: descriptors[index],
+            action: action,
+            index: index,
+            appHotkeys: map,
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+        )?.message
+    }
+
+    private func autoApply(_ updatedMap: [HotkeyAction: [HotkeyDescriptor]]) {
+        map = updatedMap
+        if let issue = HotkeyValidation.firstIssue(
+            in: updatedMap,
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+        ) {
+            errorMessage = issue.message
+            return
+        }
+
         do {
-            try controller.applyHotkeyMap(map)
-            HotkeyMapStore.save(map)
+            try controller.applyHotkeyMap(updatedMap)
+            HotkeyMapStore.save(updatedMap)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription

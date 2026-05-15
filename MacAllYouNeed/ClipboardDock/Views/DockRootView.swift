@@ -7,6 +7,7 @@ struct DockRootView: View {
     let registry: ShortcutRegistry
     let dismiss: () -> Void
     let onPaste: (Int, EventModifiers) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Height permanently reserved below the tab bar for the multi-select
     /// action bar (44pt bar + 1pt divider). Allocating it always — instead
@@ -40,6 +41,9 @@ struct DockRootView: View {
                     )
                 }
             }
+            .id(model.activeList.animationID)
+            .transition(contentTransition)
+            .animation(MAYNMotion.tabAnimation(reduceMotion: reduceMotion), value: model.activeList.animationID)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         // Force the outer VStack to fill the NSHostingView's frame. Without
@@ -72,15 +76,25 @@ struct DockRootView: View {
         .overlay {
             if model.isQuickLooking {
                 QuickLookOverlay(model: model)
-                    .animation(.easeOut(duration: 0.15), value: model.isQuickLooking)
+                    .animation(MAYNMotion.animation(.toastIn, reduceMotion: reduceMotion), value: model.isQuickLooking)
             }
         }
         .overlay {
             if model.showCheatsheet {
                 CheatsheetOverlay(registry: registry)
-                    .animation(.easeOut(duration: 0.15), value: model.showCheatsheet)
+                    .animation(MAYNMotion.animation(.toastIn, reduceMotion: reduceMotion), value: model.showCheatsheet)
             }
         }
+    }
+
+    private var contentTransition: AnyTransition {
+        if reduceMotion {
+            return .opacity
+        }
+        return .asymmetric(
+            insertion: .move(edge: .trailing).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        )
     }
 }
 

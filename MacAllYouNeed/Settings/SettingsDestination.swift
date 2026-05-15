@@ -1,6 +1,6 @@
 import Foundation
 
-enum SettingsDestination: String, CaseIterable, Identifiable {
+enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestination {
     case clipboard
     case voice
     case downloads
@@ -9,7 +9,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
     case hotkeys
     case search
     case permissions
-    case privacy
     case storage
     case general
     case advanced
@@ -26,7 +25,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         case .hotkeys: "Hotkeys"
         case .search: "Search"
         case .permissions: "Permissions"
-        case .privacy: "Privacy"
         case .storage: "Storage"
         case .general: "General"
         case .advanced: "Advanced"
@@ -43,7 +41,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         case .hotkeys: "Global and in-dock keyboard control"
         case .search: "History ranking and matching"
         case .permissions: "macOS access required by features"
-        case .privacy: "Capture exclusions and filtering"
         case .storage: "Retention and maintenance"
         case .general: "Launch, menu bar, and app behavior"
         case .advanced: "Diagnostics, sync, and reset actions"
@@ -60,7 +57,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         case .hotkeys: "keyboard"
         case .search: "magnifyingglass"
         case .permissions: "checkmark.shield"
-        case .privacy: "hand.raised"
         case .storage: "internaldrive"
         case .general: "gearshape"
         case .advanced: "wrench.and.screwdriver"
@@ -85,8 +81,8 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
             .search
         case SettingsDestination.permissions.rawValue:
             .permissions
-        case SettingsDestination.privacy.rawValue, "privacy":
-            .privacy
+        case "privacy":
+            .clipboard
         case SettingsDestination.storage.rawValue, "storage":
             .storage
         case SettingsDestination.general.rawValue, "general", "appearance":
@@ -118,7 +114,7 @@ struct SettingsSidebarGroup: Identifiable {
         SettingsSidebarGroup(
             id: "system",
             title: "System",
-            destinations: [.permissions, .privacy, .storage, .general, .advanced]
+            destinations: [.permissions, .storage, .general, .advanced]
         )
     ]
 
@@ -126,12 +122,28 @@ struct SettingsSidebarGroup: Identifiable {
         SettingsSidebarGroup(
             id: "system",
             title: "System",
-            destinations: [.general, .permissions, .privacy, .storage, .advanced]
+            destinations: [.general, .permissions, .storage, .advanced]
         )
     ]
 }
 
 enum SettingsExclusionList {
+    static func bundleIDs(fromApplicationURLs urls: [URL]) -> [String] {
+        normalizedBundleIDs(urls.compactMap { Bundle(url: $0)?.bundleIdentifier })
+    }
+
+    static func friendlyAppName(forBundleID bundleID: String) -> String {
+        if let knownName = knownAppNames[bundleID] {
+            return knownName
+        }
+
+        let parts = bundleID.split(separator: ".").map(String.init)
+        guard let candidate = parts.reversed().first(where: { !genericBundleSuffixes.contains($0.lowercased()) }) else {
+            return bundleID
+        }
+        return prettifiedName(candidate)
+    }
+
     static func normalizedBundleIDs(_ values: [String]) -> [String] {
         Array(Set(values.map(trimmed).filter { !$0.isEmpty })).sorted()
     }
@@ -148,5 +160,97 @@ enum SettingsExclusionList {
 
     private static func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static let knownAppNames = [
+        "com.1password.1password": "1Password",
+        "com.1password.1password7": "1Password 7",
+        "com.1password.1password8": "1Password 8",
+        "com.agilebits.onepassword4": "1Password",
+        "com.bitwarden.desktop": "Bitwarden",
+        "com.dashlane.Dashlane": "Dashlane",
+        "com.lastpass.LastPass": "LastPass"
+    ]
+
+    private static let genericBundleSuffixes: Set<String> = [
+        "app",
+        "desktop",
+        "mac",
+        "macos"
+    ]
+
+    private static func prettifiedName(_ value: String) -> String {
+        let spaced = value
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+        return spaced == spaced.lowercased() ? spaced.capitalized : spaced
+    }
+}
+
+enum SensitiveTextPreset: String, CaseIterable, Identifiable {
+    case creditCards
+    case apiKeys
+    case privateKeys
+    case verificationCodes
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .creditCards: "Payment cards"
+        case .apiKeys: "API keys and tokens"
+        case .privateKeys: "Private keys and certificates"
+        case .verificationCodes: "Verification codes"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .creditCards:
+            "Skips common 13-19 digit card number formats."
+        case .apiKeys:
+            "Skips common access tokens, bearer secrets, and service keys."
+        case .privateKeys:
+            "Skips PEM private keys and certificate blocks."
+        case .verificationCodes:
+            "Skips short one-time codes when copied with nearby code wording."
+        }
+    }
+
+    var patterns: [String] {
+        switch self {
+        case .creditCards:
+            [#"\b(?:\d[ -]?){13,19}\b"#]
+        case .apiKeys:
+            [
+                #"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"#,
+                #"\bgh[pousr]_[A-Za-z0-9_]{20,255}\b"#,
+                #"\b(?:sk-[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,})\b"#,
+                #"(?i)\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|secret[_-]?key)\b\s*[:=]\s*["']?[A-Za-z0-9_\-\.]{16,}"#
+            ]
+        case .privateKeys:
+            [#"-----BEGIN [A-Z ]*(?:PRIVATE KEY|OPENSSH PRIVATE KEY|CERTIFICATE)-----"#]
+        case .verificationCodes:
+            [#"(?i)\b(?:verification|security|login|one[- ]?time|otp|code)\D{0,24}\b\d{4,8}\b"#]
+        }
+    }
+
+    static func selectedIDs(in patterns: [String]) -> Set<SensitiveTextPreset> {
+        let stored = Set(patterns)
+        return Set(allCases.filter { Set($0.patterns).isSubset(of: stored) })
+    }
+
+    static func customPatterns(from patterns: [String]) -> [String] {
+        let presetPatterns = Set(allCases.flatMap(\.patterns))
+        return patterns.filter { !presetPatterns.contains($0) }
+    }
+
+    static func patterns(
+        selectedIDs: Set<SensitiveTextPreset>,
+        customPatterns: [String]
+    ) -> [String] {
+        SettingsExclusionList.normalizedRegexPatterns(
+            allCases.filter { selectedIDs.contains($0) }.flatMap(\.patterns) + customPatterns
+        )
     }
 }

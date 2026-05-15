@@ -3,6 +3,9 @@
 ## Project
 Native macOS productivity app combining clipboard manager, folder preview (Quick Look), and universal video downloader. Built with Swift 5.9+, SwiftUI, AppKit, GRDB, libarchive.
 
+## UI Rules
+- **Forced segmented/tab style**: Any product-owned tab switch or segmented choice in Settings, main tool pages, menu surfaces, and onboarding must use the shared `FunctionSegmentedTabStrip` pill style, matching the Settings sub-tab control. Do not introduce raw SwiftUI `Picker(...).pickerStyle(.segmented)` for these controls unless it is a native macOS system form control that is intentionally not part of the app's tab-switch UI.
+
 ## Architecture (Plan 6 update)
 - `MacAllYouNeed/App/AppController.swift` — composition root (replaces AppDelegate); owns all subsystems
 - `MacAllYouNeed/App/LocalClipboardReader.swift` — reads clipboard DB directly (no XPC); polls every 1s with deduplication
@@ -20,6 +23,13 @@ Native macOS productivity app combining clipboard manager, folder preview (Quick
 - **Snippet expansion**: Moved from daemon to main app — daemon has no Accessibility permission in its own bundle; main app requests it during onboarding
 
 ## Key Decisions & Platform-Specific Fixes
+
+### UI System Rules
+- New SwiftUI/AppKit UI must use the shared MAYN design system in `MacAllYouNeed/Settings/MAYNSettingsUI.swift`.
+- Use `MAYNTheme`, `MAYNControlMetrics`, `MAYNMotion`, and `MAYNMotionBridge` instead of raw one-off colors, spacing, control heights, durations, springs, or `NSAnimationContext` timings.
+- Use shared controls (`MAYNTextField`, `MAYNSecureField`, `MAYNMenuPicker`/`MAYNDropdown`, `FunctionSegmentedTabStrip`, `ShortcutChip`/`MAYNHotkeyDisplay`, `StatusPill`) before adding local styles.
+- Function pages may display shortcuts, but shortcut editing belongs in each tool's Settings page. Do not add inline hotkey recorders to top-level tool pages.
+- Reduce Motion must be respected for every spatial animation, including AppKit panels and Core Animation paths.
 
 ### macOS 26 Compatibility
 - **Quick Look extension**: Use `NSViewController + QLPreviewingController.preparePreviewOfFile(at:completionHandler:)` NOT `QLPreviewProvider`/`QLPreviewReply` (hangs on macOS 26)

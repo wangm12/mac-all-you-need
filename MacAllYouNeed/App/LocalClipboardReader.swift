@@ -149,7 +149,7 @@ final class LocalClipboardReader {
 
     /// One copy action often writes multiple records (image + file URL, RTF + plain text).
     /// Group items within a 0.5s window and keep the most informative one per group.
-    private static func deduplicate(_ sorted: [ClipboardItemMeta], limit: Int) -> [ClipboardItemMeta] {
+    static func deduplicate(_ sorted: [ClipboardItemMeta], limit: Int) -> [ClipboardItemMeta] {
         var result: [ClipboardItemMeta] = []
         for item in sorted {
             if let last = result.last,

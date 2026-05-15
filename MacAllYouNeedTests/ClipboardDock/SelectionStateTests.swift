@@ -1,6 +1,7 @@
 @testable import MacAllYouNeed
 import Core
 import CryptoKit
+import GRDB
 import Platform
 import XCTest
 
@@ -162,6 +163,122 @@ final class SelectionStateTests: XCTestCase {
 
         XCTAssertEqual(Set(mock.deletes), Set(["i0", "i1"]))
         XCTAssertTrue(model.selection.isEmpty)
+    }
+
+    func testDeleteEffectiveTargetsPostsSingleStoreChangeForBatchLocalDelete() async throws {
+        let key = SymmetricKey(size: .bits256)
+        let clipboardDB = try Database(
+            url: dir.appendingPathComponent("local-clip.sqlite"),
+            migrations: ClipboardStore.migrations
+        )
+        let clip = try ClipboardStore(
+            database: clipboardDB,
+            deviceKey: key,
+            deviceID: DeviceID(rawValue: "00000000-0000-0000-0000-000000000000")!
+        )
+        let blobs = BlobStore(rootURL: dir.appendingPathComponent("local-blobs"), key: key)
+        let baseTimestamp = Int(Date().timeIntervalSince1970 * 1000)
+        for index in 0..<3 {
+            let meta = try clip.append(.text("local \(index)"))
+            try await clipboardDB.queue.write { conn in
+                try conn.execute(
+                    sql: "UPDATE clipboard_records SET modified = ? WHERE id = ?",
+                    arguments: [baseTimestamp - (index * 1_000), meta.id.rawValue]
+                )
+            }
+        }
+
+        let localModel = ClipboardDockModel(
+            xpc: mock,
+            appIcons: AppIconResolver(),
+            imageLoader: ImageBlobLoader(xpc: mock, clip: clip, blobs: blobs),
+            fileLoader: FileURLLoader(xpc: mock, clip: clip),
+            fileThumbnailLoader: FileThumbnailLoader(),
+            pinboards: pinboards,
+            snippets: snippets,
+            clip: clip,
+            blobs: blobs
+        )
+        await localModel.refresh()
+        localModel.selectAllVisible()
+
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .clipboardStoreDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        await localModel.deleteEffectiveTargets()
+
+        XCTAssertEqual(notificationCount, 1)
+        XCTAssertTrue(localModel.selection.isEmpty)
+        XCTAssertTrue(localModel.items.isEmpty)
+        XCTAssertTrue(try clip.list(limit: 10).isEmpty)
+    }
+
+    func testDeleteAllConfirmationCopyDescribesSelectedTargets() {
+        XCTAssertEqual(
+            MultiSelectBarDeleteConfirmation.title(targetCount: 1),
+            "Delete selected item?"
+        )
+        XCTAssertEqual(
+            MultiSelectBarDeleteConfirmation.title(targetCount: 50),
+            "Delete 50 selected items?"
+        )
+        XCTAssertEqual(
+            MultiSelectBarDeleteConfirmation.actionTitle(targetCount: 50),
+            "Delete all"
+        )
+    }
+
+    func testClearAllHistoryDeletesRecordsBlobsSearchIndexAndPinboardReferences() async throws {
+        let key = SymmetricKey(size: .bits256)
+        let clipboardDB = try Database(
+            url: dir.appendingPathComponent("clear-all-clip.sqlite"),
+            migrations: ClipboardStore.migrations
+        )
+        let clip = try ClipboardStore(
+            database: clipboardDB,
+            deviceKey: key,
+            deviceID: DeviceID(rawValue: "00000000-0000-0000-0000-000000000000")!
+        )
+        let blobStore = BlobStore(rootURL: dir.appendingPathComponent("clear-all-blobs"), key: key)
+        let searchDB = try Database(
+            url: dir.appendingPathComponent("clear-all-search.sqlite"),
+            migrations: SearchStore.migrations
+        )
+        let searchStore = SearchStore(database: searchDB)
+        let pinboardDB = try Database(
+            url: dir.appendingPathComponent("clear-all-pinboards.sqlite"),
+            migrations: PinboardStore.migrations
+        )
+        let pinboardStore = PinboardStore(database: pinboardDB, deviceKey: key)
+
+        let textMeta = try clip.append(.text("delete me"))
+        let blobID = try blobStore.write(Data("image".utf8))
+        let imageMeta = try clip.append(.image(blobID: blobID, width: 10, height: 10))
+        try searchStore.upsert(kind: .clipboardItem, id: textMeta.id, text: "delete me")
+        try searchStore.upsert(kind: .clipboardItem, id: imageMeta.id, text: "image")
+        let board = try pinboardStore.create(name: "Pinned")
+        try pinboardStore.addItem(textMeta.id, to: board.id)
+        try pinboardStore.addItem(imageMeta.id, to: board.id)
+
+        let deleted = try ClipboardHistoryClearer.clearAll(
+            store: clip,
+            blobs: blobStore,
+            search: searchStore,
+            pinboards: pinboardStore
+        )
+
+        XCTAssertEqual(deleted, 2)
+        XCTAssertTrue(try clip.list(limit: 10).isEmpty)
+        XCTAssertThrowsError(try blobStore.read(id: blobID))
+        XCTAssertTrue(try searchStore.search(query: "delete", limit: 10).isEmpty)
+        XCTAssertEqual(try pinboardStore.list().first?.itemIDs, [])
     }
 
     /// Regression test for the delete/refresh race called out in Phase D

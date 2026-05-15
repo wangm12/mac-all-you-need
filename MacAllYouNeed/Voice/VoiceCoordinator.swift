@@ -125,11 +125,15 @@ final class VoiceCoordinator {
         state = .transcribing
         hud.show(.transcribing, onCancel: makeCancelAction())
         do {
-            let result = try await engine.transcribe(samples: captured.samples, sampleRate: captured.sampleRate)
-            guard isCurrentOperation(generation), state == .transcribing else { return }
             let appBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-            let dictionaryEntries = (try? dictionary?.list()) ?? []
             let appProfile = activeProfile(for: appBundleID)
+            let result = try await engine.transcribe(
+                samples: captured.samples,
+                sampleRate: captured.sampleRate,
+                options: VoiceTranscriptionOptions(preferredModelIdentifier: appProfile?.config.asrEngineID)
+            )
+            guard isCurrentOperation(generation), state == .transcribing else { return }
+            let dictionaryEntries = (try? dictionary?.list()) ?? []
             let cleanup = makeCleanupPipeline()
             let cleanupResult = await cleanup.clean(VoiceCleanupRequest(
                 rawText: result.text,

@@ -4,7 +4,7 @@ struct CheatsheetOverlay: View {
     let registry: ShortcutRegistry
 
     var body: some View {
-        let columns = [GridItem(.flexible()), GridItem(.fixed(160))]
+        let columns = [GridItem(.flexible()), GridItem(.fixed(190))]
 
         ZStack {
             Color.black.opacity(0.6)
@@ -20,9 +20,12 @@ struct CheatsheetOverlay: View {
                         Text(action.label)
                             .font(.callout)
 
-                        Text(registry.bindings(for: action).map { $0.display() }.joined(separator: " · "))
-                            .font(.system(.callout, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            ForEach(registry.bindings(for: action), id: \.self) { binding in
+                                ShortcutChip(text: binding.display(), height: HotkeyChipPresentation.compactHeight)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }

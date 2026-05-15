@@ -3,30 +3,36 @@ import Core
 import SwiftUI
 
 struct SearchSettingsView: View {
-    @State private var sortMode: String = AppGroupSettings.defaults.string(forKey: "history.sortMode") ?? "recency"
-    @State private var fuzzy: Bool = AppGroupSettings.defaults.object(forKey: "search.fuzzy") as? Bool ?? false
-
     var body: some View {
         MAYNSettingsPage(
             title: "Search",
             subtitle: "Choose how clipboard history is ranked and matched in the dock."
         ) {
-            MAYNSection(title: "Ranking") {
+            SearchPreferencesSection()
+        }
+    }
+}
+
+struct SearchPreferencesSection: View {
+    @State private var sortMode: String = AppGroupSettings.defaults.string(forKey: "history.sortMode") ?? "recency"
+    @State private var fuzzy: Bool = AppGroupSettings.defaults.object(forKey: "search.fuzzy") as? Bool ?? false
+
+    var body: some View {
+        Group {
+            MAYNSection(title: "Search ranking") {
                 MAYNSettingsRow(
                     title: "Sort history by",
                     subtitle: "Default ordering used when browsing previous clipboard items."
                 ) {
-                    Picker("", selection: $sortMode) {
-                        Text("Recency").tag("recency")
-                        Text("Frequency").tag("frequency")
-                        Text("Recently used").tag("recentlyUsed")
-                    }
-                    .labelsHidden()
-                    .frame(width: 150)
+                    MAYNDropdown(
+                        selection: $sortMode,
+                        options: sortModeOptions,
+                        title: sortModeTitle
+                    )
                 }
             }
 
-            MAYNSection(title: "Matching") {
+            MAYNSection(title: "Search matching") {
                 MAYNSettingsRow(
                     title: "Fuzzy search",
                     subtitle: "Allow approximate text matches in clipboard search."
@@ -55,5 +61,20 @@ struct SearchSettingsView: View {
             nil,
             true
         )
+    }
+
+    private let sortModeOptions = ["recency", "frequency", "recentlyUsed"]
+
+    private func sortModeTitle(_ mode: String) -> String {
+        switch mode {
+        case "recency":
+            "Recency"
+        case "frequency":
+            "Frequency"
+        case "recentlyUsed":
+            "Recently used"
+        default:
+            mode
+        }
     }
 }

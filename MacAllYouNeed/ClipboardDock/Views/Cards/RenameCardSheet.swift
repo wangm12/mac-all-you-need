@@ -20,8 +20,7 @@ struct RenameCardSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Rename Card").font(.headline)
 
-            TextField("Label (leave empty to clear)", text: $label)
-                .textFieldStyle(.roundedBorder)
+            MAYNTextField(placeholder: "Label (leave empty to clear)", text: $label, width: 320)
                 .onSubmit { commit() }
 
             HStack {

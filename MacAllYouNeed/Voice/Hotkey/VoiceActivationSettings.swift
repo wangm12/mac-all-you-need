@@ -3,7 +3,7 @@ import Core
 import Foundation
 import Platform
 
-enum VoiceActivationMode: String, CaseIterable, Codable, Equatable, Identifiable {
+enum VoiceActivationMode: String, CaseIterable, Codable, Equatable, Identifiable, SegmentedTabDestination {
     case toggle
     case hold
 
@@ -17,6 +17,24 @@ enum VoiceActivationMode: String, CaseIterable, Codable, Equatable, Identifiable
             "Press to start, press again to stop"
         case .hold:
             "Hold to talk"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .toggle:
+            "Toggle"
+        case .hold:
+            "Hold"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .toggle:
+            "repeat"
+        case .hold:
+            "hand.raised"
         }
     }
 }

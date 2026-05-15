@@ -19,6 +19,14 @@ extension AppController {
         try voiceDictionaryStore.delete(id: id)
     }
 
+    func listRecentVoiceTranscripts(limit: Int = 20) -> [VoiceTranscript] {
+        (try? voiceTranscriptStore.listRecent(limit: limit)) ?? []
+    }
+
+    func deleteVoiceTranscripts(ids: [String]) throws {
+        try voiceTranscriptStore.delete(ids: ids)
+    }
+
     func listVoiceAppProfiles() -> [VoiceAppProfile] {
         (try? voiceAppProfileStore.list()) ?? []
     }

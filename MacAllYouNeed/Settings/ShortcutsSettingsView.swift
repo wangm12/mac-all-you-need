@@ -19,7 +19,7 @@ struct ShortcutsSettingsView: View {
                         VStack(alignment: .trailing, spacing: 8) {
                             HStack(spacing: 6) {
                                 ForEach(registry.bindings(for: action), id: \.self) { binding in
-                                    ShortcutChip(text: binding.display())
+                                    ShortcutChip(text: binding.display(), height: HotkeyChipPresentation.compactHeight)
                                         .contextMenu {
                                             Button("Remove") {
                                                 registry.removeBinding(binding, for: action)
@@ -38,12 +38,11 @@ struct ShortcutsSettingsView: View {
                                         pendingError = "Cannot bind reserved key."
                                     }
                                 }
-                                .frame(width: 130, height: 22)
+                                .frame(width: 130, height: HotkeyChipPresentation.compactHeight)
 
-                                Button("Reset") {
+                                MAYNButton("Reset", height: HotkeyChipPresentation.compactHeight) {
                                     registry.reset(action: action)
                                 }
-                                .controlSize(.small)
                             }
                         }
                     }

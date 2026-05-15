@@ -37,6 +37,8 @@ final class MainWindowController {
             defer: false
         )
         window.title = "Mac All You Need"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 820, height: 560)
         window.center()
         window.isReleasedWhenClosed = false

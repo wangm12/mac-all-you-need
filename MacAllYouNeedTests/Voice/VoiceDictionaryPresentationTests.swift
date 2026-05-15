@@ -28,6 +28,15 @@ final class VoiceDictionaryPresentationTests: XCTestCase {
         XCTAssertEqual(VoiceDictionaryPresentation.filtered(entries, query: "", filter: .manuallyAdded), entries)
     }
 
+    func testFilterTabsUseCompactSharedSegmentedPresentation() {
+        XCTAssertEqual(VoiceDictionaryFilter.all.title, "All")
+        XCTAssertEqual(VoiceDictionaryFilter.all.symbolName, "textformat")
+        XCTAssertEqual(VoiceDictionaryFilter.autoAdded.title, "Auto")
+        XCTAssertEqual(VoiceDictionaryFilter.autoAdded.symbolName, "sparkles")
+        XCTAssertEqual(VoiceDictionaryFilter.manuallyAdded.title, "Manual")
+        XCTAssertEqual(VoiceDictionaryFilter.manuallyAdded.symbolName, "pencil")
+    }
+
     private func entry(id: String, phrase: String, replacement: String) -> VoiceDictionaryEntry {
         VoiceDictionaryEntry(
             id: id,

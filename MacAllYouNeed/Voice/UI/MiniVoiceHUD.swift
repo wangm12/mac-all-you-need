@@ -21,6 +21,7 @@ final class MiniVoiceHUD {
     ) {
         let panel = panel ?? makePanel()
         self.panel = panel
+        let wasVisible = panel.isVisible
         panel.setContentSize(MiniVoiceHUDLayout.size(for: state))
         panel.contentView = NSHostingView(rootView: MiniVoiceHUDView(
             state: state,
@@ -28,11 +29,43 @@ final class MiniVoiceHUD {
             onPrimary: onPrimary
         ))
         position(panel)
-        panel.orderFrontRegardless()
+        if !wasVisible {
+            panel.alphaValue = 0
+        }
+        FloatingHUDWindowLayering.orderFront(panel)
+        guard !wasVisible else { return }
+
+        let duration = MAYNMotionBridge.effectiveDuration(.toastIn)
+        guard duration > 0 else {
+            panel.alphaValue = 1
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = MAYNMotionBridge.timingFunction(.toastIn)
+            panel.animator().alphaValue = 1
+        }
     }
 
     func dismiss() {
-        panel?.orderOut(nil)
+        guard let panel, panel.isVisible else { return }
+
+        let duration = MAYNMotionBridge.effectiveDuration(.toastOut)
+        guard duration > 0 else {
+            panel.orderOut(nil)
+            panel.alphaValue = 1
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = MAYNMotionBridge.timingFunction(.toastOut)
+            panel.animator().alphaValue = 0
+        } completionHandler: {
+            panel.orderOut(nil)
+            panel.alphaValue = 1
+        }
     }
 
     private func makePanel() -> NSPanel {
@@ -45,9 +78,7 @@ final class MiniVoiceHUD {
         panel.isOpaque = false
         panel.hasShadow = false
         panel.backgroundColor = .clear
-        panel.level = .popUpMenu
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.ignoresMouseEvents = false
+        FloatingHUDWindowLayering.configure(panel, acceptsMouseEvents: true)
         return panel
     }
 

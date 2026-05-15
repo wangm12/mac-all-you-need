@@ -4,6 +4,7 @@ import SwiftUI
 
 struct MultiSelectBar: View {
     @Bindable var model: ClipboardDockModel
+    @State private var confirmingDeleteAll = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -74,22 +75,10 @@ struct MultiSelectBar: View {
             }
             .disabled(targetCount == 0)
 
-            Button("Delete", role: .destructive) {
-                Task { await model.deleteEffectiveTargets() }
+            Button(MultiSelectBarDeleteConfirmation.actionTitle(targetCount: targetCount), role: .destructive) {
+                confirmingDeleteAll = true
             }
             .disabled(targetCount == 0)
-
-            // Only meaningful when there's an actual multi-select to clear;
-            // hide otherwise so the bar isn't cluttered when it's just
-            // operating on the focused card.
-            if !model.selection.isEmpty {
-                Button {
-                    model.clearSelection()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                }
-                .buttonStyle(.plain)
-            }
         }
         .padding(.horizontal, 16)
         .frame(height: 44)
@@ -97,6 +86,17 @@ struct MultiSelectBar: View {
         // three strips read as one continuous surface. Materials let the
         // backdrop (terminals, browsers) bleed through.
         .background(Color(nsColor: .controlBackgroundColor))
+        .confirmationDialog(
+            MultiSelectBarDeleteConfirmation.title(targetCount: targetCount),
+            isPresented: $confirmingDeleteAll
+        ) {
+            Button(MultiSelectBarDeleteConfirmation.actionTitle(targetCount: targetCount), role: .destructive) {
+                Task { await model.deleteEffectiveTargets() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(MultiSelectBarDeleteConfirmation.message(targetCount: targetCount))
+        }
     }
 
     /// "N selected" when explicitly multi-selected; otherwise "Focused card"
@@ -173,5 +173,22 @@ struct MultiSelectBar: View {
         case .sortLines: return "Sort Lines"
         case .dedupeLines: return "Dedupe Lines"
         }
+    }
+}
+
+enum MultiSelectBarDeleteConfirmation {
+    static func title(targetCount: Int) -> String {
+        targetCount == 1 ? "Delete selected item?" : "Delete \(targetCount) selected items?"
+    }
+
+    static func message(targetCount: Int) -> String {
+        if targetCount == 1 {
+            return "This permanently removes the selected clipboard item. This cannot be undone."
+        }
+        return "This permanently removes the selected clipboard items. This cannot be undone."
+    }
+
+    static func actionTitle(targetCount: Int) -> String {
+        targetCount == 1 ? "Delete" : "Delete all"
     }
 }

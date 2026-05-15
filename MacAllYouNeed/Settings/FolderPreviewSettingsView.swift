@@ -4,6 +4,7 @@ import SwiftUI
 struct FolderPreviewSettingsView: View {
     let controller: AppController
     @AppStorage("folderPreviewIncludeHidden", store: AppGroupSettings.defaults) private var includeHidden = false
+    @AppStorage(FolderPreviewSettings.cascadeKey, store: AppGroupSettings.defaults) private var cascade = FolderPreviewSettings.defaultCascadeEnabled
     @AppStorage("folderPreviewMaxEntries", store: AppGroupSettings.defaults) private var maxEntries = 50_000
     var body: some View {
         MAYNSettingsPage(
@@ -20,12 +21,26 @@ struct FolderPreviewSettingsView: View {
                 }
                 MAYNDivider()
                 MAYNSettingsRow(
+                    title: "Cascade folders",
+                    subtitle: "Include nested folder contents in previews. Turn off to show only top-level items."
+                ) {
+                    Toggle("", isOn: $cascade)
+                        .labelsHidden()
+                }
+                MAYNDivider()
+                MAYNSettingsRow(
                     title: "Maximum entries",
                     subtitle: "Upper bound for very large folders and archives."
                 ) {
-                    Stepper("\(maxEntries)", value: $maxEntries, in: 1000...500_000, step: 1000)
-                        .labelsHidden()
-                        .frame(width: 110)
+                    MAYNNumericStepper(
+                        text: "\(maxEntries)",
+                        value: $maxEntries,
+                        range: 1000...500_000,
+                        step: 1000,
+                        presets: [1_000, 10_000, 50_000, 100_000, 250_000, 500_000],
+                        suffix: "entries",
+                        fieldWidth: 78
+                    )
                 }
             }
         }

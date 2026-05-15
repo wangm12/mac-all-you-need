@@ -119,7 +119,7 @@ struct VoiceOnboardingWizardView: View {
         if reduceMotion {
             step = newStep
         } else {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion)) {
                 step = newStep
             }
         }
@@ -219,7 +219,7 @@ private struct VoiceWelcomeStepView: View {
             if reduceMotion {
                 phraseIndex = (phraseIndex + 1) % phrases.count
             } else {
-                withAnimation(.easeInOut(duration: 0.25)) {
+                withAnimation(MAYNMotion.instructionAnimation(reduceMotion: reduceMotion)) {
                     phraseIndex = (phraseIndex + 1) % phrases.count
                 }
             }
@@ -235,6 +235,7 @@ private struct VoiceMicrophoneStepView: View {
     @State private var visualLevel = 0.0
     @State private var audioDetectedAt: Date?
     @State private var didAutoAdvance = false
+    @State private var showsInstruction = false
     @State private var statusMessage = "macOS will ask for permission when you continue."
     private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
@@ -252,12 +253,12 @@ private struct VoiceMicrophoneStepView: View {
                     actionTitle: permission == .authorized ? "Microphone granted" : "Request access",
                     action: requestPermission
                 )
-                InstructionStrip(
-                    text: permission == .authorized
-                        ? "Speak for a moment so setup can confirm input level."
-                        : "Choose Allow in the macOS microphone prompt.",
-                    symbol: permission == .authorized ? "waveform" : "mic.badge.plus"
-                )
+                if showsInstruction && permission != .authorized {
+                    InstructionStrip(
+                        text: "Choose Allow in the macOS microphone prompt.",
+                        symbol: "mic.badge.plus"
+                    )
+                }
                 if permission == .authorized {
                     VStack(alignment: .leading, spacing: 8) {
                         ProgressView(value: visualLevel, total: 1)
@@ -272,10 +273,10 @@ private struct VoiceMicrophoneStepView: View {
                             .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
                     )
                 }
-                Button("Open Microphone Settings") {
+                MAYNButton("Open Microphone Settings") {
+                    showsInstruction = true
                     openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
                 }
-                .buttonStyle(.link)
                 permissionLabel
                 Text(statusMessage)
                     .font(.caption)
@@ -327,6 +328,7 @@ private struct VoiceMicrophoneStepView: View {
     }
 
     private func requestPermission() {
+        showsInstruction = permission != .authorized
         Task {
             let granted = await Self.requestRecordPermission()
             permission = granted ? .authorized : .denied
@@ -334,6 +336,7 @@ private struct VoiceMicrophoneStepView: View {
                 ? "Microphone granted. Starting live level check..."
                 : "Microphone access was denied."
             if granted {
+                showsInstruction = false
                 startCapture()
             }
         }
@@ -389,6 +392,7 @@ private struct VoiceMicrophoneStepView: View {
 private struct VoiceAccessibilityStepView: View {
     let autoAdvance: () -> Void
     @State private var granted = AXIsProcessTrusted()
+    @State private var showsInstruction = false
     private let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -398,19 +402,29 @@ private struct VoiceAccessibilityStepView: View {
             subtitle: "Accessibility lets Mac All You Need paste dictated text into Cursor, Notes, browsers, and other apps."
         ) {
             VStack(alignment: .leading, spacing: 12) {
+                let instruction = PermissionInstructionTarget.accessibility.instruction(appName: "Mac All You Need")
                 PermissionCard(
                     title: "Accessibility",
                     reason: "Required so voice output can be inserted into the currently focused app.",
                     state: granted ? .granted : .needed,
                     actionTitle: "Open System Settings"
                 ) {
+                    showsInstruction = true
                     _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
                     openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
                 }
-                InstructionStrip(
-                    text: "Enable Accessibility for Mac All You Need, then return here.",
-                    symbol: "switch.2"
-                )
+                if showsInstruction && !granted {
+                    InstructionStrip(
+                        text: instruction.primaryText,
+                        appName: "Mac All You Need",
+                        symbol: instruction.symbol,
+                        secondaryText: instruction.secondaryText,
+                        dragAppURL: Bundle.main.bundleURL,
+                        actionTitle: "Open Settings"
+                    ) {
+                        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                    }
+                }
                 if granted {
                     StatusPill(text: "Ready to paste dictated text", kind: .neutral)
                 } else {
@@ -424,6 +438,7 @@ private struct VoiceAccessibilityStepView: View {
             let nowGranted = AXIsProcessTrusted()
             if nowGranted, !granted {
                 granted = true
+                showsInstruction = false
                 autoAdvance()
             } else {
                 granted = nowGranted
@@ -433,17 +448,13 @@ private struct VoiceAccessibilityStepView: View {
 }
 
 private struct VoiceASRStepView: View {
-    @State private var selectedModelID = "qwen3-asr-0.6b-f32"
+    @State private var selectedModelID = VoiceASRSettingsStore.load().modelID
     @State private var isPreparing = false
     @State private var downloadFraction: Double?
     @State private var showsMoreOptions = false
-    @State private var statusMessage = "Qwen3-ASR is the active local engine for this MVP."
+    @State private var statusMessage = "Choose a local recognition model. Missing models download before dictation uses them."
 
-    private let primaryOptions: [VoiceASROption] = [
-        VoiceASROption(id: "qwen3-asr-0.6b-f32", title: "Qwen3-ASR-0.6B", subtitle: "Recommended, zh+en mixed", available: true),
-        VoiceASROption(id: "parakeet-tdt-v3", title: "Parakeet TDT v3", subtitle: "Streaming engine, planned for 8d", available: false),
-        VoiceASROption(id: "sensevoice-small", title: "SenseVoice Small", subtitle: "Lightweight engine, planned for 8d", available: false)
-    ]
+    private let primaryOptions = VoiceASRModelID.allCases
     private let moreOptions: [VoiceASROption] = [
         VoiceASROption(
             id: "whisper-large-v3-turbo",
@@ -463,7 +474,7 @@ private struct VoiceASRStepView: View {
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(primaryOptions) { option in
-                    optionButton(option)
+                    modelButton(option)
                 }
             }
             DisclosureGroup("More options", isExpanded: $showsMoreOptions) {
@@ -474,8 +485,10 @@ private struct VoiceASRStepView: View {
                 }
             }
             HStack {
-                Button(isPreparing ? "Preparing..." : "Prepare Qwen3 model") { prepareDefaultModel() }
-                    .disabled(isPreparing)
+                MAYNButton(isPreparing ? "Downloading..." : actionTitle(for: selectedModelID), role: .primary) {
+                    selectModel(selectedModelID)
+                }
+                .disabled(isPreparing)
                 Text(statusMessage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -487,37 +500,60 @@ private struct VoiceASRStepView: View {
         }
     }
 
-    private func optionButton(_ option: VoiceASROption) -> some View {
+    private func modelButton(_ modelID: VoiceASRModelID) -> some View {
         Button {
-            guard option.available else { return }
-            selectedModelID = option.id
-            prepareDefaultModel()
+            selectModel(modelID)
         } label: {
-            VoiceASROptionView(option: option, isSelected: selectedModelID == option.id)
+            VoiceASRModelOnboardingCard(
+                modelID: modelID,
+                isSelected: selectedModelID == modelID,
+                isDownloaded: isDownloaded(modelID),
+                isPreparing: isPreparing && selectedModelID == modelID,
+                downloadFraction: selectedModelID == modelID ? downloadFraction : nil
+            )
         }
         .buttonStyle(.plain)
-        .disabled(!option.available)
+        .disabled(isPreparing)
     }
 
-    private func prepareDefaultModel() {
+    private func optionButton(_ option: VoiceASROption) -> some View {
+        Button {} label: {
+            VoiceASROptionView(option: option, isSelected: false)
+        }
+        .buttonStyle(.plain)
+        .disabled(true)
+    }
+
+    private func selectModel(_ modelID: VoiceASRModelID) {
+        selectedModelID = modelID
+        guard !isDownloaded(modelID) else {
+            saveSelectedModel(modelID)
+            statusMessage = "\(modelID.title) is ready and selected."
+            return
+        }
+        prepareModel(modelID)
+    }
+
+    private func prepareModel(_ modelID: VoiceASRModelID) {
         guard #available(macOS 15, *) else {
-            statusMessage = "Qwen3-ASR preparation requires macOS 15 or later."
+            statusMessage = "\(modelID.title) preparation requires macOS 15 or later."
             return
         }
         guard !isPreparing else { return }
         isPreparing = true
         downloadFraction = 0
-        statusMessage = "Downloading or verifying Qwen3-ASR in the local model cache..."
+        statusMessage = "Downloading \(modelID.title) into the local model cache..."
         Task {
             do {
-                _ = try await Qwen3AsrModels.download(variant: .f32) { progress in
+                _ = try await Qwen3AsrModels.download(variant: modelID.variant) { progress in
                     Task { @MainActor in
                         downloadFraction = progress.fractionCompleted
-                        statusMessage = Self.describe(progress)
+                        statusMessage = Self.describe(progress, modelID: modelID)
                     }
                 }
                 await MainActor.run {
-                    statusMessage = "Qwen3-ASR model is ready."
+                    saveSelectedModel(modelID)
+                    statusMessage = "\(modelID.title) is ready and selected."
                     downloadFraction = 1
                     isPreparing = false
                 }
@@ -531,12 +567,29 @@ private struct VoiceASRStepView: View {
         }
     }
 
-    private static func describe(_ progress: DownloadUtils.DownloadProgress) -> String {
+    private func saveSelectedModel(_ modelID: VoiceASRModelID) {
+        var settings = VoiceASRSettingsStore.load()
+        settings.modelID = modelID
+        VoiceASRSettingsStore.save(settings)
+    }
+
+    private func isDownloaded(_ modelID: VoiceASRModelID) -> Bool {
+        guard #available(macOS 15, *) else { return false }
+        return Qwen3AsrModels.modelsExist(
+            at: Qwen3AsrModels.defaultCacheDirectory(variant: modelID.variant)
+        )
+    }
+
+    private func actionTitle(for modelID: VoiceASRModelID) -> String {
+        isDownloaded(modelID) ? "Use selected model" : "Download & Use"
+    }
+
+    private static func describe(_ progress: DownloadUtils.DownloadProgress, modelID: VoiceASRModelID) -> String {
         switch progress.phase {
         case .listing:
-            "Listing Qwen3-ASR model files..."
+            "Listing \(modelID.title) files..."
         case let .downloading(completedFiles, totalFiles):
-            "Downloading Qwen3-ASR model files \(completedFiles)/\(totalFiles)..."
+            "Downloading \(modelID.title) files \(completedFiles)/\(totalFiles)..."
         case let .compiling(modelName):
             "Compiling \(modelName)..."
         }
@@ -548,6 +601,56 @@ private struct VoiceASROption: Identifiable {
     let title: String
     let subtitle: String
     let available: Bool
+}
+
+private struct VoiceASRModelOnboardingCard: View {
+    let modelID: VoiceASRModelID
+    let isSelected: Bool
+    let isDownloaded: Bool
+    let isPreparing: Bool
+    let downloadFraction: Double?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(modelID.title)
+                    .font(.headline)
+                Spacer()
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+            Text(modelID.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                StatusPill(text: modelID.diskLabel, kind: .neutral)
+                StatusPill(text: statusText, kind: statusKind)
+            }
+            if let downloadFraction {
+                ProgressView(value: downloadFraction)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MAYNTheme.panel)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? MAYNTheme.strongBorder : MAYNTheme.subtleBorder, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var statusText: String {
+        if isPreparing { return "Downloading" }
+        if isDownloaded { return "Downloaded" }
+        return "Not installed"
+    }
+
+    private var statusKind: StatusPill.Kind {
+        if isPreparing { return .progress }
+        if isDownloaded { return .success }
+        return .warning
+    }
 }
 
 private struct VoiceASROptionView: View {
@@ -630,15 +733,25 @@ private struct VoiceLLMStepView: View {
                     .buttonStyle(.plain)
                 }
             }
-            TextField("Model", text: $model)
-            TextField("Base URL", text: $baseURLString)
-            SecureField("API key", text: $apiKey)
-            Stepper("Timeout: \(timeoutSeconds)s", value: $timeoutSeconds, in: 1 ... 30)
+            MAYNTextField(placeholder: "Model", text: $model, width: 360)
+            MAYNTextField(placeholder: "Base URL", text: $baseURLString, width: 360)
+            MAYNSecureField(placeholder: "API key", text: $apiKey, width: 360)
             HStack {
-                Button(isTesting ? "Testing..." : "Test") { testSettings() }
+                Text("Timeout")
+                Spacer()
+                MAYNNumericStepper(
+                    text: "\(timeoutSeconds)s",
+                    value: $timeoutSeconds,
+                    range: 1...30,
+                    presets: [3, 5, 7, 10, 15, 30],
+                    suffix: "s"
+                )
+            }
+            HStack {
+                MAYNButton(isTesting ? "Testing..." : "Test") { testSettings() }
                     .disabled(isTesting)
-                Button("Apply") { applySettings() }
-                Button("Skip AI cleanup") {
+                MAYNButton("Apply", role: .primary) { applySettings() }
+                MAYNButton("Skip AI cleanup") {
                     cleanupEnabled = false
                     controller.disableVoiceCleanup()
                     statusMessage = "AI cleanup disabled. Local cleanup remains active."
@@ -746,6 +859,7 @@ private struct VoiceHotkeyStepView: View {
     @State private var mode: VoiceActivationMode
     @State private var hybridThresholdMs = 500.0
     @State private var statusMessage: String?
+    @State private var shortcutIssueMessage: String?
     @State private var showsHUDPreview = false
 
     init(controller: AppController) {
@@ -769,10 +883,19 @@ private struct VoiceHotkeyStepView: View {
             HStack {
                 Text("Shortcut")
                 Spacer()
-                HotkeyRecorder(descriptor: $shortcut)
-                    .frame(width: 140, height: 26)
+                HotkeyRecorderControl(
+                    descriptor: shortcutBinding,
+                    issueMessage: shortcutIssueMessage,
+                    defaultDescriptor: VoiceActivationSettings.default.shortcut,
+                    recorderWidth: 140,
+                    recorderHeight: 26,
+                    errorWidth: 220,
+                    alignment: .trailing,
+                    errorFrameAlignment: .trailing,
+                    reset: { applyShortcut(VoiceActivationSettings.default.shortcut) }
+                )
             }
-            VoiceActivationModePicker(mode: $mode)
+            VoiceActivationModePicker(mode: activationModeBinding)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("Hybrid threshold")
@@ -786,8 +909,7 @@ private struct VoiceHotkeyStepView: View {
                     .foregroundStyle(.secondary)
             }
             HStack {
-                Button("Apply shortcut") { apply() }
-                Button("Test now") {
+                MAYNButton("Test now") {
                     showsHUDPreview = true
                     statusMessage = "HUD preview only. Recording will not start from this button."
                 }
@@ -804,11 +926,43 @@ private struct VoiceHotkeyStepView: View {
         }
     }
 
-    private func apply() {
+    private var shortcutBinding: Binding<HotkeyDescriptor> {
+        Binding(
+            get: { shortcut },
+            set: { descriptor in
+                applyShortcut(descriptor)
+            }
+        )
+    }
+
+    private var activationModeBinding: Binding<VoiceActivationMode> {
+        Binding(
+            get: { mode },
+            set: { newMode in
+                mode = newMode
+                applySettingsIfValid()
+            }
+        )
+    }
+
+    private func applyShortcut(_ descriptor: HotkeyDescriptor) {
+        shortcut = descriptor
+        applySettingsIfValid()
+    }
+
+    private func applySettingsIfValid() {
+        if let issue = HotkeyValidation.issue(forVoiceShortcut: shortcut, appHotkeys: HotkeyMapStore.load()) {
+            shortcutIssueMessage = issue.message
+            statusMessage = issue.message
+            return
+        }
+
         do {
             try controller.applyVoiceActivationSettings(VoiceActivationSettings(shortcut: shortcut, mode: mode))
+            shortcutIssueMessage = nil
             statusMessage = "Voice shortcut saved."
         } catch {
+            shortcutIssueMessage = error.localizedDescription
             statusMessage = error.localizedDescription
         }
     }
@@ -819,18 +973,8 @@ private struct VoiceKeyboardPreview: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(["⌃", "⌥", "Space"], id: \.self) { key in
-                Text(key)
-                    .font(.headline)
-                    .frame(width: key == "Space" ? 120 : 42, height: 34)
-                    .background(Color.primary.opacity(0.08))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.primary.opacity(0.30), lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            Text(shortcutDisplay)
+            ShortcutChip(text: shortcutDisplay, height: 34)
+            Text("Current shortcut")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.leading, 8)
@@ -845,11 +989,14 @@ private struct VoiceActivationModePicker: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Activation mode")
                 .font(.headline)
-            Picker("Activation mode", selection: $mode) {
-                Text("Toggle (MVP default)").tag(VoiceActivationMode.toggle)
-                Text("PTT / Hold to talk").tag(VoiceActivationMode.hold)
+            FunctionSegmentedTabStrip(
+                tabs: Array(VoiceActivationMode.allCases),
+                selection: mode,
+                fillsAvailableWidth: true,
+                size: .control
+            ) { nextMode in
+                mode = nextMode
             }
-            .pickerStyle(.radioGroup)
             HStack(spacing: 10) {
                 Label("Hybrid", systemImage: "clock")
                 Label("Auto-VAD", systemImage: "waveform")
@@ -892,9 +1039,9 @@ private struct VoiceLanguagesStepView: View {
             Text("Pick languages")
                 .font(.title)
                 .bold()
-            Text("Use Auto for mixed Chinese and English. Single-language choices bias the current Qwen3-ASR engine.")
+            Text("Use Auto-detect for mixed Chinese and English. Single-language choices bias the current Qwen3-ASR engine.")
                 .foregroundStyle(.secondary)
-            Toggle("Auto-detect everything", isOn: $autoDetectEverything)
+            Toggle("Auto-detect language", isOn: $autoDetectEverything)
                 .onChange(of: autoDetectEverything) { _, _ in save() }
             ForEach(VoiceOnboardingLanguage.allCases) { language in
                 Toggle(language.label, isOn: binding(for: language))
@@ -902,7 +1049,7 @@ private struct VoiceLanguagesStepView: View {
                     .opacity(autoDetectEverything ? 0.55 : 1)
             }
             HStack {
-                Button("Apply languages") { save() }
+                MAYNButton("Apply languages", role: .primary) { save() }
             }
             if let statusMessage {
                 Text(statusMessage)
@@ -931,8 +1078,10 @@ private struct VoiceLanguagesStepView: View {
             autoDetectEverything: autoDetectEverything
         )
         VoiceOnboardingProgressStore.saveLanguageSelection(selection)
-        VoiceASRSettingsStore.save(VoiceASRSettings(languageHint: selection.asrLanguageHint))
-        statusMessage = "Language preference saved as \(selection.asrLanguageHint.label)."
+        var asrSettings = VoiceASRSettingsStore.load()
+        asrSettings.languageHint = selection.asrLanguageHint
+        VoiceASRSettingsStore.save(asrSettings)
+        statusMessage = "Language preference saved as \(VoiceLanguageModePresentation.title(for: selection.asrLanguageHint))."
     }
 }
 
@@ -958,12 +1107,12 @@ private struct VoiceTryItStepView: View {
                         .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
                 )
             HStack {
-                Button("Start recording") {
+                MAYNButton("Start recording", role: .primary) {
                     canConfirm = false
                     Task { await controller.voiceCoordinator.startRecording() }
                 }
                 .disabled(controller.voiceCoordinator.state != .idle)
-                Button("Stop and insert") {
+                MAYNButton("Stop and insert") {
                     Task {
                         await controller.voiceCoordinator.stopRecordingAndPaste()
                         if controller.voiceCoordinator.lastTranscript != nil {
@@ -975,10 +1124,10 @@ private struct VoiceTryItStepView: View {
                     }
                 }
                 .disabled(controller.voiceCoordinator.state != .recording)
-                Button("Open Notes") {
+                MAYNButton("Open Notes") {
                     NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Notes.app"))
                 }
-                Button("It works!") {
+                MAYNButton("It works!", role: .primary) {
                     markSucceeded()
                     statusMessage = "Confirmed. You can continue."
                 }

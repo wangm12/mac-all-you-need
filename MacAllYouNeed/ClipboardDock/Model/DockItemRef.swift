@@ -1,4 +1,79 @@
+import AppKit
 import Foundation
+import UniformTypeIdentifiers
+
+enum DockDragPayloadTypes {
+    static let acceptedTypeIdentifiers: [String] = [
+        UTType.text.identifier,
+        UTType.plainText.identifier,
+        UTType.utf8PlainText.identifier
+    ]
+
+    static let acceptedPasteboardTypes: [NSPasteboard.PasteboardType] =
+        ([.string] + acceptedTypeIdentifiers.map { NSPasteboard.PasteboardType($0) })
+}
+
+enum DockDragPayloadLoader {
+    static func strings(from providers: [NSItemProvider], completion: @escaping ([String]) -> Void) {
+        let accumulator = StringAccumulator()
+        let group = DispatchGroup()
+
+        for provider in providers {
+            if provider.canLoadObject(ofClass: NSString.self) {
+                group.enter()
+                provider.loadObject(ofClass: NSString.self) { object, _ in
+                    accumulator.append(object)
+                    group.leave()
+                }
+                continue
+            }
+
+            guard let type = DockDragPayloadTypes.acceptedTypeIdentifiers.first(where: {
+                provider.hasItemConformingToTypeIdentifier($0)
+            }) else { continue }
+
+            group.enter()
+            provider.loadItem(forTypeIdentifier: type, options: nil) { item, _ in
+                accumulator.append(item)
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            completion(accumulator.values)
+        }
+    }
+}
+
+private final class StringAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func append(_ object: Any?) {
+        let string: String?
+        switch object {
+        case let value as String:
+            string = value
+        case let value as NSString:
+            string = value as String
+        case let data as Data:
+            string = String(data: data, encoding: .utf8)
+        default:
+            string = nil
+        }
+
+        guard let string else { return }
+        lock.lock()
+        storage.append(string)
+        lock.unlock()
+    }
+}
 
 /// Internal drag payload encoded as a String so we don't have to register a
 /// custom UTI in Info.plist (which `UTType(exportedAs:)` expects). The

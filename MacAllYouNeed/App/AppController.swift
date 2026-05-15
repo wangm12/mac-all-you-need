@@ -38,6 +38,7 @@ final class AppController {
     private let blobStore: BlobStore
     private let searchStore: SearchStore
     private let pinboardStore: PinboardStore
+    let voiceTranscriptStore: VoiceTranscriptStore
     let voiceDictionaryStore: VoiceDictionaryStore
     let voiceAppProfileStore: VoiceAppProfileStore
     let voiceCoordinator: VoiceCoordinator
@@ -48,6 +49,7 @@ final class AppController {
     private var downloadRequestObserver: NSObjectProtocol?
     private var pauseCaptureObserver: NSObjectProtocol?
     private var clearOlderThanObserver: NSObjectProtocol?
+    private var clearAllClipboardObserver: NSObjectProtocol?
     private var mainWindowSettingsObserver: NSObjectProtocol?
     private var hotkeyRecorderStartObserver: NSObjectProtocol?
     private var hotkeyRecorderStopObserver: NSObjectProtocol?
@@ -86,6 +88,7 @@ final class AppController {
         blobStore = stores.blob
         searchStore = stores.search
         pinboardStore = stores.pinboard
+        voiceTranscriptStore = stores.voiceTranscripts
         voiceDictionaryStore = stores.voiceDictionary
         voiceAppProfileStore = stores.voiceAppProfiles
         voiceCoordinator = makeVoiceCoordinator(stores: stores, cleanupKeyStore: cleanupKeyStore)
@@ -109,6 +112,7 @@ final class AppController {
 
         onboarding = OnboardingState.load()
         LoginItemController.reconcileLaunchAtLogin()
+        AppAppearanceMode.applyStoredPreference()
 
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()
@@ -131,7 +135,6 @@ final class AppController {
     func performHotkeyAction(_ action: HotkeyAction) {
         switch action {
         case .clipboard: clipboardDock.toggle()
-        case .addDownload: NotificationCenter.default.post(name: .addDownloadRequested, object: nil)
         case .browseFolder: folder.openPanelAndBrowse()
         }
     }
@@ -176,6 +179,24 @@ final class AppController {
         // waiting on its 1s poll.
         NotificationCenter.default.post(name: .clipboardStoreDidChange, object: nil)
         Task { await self.clipboardDeps.dockModel.refresh() }
+    }
+
+    func clearAllClipboardHistory() {
+        do {
+            let deleted = try ClipboardHistoryClearer.clearAll(
+                store: clipStore,
+                blobs: blobStore,
+                search: searchStore,
+                pinboards: pinboardStore
+            )
+            NotificationCenter.default.post(name: .clipboardStoreDidChange, object: nil)
+            Task { await self.clipboardDeps.dockModel.refresh() }
+            CopyHUD.show(deleted == 1 ? "Deleted 1 item" : "Deleted \(deleted) items", symbol: "trash.fill")
+        } catch {
+            Logging.logger(for: "AppController", category: "retention")
+                .error("clear all clipboard history failed: \(error.localizedDescription, privacy: .public)")
+            CopyHUD.show("Clear failed", symbol: "exclamationmark.triangle.fill")
+        }
     }
 
     private static func makePinboardStore(key: SymmetricKey) throws -> PinboardStore {
@@ -249,12 +270,26 @@ final class AppController {
             let days = (note.object as? NSNumber)?.intValue ?? (note.object as? Int) ?? 0
             Task { @MainActor in self?.clearClipboardOlderThan(days: days) }
         }
+        clearAllClipboardObserver = NotificationCenter.default.addObserver(
+            forName: .clearAllClipboardHistoryRequested, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.clearAllClipboardHistory() }
+        }
         mainWindowSettingsObserver = NotificationCenter.default.addObserver(
             forName: .mainWindowSettingsRequested, object: nil, queue: .main
         ) { [weak self] note in
+            if DockSettingsNavigation.isClipboardRulesRoute(note.object as? String) {
+                AppGroupSettings.defaults.set(ClipboardFunctionTab.rules.rawValue, forKey: ClipboardFunctionTab.storageKey)
+                Task { @MainActor in
+                    self?.showMainWindow(destination: .clipboard)
+                }
+                return
+            }
             let destination = SettingsDestination.legacySelection(note.object as? String)
             AppGroupSettings.defaults.set(destination.rawValue, forKey: DockSettingsNavigation.settingsSelectionKey)
-            Task { @MainActor in self?.showMainWindow(destination: .settings) }
+            Task { @MainActor in
+                self?.showMainWindow(destination: .settings)
+            }
         }
         hotkeyRecorderStartObserver = NotificationCenter.default.addObserver(
             forName: .hotkeyRecorderDidStartRecording, object: nil, queue: .main
@@ -337,8 +372,7 @@ final class AppController {
     }
 
     private static func currentDockHeight() -> CGFloat {
-        let value = AppGroupSettings.defaults.double(forKey: "dock.height")
-        return value == 0 ? 360 : CGFloat(value)
+        CGFloat(ClipboardDockHeightSetting.load())
     }
 
     private static func postSettingsChangedDarwin() {
@@ -350,6 +384,54 @@ final class AppController {
             nil,
             true
         )
+    }
+}
+
+enum ClipboardHistoryClearer {
+    @discardableResult
+    static func clearAll(
+        store: ClipboardStore,
+        blobs: BlobStore,
+        search: SearchStore,
+        pinboards: PinboardStore,
+        batchSize: Int = 500
+    ) throws -> Int {
+        let limit = max(1, batchSize)
+        var deleted = 0
+
+        while true {
+            let batch = try store.list(limit: limit)
+            guard !batch.isEmpty else { break }
+
+            for meta in batch {
+                try deleteRecord(meta.id, store: store, blobs: blobs, search: search)
+                deleted += 1
+            }
+        }
+
+        try clearPinboardReferences(pinboards)
+        return deleted
+    }
+
+    private static func deleteRecord(
+        _ id: RecordID,
+        store: ClipboardStore,
+        blobs: BlobStore,
+        search: SearchStore
+    ) throws {
+        if let body = try? store.body(for: id), case let .image(blobID, _, _) = body {
+            try? blobs.delete(id: blobID)
+        }
+        try? search.remove(kind: .clipboardItem, id: id)
+        try store.delete(id: id)
+    }
+
+    private static func clearPinboardReferences(_ pinboards: PinboardStore) throws {
+        for board in try pinboards.list() where !board.itemIDs.isEmpty {
+            try pinboards.mutate(id: board.id) { pinboard in
+                pinboard.itemIDs.removeAll()
+            }
+        }
     }
 }
 
@@ -382,4 +464,5 @@ extension Notification.Name {
     static let clipboardDownloadRequested = Notification.Name("clipboardDownloadRequested")
     static let pauseCaptureRequested = Notification.Name("pauseCaptureRequested")
     static let clearClipboardOlderThanRequested = Notification.Name("clearClipboardOlderThanRequested")
+    static let clearAllClipboardHistoryRequested = Notification.Name("clearAllClipboardHistoryRequested")
 }

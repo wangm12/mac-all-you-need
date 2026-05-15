@@ -12,6 +12,46 @@ enum VoiceAudioSettings {
     static func preferredMicrophoneID(from defaults: UserDefaults = AppGroupSettings.defaults) -> String {
         defaults.string(forKey: microphoneIDKey) ?? systemMicrophoneID
     }
+
+    static func normalizedPreferredMicrophoneID(
+        _ preferredID: String,
+        availableDeviceIDs: Set<String>
+    ) -> String {
+        let trimmed = preferredID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != systemMicrophoneID else {
+            return systemMicrophoneID
+        }
+        return availableDeviceIDs.contains(trimmed) ? trimmed : systemMicrophoneID
+    }
+
+    static func currentSystemInputName() -> String {
+        AVCaptureDevice.default(for: .audio)?.localizedName ?? "System input"
+    }
+}
+
+struct VoiceMicrophoneOptionDescriptor: Identifiable, Equatable {
+    static let systemID = VoiceAudioSettings.systemMicrophoneID
+
+    let id: String
+    let name: String
+
+    static func available() -> [VoiceMicrophoneOptionDescriptor] {
+        let system = VoiceMicrophoneOptionDescriptor(
+            id: systemID,
+            name: "Auto-detect (\(VoiceAudioSettings.currentSystemInputName()))"
+        )
+        let session = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.microphone, .external],
+            mediaType: .audio,
+            position: .unspecified
+        )
+        var seen = Set<String>()
+        let devices = session.devices.compactMap { device -> VoiceMicrophoneOptionDescriptor? in
+            guard seen.insert(device.uniqueID).inserted else { return nil }
+            return VoiceMicrophoneOptionDescriptor(id: device.uniqueID, name: device.localizedName)
+        }
+        return [system] + devices
+    }
 }
 
 enum AudioCaptureServiceError: LocalizedError {

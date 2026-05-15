@@ -28,11 +28,12 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         previewTask = Task {
             do {
                 if isDirectory {
+                    let cascade = FolderPreviewSettings.cascadeEnabled()
                     let inventory = try await FolderEnumerator.enumerateImmediate(url: url, maxEntries: 500)
                     try Task.checkCancellation()
                     await MainActor.run {
                         guard self.previewID == id else { return }
-                        previewView.configureFolder(url: url, inventory: inventory)
+                        previewView.configureFolder(url: url, inventory: inventory, cascade: cascade)
                     }
                 } else {
                     let entries = try await Task.detached(priority: .userInitiated) {
@@ -106,7 +107,7 @@ private final class QuickLookPreviewView: NSView, NSSplitViewDelegate {
         }
     }
 
-    func configureFolder(url: URL, inventory: FolderInventory) {
+    func configureFolder(url: URL, inventory: FolderInventory, cascade: Bool) {
         let rows = FolderPreviewDisplay.sorted(inventory.entries).prefix(500).map(PreviewRow.init(entry:))
         let nodes = rows.map { FolderPreviewNode(row: $0) }
         let itemCount = inventory.isPartial ? "\(inventory.entries.count)+ items" : "\(inventory.entries.count) items"
@@ -122,7 +123,7 @@ private final class QuickLookPreviewView: NSView, NSSplitViewDelegate {
         contentMode = .outline
         folderRootCount = nodes.count
         filterControl.selectedSegment = FolderPreviewFilter.all.rawValue
-        outlineDataSource.configure(rootNodes: nodes, filter: .all)
+        outlineDataSource.configure(rootNodes: nodes, filter: .all, cascade: cascade)
         setFilterBarVisible(true)
         showOutline(emptyMessage: "This folder is empty.")
     }
@@ -625,6 +626,7 @@ private final class FolderPreviewNode {
 private final class PreviewOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
     var filter: FolderPreviewFilter = .all
     var onSelectionChange: ((PreviewRow?) -> Void)?
+    private var cascade = true
     private var rootNodes: [FolderPreviewNode] = []
     private var iconsByKey: [String: NSImage] = [:]
     private var loadTasksByPath: [String: Task<Void, Never>] = [:]
@@ -634,10 +636,11 @@ private final class PreviewOutlineDataSource: NSObject, NSOutlineViewDataSource,
         children(of: nil).count
     }
 
-    func configure(rootNodes: [FolderPreviewNode], filter: FolderPreviewFilter) {
+    func configure(rootNodes: [FolderPreviewNode], filter: FolderPreviewFilter, cascade: Bool) {
         reset()
         self.rootNodes = rootNodes
         self.filter = filter
+        self.cascade = cascade
     }
 
     func reset() {
@@ -658,10 +661,11 @@ private final class PreviewOutlineDataSource: NSObject, NSOutlineViewDataSource,
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
         guard let row = (item as? FolderPreviewNode)?.row else { return false }
-        return row.isDirectory
+        return cascade && row.isDirectory
     }
 
     func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
+        guard cascade else { return false }
         guard let node = item as? FolderPreviewNode else { return false }
         loadChildren(for: node, in: outlineView)
         return true

@@ -28,6 +28,7 @@ final class DownloadCoordinator {
     let queue: DownloadQueue
     let binaries: BinaryManager
     var dispatch: DispatchServer?
+    private var destinationObserver: NSObjectProtocol?
     private let log = Logging.logger(for: "downloader", category: "coordinator")
 
     init() throws {
@@ -67,6 +68,24 @@ final class DownloadCoordinator {
                 }
             }
         )
+        destinationObserver = NotificationCenter.default.addObserver(
+            forName: .downloadDestinationPath,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let idRaw = note.userInfo?["id"] as? String,
+                  let id = RecordID(rawValue: idRaw),
+                  let path = note.userInfo?["path"] as? String else { return }
+            Task { @MainActor in
+                self?.applyDestinationMetadataFallback(id: id, destinationPath: path)
+            }
+        }
+    }
+
+    deinit {
+        if let destinationObserver {
+            NotificationCenter.default.removeObserver(destinationObserver)
+        }
     }
 
     private static func postStateChanged(id: RecordID, state: DownloadState) {
@@ -173,7 +192,8 @@ final class DownloadCoordinator {
     func enqueue(url: String, title: String?) async {
         do {
             let dest = try makeDestinationURL(for: url)
-            let record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
+            var record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
+            record = DownloadMetadataFallback.applyingFallbacks(to: record, destinationPath: nil)
             try store.insert(record)
             // Fire-and-forget: fetch metadata first, then start the download.
             // The record is visible in the list immediately with a "Fetching info…" phase.
@@ -181,6 +201,18 @@ final class DownloadCoordinator {
         } catch {
             NSLog("❌ enqueue FAILED: \(error)")
             log.error("enqueue failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func applyDestinationMetadataFallback(id: RecordID, destinationPath: String) {
+        do {
+            let record = try store.fetch(id: id)
+            let updated = DownloadMetadataFallback.applyingFallbacks(to: record, destinationPath: destinationPath)
+            guard updated != record else { return }
+            try store.update(updated)
+            Self.postStateChanged(id: id, state: updated.state)
+        } catch {
+            log.warning("destination metadata fallback failed: \(error.localizedDescription)")
         }
     }
 
@@ -277,4 +309,65 @@ public extension Notification.Name {
     static let downloadDestinationPath = Notification.Name("downloadDestinationPath")
     static let cookieWarning = Notification.Name("cookieWarning")
     static let downloaderUpdateRequested = Notification.Name("downloaderUpdateRequested")
+}
+
+enum DownloadMetadataFallback {
+    static func applyingFallbacks(to record: DownloadRecord, destinationPath: String?) -> DownloadRecord {
+        var updated = record
+        if updated.videoTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+           let title = destinationPath.flatMap(title(fromDestinationPath:))
+        {
+            updated.videoTitle = title
+        }
+        if updated.thumbnailURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+           let thumbnail = thumbnailURL(for: updated.url)
+        {
+            updated.thumbnailURL = thumbnail
+        }
+        if updated != record {
+            updated.modified = Date()
+        }
+        return updated
+    }
+
+    static func title(fromDestinationPath path: String) -> String? {
+        let title = URL(fileURLWithPath: path)
+            .deletingPathExtension()
+            .lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? nil : title
+    }
+
+    static func thumbnailURL(for url: String) -> String? {
+        guard let videoID = youtubeVideoID(from: url) else { return nil }
+        return "https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg"
+    }
+
+    private static func youtubeVideoID(from rawURL: String) -> String? {
+        guard let components = URLComponents(string: rawURL),
+              let host = components.host?.lowercased() else { return nil }
+
+        if host == "youtu.be" {
+            return components.path
+                .split(separator: "/")
+                .first
+                .map(String.init)
+        }
+
+        guard host == "youtube.com" || host.hasSuffix(".youtube.com") else { return nil }
+        if let id = components.queryItems?.first(where: { $0.name == "v" })?.value,
+           !id.isEmpty
+        {
+            return id
+        }
+
+        let parts = components.path.split(separator: "/").map(String.init)
+        if let markerIndex = parts.firstIndex(where: { $0 == "shorts" || $0 == "embed" }),
+           parts.indices.contains(markerIndex + 1)
+        {
+            return parts[markerIndex + 1]
+        }
+
+        return nil
+    }
 }

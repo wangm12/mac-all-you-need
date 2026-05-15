@@ -10,17 +10,16 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
     case settings
 
     static let storageKey = "main.selectedDestination"
+    static let primarySidebarDestinations: [MainAppDestination] = [
+        .dashboard,
+        .clipboard,
+        .voice,
+        .downloads,
+        .folderPreview,
+        .snippets
+    ]
 
     var id: String { rawValue }
-
-    var contentStyle: MainAppDestinationContentStyle {
-        switch self {
-        case .settings:
-            .embeddedSettings
-        case .dashboard, .clipboard, .voice, .downloads, .folderPreview, .snippets:
-            .standard
-        }
-    }
 
     var title: String {
         switch self {
@@ -30,7 +29,7 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .downloads: "Downloads"
         case .folderPreview: "Folder Preview"
         case .snippets: "Snippets"
-        case .settings: "System"
+        case .settings: "Settings"
         }
     }
 
@@ -40,9 +39,9 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .clipboard: "Recent captured items"
         case .voice: "Dictation controls"
         case .downloads: "Queue and completed items"
-        case .folderPreview: "Browse folders and archives"
+        case .folderPreview: "Finder Quick Look settings"
         case .snippets: "Reusable text entries"
-        case .settings: "Global settings and maintenance"
+        case .settings: "Global app settings"
         }
     }
 
@@ -54,12 +53,12 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .downloads: "arrow.down.circle"
         case .folderPreview: "folder"
         case .snippets: "text.quote"
-        case .settings: "slider.horizontal.3"
+        case .settings: "gearshape"
         }
     }
 
     static func storedSelection(_ raw: String?) -> MainAppDestination {
-        raw.flatMap(MainAppDestination.init(rawValue:)) ?? .dashboard
+        return raw.flatMap(MainAppDestination.init(rawValue:)) ?? .dashboard
     }
 
     static func load(from defaults: UserDefaults) -> MainAppDestination {
@@ -69,11 +68,6 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
     static func persist(_ destination: MainAppDestination, to defaults: UserDefaults) {
         defaults.set(destination.rawValue, forKey: storageKey)
     }
-}
-
-enum MainAppDestinationContentStyle: Equatable {
-    case standard
-    case embeddedSettings
 }
 
 enum MainStartupSurface: Equatable {

@@ -17,8 +17,7 @@ struct NewListSheet: View {
             Text("New List")
                 .font(.headline)
 
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
+            MAYNTextField(placeholder: "Name", text: $name, width: 280)
 
             HStack {
                 ForEach(palette, id: \.self) { hex in

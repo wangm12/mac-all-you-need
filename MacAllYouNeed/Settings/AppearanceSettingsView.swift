@@ -1,6 +1,6 @@
 import Core
-import SwiftUI
 import CoreFoundation
+import SwiftUI
 
 struct AppearanceSettingsView: View {
     let controller: AppController
@@ -18,14 +18,19 @@ struct AppearanceSettingsView: View {
     }()
 
     private let symbols = ["tray.full", "doc.on.clipboard", "clipboard", "square.on.square", "tray"]
+    private let pasteBehaviorOptions = ["pasteIntoFocused", "copyOnly", "copyThenPaste"]
 
     var body: some View {
         Form {
             Section("Menu bar") {
-                Picker("Icon", selection: $menuSymbol) {
-                    ForEach(symbols, id: \.self) { symbol in
-                        Image(systemName: symbol).tag(symbol)
-                    }
+                HStack {
+                    Text("Icon")
+                    Spacer()
+                    MAYNDropdown(
+                        selection: $menuSymbol,
+                        options: symbols,
+                        title: menuSymbolTitle
+                    )
                 }
             }
 
@@ -47,15 +52,29 @@ struct AppearanceSettingsView: View {
             }
 
             Section("Auto-paste") {
-                Picker("On pick", selection: $pasteBehavior) {
-                    Text("Paste into focused app").tag("pasteIntoFocused")
-                    Text("Just copy").tag("copyOnly")
-                    Text("Copy, then paste").tag("copyThenPaste")
+                HStack {
+                    Text("On pick")
+                    Spacer()
+                    MAYNDropdown(
+                        selection: $pasteBehavior,
+                        options: pasteBehaviorOptions,
+                        title: pasteBehaviorTitle,
+                        width: MAYNControlMetrics.widePickerWidth
+                    )
                 }
 
                 if pasteBehavior == "copyThenPaste" {
-                    Stepper(value: $pasteDelay, in: 50...2000, step: 50) {
-                        Text("Delay: \(pasteDelay) ms")
+                    HStack {
+                        Text("Delay")
+                        Spacer()
+                        MAYNNumericStepper(
+                            text: "\(pasteDelay) ms",
+                            value: $pasteDelay,
+                            range: 50...2000,
+                            step: 50,
+                            presets: [50, 100, 150, 250, 500, 1000, 2000],
+                            suffix: "ms"
+                        )
                     }
                 }
             }
@@ -81,6 +100,36 @@ struct AppearanceSettingsView: View {
         .onChange(of: pasteDelay) { _, value in
             AppGroupSettings.defaults.set(value, forKey: "autoPaste.delayMs")
             postSettingsChangedDarwin()
+        }
+    }
+
+    private func pasteBehaviorTitle(_ behavior: String) -> String {
+        switch behavior {
+        case "pasteIntoFocused":
+            "Paste into focused app"
+        case "copyOnly":
+            "Just copy"
+        case "copyThenPaste":
+            "Copy, then paste"
+        default:
+            behavior
+        }
+    }
+
+    private func menuSymbolTitle(_ symbol: String) -> String {
+        switch symbol {
+        case "tray.full":
+            "Tray full"
+        case "doc.on.clipboard":
+            "Clipboard doc"
+        case "clipboard":
+            "Clipboard"
+        case "square.on.square":
+            "Stack"
+        case "tray":
+            "Tray"
+        default:
+            symbol
         }
     }
 

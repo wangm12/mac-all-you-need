@@ -228,13 +228,13 @@ struct SetupWizardShell<StepID: Hashable, Content: View>: View {
 
     private var actionBar: some View {
         HStack(spacing: 10) {
-            Button("Back", action: back)
+            MAYNButton("Back", action: back)
                 .disabled(!canGoBack)
             if canSkip {
-                Button("Skip", action: skip)
+                MAYNButton("Skip", action: skip)
             }
             Spacer()
-            Button(primaryTitle, action: primaryAction)
+            MAYNButton(primaryTitle, role: .primary, action: primaryAction)
                 .keyboardShortcut(.return)
                 .disabled(!canAdvance)
         }

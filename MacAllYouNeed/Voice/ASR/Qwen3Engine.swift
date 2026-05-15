@@ -14,28 +14,36 @@ enum Qwen3EngineError: LocalizedError {
 }
 
 actor Qwen3Engine: VoiceTranscriptionEngine {
-    nonisolated let modelIdentifier = "qwen3-asr-0.6b-f32"
-    private var manager: Any?
+    nonisolated var modelIdentifier: String {
+        VoiceASRSettingsStore.load().modelID.rawValue
+    }
+    private var managers: [VoiceASRModelID: Any] = [:]
 
-    func transcribe(samples: [Float], sampleRate: Double) async throws -> VoiceTranscriptionResult {
+    func transcribe(
+        samples: [Float],
+        sampleRate: Double,
+        options: VoiceTranscriptionOptions
+    ) async throws -> VoiceTranscriptionResult {
         guard #available(macOS 15, *) else { throw Qwen3EngineError.unsupportedOS }
+        let settings = VoiceASRSettingsStore.load()
+        let modelID = settings.resolvedModelID(preferredModelIdentifier: options.preferredModelIdentifier)
         let qwenSamples = AudioCaptureService.resample(samples, from: sampleRate, to: 16000)
-        let languageHint = VoiceASRSettingsStore.load().languageHint.qwen3Language
-        let text = try await qwenManager().transcribe(
+        let languageHint = settings.languageHint.qwen3Language
+        let text = try await qwenManager(for: modelID).transcribe(
             audioSamples: qwenSamples,
             language: languageHint,
             maxNewTokens: 512
         )
-        return VoiceTranscriptionResult(text: text, language: .mixed, modelIdentifier: modelIdentifier)
+        return VoiceTranscriptionResult(text: text, language: .mixed, modelIdentifier: modelID.rawValue)
     }
 
     @available(macOS 15, *)
-    private func qwenManager() async throws -> Qwen3AsrManager {
-        if let existing = manager as? Qwen3AsrManager { return existing }
-        let cacheDir = try await Qwen3AsrModels.download(variant: .f32)
+    private func qwenManager(for modelID: VoiceASRModelID) async throws -> Qwen3AsrManager {
+        if let existing = managers[modelID] as? Qwen3AsrManager { return existing }
+        let cacheDir = try await Qwen3AsrModels.download(variant: modelID.variant)
         let next = Qwen3AsrManager()
         try await next.loadModels(from: cacheDir)
-        manager = next
+        managers[modelID] = next
         return next
     }
 }

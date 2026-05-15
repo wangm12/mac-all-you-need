@@ -16,6 +16,27 @@ final class AppGroupTests: XCTestCase {
         XCTAssertFalse(AppGroup.isUsingFallbackContainer())
     }
 
+    func testContainerURLOverridableByEnvironment() {
+        let original = AppGroup.containerURLOverride
+        defer { AppGroup.containerURLOverride = original }
+        AppGroup.containerURLOverride = nil
+
+        let tmp = URL(fileURLWithPath: "/tmp/mayn-env-test", isDirectory: true)
+        let url = AppGroup.containerURL(environment: [
+            AppGroup.containerOverrideEnvironmentKey: tmp.path
+        ])
+
+        XCTAssertEqual(url, tmp)
+    }
+
+    func testSettingsUseStandardDefaultsWhenContainerIsOverriddenByEnvironment() {
+        let defaults = AppGroupSettings.defaults(for: [
+            AppGroup.containerOverrideEnvironmentKey: "/tmp/mayn-env-test"
+        ])
+
+        XCTAssertTrue(defaults === UserDefaults.standard)
+    }
+
     func testContainerURLIsAlwaysValid() {
         // On macOS, containerURL(forSecurityApplicationGroupIdentifier:) creates the
         // group container directory and returns it for any valid identifier, regardless

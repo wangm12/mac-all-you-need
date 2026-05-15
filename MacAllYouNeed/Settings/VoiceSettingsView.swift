@@ -1,5 +1,7 @@
 import AVFoundation
 import Core
+import FluidAudio
+import Foundation
 import Platform
 import SwiftUI
 
@@ -7,6 +9,7 @@ struct VoiceSettingsView: View {
     let controller: AppController
     @State private var shortcut: HotkeyDescriptor
     @State private var mode: VoiceActivationMode
+    @State private var selectedASRModelID: VoiceASRModelID
     @State private var languageHint: VoiceASRLanguageHint
     @State private var dictionaryEntries: [VoiceDictionaryEntry]
     @State private var cleanupEnabled: Bool
@@ -18,11 +21,15 @@ struct VoiceSettingsView: View {
     @State private var cleanupStatusMessage: String?
     @State private var onboardingProgress: VoiceOnboardingProgress
     @State private var errorMessage: String?
+    @State private var modelDownloadStatus: [VoiceASRModelID: String] = [:]
+    @State private var modelDownloadFractions: [VoiceASRModelID: Double] = [:]
+    @State private var downloadingModelID: VoiceASRModelID?
     @State private var isShowingDictionary = false
-    @State private var microphoneOptions = VoiceMicrophoneOption.available()
+    @State private var microphoneOptions = VoiceMicrophoneOptionDescriptor.available()
     @AppStorage(VoiceAudioSettings.microphoneIDKey, store: AppGroupSettings.defaults) private var preferredMicrophoneID = VoiceAudioSettings.systemMicrophoneID
     @AppStorage("voice.audio.interactionSounds", store: AppGroupSettings.defaults) private var interactionSounds = true
     @AppStorage("voice.audio.muteWhenDictating", store: AppGroupSettings.defaults) private var muteWhenDictating = false
+    private let microphoneRefreshTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     init(controller: AppController) {
         self.controller = controller
@@ -31,6 +38,7 @@ struct VoiceSettingsView: View {
         let cleanupSettings = controller.voiceCleanupSettings()
         _shortcut = State(initialValue: activationSettings.shortcut)
         _mode = State(initialValue: activationSettings.mode)
+        _selectedASRModelID = State(initialValue: asrSettings.modelID)
         _languageHint = State(initialValue: asrSettings.languageHint)
         _dictionaryEntries = State(initialValue: controller.listVoiceDictionaryEntries())
         _cleanupEnabled = State(initialValue: cleanupSettings.isEnabled)
@@ -58,10 +66,22 @@ struct VoiceSettingsView: View {
             cleanupBaseURLString = provider.defaultBaseURLString
             cleanupAPIKey = controller.voiceCleanupAPIKey(for: provider)
         }
+        .onChange(of: languageHint) { _, hint in
+            VoiceASRSettingsStore.save(VoiceASRSettings(modelID: selectedASRModelID, languageHint: hint))
+        }
         .onAppear {
             onboardingProgress = VoiceOnboardingProgressStore.load()
             dictionaryEntries = controller.listVoiceDictionaryEntries()
-            microphoneOptions = VoiceMicrophoneOption.available()
+            refreshMicrophoneOptions()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
+            refreshMicrophoneOptions()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in
+            refreshMicrophoneOptions()
+        }
+        .onReceive(microphoneRefreshTimer) { _ in
+            refreshMicrophoneOptions()
         }
     }
 
@@ -75,7 +95,10 @@ struct VoiceSettingsView: View {
                     title: "Dictation",
                     subtitle: voiceStateTitle
                 ) {
-                    Button(controller.voiceCoordinator.state == .recording ? "Stop & Paste" : "Start") {
+                    MAYNButton(
+                        controller.voiceCoordinator.state == .recording ? "Stop & Paste" : "Start",
+                        role: controller.voiceCoordinator.state == .recording ? .secondary : .primary
+                    ) {
                         if controller.voiceCoordinator.state == .recording {
                             Task { await controller.voiceCoordinator.stopRecordingAndPaste() }
                         } else {
@@ -104,11 +127,11 @@ struct VoiceSettingsView: View {
                 MAYNDivider()
                 MAYNSettingsRow(title: "Setup actions") {
                     HStack(spacing: 8) {
-                        Button(onboardingProgress.isCompleted ? "Open setup" : "Continue setup") {
+                        MAYNButton(onboardingProgress.isCompleted ? "Open setup" : "Continue setup") {
                             controller.showVoiceOnboarding()
                             onboardingProgress = VoiceOnboardingProgressStore.load()
                         }
-                        Button("Restart") {
+                        MAYNButton("Restart") {
                             controller.restartVoiceOnboarding()
                             onboardingProgress = VoiceOnboardingProgressStore.load()
                         }
@@ -121,14 +144,14 @@ struct VoiceSettingsView: View {
                     title: "Mode",
                     subtitle: "Toggle starts on first press and stops on second press. Hold records while the shortcut is held."
                 ) {
-                    Picker("", selection: $mode) {
-                        ForEach(VoiceActivationMode.allCases) { mode in
-                            Text(mode.compactLabel).tag(mode)
-                        }
+                    FunctionSegmentedTabStrip(
+                        tabs: Array(VoiceActivationMode.allCases),
+                        selection: activationModeBinding.wrappedValue,
+                        fillsAvailableWidth: false,
+                        size: .control
+                    ) { mode in
+                        activationModeBinding.wrappedValue = mode
                     }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 220)
                 }
                 MAYNDivider()
                 MAYNSettingsRow(
@@ -136,25 +159,15 @@ struct VoiceSettingsView: View {
                     subtitle: "Global keyboard trigger for voice capture.",
                     minHeight: shortcutIssue == nil ? 46 : 72
                 ) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        HotkeyRecorder(descriptor: $shortcut, isInvalid: shortcutIssue != nil)
-                            .frame(width: 160, height: 26)
-                        if let shortcutIssue {
-                            Text(shortcutIssue.message)
-                                .font(.caption)
-                                .foregroundStyle(MAYNTheme.danger)
-                                .frame(width: 210, alignment: .leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Apply activation",
-                    subtitle: "Save activation and recognition language settings together."
-                ) {
-                    Button("Apply") { apply() }
-                        .disabled(shortcutIssue != nil)
+                    HotkeyRecorderControl(
+                        descriptor: activationShortcutBinding,
+                        issueMessage: shortcutIssue?.message,
+                        defaultDescriptor: VoiceActivationSettings.default.shortcut,
+                        recorderWidth: 160,
+                        recorderHeight: 26,
+                        errorWidth: 230,
+                        reset: { applyActivationShortcut(VoiceActivationSettings.default.shortcut) }
+                    )
                 }
 
                 if let errorMessage {
@@ -165,26 +178,35 @@ struct VoiceSettingsView: View {
                 }
             }
 
+            MAYNSection(
+                title: "Recognition model",
+                subtitle: "Choose from supported local ASR models. Missing models download before use."
+            ) {
+                ForEach(Array(VoiceASRModelID.allCases.enumerated()), id: \.element.id) { index, modelID in
+                    if index > 0 { MAYNDivider() }
+                    VoiceSettingsModelRow(
+                        modelID: modelID,
+                        isSelected: selectedASRModelID == modelID,
+                        isDownloaded: isDownloaded(modelID),
+                        isDownloading: downloadingModelID == modelID,
+                        statusMessage: modelDownloadStatus[modelID],
+                        downloadFraction: modelDownloadFractions[modelID],
+                        action: { selectModel(modelID) }
+                    )
+                }
+            }
+
             MAYNSection(title: "Language") {
                 MAYNSettingsRow(
                     title: "Dictation language",
-                    subtitle: "Use Auto for mixed Chinese and English. Pick one language only when the transcript is consistently biased wrong."
+                    subtitle: "Choose how dictation biases recognition. Auto-detect is best for mixed Chinese and English; switch to one language only when results drift."
                 ) {
-                    Picker("", selection: $languageHint) {
-                        ForEach(VoiceASRLanguageHint.allCases) { hint in
-                            Text(hint.label).tag(hint)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 180)
-                }
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Multiple languages",
-                    subtitle: "The ASR engine accepts one hint per pass; Auto is the supported mixed-language mode for now."
-                ) {
-                    StatusPill(text: "Auto", kind: .neutral)
+                    MAYNDropdown(
+                        selection: $languageHint,
+                        options: Array(VoiceASRLanguageHint.allCases),
+                        title: VoiceLanguageModePresentation.title,
+                        width: MAYNControlMetrics.widePickerWidth
+                    )
                 }
             }
 
@@ -193,14 +215,12 @@ struct VoiceSettingsView: View {
                     title: "Microphone",
                     subtitle: "Choose the preferred input device for voice capture. Auto follows macOS Sound settings."
                 ) {
-                    Picker("", selection: $preferredMicrophoneID) {
-                        ForEach(microphoneOptions) { option in
-                            Text(option.name).tag(option.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 210)
+                    MAYNDropdown(
+                        selection: $preferredMicrophoneID,
+                        options: microphoneOptions.map(\.id),
+                        title: microphoneTitle,
+                        width: MAYNControlMetrics.widePickerWidth
+                    )
                 }
                 MAYNDivider()
                 MAYNSettingsRow(
@@ -230,45 +250,39 @@ struct VoiceSettingsView: View {
                 }
                 MAYNDivider()
                 MAYNSettingsRow(title: "Provider") {
-                    Picker("", selection: $cleanupProvider) {
-                        ForEach(VoiceCleanupProviderKind.allCases) { provider in
-                            Text(provider.label).tag(provider)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 180)
+                    MAYNDropdown(
+                        selection: $cleanupProvider,
+                        options: Array(VoiceCleanupProviderKind.allCases),
+                        title: { $0.label }
+                    )
                 }
-                MAYNDivider()
-                MAYNSettingsRow(title: "Model") {
-                    TextField("", text: $cleanupModel)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 260)
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "Base URL") {
-                    TextField("", text: $cleanupBaseURLString)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 260)
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "API key") {
-                    SecureField("", text: $cleanupAPIKey)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 260)
-                }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Model") {
+                MAYNTextField(text: $cleanupModel)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Base URL") {
+                MAYNTextField(text: $cleanupBaseURLString)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "API key") {
+                MAYNSecureField(text: $cleanupAPIKey)
+            }
                 MAYNDivider()
                 MAYNSettingsRow(title: "Timeout") {
                     MAYNNumericStepper(
                         text: "\(cleanupTimeoutSeconds)s",
                         value: $cleanupTimeoutSeconds,
-                        range: 1...30
+                        range: 1...30,
+                        presets: [3, 5, 7, 10, 15, 30],
+                        suffix: "s"
                     )
                 }
                 MAYNDivider()
                 MAYNSettingsRow(title: "Cleanup actions") {
                     HStack(spacing: 8) {
-                        Button("Test") { testCleanupSettings() }
-                        Button("Apply") { applyCleanupSettings() }
+                        MAYNButton("Test") { testCleanupSettings() }
+                        MAYNButton("Apply", role: .primary) { applyCleanupSettings() }
                     }
                 }
 
@@ -285,7 +299,7 @@ struct VoiceSettingsView: View {
                     title: "Voice dictionary",
                     subtitle: "\(dictionaryEntries.count) manual entries. Correct names, product terms, and recurring ASR mistakes before cleanup and paste."
                 ) {
-                    Button("Open") {
+                    MAYNButton("Open") {
                         dictionaryEntries = controller.listVoiceDictionaryEntries()
                         isShowingDictionary = true
                     }
@@ -300,7 +314,7 @@ struct VoiceSettingsView: View {
                 }
                 MAYNDivider()
                 MAYNSettingsRow(title: "ASR") {
-                    StatusPill(text: "Qwen3-ASR f32", kind: .neutral)
+                    StatusPill(text: selectedASRModelID.title, kind: .neutral)
                 }
                 MAYNDivider()
                 MAYNSettingsRow(title: "Language hint") {
@@ -317,7 +331,31 @@ struct VoiceSettingsView: View {
         }
     }
 
-    private func apply() {
+    private var activationShortcutBinding: Binding<HotkeyDescriptor> {
+        Binding(
+            get: { shortcut },
+            set: { descriptor in
+                applyActivationShortcut(descriptor)
+            }
+        )
+    }
+
+    private var activationModeBinding: Binding<VoiceActivationMode> {
+        Binding(
+            get: { mode },
+            set: { newMode in
+                mode = newMode
+                applyActivationSettingsIfValid()
+            }
+        )
+    }
+
+    private func applyActivationShortcut(_ descriptor: HotkeyDescriptor) {
+        shortcut = descriptor
+        applyActivationSettingsIfValid()
+    }
+
+    private func applyActivationSettingsIfValid() {
         if let shortcutIssue {
             errorMessage = shortcutIssue.message
             return
@@ -325,7 +363,6 @@ struct VoiceSettingsView: View {
 
         do {
             try controller.applyVoiceActivationSettings(VoiceActivationSettings(shortcut: shortcut, mode: mode))
-            VoiceASRSettingsStore.save(VoiceASRSettings(languageHint: languageHint))
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -346,6 +383,66 @@ struct VoiceSettingsView: View {
         cleanupStatusMessage = controller.validateVoiceCleanupSettings(
             cleanupSettingsDraft,
             apiKey: cleanupAPIKey
+        )
+    }
+
+    private func selectModel(_ modelID: VoiceASRModelID) {
+        if isDownloaded(modelID) {
+            useModel(modelID)
+        } else {
+            downloadModel(modelID, selectWhenReady: true)
+        }
+    }
+
+    private func useModel(_ modelID: VoiceASRModelID) {
+        selectedASRModelID = modelID
+        VoiceASRSettingsStore.save(VoiceASRSettings(modelID: modelID, languageHint: languageHint))
+        modelDownloadStatus[modelID] = "Selected for future dictation."
+    }
+
+    private func downloadModel(_ modelID: VoiceASRModelID, selectWhenReady: Bool = false) {
+        guard downloadingModelID == nil else { return }
+        guard #available(macOS 15, *) else {
+            modelDownloadStatus[modelID] = "Requires macOS 15 or later."
+            return
+        }
+
+        downloadingModelID = modelID
+        modelDownloadFractions[modelID] = 0
+        modelDownloadStatus[modelID] = "Preparing download..."
+        Task {
+            do {
+                try await Qwen3AsrModels.download(
+                    variant: modelID.variant,
+                    progressHandler: { progress in
+                        Task { @MainActor in
+                            modelDownloadStatus[modelID] = VoiceSettingsModelDownloadPresenter.describe(progress)
+                            modelDownloadFractions[modelID] = progress.fractionCompleted
+                        }
+                    }
+                )
+                await MainActor.run {
+                    downloadingModelID = nil
+                    modelDownloadFractions[modelID] = nil
+                    modelDownloadStatus[modelID] = "Downloaded."
+                    if selectWhenReady {
+                        useModel(modelID)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    downloadingModelID = nil
+                    modelDownloadFractions[modelID] = nil
+                    modelDownloadStatus[modelID] = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func isDownloaded(_ modelID: VoiceASRModelID) -> Bool {
+        guard #available(macOS 15, *) else { return false }
+        return Qwen3AsrModels.modelsExist(
+            at: Qwen3AsrModels.defaultCacheDirectory(variant: modelID.variant)
         )
     }
 
@@ -395,35 +492,135 @@ struct VoiceSettingsView: View {
         )
     }
 
-}
-
-private struct VoiceMicrophoneOption: Identifiable, Equatable {
-    static let systemID = VoiceAudioSettings.systemMicrophoneID
-
-    let id: String
-    let name: String
-
-    static func available() -> [VoiceMicrophoneOption] {
-        let system = VoiceMicrophoneOption(id: systemID, name: "Auto-detect (System input)")
-        let session = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.microphone, .external],
-            mediaType: .audio,
-            position: .unspecified
+    private func refreshMicrophoneOptions() {
+        let options = VoiceMicrophoneOptionDescriptor.available()
+        microphoneOptions = options
+        let normalized = VoiceAudioSettings.normalizedPreferredMicrophoneID(
+            preferredMicrophoneID,
+            availableDeviceIDs: Set(options.map(\.id))
         )
-        let devices = session.devices.map {
-            VoiceMicrophoneOption(id: $0.uniqueID, name: $0.localizedName)
+        if normalized != preferredMicrophoneID {
+            preferredMicrophoneID = normalized
         }
-        return [system] + devices
+    }
+
+    private func microphoneTitle(_ id: String) -> String {
+        microphoneOptions.first { $0.id == id }?.name ?? "Auto-detect"
     }
 }
 
-private extension VoiceActivationMode {
-    var compactLabel: String {
-        switch self {
-        case .toggle:
-            "Toggle"
-        case .hold:
-            "Hold"
+enum VoiceLanguageModePresentation {
+    static let exposesSingleDropdown = true
+    static let showsSeparateMultipleLanguagesStatus = false
+
+    static func title(for hint: VoiceASRLanguageHint) -> String {
+        switch hint {
+        case .automatic:
+            "Auto-detect Chinese + English"
+        case .chinese:
+            "Chinese only"
+        case .english:
+            "English only"
+        }
+    }
+}
+
+private struct VoiceSettingsModelRow: View {
+    let modelID: VoiceASRModelID
+    let isSelected: Bool
+    let isDownloaded: Bool
+    let isDownloading: Bool
+    let statusMessage: String?
+    let downloadFraction: Double?
+    let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
+            VStack(alignment: .leading, spacing: 3) {
+                VoiceASRModelTitleLine(modelID: modelID)
+                Text(modelID.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                if let statusText = presentation.statusText {
+                    StatusPill(text: statusText, kind: presentation.statusKind.statusPillKind)
+                }
+                if let downloadFraction {
+                    ProgressView(value: downloadFraction)
+                        .frame(width: 170)
+                }
+                if let actionTitle = presentation.actionTitle {
+                    MAYNButton(actionTitle, action: action)
+                }
+                if let statusMessage {
+                    Text(statusMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(minWidth: MAYNControlMetrics.trailingLaneMinWidth, alignment: .trailing)
+        }
+        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+        .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
+        .frame(minHeight: downloadFraction == nil ? 96 : 114)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isHovering ? MAYNTheme.hover : Color.clear)
+        .contentShape(Rectangle())
+        .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
+        .onHover { isHovering = $0 }
+    }
+
+    private var presentation: VoiceASRModelRowPresentation {
+        VoiceASRModelRowPresentation.model(
+            isSelected: isSelected,
+            isDownloaded: isDownloaded,
+            isDownloading: isDownloading
+        )
+    }
+}
+
+struct VoiceASRModelTitleLine: View {
+    let modelID: VoiceASRModelID
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 7) {
+            Text(VoiceASRModelTitlePresentation.title(for: modelID))
+                .font(.callout)
+            VoiceASRModelSizeTag(text: VoiceASRModelTitlePresentation.sizeLabel(for: modelID))
+        }
+    }
+}
+
+private struct VoiceASRModelSizeTag: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(MAYNTheme.elevated, in: Capsule())
+            .overlay(Capsule().stroke(MAYNTheme.subtleBorder, lineWidth: 1))
+    }
+}
+
+private enum VoiceSettingsModelDownloadPresenter {
+    static func describe(_ progress: DownloadUtils.DownloadProgress) -> String {
+        switch progress.phase {
+        case .listing:
+            "Listing model files..."
+        case let .downloading(completedFiles, totalFiles):
+            "Downloading \(completedFiles)/\(totalFiles) files..."
+        case let .compiling(modelName):
+            "Compiling \(modelName)..."
         }
     }
 }
