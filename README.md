@@ -2,19 +2,159 @@
 
 A native macOS productivity app combining a Paste-style clipboard manager,
 a FolderPreview-style Quick Look extension with PeekX-inspired analysis,
-and a yt-dlp-powered universal video downloader.
+voice dictation, snippets, and a yt-dlp-powered universal video downloader.
 
 ## Status
 
-Pre-alpha. See `docs/superpowers/specs/` for the design spec and
-`docs/superpowers/plans/` for the active implementation plans.
+Pre-alpha. Core local workflows are implemented, but distribution packaging
+and notarized DMG release work are still deferred.
+
+See `docs/superpowers/specs/` for design specs and `docs/superpowers/plans/`
+for implementation plans.
+
+## Requirements
+
+- Xcode 26+ with the macOS SDK installed
+- macOS 14+
+- Homebrew packages:
+
+```bash
+brew install libarchive swiftlint swiftformat xcodegen
+```
+
+- Node.js available at `/opt/homebrew/bin/node`, `/usr/local/bin/node`, or
+  under `~/.nvm/versions/node`
 
 ## Build
 
-Requires Xcode 15+ and macOS 14+.
+Fetch downloader binaries before the first build:
 
 ```bash
-open MacAllYouNeed.xcworkspace
+./scripts/fetch-binaries.sh
+```
+
+Regenerate the Xcode project after `project.yml` changes:
+
+```bash
+xcodegen generate
+```
+
+Run Shared package tests:
+
+```bash
+cd Shared
+PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test
+cd ..
+```
+
+Run the app build:
+
+```bash
+xcodebuild -project MacAllYouNeed.xcodeproj \
+  -scheme MacAllYouNeed \
+  -configuration Debug \
+  -destination 'platform=macOS,arch=arm64' \
+  build
+```
+
+Or use the Makefile shortcuts:
+
+```bash
+make bootstrap   # fetch binaries and regenerate the Xcode project
+make test        # run Shared package tests
+make build       # build Debug
+make release     # build Release and create dist/MacAllYouNeed.dmg
+```
+
+The Debug `.app` is written by Xcode into DerivedData, typically:
+
+```text
+~/Library/Developer/Xcode/DerivedData/MacAllYouNeed-*/Build/Products/Debug/MacAllYouNeed.app
+```
+
+You can also open the project directly:
+
+```bash
+open MacAllYouNeed.xcodeproj
+```
+
+## Distribution
+
+The official DMG target is:
+
+```text
+dist/MacAllYouNeed.dmg
+```
+
+Create it with:
+
+```bash
+make release
+```
+
+or directly:
+
+```bash
+./scripts/package-dmg.sh
+```
+
+The script builds the Release app into repo-local `build/DerivedData`, stages
+the app plus an `/Applications` symlink, and writes the compressed DMG to:
+
+```text
+dist/MacAllYouNeed.dmg
+```
+
+For local development, notarization is skipped unless credentials are provided.
+For official release builds, provide either a notary keychain profile:
+
+```bash
+NOTARY_KEYCHAIN_PROFILE="mac-all-you-need-notary" make release
+```
+
+or Apple ID credentials:
+
+```bash
+APPLE_ID="you@example.com" \
+APPLE_TEAM_ID="TEAMID1234" \
+APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx" \
+make release
+```
+
+To sign the DMG itself, also set:
+
+```bash
+DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID1234)" make release
+```
+
+Release packaging still depends on local Apple signing credentials and
+provisioning being configured correctly in Xcode.
+
+## Cleanup
+
+Local build products and Xcode user state are intentionally not tracked. Safe
+cleanup targets include:
+
+```bash
+rm -rf .build Shared/.build Shared/.swiftpm
+rm -rf MacAllYouNeed.xcodeproj/xcuserdata MacAllYouNeed.xcworkspace/xcuserdata
+rm -rf ~/Library/Developer/Xcode/DerivedData/MacAllYouNeed-*
+rm -f default.profraw Shared/default.profraw
+```
+
+Do not delete `Vendored/binaries/yt-dlp` or `Vendored/binaries/ffmpeg`; the
+app build copies those into the app bundle for downloader runtime support.
+
+After cleanup, verify ignored files before deleting anything else:
+
+```bash
+git clean -ndX
+```
+
+The equivalent Makefile target is:
+
+```bash
+make clean-cache
 ```
 
 ## Codex (Project MCP)

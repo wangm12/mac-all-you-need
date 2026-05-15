@@ -39,11 +39,9 @@ public enum MetadataFetcher {
                 if p.isRunning { p.terminate() }
             }
             p.waitUntilExit()
-            NSLog("🎬 MetadataFetcher: exit=\(p.terminationStatus) url=\(url)")
             guard p.terminationStatus == 0 else { return nil }
             let raw = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             let lines = raw.components(separatedBy: "\n").filter { !$0.isEmpty }
-            NSLog("🎬 MetadataFetcher: lines=\(lines)")
             guard lines.count >= 4 else { return nil }
             return VideoMetadata(
                 title: lines[0],
@@ -67,4 +65,3 @@ public enum MetadataFetcher {
             .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }
-

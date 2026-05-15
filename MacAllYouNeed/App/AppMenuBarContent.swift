@@ -504,8 +504,6 @@ struct ClipboardMenuBarContent: View {
                 return event
             }
 
-            NSLog("🔑 CB keyDown: keyCode=\(event.keyCode) char=\(char.debugDescription) cmd=\(cmd) sel=\(reader.selectedIDs.count) isDel=\(isDeleteKey)")
-
             if cmd && isDeleteKey {  // Cmd+⌫: delete selected
                 guard !reader.selectedIDs.isEmpty else { return event }
                 let store = reader.store

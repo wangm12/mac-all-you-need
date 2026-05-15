@@ -27,7 +27,6 @@ public actor DownloadQueue {
     private let started: StartHandler
     private let progress: ProgressHandler
     private let completion: CompletionHandler
-    private let log = Logging.logger(for: "downloader", category: "queue")
 
     public init(
         maxConcurrent: Int,
@@ -91,12 +90,10 @@ public actor DownloadQueue {
     private func spawn(job: DownloadJob) {
         let handle = job.pipe.fileHandleForReading
         let lineBuffer = LineBuffer()
-        NSLog("🚀 spawn: starting pid for url=\(job.url)")
         handle.readabilityHandler = { [progress, recordID = job.recordID] fh in
             let data = fh.availableData
             if data.isEmpty { return }
             for s in lineBuffer.append(data) {
-                NSLog("📺 yt-dlp: \(s)")
                 if let p = ProgressParser.parse(line: s) {
                     progress(recordID, p)
                 } else if let dest = ProgressParser.extractDestination(line: s) {
@@ -117,20 +114,17 @@ public actor DownloadQueue {
             }
         }
         job.process.terminationHandler = { [weak self, recordID = job.recordID] proc in
-            NSLog("🏁 yt-dlp terminated: status=\(proc.terminationStatus)")
             handle.readabilityHandler = nil
             Task { await self?.completed(recordID: recordID, status: proc.terminationStatus) }
         }
         do {
             try job.process.run()
         } catch {
-            NSLog("❌ spawn: process.run() threw: \(error)")
             Task { await self.completed(recordID: job.recordID, status: -1) }
         }
     }
 
     private func completed(recordID: RecordID, status: Int32) async {
-        NSLog("🏁 completed: status=\(status) for recordID=\(recordID.rawValue.prefix(8))")
         running.removeValue(forKey: recordID)
         if pausedIDs.contains(recordID) {
             // Job was terminated for pause — don't fire failure completion
