@@ -306,7 +306,7 @@ struct VoiceSettingsView: View {
                 }
             }
 
-            VoiceAppProfilesSection(controller: controller, errorMessage: $errorMessage)
+            // App-specific overrides are now configured in the Personalization tab.
 
             MAYNSection(title: "History / MVP") {
                 MAYNSettingsRow(title: "Default shortcut") {

@@ -27,24 +27,28 @@ extension AppController {
         try voiceTranscriptStore.delete(ids: ids)
     }
 
-    func listVoiceAppProfiles() -> [VoiceAppProfile] {
-        (try? voiceAppProfileStore.list()) ?? []
+    func listPersonalizationContexts() -> [VoicePersonalizationContext] {
+        (try? voicePersonalizationStore.listContexts()) ?? []
     }
 
-    func upsertVoiceAppProfile(
-        bundleID: String,
-        displayName: String,
-        config: VoiceAppProfileConfig
-    ) throws {
-        try voiceAppProfileStore.upsert(
-            bundleID: bundleID,
-            displayName: displayName,
-            config: config
-        )
+    func upsertPersonalizationContext(_ draft: VoicePersonalizationContextDraft) throws {
+        try voicePersonalizationStore.upsertContext(draft)
     }
 
-    func deleteVoiceAppProfile(id: String) throws {
-        try voiceAppProfileStore.delete(id: id)
+    func deletePersonalizationContext(id: String) throws {
+        try voicePersonalizationStore.deleteContext(id: id)
+    }
+
+    func clearPersonalizationData() throws {
+        try voicePersonalizationStore.clearAll()
+    }
+
+    func voicePersonalizationSettings() -> VoicePersonalizationSettings {
+        VoicePersonalizationSettingsStore.load()
+    }
+
+    func applyVoicePersonalizationSettings(_ settings: VoicePersonalizationSettings) {
+        VoicePersonalizationSettingsStore.save(settings)
     }
 
     func voiceCleanupSettings() -> VoiceCleanupSettings {

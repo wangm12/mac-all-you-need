@@ -19,13 +19,17 @@ final class VoiceCoordinator {
     private let engine: any VoiceTranscriptionEngine
     private let transcripts: VoiceTranscriptStore
     private let dictionary: VoiceDictionaryStore?
-    private let appProfiles: VoiceAppProfileStore?
+    private let personalizationStore: VoicePersonalizationStore?
+    private let personalizationSettings: () -> VoicePersonalizationSettings
     private let cleanupKeyStore: VoiceCleanupKeyStore
     private let autoSubmit: VoiceAutoSubmitService
+    private let learningMonitor: VoicePostEditLearningMonitor
+    private let summarizer: VoicePersonalizationSummarizer?
     private let hud = MiniVoiceHUD()
     private let activation = VoiceActivationMonitor()
     private let log = Logger(subsystem: "com.macallyouneed.voice", category: "coordinator")
     private var levelTask: Task<Void, Never>?
+    private var monitorTask: Task<Void, Never>?
     private var cleanupSettings: VoiceCleanupSettings
     private var operationGeneration = 0
     private var activationMonitoringSuspended = false
@@ -36,19 +40,25 @@ final class VoiceCoordinator {
     init(
         transcripts: VoiceTranscriptStore,
         dictionary: VoiceDictionaryStore? = nil,
-        appProfiles: VoiceAppProfileStore? = nil,
+        personalizationStore: VoicePersonalizationStore? = nil,
+        personalizationSettings: @escaping () -> VoicePersonalizationSettings = { .default },
         engine: any VoiceTranscriptionEngine = Qwen3Engine(),
         cleanupSettings: VoiceCleanupSettings = VoiceCleanupSettingsStore.load(),
         cleanupKeyStore: VoiceCleanupKeyStore = VoiceCleanupKeyStore(keychain: SystemKeychain()),
-        autoSubmit: VoiceAutoSubmitService = VoiceAutoSubmitService()
+        autoSubmit: VoiceAutoSubmitService = VoiceAutoSubmitService(),
+        learningMonitor: VoicePostEditLearningMonitor? = nil,
+        summarizer: VoicePersonalizationSummarizer? = nil
     ) {
         self.transcripts = transcripts
         self.dictionary = dictionary
-        self.appProfiles = appProfiles
+        self.personalizationStore = personalizationStore
+        self.personalizationSettings = personalizationSettings
         self.engine = engine
         self.cleanupSettings = cleanupSettings
         self.cleanupKeyStore = cleanupKeyStore
         self.autoSubmit = autoSubmit
+        self.learningMonitor = learningMonitor ?? VoicePostEditLearningMonitor()
+        self.summarizer = summarizer
         activation.onPress = { [weak self] in Task { @MainActor in await self?.handleActivationPress() } }
         activation.onRelease = { [weak self] in Task { @MainActor in await self?.handleActivationRelease() } }
     }
@@ -89,11 +99,17 @@ final class VoiceCoordinator {
         activation.stop()
         levelTask?.cancel()
         levelTask = nil
+        monitorTask?.cancel()
+        monitorTask = nil
         _ = audio.stop()
         hud.dismiss()
     }
 
     func startRecording() async {
+        // Cancel any in-flight post-edit monitor from the previous dictation.
+        monitorTask?.cancel()
+        monitorTask = nil
+
         guard state == .idle else { return }
         lastTranscript = nil
         guard await audio.requestPermission() else {
@@ -126,22 +142,42 @@ final class VoiceCoordinator {
         hud.show(.transcribing, onCancel: makeCancelAction())
         do {
             let appBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-            let appProfile = activeProfile(for: appBundleID)
+
+            // Load personalization context for this app (overrides + style hints).
+            let (appCtx, globalCtx) = loadContexts(bundleID: appBundleID)
+            let effectiveCtx = appCtx ?? globalCtx
+
             let result = try await engine.transcribe(
                 samples: captured.samples,
                 sampleRate: captured.sampleRate,
-                options: VoiceTranscriptionOptions(preferredModelIdentifier: appProfile?.config.asrEngineID)
+                options: VoiceTranscriptionOptions(
+                    preferredModelIdentifier: effectiveCtx?.asrModelID
+                )
             )
             guard isCurrentOperation(generation), state == .transcribing else { return }
             let dictionaryEntries = (try? dictionary?.list()) ?? []
-            let cleanup = makeCleanupPipeline()
-            let cleanupResult = await cleanup.clean(VoiceCleanupRequest(
+
+            // Build personalization-enriched cleanup request.
+            let recentExamples = loadRecentExamples(context: effectiveCtx)
+            let cleanupRequest = VoiceCleanupRequest(
                 rawText: result.text,
                 appBundleID: appBundleID,
                 language: result.language,
                 dictionaryEntries: dictionaryEntries,
-                appInstructions: appProfile?.config.customPrompt
-            ))
+                appInstructions: effectiveCtx?.customPromptOverride.flatMap {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+                },
+                personalStyleNotes: globalCtx?.styleNotes.flatMap {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+                },
+                personalizationSummary: (appCtx?.summary ?? globalCtx?.summary).flatMap {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+                },
+                recentExamples: recentExamples
+            )
+
+            let cleanup = makeCleanupPipeline()
+            let cleanupResult = await cleanup.clean(cleanupRequest)
             guard isCurrentOperation(generation), state == .transcribing else { return }
             let text = cleanupResult.cleanedText
             guard !text.isEmpty else {
@@ -150,18 +186,37 @@ final class VoiceCoordinator {
             }
             lastTranscript = cleanupResult
 
+            // Snapshot AX target before paste so the monitor can track the field.
+            let axSnapshot = AXFocusedTextReader.snapshotFocused()
+
             state = .pasting
             let pasteResult = await CursorPaster.paste(text)
-            _ = try saveTranscript(captured: captured, result: result, cleanedText: text, appBundleID: appBundleID)
+            let savedTranscript = try saveTranscript(
+                captured: captured, result: result, cleanedText: text, appBundleID: appBundleID
+            )
 
             hud.show(
                 pasteResult.didPostPasteEvent ? .pasted : .error("Text copied. Press Command-V to paste."),
                 onPrimary: makeDismissAction()
             )
-            if pasteResult.didPostPasteEvent, let autoSubmitKey = appProfile?.config.autoSubmitKey {
+
+            // Auto-submit (app-specific).
+            let autoSubmitKey = effectiveCtx?.autoSubmitKey
+            if pasteResult.didPostPasteEvent, let key = autoSubmitKey, key != .none {
                 try? await Task.sleep(for: .milliseconds(80))
-                autoSubmit.submit(autoSubmitKey)
+                autoSubmit.submit(key)
             }
+
+            // Fire post-edit learning monitor (fire-and-forget).
+            let isAutoSubmit = autoSubmitKey != nil && autoSubmitKey != .none
+            startLearningMonitor(
+                pastedText: text,
+                transcriptID: savedTranscript.id,
+                contextID: effectiveCtx?.id,
+                isAutoSubmit: isAutoSubmit,
+                snapshot: axSnapshot
+            )
+
             try? await Task.sleep(for: .seconds(1))
             guard isCurrentOperation(generation) else { return }
             state = .idle
@@ -177,6 +232,8 @@ final class VoiceCoordinator {
         operationGeneration += 1
         levelTask?.cancel()
         levelTask = nil
+        monitorTask?.cancel()
+        monitorTask = nil
         _ = audio.stop()
         state = .idle
         hud.dismiss()
@@ -200,14 +257,47 @@ final class VoiceCoordinator {
         ))
     }
 
-    private func activeProfile(for appBundleID: String?) -> VoiceAppProfile? {
-        guard let appBundleID,
-              let profile = try? appProfiles?.fetch(bundleID: appBundleID),
-              profile.config.isEnabled
-        else {
-            return nil
+    private func loadContexts(bundleID: String?) -> (app: VoicePersonalizationContext?, global: VoicePersonalizationContext?) {
+        let global = try? personalizationStore?.fetchContext(bundleID: VoicePersonalizationContext.globalBundleID)
+        guard let bundleID else { return (nil, global) }
+        let app = (try? personalizationStore?.fetchContext(bundleID: bundleID)).flatMap {
+            $0.enabled ? $0 : nil
         }
-        return profile
+        return (app, global)
+    }
+
+    private func loadRecentExamples(context: VoicePersonalizationContext?) -> [(before: String, after: String)] {
+        guard let ctxID = context?.id, let store = personalizationStore else { return [] }
+        let samples = (try? store.listRecentSamples(contextID: ctxID, limit: 10)) ?? []
+        return samples.map { ($0.before, $0.after) }
+    }
+
+    private func startLearningMonitor(
+        pastedText: String,
+        transcriptID: String?,
+        contextID: String?,
+        isAutoSubmit: Bool,
+        snapshot: AXTargetSnapshot?
+    ) {
+        guard personalizationSettings().learnFromEditsEnabled,
+              let snapshot,
+              let ctxID = contextID,
+              let store = personalizationStore
+        else { return }
+
+        monitorTask = Task { [weak self] in
+            guard let self else { return }
+            let draft = await self.learningMonitor.observe(
+                pastedText: pastedText,
+                transcriptID: transcriptID,
+                contextID: ctxID,
+                isAutoSubmitContext: isAutoSubmit,
+                snapshot: snapshot
+            )
+            guard let draft else { return }
+            try? store.appendSample(draft)
+            await self.summarizer?.maybeRun(contextID: ctxID)
+        }
     }
 
     private func makeCleanupPipeline() -> VoiceCleanupPipeline {
@@ -270,19 +360,11 @@ final class VoiceCoordinator {
     }
 
     private func makeCancelAction() -> () -> Void {
-        { [weak self] in
-            Task { @MainActor in
-                self?.cancelCurrentOperation()
-            }
-        }
+        { [weak self] in Task { @MainActor in self?.cancelCurrentOperation() } }
     }
 
     private func makeStopAction() -> () -> Void {
-        { [weak self] in
-            Task { @MainActor in
-                await self?.stopRecordingAndPaste()
-            }
-        }
+        { [weak self] in Task { @MainActor in await self?.stopRecordingAndPaste() } }
     }
 
     private func makeDismissAction() -> () -> Void {

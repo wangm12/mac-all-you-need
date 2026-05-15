@@ -11,7 +11,7 @@ private struct StartupStores {
     let clipboard: ClipboardStore
     let voiceTranscripts: VoiceTranscriptStore
     let voiceDictionary: VoiceDictionaryStore
-    let voiceAppProfiles: VoiceAppProfileStore
+    let voicePersonalization: VoicePersonalizationStore
     let blob: BlobStore
     let search: SearchStore
 }
@@ -40,7 +40,7 @@ final class AppController {
     private let pinboardStore: PinboardStore
     let voiceTranscriptStore: VoiceTranscriptStore
     let voiceDictionaryStore: VoiceDictionaryStore
-    let voiceAppProfileStore: VoiceAppProfileStore
+    let voicePersonalizationStore: VoicePersonalizationStore
     let voiceCoordinator: VoiceCoordinator
 
     private let hotkeyRegistry = HotkeyRegistry()
@@ -90,7 +90,7 @@ final class AppController {
         pinboardStore = stores.pinboard
         voiceTranscriptStore = stores.voiceTranscripts
         voiceDictionaryStore = stores.voiceDictionary
-        voiceAppProfileStore = stores.voiceAppProfiles
+        voicePersonalizationStore = stores.voicePersonalization
         voiceCoordinator = makeVoiceCoordinator(stores: stores, cleanupKeyStore: cleanupKeyStore)
 
         clipboardReader = LocalClipboardReader(store: stores.clipboard)
@@ -216,7 +216,7 @@ final class AppController {
             clipboard: clipboardStore,
             voiceTranscripts: VoiceTranscriptStore(database: clipboardDatabase),
             voiceDictionary: VoiceDictionaryStore(database: clipboardDatabase),
-            voiceAppProfiles: VoiceAppProfileStore(database: clipboardDatabase),
+            voicePersonalization: VoicePersonalizationStore(database: clipboardDatabase, deviceKey: key),
             blob: makeBlobStore(key: key),
             search: searchStore
         )
@@ -446,11 +446,21 @@ private func makeVoiceCoordinator(
     stores: StartupStores,
     cleanupKeyStore: VoiceCleanupKeyStore
 ) -> VoiceCoordinator {
-    VoiceCoordinator(
+    let summarizer = VoicePersonalizationSummarizer(
+        store: stores.voicePersonalization,
+        settings: { VoicePersonalizationSettingsStore.load() },
+        makeProvider: {
+            let settings = VoiceCleanupSettingsStore.load()
+            return try VoiceCleanupProviderFactory.makeTextGenerationProvider(settings: settings, keyStore: cleanupKeyStore)
+        }
+    )
+    return VoiceCoordinator(
         transcripts: stores.voiceTranscripts,
         dictionary: stores.voiceDictionary,
-        appProfiles: stores.voiceAppProfiles,
-        cleanupKeyStore: cleanupKeyStore
+        personalizationStore: stores.voicePersonalization,
+        personalizationSettings: { VoicePersonalizationSettingsStore.load() },
+        cleanupKeyStore: cleanupKeyStore,
+        summarizer: summarizer
     )
 }
 

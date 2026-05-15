@@ -153,31 +153,10 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
         XCTAssertNil(presentation.actionTitle)
     }
 
-    func testAppProfileEditorExplainsAppSpecificOverrides() {
-        XCTAssertEqual(
-            VoiceAppProfileEditorPresentation.sectionSubtitle,
-            "Use app-specific overrides only when an app needs different voice behavior."
-        )
-        XCTAssertEqual(
-            VoiceAppProfileEditorPresentation.modelSubtitle,
-            "Usually Inherit. Override only when this app needs a different accuracy or memory tradeoff."
-        )
-    }
-
-    func testAppProfileModelPickerUsesCompactInheritAndKnownModelOptions() {
-        XCTAssertEqual(
-            VoiceAppProfileEditorPresentation.modelOptions,
-            [
-                "inherit",
-                VoiceASRModelID.qwen3ASR06BF32.rawValue,
-                VoiceASRModelID.qwen3ASR06BInt8.rawValue
-            ]
-        )
-        XCTAssertEqual(VoiceAppProfileEditorPresentation.modelTitle("inherit"), "Inherit global model")
-        XCTAssertEqual(
-            VoiceAppProfileEditorPresentation.modelTitle(VoiceASRModelID.qwen3ASR06BF32.rawValue),
-            "Qwen3-ASR 0.6B f32"
-        )
+    func testAppProfileEditorPresentation_removed() {
+        // VoiceAppProfileEditorPresentation was part of VoiceAppProfilesSection,
+        // which was deleted when app_profiles was replaced by the personalization store.
+        // These tests are intentionally empty; the T10 sweep will clean them up.
     }
 }
 

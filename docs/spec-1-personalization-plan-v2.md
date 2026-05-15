@@ -1,9 +1,40 @@
 # Spec 1 v2 — Voice Personalization (Plan after Codex review)
 
-Status: **Approved. Ready for Build.**
+Status: **In Build — Wave 4 (T7) in progress.**
 Branch: `feature/voice-personalization` (off main @ `6c99828`)
-Created: 2026-05-14 | Updated: 2026-05-14
+Created: 2026-05-14 | Updated: 2026-05-15
 Reviewer: Codex (msg `msg_d18f5c4f7a614a91`, thread `thread_04e07a33aee647bd`)
+Build reviewer: Codex Wave 1–3 reviews incorporated (4 review-fix commits)
+
+## Build progress
+
+| Task | Status | Commit | Tests |
+|---|---|---|---|
+| T1 Personalization storage | ✅ done | 9d1dacb | 16 pass |
+| T2 VoicePersonalizationSettings | ✅ done | 9ff36da | 4 pass |
+| T3 AX privacy filter | ✅ done | 796bcac | 9 pass |
+| T5a TextGenerationProvider seam | ✅ done | c2723ab | 5 pass |
+| T4 PostEditLearningMonitor | ✅ done | 64b9f7f | 13 pass |
+| T5 Summarizer | ✅ done | 88d5ba7 | 7 pass |
+| T6 Prompt builder injection | ✅ done | 88d5ba7 | 9 pass |
+| Review fixes (Wave 1–3) | ✅ done | 7ef80a5, f147366, f1129c3 | — |
+| T7 VoiceCoordinator integration | 🔄 in progress | — | — |
+| T8 Personalization page UI | ⏳ pending | — | — |
+| T9 Onboarding consent toggle | ⏳ pending | — | — |
+| T10 Test sweep + CI green | ⏳ pending | — | — |
+| T11 Manual verification doc | ⏳ pending | — | — |
+
+## Key review findings incorporated (post-Codex)
+- AX identity: `AXTargetSnapshot` with `CFEqual` (B1 Wave 1)
+- Monitor anchor polling: keeps polling until paste appears (P1.2 Wave 3)
+- Summarizer sanitizes LLM output: strip `<>`/cap at 1500 chars (P1.3 Wave 3)
+- Regression baseline: hardcoded golden string, not computed (P2.4 Wave 3)
+- cappedExamples: takes newest-first slice, returns oldest-first (P2.5 Wave 3)
+- `makeTextGenerationProvider`: `try` not `try?` for keychain errors (medium Wave 2)
+
+## Not mergeable gate
+`VoiceAppProfileStore` is a no-op shim. `app_profiles` was dropped. T7 must land
+before this branch is mergeable to main.
 
 ---
 
