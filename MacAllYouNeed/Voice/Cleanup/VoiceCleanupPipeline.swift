@@ -73,6 +73,14 @@ protocol VoiceLLMProvider: Sendable {
     func clean(_ request: VoiceLLMRequest) async throws -> String
 }
 
+/// Narrow protocol for text generation with explicit system + user prompts.
+/// Used by VoicePersonalizationSummarizer to generate style summaries without
+/// fighting the cleanup-specific prompt that VoiceLLMProvider.clean() injects.
+protocol VoiceTextGenerationProvider: Sendable {
+    var providerIdentifier: String { get }
+    func generate(systemPrompt: String, userText: String) async throws -> String
+}
+
 struct VoiceCleanupPipeline {
     private let provider: (any VoiceLLMProvider)?
     private let timeout: Duration

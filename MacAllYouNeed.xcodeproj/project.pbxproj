@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01B7408A15ACBE38EE81D6CC /* VoiceTextGenerationProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2876DCA089797AF9F10608C2 /* VoiceTextGenerationProviderTests.swift */; };
 		020BCA417F1FCCF74E881856 /* CursorPaster.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F2359150C892558B6A7FB3 /* CursorPaster.swift */; };
 		051D5139A9BC6E99170FD42B /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F208E396D585E76CE9A288 /* MainWindowController.swift */; };
 		091C3405B43D06740BE92799 /* ShortcutBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173493C07247517CB2D6B31F /* ShortcutBinding.swift */; };
@@ -249,6 +250,7 @@
 		2624D38CF44DD95A5AE649F0 /* FileURLLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileURLLoader.swift; sourceTree = "<group>"; };
 		268AA76FF8A6FFDB5E52B6C6 /* VoicePromptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptBuilder.swift; sourceTree = "<group>"; };
 		278A0CCA816741468E53A2E6 /* ShortcutMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutMatcher.swift; sourceTree = "<group>"; };
+		2876DCA089797AF9F10608C2 /* VoiceTextGenerationProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextGenerationProviderTests.swift; sourceTree = "<group>"; };
 		2B70AD9C6C31FDFAAEFED2F3 /* ClipboardDockModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDockModelTests.swift; sourceTree = "<group>"; };
 		2C9739EFE22157DDF7AFD91B /* ClipboardSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardSettingsView.swift; sourceTree = "<group>"; };
 		2D3189EA90B56114283E8400 /* OnboardingWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWizardView.swift; sourceTree = "<group>"; };
@@ -493,6 +495,7 @@
 				A219C8BAFC244641984E816C /* VoicePersonalizationSettingsTests.swift */,
 				47EA709D9D8224E67BEA610E /* VoicePromptBuilderTests.swift */,
 				10DDA007B1CE0D6C221097CD /* VoiceShortcutMatcherTests.swift */,
+				2876DCA089797AF9F10608C2 /* VoiceTextGenerationProviderTests.swift */,
 			);
 			path = Voice;
 			sourceTree = "<group>";
@@ -1184,6 +1187,7 @@
 				C3EF1B71F362965F3108A6E0 /* VoicePersonalizationSettingsTests.swift in Sources */,
 				54B97268DCA5660A54892F84 /* VoicePromptBuilderTests.swift in Sources */,
 				2596DA6B82D77FF286F323B3 /* VoiceShortcutMatcherTests.swift in Sources */,
+				01B7408A15ACBE38EE81D6CC /* VoiceTextGenerationProviderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

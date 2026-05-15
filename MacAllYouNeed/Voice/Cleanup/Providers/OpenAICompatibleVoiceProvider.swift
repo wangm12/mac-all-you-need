@@ -1,6 +1,6 @@
 import Foundation
 
-struct OpenAICompatibleVoiceProvider: VoiceLLMProvider {
+struct OpenAICompatibleVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvider {
     let providerIdentifier = "openai-compatible"
 
     private let apiKey: String
@@ -36,6 +36,24 @@ struct OpenAICompatibleVoiceProvider: VoiceLLMProvider {
             ]
         ])
 
+        let data = try await Self.data(for: urlRequest, session: session)
+        return try Self.parseText(from: data)
+    }
+
+    func generate(systemPrompt: String, userText: String) async throws -> String {
+        var urlRequest = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !apiKey.isEmpty {
+            urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model,
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userText]
+            ]
+        ])
         let data = try await Self.data(for: urlRequest, session: session)
         return try Self.parseText(from: data)
     }

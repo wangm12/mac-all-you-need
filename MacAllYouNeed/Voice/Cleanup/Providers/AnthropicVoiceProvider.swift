@@ -1,6 +1,6 @@
 import Foundation
 
-struct AnthropicVoiceProvider: VoiceLLMProvider {
+struct AnthropicVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvider {
     let providerIdentifier = "anthropic"
 
     private let apiKey: String
@@ -38,6 +38,22 @@ struct AnthropicVoiceProvider: VoiceLLMProvider {
             ]
         ])
 
+        let data = try await Self.data(for: urlRequest, session: session)
+        return try Self.parseText(from: data)
+    }
+
+    func generate(systemPrompt: String, userText: String) async throws -> String {
+        var urlRequest = URLRequest(url: baseURL.appendingPathComponent("v1/messages"))
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model,
+            "max_tokens": 512,
+            "system": systemPrompt,
+            "messages": [["role": "user", "content": userText]]
+        ])
         let data = try await Self.data(for: urlRequest, session: session)
         return try Self.parseText(from: data)
     }
