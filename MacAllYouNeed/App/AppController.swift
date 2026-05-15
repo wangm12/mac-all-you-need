@@ -139,10 +139,6 @@ final class AppController {
         }
     }
 
-    func startSyncIfConfigured() async {
-        // Plan 2 (SyncEngine) is deferred — stub for now
-    }
-
     func suspendCaptureFor60Seconds() {
         AppGroupSettings.defaults.set(
             Date().addingTimeInterval(60).timeIntervalSince1970,

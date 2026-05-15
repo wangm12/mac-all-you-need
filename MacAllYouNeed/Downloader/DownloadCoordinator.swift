@@ -105,12 +105,8 @@ final class DownloadCoordinator {
                 withIntermediateDirectories: true
             )
             let result = try CookieImporter.combinedCookiesFile(at: cookieFile)
-            let lines = (try? String(contentsOfFile: cookieFile.path, encoding: .utf8))?
-                .components(separatedBy: "\n").count ?? 0
-            NSLog("🍪 cookieArgs: \(lines) lines, hadErrors=\(result.hadErrors)")
             return (["--cookies", cookieFile.path], result.hadErrors)
         } catch {
-            NSLog("🍪 cookieArgs: EMPTY — \(error)")
             return ([], true)
         }
     }
@@ -199,7 +195,6 @@ final class DownloadCoordinator {
             // The record is visible in the list immediately with a "Fetching info…" phase.
             Task { [weak self] in await self?.fetchMetadataThenStart(record: record, url: url, dest: dest) }
         } catch {
-            NSLog("❌ enqueue FAILED: \(error)")
             log.error("enqueue failed: \(error.localizedDescription)")
         }
     }
@@ -252,7 +247,6 @@ final class DownloadCoordinator {
         do {
             let ytdlp = try binaries.ytdlpPath()
             let ffmpeg = try binaries.ffmpegPath()
-            NSLog("▶️ enqueue: url=\(url) ytdlp=\(ytdlp.path)")
             let job = DownloadJob(
                 recordID: record.id, url: url, destination: dest,
                 ytdlp: ytdlp, ffmpeg: ffmpeg,

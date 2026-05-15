@@ -31,6 +31,8 @@ targets:
       path: MacAllYouNeed/Info.plist
       properties:
         CFBundleName: MacAllYouNeed
+        CFBundleIconFile: AppIcon
+        CFBundleIconName: AppIcon
         MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
         MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
         NSMicrophoneUsageDescription: MacAllYouNeed needs microphone access for voice dictation.

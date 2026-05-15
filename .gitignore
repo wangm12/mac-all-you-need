@@ -1,9 +1,11 @@
 # Xcode
 build/
+dist/
 DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcuserstate
+*.profraw
 *.swp
 *.swo
 

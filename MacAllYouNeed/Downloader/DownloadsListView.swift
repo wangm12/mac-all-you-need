@@ -225,10 +225,6 @@ struct DownloadsListView: View {
                 return event
             }
 
-            NSLog(
-                "🔑 DL keyDown: keyCode=\(event.keyCode) char=\(char.debugDescription) cmd=\(cmd) sel=\(vm.selectedIDs.count) isDel=\(isDeleteKey)"
-            )
-
             if cmd, isDeleteKey { // Cmd+⌫ or Cmd+⌦: delete selected
                 guard !vm.selectedIDs.isEmpty else { return event }
                 let ids = self.visibleRows.filter { vm.selectedIDs.contains($0.id.rawValue) }.map(\.id)
