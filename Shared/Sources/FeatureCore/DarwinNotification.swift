@@ -9,3 +9,9 @@ public enum DarwinNotification {
         CFNotificationCenterPostNotification(center, cfName, nil, nil, true)
     }
 }
+
+public extension Notification.Name {
+    /// Posted on NotificationCenter.default after every feature state transition.
+    /// Used by FeatureStatePublisher to refresh its @Published mirror.
+    static let featureRuntimeStateChanged = Notification.Name("featureRuntimeStateChanged")
+}

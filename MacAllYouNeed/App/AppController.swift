@@ -38,6 +38,8 @@ final class AppController {
     /// Registry-driven feature lifecycle. Seeded by BootstrapDefaults on first launch.
     let runtime: FeatureRuntime
     private let featureManager: FeatureManager
+    /// SwiftUI-observable mirror of FeatureManager state (Phase 05).
+    let featureStatePublisher: FeatureStatePublisher
 
     // Stores retained so menu actions (e.g. Clear Older Than) can run locally
     // when the daemon's XPC mach service isn't available.
@@ -129,6 +131,7 @@ final class AppController {
         let rt = FeatureRuntime(registry: featureRegistry, manager: fm)
         featureManager = fm
         runtime = rt
+        featureStatePublisher = FeatureStatePublisher(manager: fm)
 
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()

@@ -64,5 +64,6 @@ public actor FeatureRuntime {
                 active.remove(id)
             }
         }
+        NotificationCenter.default.post(name: .featureRuntimeStateChanged, object: nil)
     }
 }
