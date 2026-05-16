@@ -1,5 +1,9 @@
 # Modular Features — Implementation Plan Index
 
+## Status
+
+✅ **Complete** — implementation finished 2026-05-16. Pending Plan 7 release for public distribution.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement each phase plan task-by-task. Steps in phase plans use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Convert MAYN from a monolithic app to a registry-driven system with modular activation and on-demand heavy assets, per the design at `docs/superpowers/specs/2026-05-15-modular-features-design.md`.
@@ -442,18 +446,18 @@ This is optional but recommended for a 12-phase initiative.
 
 Use this top-level checklist to track plan completion. Each row's detail lives in its phase plan.
 
-- [ ] Phase 01 — Foundation
+- [x] Phase 01 — Foundation
 - [x] Phase 02 — Pack infrastructure
-- [ ] Phase 03 — Feature activators
-- [ ] Phase 04 — Registry-driven bootstrap
-- [ ] Phase 05 — Features tab UI
-- [ ] Phase 06 — Downloader pack
-- [ ] Phase 07 — Voice asset caches
-- [ ] Phase 08 — Folder Preview placeholder
-- [ ] Phase 09 — Onboarding redesign
-- [ ] Phase 10 — Daemon Darwin observation
-- [ ] Phase 11 — Migration
-- [ ] Phase 12 — Cleanup & polish
+- [x] Phase 03 — Feature activators
+- [x] Phase 04 — Registry-driven bootstrap
+- [x] Phase 05 — Features tab UI
+- [x] Phase 06 — Downloader pack
+- [x] Phase 07 — Voice asset caches
+- [x] Phase 08 — Folder Preview placeholder
+- [x] Phase 09 — Onboarding redesign
+- [x] Phase 10 — Daemon Darwin observation
+- [x] Phase 11 — Migration
+- [x] Phase 12 — Cleanup & polish
 
 ## Conventions across all phase plans
 

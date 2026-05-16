@@ -184,3 +184,4 @@ Forced rules (also enforced in `design.md §8`):
 - Plan 5 ✅ Downloader (yt-dlp, metadata, cookies, queue)
 - Plan 6 ✅ UI Shell (AppController, settings, onboarding, hotkey rebinding, integrations)
 - Plan 7 ⏳ Distribution (Sparkle 2, notarized DMG, GitHub Actions — requires paid Developer ID cert)
+- Plan 8 ✅ Modular Features (FeatureRegistry, on-demand pack pipeline, conditional activation, Sparkle pre-install migration)
