@@ -9,7 +9,13 @@ enum FolderPreviewDescriptor {
             icon: "folder",
             summary: "Quick Look HTML preview of folders and archives.",
             detailDescription: "Press space on any folder or archive to see a browsable preview without opening Finder.",
-            activator: NoopFeatureActivator()
+            hotkeys: [HotkeyDescriptor(identifier: "folderPreview.browse", displayName: "Browse folder")],
+            osExtensionPolicy: .staticBundleExtension(StaticExtensionConfig(
+                extensionBundleID: "com.macallyouneed.app.folderpreview",
+                runsRegardlessOfFeatureState: true,
+                respectsFeatureFlag: true
+            )),
+            activator: FolderPreviewFeatureActivator()
         )
     }
 }
