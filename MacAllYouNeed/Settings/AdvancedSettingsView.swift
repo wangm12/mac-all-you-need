@@ -55,9 +55,12 @@ struct AdvancedSettingsView: View {
             MAYNSection(title: "Setup and data") {
                 MAYNSettingsRow(
                     title: "Onboarding",
-                    subtitle: "Show the first-run setup flow again."
+                    subtitle: "Show the feature setup wizard again from the beginning."
                 ) {
-                    MAYNButton("Re-run") { controller.resetOnboarding() }
+                    MAYNButton("Re-run onboarding…") {
+                        controller.resetOnboarding()
+                        controller.onboardingWindow.show()
+                    }
                 }
                 MAYNDivider()
                 MAYNSettingsRow(

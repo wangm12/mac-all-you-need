@@ -14,7 +14,10 @@ enum VoiceDescriptor {
             assetCaches: assetCaches(),
             hotkeys: [HotkeyDescriptor(identifier: "voice.pushToTalk", displayName: "Voice push-to-talk")],
             activator: VoiceFeatureActivator()
-            // settingsTabFactory is nil: SettingsDetailContent wires VoiceSettingsView directly.
+            // settingsTabFactory and onboardingSetupFactory are nil:
+            // - Settings: SettingsDetailContent wires VoiceSettingsView directly.
+            // - Onboarding: OnboardingWizardView.augmented(_:) injects VoiceProviderSetupView
+            //   at wizard time when the AppController reference is available.
         )
     }
 
