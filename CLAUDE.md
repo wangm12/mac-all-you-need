@@ -81,13 +81,6 @@ Forced rules (also enforced in `design.md §8`):
 
 ## Key Decisions & Platform-Specific Fixes
 
-### UI System Rules
-- New SwiftUI/AppKit UI must use the shared MAYN design system in `MacAllYouNeed/Settings/MAYNSettingsUI.swift`.
-- Use `MAYNTheme`, `MAYNControlMetrics`, `MAYNMotion`, and `MAYNMotionBridge` instead of raw one-off colors, spacing, control heights, durations, springs, or `NSAnimationContext` timings.
-- Use shared controls (`MAYNTextField`, `MAYNSecureField`, `MAYNMenuPicker`/`MAYNDropdown`, `FunctionSegmentedTabStrip`, `ShortcutChip`/`MAYNHotkeyDisplay`, `StatusPill`) before adding local styles.
-- Function pages may display shortcuts, but shortcut editing belongs in each tool's Settings page. Do not add inline hotkey recorders to top-level tool pages.
-- Reduce Motion must be respected for every spatial animation, including AppKit panels and Core Animation paths.
-
 ### macOS 26 Compatibility
 - **Quick Look extension**: Use `NSViewController + QLPreviewingController.preparePreviewOfFile(at:completionHandler:)` NOT `QLPreviewProvider`/`QLPreviewReply` (hangs on macOS 26)
 - **WKWebView in sandboxed QL extension**: Blocked (can't spawn WebContent process). Use `NSTextView + NSAttributedString(html:)` instead
