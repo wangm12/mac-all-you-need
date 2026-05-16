@@ -22,6 +22,9 @@ struct FeatureCardView: View {
             if !descriptor.requiredPermissions.isEmpty {
                 Text(permissionsDescription).font(.caption).foregroundStyle(.tertiary)
             }
+            if let note = osExtensionNote {
+                osExtensionInfoBadge(text: note)
+            }
             FeatureCardActionView(
                 descriptor: descriptor,
                 state: state,
@@ -57,6 +60,29 @@ struct FeatureCardView: View {
     private var permissionsDescription: String {
         let names = descriptor.requiredPermissions.map(\.rawValue).joined(separator: ", ")
         return "Permissions: \(names)"
+    }
+
+    private var osExtensionNote: String? {
+        guard case let .staticBundleExtension(config) = descriptor.osExtensionPolicy,
+              config.runsRegardlessOfFeatureState else { return nil }
+        return "The Quick Look extension stays installed with the app. " +
+               "Disabling here hides it from previews; full removal requires uninstalling Mac All You Need."
+    }
+
+    @ViewBuilder
+    private func osExtensionInfoBadge(text: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+                .font(.caption)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(Color.secondary.opacity(0.08)))
     }
 }
 

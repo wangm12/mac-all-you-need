@@ -152,3 +152,5 @@ targets:
         product: Core
       - package: Shared
         product: Platform
+      - package: Shared
+        product: FeatureCore
