@@ -26,7 +26,7 @@ public actor DownloaderFeatureActivator: FeatureActivator {
         // For now the binaries live in the legacy Resources/ location and the coordinator
         // finds them via BinaryManager — so we start unconditionally.
 
-        let coord = try DownloadCoordinator()
+        let coord = try await MainActor.run { try DownloadCoordinator() }
         coordinator = coord
 
         if !testMode {
