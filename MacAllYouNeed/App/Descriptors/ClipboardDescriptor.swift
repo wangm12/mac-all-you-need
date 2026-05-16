@@ -11,8 +11,9 @@ enum ClipboardDescriptor {
             detailDescription: "Captures everything you copy and lets you paste any past clip with ⌘⇧V. Includes snippet expansion (type `;email` to expand a saved snippet).",
             requiredPermissions: [.accessibility],
             hotkeys: [HotkeyDescriptor(identifier: "clipboard.popup", displayName: "Show clipboard popup")],
-            activator: ClipboardFeatureActivator()
-            // settingsTabFactory deferred: ClipboardSettingsView requires AppController (Phase 04 DI)
+            activator: ClipboardFeatureActivator(),
+            // Phase 05 will replace with ClipboardSettingsView(controller: AppController.shared)
+            settingsTabFactory: { AnyView(Text("Clipboard settings — wired in Phase 05.").padding()) }
         )
     }
 }

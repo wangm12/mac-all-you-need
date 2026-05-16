@@ -11,8 +11,9 @@ enum VoiceDescriptor {
             detailDescription: "Hold a hotkey, speak, release — text is pasted at the cursor. Supports Groq Whisper (cloud) and Qwen3 (local).",
             requiredPermissions: [.microphone, .accessibility],
             hotkeys: [HotkeyDescriptor(identifier: "voice.pushToTalk", displayName: "Voice push-to-talk")],
-            activator: VoiceFeatureActivator()
-            // settingsTabFactory: deferred — VoiceSettingsView requires AppController (Phase 05 DI)
+            activator: VoiceFeatureActivator(),
+            // Phase 05 will replace with VoiceSettingsView(controller: AppController.shared)
+            settingsTabFactory: { AnyView(Text("Voice settings — wired in Phase 05.").padding()) }
         )
     }
 }

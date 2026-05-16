@@ -15,7 +15,9 @@ enum FolderPreviewDescriptor {
                 runsRegardlessOfFeatureState: true,
                 respectsFeatureFlag: true
             )),
-            activator: FolderPreviewFeatureActivator()
+            activator: FolderPreviewFeatureActivator(),
+            // Phase 05 will replace with FolderPreviewSettingsView(controller: AppController.shared)
+            settingsTabFactory: { AnyView(Text("Folder preview settings — wired in Phase 05.").padding()) }
         )
     }
 }

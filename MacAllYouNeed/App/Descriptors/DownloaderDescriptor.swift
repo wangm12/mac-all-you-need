@@ -10,7 +10,9 @@ enum DownloaderDescriptor {
             summary: "Universal video downloader (yt-dlp + ffmpeg).",
             detailDescription: "Paste any video URL and the downloader handles formats, fragments, cookies, and re-encoding.",
             assetPacks: [AssetPack(id: "downloader", bundledManifestKey: "downloader")],
-            activator: DownloaderFeatureActivator()
+            activator: DownloaderFeatureActivator(),
+            // Phase 05 will replace with DownloadsSettingsView(controller: AppController.shared)
+            settingsTabFactory: { AnyView(Text("Downloader settings — wired in Phase 05.").padding()) }
         )
     }
 }

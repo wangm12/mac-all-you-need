@@ -1,8 +1,18 @@
 import Core
+import FeatureCore
 import SwiftUI
 
 struct SettingsRoot: View {
     let controller: AppController
+
+    /// Registry-driven list of feature settings tabs.
+    /// Used by SettingsDetailContent (Phase 05) and tests.
+    static func featureTabs(registry: FeatureRegistry) -> [(FeatureID, AnyView)] {
+        registry.descriptors.compactMap { descriptor in
+            guard let factory = descriptor.settingsTabFactory else { return nil }
+            return (descriptor.id, factory())
+        }
+    }
 
     var body: some View {
         SettingsContainer(
