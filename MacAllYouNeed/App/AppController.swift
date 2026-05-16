@@ -2,6 +2,7 @@ import AppKit
 import Core
 import CoreFoundation
 import CryptoKit
+import FeatureCore
 import Foundation
 import Platform
 
@@ -32,6 +33,11 @@ final class AppController {
     var onboarding: OnboardingState
     /// Snippet expansion runs in the main app so it uses the app's Accessibility permission
     private let snippetExpander: SnippetExpander
+
+    // MARK: - Feature system (Phase 04)
+    /// Registry-driven feature lifecycle. Seeded by BootstrapDefaults on first launch.
+    let runtime: FeatureRuntime
+    private let featureManager: FeatureManager
 
     // Stores retained so menu actions (e.g. Clear Older Than) can run locally
     // when the daemon's XPC mach service isn't available.
@@ -117,6 +123,13 @@ final class AppController {
         LoginItemController.reconcileLaunchAtLogin()
         AppAppearanceMode.applyStoredPreference()
 
+        // Feature system (Phase 04) — initialized before first self-method calls
+        let featureRegistry = FeatureRegistryProvider.makeRegistry()
+        let fm = FeatureManager(registry: featureRegistry, defaults: AppGroupSettings.defaults)
+        let rt = FeatureRuntime(registry: featureRegistry, manager: fm)
+        featureManager = fm
+        runtime = rt
+
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()
 
@@ -128,9 +141,14 @@ final class AppController {
         onboardingWindow = OnboardingWindowController(controller: self)
         voiceOnboardingWindow = VoiceOnboardingWindowController(controller: self)
         startAutoDownloadPromptLoop()
+
+        Task {
+            try await BootstrapDefaults.seedIfNeeded(manager: fm, defaults: AppGroupSettings.defaults)
+            await rt.activateAllEnabled()
+        }
     }
 
-    func applyHotkeyMap(_ map: [HotkeyAction: [HotkeyDescriptor]]) throws {
+    func applyHotkeyMap(_ map: [HotkeyAction: [Platform.HotkeyDescriptor]]) throws {
         fallbackHotkey = nil
         try hotkeyRegistry.apply(map, controller: self)
     }
