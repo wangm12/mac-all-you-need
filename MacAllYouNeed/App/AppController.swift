@@ -46,6 +46,11 @@ final class AppController {
     /// Phase 06: Advanced-tab side-load affordance.
     let sideloadController: SideloadController
 
+    /// Report from one-time upgrade migration. Non-nil only on the first launch after
+    /// upgrading from a pre-modular release. Consumed by `MainWindowRoot` to present
+    /// the What's New sheet, then cleared so it never reappears.
+    var pendingMigrationReport: MigrationReport?
+
     // Stores retained so menu actions (e.g. Clear Older Than) can run locally
     // when the daemon's XPC mach service isn't available.
     private let clipStore: ClipboardStore
@@ -161,13 +166,31 @@ final class AppController {
         voiceOnboardingWindow = VoiceOnboardingWindowController(controller: self)
         startAutoDownloadPromptLoop()
 
-        Task {
-            try await BootstrapDefaults.seedIfNeeded(manager: fm, defaults: AppGroupSettings.defaults)
-            // Phase 06: run legacy migration once so pre-modular installs stay enabled.
-            _ = try? await DownloaderFeatureActivator.migrateLegacyAssetStateIfNeeded(
-                manager: fm, loader: manifestLoader
+        Task { [weak self] in
+            // Phase 11: run one-time migration for upgraders from pre-modular releases.
+            // If migration ran, skip BootstrapDefaults (migration already seeded state).
+            // If not (fresh install or subsequent launch), run BootstrapDefaults as before.
+            let migrator = Migrator.makeProduction(
+                clipboardStore: stores.clipboard,
+                downloadStore: coord.store,
+                defaults: AppGroupSettings.defaults
             )
+            let report = (try? await migrator.migrateIfNeeded(featureRuntime: rt)) ?? .noop
+
+            if !report.didRun {
+                // Sentinel already set (subsequent launch) or fresh install — run normal seed.
+                try? await BootstrapDefaults.seedIfNeeded(manager: fm, defaults: AppGroupSettings.defaults)
+                // Phase 06: run legacy migration once so pre-modular installs stay enabled.
+                _ = try? await DownloaderFeatureActivator.migrateLegacyAssetStateIfNeeded(
+                    manager: fm, loader: manifestLoader
+                )
+            }
             await rt.activateAllEnabled()
+
+            // Surface the What's New sheet on first window appearance (upgrade only).
+            if report.didRun {
+                await MainActor.run { self?.pendingMigrationReport = report }
+            }
         }
 
         runOrphanCacheScanIfNeeded()

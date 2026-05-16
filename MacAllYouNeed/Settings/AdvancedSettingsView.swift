@@ -8,6 +8,9 @@ struct AdvancedSettingsView: View {
     let controller: AppController
     @AppStorage("betaUpdates", store: AppGroupSettings.defaults) private var beta = false
     @State private var confirmingReset = false
+#if DEBUG
+    @State private var confirmingMigrationReset = false
+#endif
     var body: some View {
         MAYNSettingsPage(
             title: "Advanced",
@@ -69,6 +72,15 @@ struct AdvancedSettingsView: View {
                 ) {
                     MAYNButton("Reset", role: .destructive) { confirmingReset = true }
                 }
+#if DEBUG
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: "Reset migration sentinel",
+                    subtitle: "Clears the one-time upgrade sentinel so the What's New sheet and Migrator run again on next launch. Debug only."
+                ) {
+                    MAYNButton("Reset migration…", role: .destructive) { confirmingMigrationReset = true }
+                }
+#endif
             }
         }
         .confirmationDialog("Reset all local data?", isPresented: $confirmingReset) {
@@ -77,6 +89,17 @@ struct AdvancedSettingsView: View {
         } message: {
             Text("This removes local databases, blobs, thumbnails, and downloader checkpoints.")
         }
+#if DEBUG
+        .confirmationDialog("Reset migration sentinel?", isPresented: $confirmingMigrationReset) {
+            Button("Reset migration", role: .destructive) {
+                MigrationSentinel.clear()
+                BootstrapDefaults.clearSeeded()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The What's New sheet and Migrator will run again on the next launch. Debug only.")
+        }
+#endif
     }
 
     private func exportDiagnostics() {

@@ -11,6 +11,8 @@ struct MainWindowRoot: View {
     @AppStorage(MainAppDestination.storageKey, store: AppGroupSettings.defaults)
     private var selectedRaw = MainAppDestination.dashboard.rawValue
     @State private var pendingOrphans: [OrphanCacheScanner.Orphan] = []
+    @State private var showWhatsNew = false
+    @State private var whatsNewReport: MigrationReport?
 
     private var selection: Binding<MainAppDestination> {
         Binding {
@@ -90,6 +92,30 @@ struct MainWindowRoot: View {
                     pendingOrphans = []
                 }
             )
+        }
+        .onAppear {
+            if let report = controller.pendingMigrationReport {
+                whatsNewReport = report
+                showWhatsNew = true
+                controller.pendingMigrationReport = nil
+            }
+        }
+        .sheet(isPresented: $showWhatsNew) {
+            if let report = whatsNewReport {
+                WhatsNewSheetView(
+                    report: report,
+                    registry: controller.runtime.registry,
+                    onDismiss: { showWhatsNew = false },
+                    onOpenFeaturesSettings: {
+                        AppGroupSettings.defaults.set(
+                            SettingsDestination.features.rawValue,
+                            forKey: DockSettingsNavigation.settingsSelectionKey
+                        )
+                        selectedRaw = MainAppDestination.settings.rawValue
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
+                )
+            }
         }
     }
 
