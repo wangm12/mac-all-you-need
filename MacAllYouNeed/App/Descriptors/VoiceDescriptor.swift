@@ -10,7 +10,9 @@ enum VoiceDescriptor {
             summary: "Push-to-talk voice dictation (cloud or local ASR).",
             detailDescription: "Hold a hotkey, speak, release — text is pasted at the cursor. Supports Groq Whisper (cloud) and Qwen3 (local).",
             requiredPermissions: [.microphone, .accessibility],
-            activator: NoopFeatureActivator()
+            hotkeys: [HotkeyDescriptor(identifier: "voice.pushToTalk", displayName: "Voice push-to-talk")],
+            activator: VoiceFeatureActivator(),
+            settingsTabFactory: { AnyView(VoiceSettingsView()) }
         )
     }
 }
