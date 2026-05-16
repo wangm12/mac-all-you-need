@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "wrapperVersion": "2.0.0-dev",
+  "packs": {
+    "downloader": {
+      "version": "1.0.0",
+      "url": "https://github.com/<owner>/mac-all-you-need/releases/download/v2.0.0-dev/Downloader-1.0.0.zip",
+      "zipSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 201326592,
+      "files": {
+        "yt-dlp": {
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "executable": true,
+          "maxBytes": 50000000
+        },
+        "ffmpeg": {
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "executable": true,
+          "maxBytes": 200000000
+        }
+      },
+      "codesignRequirement": "anchor apple generic and certificate leaf [subject.OU] = \"<TeamID>\""
+    }
+  }
+}

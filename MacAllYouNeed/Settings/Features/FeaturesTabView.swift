@@ -47,16 +47,23 @@ struct FeaturesTabView: View {
     private func handle(_ action: FeatureCardView.Action, for descriptor: FeatureDescriptor) {
         switch action {
         case .install:
-            // Wired in Phase 06 to the real PackDownloader.
-            break
+            Task {
+                try? await controller.packInstallController.install(featureID: descriptor.id)
+                await controller.featureStatePublisher.refresh()
+            }
         case .enable:
             Task { try? await controller.runtime.applyTransition(.enable, for: descriptor.id) }
         case .disable:
             Task { try? await controller.runtime.applyTransition(.disable, for: descriptor.id) }
         case .uninstall:
             pendingUninstall = descriptor
-        case .cancelDownload, .retryInstall:
-            break  // Phase 06
+        case .cancelDownload:
+            Task { await controller.packInstallController.cancel(featureID: descriptor.id) }
+        case .retryInstall:
+            Task {
+                try? await controller.packInstallController.install(featureID: descriptor.id)
+                await controller.featureStatePublisher.refresh()
+            }
         }
     }
 
@@ -69,7 +76,10 @@ struct FeaturesTabView: View {
             NSLog("FeaturesTabView uninstall: cache deletion failed: \(error)")
         }
         try? await controller.runtime.applyTransition(.disable, for: descriptor.id)
-        // Phase 06 will additionally call PackUninstaller for asset features.
+        if descriptor.requiresAsset {
+            try? await controller.packInstallController.uninstall(featureID: descriptor.id)
+        }
+        await controller.featureStatePublisher.refresh()
     }
 
     /// Static so tests can exercise cache deletion without instantiating SwiftUI.

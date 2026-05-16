@@ -1,5 +1,6 @@
 import Cocoa
 import Core
+import FeatureCore
 import ImageIO
 import Platform
 import Quartz
@@ -10,6 +11,24 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     private let previewView = QuickLookPreviewView()
     private var previewTask: Task<Void, Never>?
     private var previewID = UUID()
+    private let featureStateDefaults: UserDefaults
+
+    /// Production initializer — macOS instantiates the principal class via this path.
+    /// Reads from the shared App Group defaults.
+    convenience init() {
+        self.init(featureStateDefaults: UserDefaults(suiteName: AppGroup.identifier) ?? .standard)
+    }
+
+    /// Dependency-injection initializer for tests.
+    init(featureStateDefaults: UserDefaults) {
+        self.featureStateDefaults = featureStateDefaults
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used by Quick Look extensions")
+    }
 
     override func loadView() {
         view = previewView
@@ -18,6 +37,22 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 
     func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         previewTask?.cancel()
+
+        // § 3.3 OS-extension policy: the extension is launched by macOS regardless of
+        // FeatureManager.activationState, so it self-checks and short-circuits when the
+        // feature is disabled. Missing/garbage state defaults to enabled (FeatureStateReader).
+        let state = FeatureStateReader.read(for: .folderPreview, defaults: featureStateDefaults)
+        if state.activationState == .disabled {
+            let placeholder = DisabledPlaceholderRenderer.render()
+            previewView.configureDisabledPlaceholder(
+                title: placeholder.title,
+                body: placeholder.body,
+                badge: placeholder.badge
+            )
+            handler(nil)
+            return
+        }
+
         let id = UUID()
         previewID = id
 
@@ -53,6 +88,18 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
                 }
             }
         }
+    }
+
+    // MARK: - Test hooks
+
+    struct ChromeSnapshot {
+        let title: String
+        let subtitle: String
+    }
+
+    @MainActor
+    func testHook_currentChromeSnapshot() -> ChromeSnapshot {
+        previewView.currentChromeSnapshot()
     }
 }
 
@@ -160,6 +207,33 @@ private final class QuickLookPreviewView: NSView, NSSplitViewDelegate {
         )
         setFilterBarVisible(false)
         showTable(rows: [], emptyMessage: error.localizedDescription)
+    }
+
+    /// Renders the placeholder when Folder Preview is disabled in Settings → Features.
+    /// Reuses existing chrome; body uses `emptyField` for plain-text display.
+    /// No HTML, no WebView — the extension is sandboxed and cannot host WebContent.
+    func configureDisabledPlaceholder(title: String, body: NSAttributedString, badge: String) {
+        applyChrome(
+            title: title,
+            subtitle: "Open Mac All You Need to re-enable",
+            icon: NSImage(systemSymbolName: "folder.badge.questionmark", accessibilityDescription: nil)
+                ?? NSWorkspace.shared.icon(for: .folder),
+            badge: badge
+        )
+        setFilterBarVisible(false)
+        showTable(rows: [], emptyMessage: "")
+        emptyField.attributedStringValue = body
+        emptyField.maximumNumberOfLines = 0
+        emptyField.isHidden = false
+        scrollView.isHidden = true
+    }
+
+    /// Read-only snapshot of chrome state for tests.
+    func currentChromeSnapshot() -> PreviewViewController.ChromeSnapshot {
+        PreviewViewController.ChromeSnapshot(
+            title: titleField.stringValue,
+            subtitle: summaryField.stringValue
+        )
     }
 
     private func setup() {

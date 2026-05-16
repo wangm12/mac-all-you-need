@@ -26,17 +26,17 @@ final class DownloadCheckpointThrottler {
 final class DownloadCoordinator {
     let store: DownloadStore
     let queue: DownloadQueue
-    let binaries: BinaryManager
+    let binaries: any BinaryLocator
     var dispatch: DispatchServer?
     private var destinationObserver: NSObjectProtocol?
     private let log = Logging.logger(for: "downloader", category: "coordinator")
 
-    init() throws {
+    init(binaries: any BinaryLocator) throws {
         let key = try KeyManager(keychain: SystemKeychain()).deviceKey()
         let dbURL = AppGroup.containerURL().appendingPathComponent("databases/downloads.sqlite")
         let db = try Database(url: dbURL, migrations: DownloadStore.migrations)
         store = try DownloadStore(database: db, deviceKey: key)
-        binaries = BinaryManager(bundleResources: Bundle.main.resourceURL!)
+        self.binaries = binaries
         let checkpoints = DownloadCheckpointThrottler(store: store)
         let storeRef = store
         queue = DownloadQueue(
