@@ -1,4 +1,5 @@
 import AppKit
+import FeatureCore
 import Core
 import Foundation
 import SwiftUI
@@ -12,6 +13,17 @@ struct AdvancedSettingsView: View {
             title: "Advanced",
             subtitle: "Diagnostics, reset controls, and release-channel options."
         ) {
+            MAYNSection(title: "Pack management") {
+                MAYNSettingsRow(
+                    title: "Install pack from file...",
+                    subtitle: "Side-load a feature pack zip. You will be asked for the zip's published SHA-256."
+                ) {
+                    MAYNButton("Install...") {
+                        Task { await controller.sideloadController.presentInstallPanel(featureID: .downloader) }
+                    }
+                }
+            }
+
             MAYNSection(title: "Updates") {
                 MAYNSettingsRow(
                     title: "Beta updates",

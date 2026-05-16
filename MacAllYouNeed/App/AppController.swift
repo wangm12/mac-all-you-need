@@ -4,6 +4,7 @@ import CoreFoundation
 import CryptoKit
 import FeatureCore
 import Foundation
+import PackPipeline
 import Platform
 
 private struct StartupStores {
@@ -40,6 +41,10 @@ final class AppController {
     private let featureManager: FeatureManager
     /// SwiftUI-observable mirror of FeatureManager state (Phase 05).
     let featureStatePublisher: FeatureStatePublisher
+    /// Phase 06: orchestrates pack download + install + asset state writes.
+    let packInstallController: PackInstallController
+    /// Phase 06: Advanced-tab side-load affordance.
+    let sideloadController: SideloadController
 
     // Stores retained so menu actions (e.g. Clear Older Than) can run locally
     // when the daemon's XPC mach service isn't available.
@@ -113,7 +118,7 @@ final class AppController {
         folderCoordinator = coordinator
         folder = browser
 
-        let coord = try DownloadCoordinator()
+        let coord = try DownloadCoordinator(binaries: LegacyBundleLocator(binaries: BinaryManager(bundleResources: Bundle.main.resourceURL!)))
         downloader = coord
         let dlVM = DownloaderViewModel(coordinator: coord)
         downloaderVM = dlVM
@@ -133,6 +138,17 @@ final class AppController {
         runtime = rt
         featureStatePublisher = FeatureStatePublisher(manager: fm)
 
+        // Phase 06: Pack install + side-load controllers.
+        let manifestLoader = FeatureManifestLoader.bundled() ?? FeatureManifestLoader(
+            manifestURL: AppGroup.containerURL().appendingPathComponent("FeaturePackManifest.fallback.json")
+        )
+        packInstallController = PackInstallController(
+            manager: fm,
+            registry: featureRegistry,
+            manifestLoader: manifestLoader
+        )
+        sideloadController = SideloadController(manager: fm, manifestLoader: manifestLoader)
+
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()
 
@@ -147,6 +163,10 @@ final class AppController {
 
         Task {
             try await BootstrapDefaults.seedIfNeeded(manager: fm, defaults: AppGroupSettings.defaults)
+            // Phase 06: run legacy migration once so pre-modular installs stay enabled.
+            _ = try? await DownloaderFeatureActivator.migrateLegacyAssetStateIfNeeded(
+                manager: fm, loader: manifestLoader
+            )
             await rt.activateAllEnabled()
         }
     }
