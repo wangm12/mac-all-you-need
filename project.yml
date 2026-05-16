@@ -47,6 +47,8 @@ targets:
         product: UI
       - package: Shared
         product: Platform
+      - package: Shared
+        product: FeatureCore
       - package: FluidAudio
         product: FluidAudio
       - target: ClipboardDaemon
@@ -115,6 +117,8 @@ targets:
         product: Core
       - package: Shared
         product: Platform
+      - package: Shared
+        product: FeatureCore
 
   FolderPreview:
     type: app-extension
