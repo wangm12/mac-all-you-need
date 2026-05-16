@@ -6,11 +6,16 @@ struct SettingsRoot: View {
     let controller: AppController
 
     /// Registry-driven list of feature settings tabs.
-    /// Used by SettingsDetailContent (Phase 05) and tests.
-    static func featureTabs(registry: FeatureRegistry) -> [(FeatureID, AnyView)] {
-        registry.descriptors.compactMap { descriptor in
-            guard let factory = descriptor.settingsTabFactory else { return nil }
-            return (descriptor.id, factory())
+    /// Tabs are shown only when the feature's asset is not in .notDownloaded state.
+    static func featureTabs(
+        registry: FeatureRegistry,
+        states: [FeatureID: FeatureRuntimeState]
+    ) -> [(FeatureID, AnyView)] {
+        registry.descriptors.compactMap { d in
+            guard let factory = d.settingsTabFactory else { return nil }
+            let state = states[d.id] ?? .initialDefault(assetRequired: d.requiresAsset)
+            if state.assetState == .notDownloaded { return nil }
+            return (d.id, factory())
         }
     }
 
@@ -228,13 +233,21 @@ private struct SettingsDetailContent: View {
     private var detailView: some View {
         switch selected {
         case .clipboard:
-            ClipboardSettingsView(controller: controller)
+            FeatureSettingsContainer(featureID: .clipboard, controller: controller) {
+                ClipboardSettingsView(controller: controller)
+            }
         case .voice:
-            VoiceSettingsView(controller: controller)
+            FeatureSettingsContainer(featureID: .voice, controller: controller) {
+                VoiceSettingsView(controller: controller)
+            }
         case .downloads:
-            DownloadsSettingsView(controller: controller)
+            FeatureSettingsContainer(featureID: .downloader, controller: controller) {
+                DownloadsSettingsView(controller: controller)
+            }
         case .folderPreview:
-            FolderPreviewSettingsView(controller: controller)
+            FeatureSettingsContainer(featureID: .folderPreview, controller: controller) {
+                FolderPreviewSettingsView(controller: controller)
+            }
         case .snippets:
             ShortcutsSettingsView(registry: shortcuts)
         case .hotkeys:
@@ -249,6 +262,50 @@ private struct SettingsDetailContent: View {
             GeneralSettingsView(controller: controller)
         case .advanced:
             AdvancedSettingsView(controller: controller)
+        case .features:
+            FeaturesTabView(controller: controller)
+        }
+    }
+}
+
+// MARK: - Disabled feature banner
+
+/// Yellow informational banner shown at the top of a feature's settings when that feature is disabled.
+struct DisabledFeatureBanner: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(MAYNTheme.warning)
+            Text("This feature is disabled. Settings here will apply when you re-enable it.")
+                .font(.callout)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(MAYNTheme.warning.opacity(0.12))
+    }
+}
+
+/// Wraps a feature's settings view with a DisabledFeatureBanner when the feature is disabled.
+struct FeatureSettingsContainer<Content: View>: View {
+    let featureID: FeatureID
+    let controller: AppController
+    @ObservedObject private var statePublisher: FeatureStatePublisher
+    @ViewBuilder let content: () -> Content
+
+    init(featureID: FeatureID, controller: AppController, @ViewBuilder content: @escaping () -> Content) {
+        self.featureID = featureID
+        self.controller = controller
+        self.statePublisher = controller.featureStatePublisher
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if statePublisher.state(for: featureID).activationState == .disabled {
+                DisabledFeatureBanner()
+            }
+            content()
         }
     }
 }

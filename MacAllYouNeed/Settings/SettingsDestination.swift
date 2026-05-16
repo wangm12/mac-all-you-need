@@ -12,6 +12,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
     case storage
     case general
     case advanced
+    case features
 
     var id: String { rawValue }
 
@@ -28,6 +29,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
         case .storage: "Storage"
         case .general: "General"
         case .advanced: "Advanced"
+        case .features: "Features"
         }
     }
 
@@ -44,6 +46,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
         case .storage: "Retention and maintenance"
         case .general: "Launch, menu bar, and app behavior"
         case .advanced: "Diagnostics, sync, and reset actions"
+        case .features: "Enable, disable, and manage installed features"
         }
     }
 
@@ -60,6 +63,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
         case .storage: "internaldrive"
         case .general: "gearshape"
         case .advanced: "wrench.and.screwdriver"
+        case .features: "square.grid.2x2"
         }
     }
 
@@ -89,6 +93,8 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
             .general
         case SettingsDestination.advanced.rawValue, "advanced", "sync":
             .advanced
+        case SettingsDestination.features.rawValue, "features":
+            .features
         default:
             .clipboard
         }
@@ -104,7 +110,7 @@ struct SettingsSidebarGroup: Identifiable {
         SettingsSidebarGroup(
             id: "product",
             title: "Product",
-            destinations: [.clipboard, .voice, .downloads, .folderPreview]
+            destinations: [.features, .clipboard, .voice, .downloads, .folderPreview]
         ),
         SettingsSidebarGroup(
             id: "workflow",
