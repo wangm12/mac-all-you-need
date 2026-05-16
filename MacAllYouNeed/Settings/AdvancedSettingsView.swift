@@ -8,6 +8,7 @@ struct AdvancedSettingsView: View {
     let controller: AppController
     @AppStorage("betaUpdates", store: AppGroupSettings.defaults) private var beta = false
     @State private var confirmingReset = false
+    @State private var confirmingFeatureReset = false
 #if DEBUG
     @State private var confirmingMigrationReset = false
 #endif
@@ -18,12 +19,19 @@ struct AdvancedSettingsView: View {
         ) {
             MAYNSection(title: "Pack management") {
                 MAYNSettingsRow(
-                    title: "Install pack from file...",
+                    title: "Install pack from file…",
                     subtitle: "Side-load a feature pack zip. You will be asked for the zip's published SHA-256."
                 ) {
-                    MAYNButton("Install...") {
+                    MAYNButton("Install…") {
                         Task { await controller.sideloadController.presentInstallPanel(featureID: .downloader) }
                     }
+                }
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: "Feature install directory",
+                    subtitle: "Reveal the folder where downloaded feature packs are stored."
+                ) {
+                    MAYNButton("Reveal in Finder") { openFeatureDirectory() }
                 }
             }
 
@@ -46,15 +54,6 @@ struct AdvancedSettingsView: View {
                 }
             }
 
-            MAYNSection(title: "Sync") {
-                MAYNSettingsRow(
-                    title: "Multi-device sync",
-                    subtitle: "Planned for a future phase. Current builds keep clipboard, downloads, snippets, and voice data local to this Mac."
-                ) {
-                    StatusPill(text: "Future", kind: .neutral)
-                }
-            }
-
             MAYNSection(title: "Setup and data") {
                 MAYNSettingsRow(
                     title: "Onboarding",
@@ -70,7 +69,7 @@ struct AdvancedSettingsView: View {
                     title: "Reset all data",
                     subtitle: "Remove local databases, blobs, thumbnails, and downloader checkpoints."
                 ) {
-                    MAYNButton("Reset", role: .destructive) { confirmingReset = true }
+                    MAYNButton("Reset…", role: .destructive) { confirmingReset = true }
                 }
 #if DEBUG
                 MAYNDivider()
@@ -82,12 +81,27 @@ struct AdvancedSettingsView: View {
                 }
 #endif
             }
+
+            MAYNSection(title: "Reset") {
+                MAYNSettingsRow(
+                    title: "Reset all features",
+                    subtitle: "Disable every feature and remove downloaded asset packs. Your user data is preserved."
+                ) {
+                    MAYNButton("Reset…", role: .destructive) { confirmingFeatureReset = true }
+                }
+            }
         }
         .confirmationDialog("Reset all local data?", isPresented: $confirmingReset) {
             Button("Reset", role: .destructive) { resetAllData() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes local databases, blobs, thumbnails, and downloader checkpoints.")
+        }
+        .confirmationDialog("Reset all features?", isPresented: $confirmingFeatureReset) {
+            Button("Reset", role: .destructive) { resetAllFeatures() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will disable every feature and remove all downloaded asset packs. Your user data (clipboard history, downloaded videos, snippets, model caches) will NOT be deleted.")
         }
 #if DEBUG
         .confirmationDialog("Reset migration sentinel?", isPresented: $confirmingMigrationReset) {
@@ -100,6 +114,31 @@ struct AdvancedSettingsView: View {
             Text("The What's New sheet and Migrator will run again on the next launch. Debug only.")
         }
 #endif
+    }
+
+    private func openFeatureDirectory() {
+        let appSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let featuresDir = appSupport
+            .appendingPathComponent("MacAllYouNeed", isDirectory: true)
+            .appendingPathComponent("Features", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: featuresDir.path) {
+            try? FileManager.default.createDirectory(at: featuresDir, withIntermediateDirectories: true)
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([featuresDir])
+    }
+
+    private func resetAllFeatures() {
+        let runtime = controller.runtime
+        let packInstallController = controller.packInstallController
+        Task {
+            for descriptor in runtime.registry.descriptors {
+                try? await runtime.applyTransition(.disable, for: descriptor.id)
+                if descriptor.requiresAsset {
+                    try? await packInstallController.uninstall(featureID: descriptor.id)
+                }
+            }
+        }
     }
 
     private func exportDiagnostics() {
