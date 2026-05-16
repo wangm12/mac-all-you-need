@@ -126,6 +126,11 @@ struct SettingsSidebarGroup: Identifiable {
 
     static let systemOnly: [SettingsSidebarGroup] = [
         SettingsSidebarGroup(
+            id: "product",
+            title: "Features",
+            destinations: [.features]
+        ),
+        SettingsSidebarGroup(
             id: "system",
             title: "System",
             destinations: [.general, .permissions, .storage, .advanced]
