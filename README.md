@@ -12,6 +12,24 @@ and notarized DMG release work are still deferred.
 See `docs/superpowers/specs/` for design specs and `docs/superpowers/plans/`
 for implementation plans.
 
+## Design system
+
+UI work in this repo follows a single normative spec: [`design.md`](./design.md).
+It covers the MAYN tokens (`MAYNTheme` colors, `MAYNControlMetrics`,
+`MAYNMotion`), the components catalog, the eight UI surfaces, the
+Reduce-Motion contract, accepted exceptions, and the review checklist.
+
+A subset of the rules is machine-enforced. `swiftlint --strict` (which
+runs in `scripts/ci-build.sh`) fails the build on:
+
+- Raw `Color(red:green:blue:)` outside the documented exceptions
+- `.pickerStyle(.segmented)` (use `FunctionSegmentedTabStrip` instead)
+- `Animation.easeOut(duration:)` / `.easeInOut(duration:)` / `.linear(duration:)`
+  / `.spring(…)` (route through `MAYNMotion` so Reduce Motion is honored)
+
+The custom rules live in `.swiftlint.yml`; each exclusion is annotated with
+the `design.md` section that justifies it.
+
 ## Requirements
 
 - Xcode 26+ with the macOS SDK installed
