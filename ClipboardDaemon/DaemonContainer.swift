@@ -1,8 +1,9 @@
 import AppKit
 import Core
-import CryptoKit
-import Foundation
 import CoreFoundation
+import CryptoKit
+import FeatureCore
+import Foundation
 import Platform
 
 final class DaemonContainer {
@@ -29,8 +30,10 @@ final class DaemonContainer {
     let snippets: SnippetStore
     let pinboardDB: Database
     let pinboards: PinboardStore
+    /// The pasteboard observer — only started when the .clipboard feature is enabled.
     let observer: PasteboardObserver
-    let expander: SnippetExpander
+    let workerHost: PerFeatureWorkerHost
+    private let featureObserver: FeatureStateDarwinObserver
     let log = Logging.logger(for: "daemon", category: "container")
     private var retentionTimer: DispatchSourceTimer?
 
@@ -62,10 +65,22 @@ final class DaemonContainer {
         )
         pinboards = PinboardStore(database: pinboardDB, deviceKey: key)
         observer = PasteboardObserver(reader: SystemPasteboardReader(), rules: Self.loadRules())
-        expander = SnippetExpander { [snippets] trigger in
+        let expander = SnippetExpander { [snippets] trigger in
             try? snippets.find(trigger: trigger)?.body
         }
-        expander.start()
+        workerHost = PerFeatureWorkerHost(observer: observer, expander: expander)
+        featureObserver = FeatureStateDarwinObserver()
+
+        // Wire onChange before calling start() so the initial reload triggers startWorkers.
+        featureObserver.onChange = { [weak workerHost] diff in
+            workerHost?.apply(diff: diff)
+        }
+        // start() reads all feature states and fires onChange for any enabled feature,
+        // starting their workers. The .clipboard pasteboard callback will be wired by
+        // main() immediately after init, so restartClipboardObserverIfRunning() is called
+        // there to attach the callback if clipboard was already enabled at startup.
+        featureObserver.start(defaults: AppGroupSettings.defaults)
+
         installSettingsReloader()
         startRetentionTimer()
     }
