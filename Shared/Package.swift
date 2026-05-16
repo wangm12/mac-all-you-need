@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "UI", targets: ["UI"]),
         .library(name: "Platform", targets: ["Platform"]),
         .library(name: "FeatureCore", targets: ["FeatureCore"]),
+        .library(name: "PackPipeline", targets: ["PackPipeline"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.27.0"),
@@ -64,6 +65,17 @@ let package = Package(
             name: "FeatureCoreTests",
             dependencies: ["FeatureCore", "Core"],
             path: "Tests/FeatureCoreTests"
+        ),
+        .target(
+            name: "PackPipeline",
+            dependencies: ["FeatureCore", "Core"],
+            path: "Sources/PackPipeline"
+        ),
+        .testTarget(
+            name: "PackPipelineTests",
+            dependencies: ["PackPipeline"],
+            path: "Tests/PackPipelineTests",
+            resources: [.copy("Fixtures")]
         ),
     ]
 )
