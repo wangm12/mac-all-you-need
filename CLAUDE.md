@@ -1,10 +1,67 @@
 # Mac All You Need — Developer Context
 
 ## Project
-Native macOS productivity app combining clipboard manager, folder preview (Quick Look), and universal video downloader. Built with Swift 5.9+, SwiftUI, AppKit, GRDB, libarchive.
 
-## UI Rules
-- **Forced segmented/tab style**: Any product-owned tab switch or segmented choice in Settings, main tool pages, menu surfaces, and onboarding must use the shared `FunctionSegmentedTabStrip` pill style, matching the Settings sub-tab control. Do not introduce raw SwiftUI `Picker(...).pickerStyle(.segmented)` for these controls unless it is a native macOS system form control that is intentionally not part of the app's tab-switch UI.
+Native macOS productivity app (LSUIElement / menu-bar resident) that
+bundles five tools in one binary:
+
+- **Clipboard manager** — captures every copy, encrypted at rest
+  (AES-GCM / GRDB / FTS5), surfaces them in a `⌘⇧V` popup, a menu-bar
+  popover, and a bottom-screen "dock" with drag-reorderable pinboards.
+- **Voice dictation** — push-to-talk / toggle hotkey, local ASR
+  (Qwen3-ASR) with optional Groq Whisper provider, optional LLM
+  cleanup, post-edit learning, personalization profiles.
+- **Universal downloader** — yt-dlp + ffmpeg with browser cookie
+  import, queue, pause/resume, dock badge progress, browser-extension
+  dispatch server.
+- **Folder preview** — Quick Look extension that renders folders as
+  HTML tables and archives as libarchive listings, plus a `⌘⇧F`
+  Browse Folder window with Files / Grid / Analyze modes.
+- **Snippets** — `;trigger` text expansion via CGEventTap with full
+  Accessibility permission.
+
+Built with Swift 5.9+, SwiftUI + AppKit, GRDB, libarchive, Sparkle.
+Composition root is `AppController`; all subsystems share a single
+App Group container; the main app reads its own clipboard DB
+directly (no XPC daemon for reads). Onboarding wizard handles TCC
+permissions on first launch.
+
+## UI
+
+The canonical UI specification is [`design.md`](./design.md). Any new
+SwiftUI/AppKit work — colors, padding, fonts, animations, components,
+page chrome — must follow it.
+
+How future UI work plugs in:
+
+- **Read first**: [`design.md`](./design.md) — tokens, components, the
+  eight UI surfaces, accepted exceptions, the §13 review checklist.
+- **Working notes (auto-loaded)**: [`MacAllYouNeed/CLAUDE.md`](./MacAllYouNeed/CLAUDE.md)
+  is loaded into context whenever Claude edits files under
+  `MacAllYouNeed/`. It contains the hard rules, the components
+  catalog, and the pre-PR checklist in terse form.
+- **Machine enforcement**: `.swiftlint.yml` ships four custom rules
+  (`mayn_no_raw_color_rgb`, `mayn_no_segmented_picker_style`,
+  `mayn_no_raw_animation_duration`, `mayn_no_raw_spring_animation`).
+  `swiftlint --strict` in `scripts/ci-build.sh` fails the build on
+  any violation. Per-rule exclusions are annotated with the
+  `design.md §10` exception that justifies them.
+- **Source of truth (code)**: tokens + most components live in
+  `MacAllYouNeed/Settings/MAYNSettingsUI.swift`. Page chrome and the
+  segmented tab strip live in `MacAllYouNeed/App/FunctionPageShell.swift`.
+  New primitives go in `MAYNSettingsUI.swift` and need a one-line
+  entry in `design.md §6`.
+
+Forced rules (also enforced in `design.md §8`):
+
+- Any product-owned tab switch uses `FunctionSegmentedTabStrip`. Raw
+  SwiftUI `Picker(...).pickerStyle(.segmented)` is banned (one
+  grandfathered call site documented in `.swiftlint.yml`).
+- Reduce Motion must be honored on every spatial animation, including
+  AppKit `NSAnimationContext` and Core Animation paths — go through
+  `MAYNMotion` / `MAYNMotionBridge`.
+- Hotkey editing only on Settings pages (via `HotkeyRecorder`); tool
+  pages display read-only via `ShortcutChip` / `MAYNHotkeyDisplay`.
 
 ## Architecture (Plan 6 update)
 - `MacAllYouNeed/App/AppController.swift` — composition root (replaces AppDelegate); owns all subsystems
