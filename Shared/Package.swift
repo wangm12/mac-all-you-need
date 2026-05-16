@@ -62,7 +62,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FeatureCoreTests",
-            dependencies: ["FeatureCore"],
+            dependencies: ["FeatureCore", "Core"],
             path: "Tests/FeatureCoreTests"
         ),
     ]
