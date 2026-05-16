@@ -49,6 +49,8 @@ targets:
         product: Platform
       - package: Shared
         product: FeatureCore
+      - package: Shared
+        product: PackPipeline
       - package: FluidAudio
         product: FluidAudio
       - target: ClipboardDaemon

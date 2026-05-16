@@ -65,6 +65,7 @@
 		47FC6162EEBD0BCB89ABF476 /* AdvancedSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35637426A62149C687DE169 /* AdvancedSettingsView.swift */; };
 		493B06B4F6B86ACA098B84C8 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = C90EF9C0B92791031982E209 /* Platform */; };
 		4B8A4F878B4C5A9566DCDAB5 /* HotkeyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2316DD48BA6E95C007CF9FB /* HotkeyController.swift */; };
+		4D83906AA4B3BD6747E6F95E /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 831ACFB2C6BAD322928FF299 /* FluidAudio */; };
 		4D8EEFEABBEC272335742E43 /* HotkeysSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51B0AD792F22E95A7E450973 /* HotkeysSettingsView.swift */; };
 		4FEC0DC0A85C35983F7E20FF /* DockAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA69C93A707658137819D776 /* DockAnimator.swift */; };
 		506F0C499D0BA28FBB1D7B36 /* DockMoreMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB589829CC24E72873D4FF1 /* DockMoreMenu.swift */; };
@@ -179,7 +180,7 @@
 		DF49838F276BFCE9C253C42C /* GroqASRSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF39F5185B9122BA3645316 /* GroqASRSettings.swift */; };
 		DF695E312AABAACFDA076892 /* CheatsheetOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673C0CFAD8357810A40CBB3B /* CheatsheetOverlay.swift */; };
 		E0438F66610597C697EB648B /* OpenAICompatibleVoiceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0706F4898C02F9FF4289BD2 /* OpenAICompatibleVoiceProvider.swift */; };
-		E1622165EA55C2AAA57CDF7B /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 831ACFB2C6BAD322928FF299 /* FluidAudio */; };
+		E1622165EA55C2AAA57CDF7B /* PackPipeline in Frameworks */ = {isa = PBXBuildFile; productRef = 57059E371017B24AAC312097 /* PackPipeline */; };
 		E1D92F8FF11CF827C48701A3 /* HotkeyMapStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044427E436B002B16EDA1075 /* HotkeyMapStoreMigrationTests.swift */; };
 		E21291929C7FE435CE3C331F /* VoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C452B011DC43045A034770D0 /* VoiceSettingsView.swift */; };
 		E2D3DB2470FC4899FE972267 /* ClipboardDockModelListSwitchingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5F3C53A015F073DBAFD32B1 /* ClipboardDockModelListSwitchingTests.swift */; };
@@ -464,7 +465,8 @@
 				56BC84AA624EB0E847CDB02E /* UI in Frameworks */,
 				493B06B4F6B86ACA098B84C8 /* Platform in Frameworks */,
 				A3A59B439B8C37DFC9C6BE62 /* FeatureCore in Frameworks */,
-				E1622165EA55C2AAA57CDF7B /* FluidAudio in Frameworks */,
+				E1622165EA55C2AAA57CDF7B /* PackPipeline in Frameworks */,
+				4D83906AA4B3BD6747E6F95E /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1061,6 +1063,7 @@
 				DE455CF6AE9CDA5C981B1F12 /* UI */,
 				C90EF9C0B92791031982E209 /* Platform */,
 				952C2FA275CB5346BB2507C3 /* FeatureCore */,
+				57059E371017B24AAC312097 /* PackPipeline */,
 				831ACFB2C6BAD322928FF299 /* FluidAudio */,
 			);
 			productName = MacAllYouNeed;
@@ -1788,6 +1791,10 @@
 		565D43E1D2B76D75D04F84F1 /* Platform */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Platform;
+		};
+		57059E371017B24AAC312097 /* PackPipeline */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PackPipeline;
 		};
 		6731B6B0CA4B6CEFF4A313B9 /* Core */ = {
 			isa = XCSwiftPackageProductDependency;
