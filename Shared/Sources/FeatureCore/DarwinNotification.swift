@@ -14,4 +14,6 @@ public extension Notification.Name {
     /// Posted on NotificationCenter.default after every feature state transition.
     /// Used by FeatureStatePublisher to refresh its @Published mirror.
     static let featureRuntimeStateChanged = Notification.Name("featureRuntimeStateChanged")
+    /// Posted when OrphanCacheScanner finds unreferenced provider cache directories.
+    static let orphanCachesFound = Notification.Name("orphanCachesFound")
 }

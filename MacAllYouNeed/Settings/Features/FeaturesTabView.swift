@@ -61,13 +61,24 @@ struct FeaturesTabView: View {
     }
 
     private func performUninstall(descriptor: FeatureDescriptor, sheetState: UninstallSheetState) async {
-        for cacheID in sheetState.checkedCacheIDs {
-            if let cache = descriptor.assetCaches.first(where: { $0.id == cacheID }) {
-                try? FileManager.default.removeItem(at: cache.directoryURL())
-            }
+        do {
+            try Self.applyCacheSelections(sheetState, in: descriptor, cacheManager: FeatureCacheManager())
+        } catch {
+            // Surface as a banner in a future polish pass; for now the user can
+            // see the directory still on disk and try again.
+            NSLog("FeaturesTabView uninstall: cache deletion failed: \(error)")
         }
         try? await controller.runtime.applyTransition(.disable, for: descriptor.id)
         // Phase 06 will additionally call PackUninstaller for asset features.
+    }
+
+    /// Static so tests can exercise cache deletion without instantiating SwiftUI.
+    static func applyCacheSelections(
+        _ sheetState: UninstallSheetState,
+        in descriptor: FeatureDescriptor,
+        cacheManager: FeatureCacheManager
+    ) throws {
+        try cacheManager.deleteCaches(sheetState.checkedCacheIDs, in: descriptor)
     }
 }
 

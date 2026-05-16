@@ -181,6 +181,7 @@
 		D02E087F979CEF23A1A47CDA /* ClipboardFeatureActivatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3860B4EE5F43A41C3E71257 /* ClipboardFeatureActivatorTests.swift */; };
 		D0B221F48CFB42E4943B4055 /* BootstrapDefaultsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC74F0B4E934741E3274402 /* BootstrapDefaultsTests.swift */; };
 		D0CBA387D05A4BF6037AC15F /* VoicePersonalizationPrivacyFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 046FB7EE3DE19E5111E957E4 /* VoicePersonalizationPrivacyFilter.swift */; };
+		D11055EB489B28A135B57228 /* OrphanCacheScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB10A7C3ED3A6724CDC8E7F /* OrphanCacheScanner.swift */; };
 		D1985B818845D087D592D05B /* MainAppDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702265E3CD5662AC69D14691 /* MainAppDestination.swift */; };
 		D21E4CC4BDEF957DC4A4DE63 /* BottomDockWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39254E3F271506135A45C200 /* BottomDockWindow.swift */; };
 		D48D4DBB9D7661802FE4A4E7 /* FeatureRegistryProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31C198A7EFF642EB6A95AE38 /* FeatureRegistryProvider.swift */; };
@@ -204,12 +205,14 @@
 		E2D3DB2470FC4899FE972267 /* ClipboardDockModelListSwitchingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5F3C53A015F073DBAFD32B1 /* ClipboardDockModelListSwitchingTests.swift */; };
 		E40ABB4D6C22BBEDDC64C7DE /* MacAllYouNeedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */; };
 		E65918E86C3C13479AFD0326 /* VoiceActivationSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD3F1216A77BA8E1F9970B44 /* VoiceActivationSettingsStoreTests.swift */; };
+		E6F66D3C94D292F14A9A4C15 /* VoiceCacheCleanupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4EDE0471B9720F7C97D8675 /* VoiceCacheCleanupSheet.swift */; };
 		E709B33518BA28E2533A2562 /* FeatureCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEF3ED5675B64FA5EAF937D8 /* FeatureCardView.swift */; };
 		E7F66A97D6A3D7DBC1154DE5 /* AnthropicVoiceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9FBB80687F506EE800B058A /* AnthropicVoiceProvider.swift */; };
 		E84022EA5DE8794285253DF8 /* FeatureRegistryProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F389EE8656024A05A23E32 /* FeatureRegistryProviderTests.swift */; };
 		E852FAE2BB311E081968E98E /* HotkeyRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C0599234840A1ED6E057EF /* HotkeyRecorderTests.swift */; };
 		E8542F4778D718844C2BA5BD /* ColorPickerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6492280F864A0A850F6889F9 /* ColorPickerCoordinator.swift */; };
 		E97D7F2C2800F0360B668135 /* SettingsRegistryDrivenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610691A8E56C14888787FBF5 /* SettingsRegistryDrivenTests.swift */; };
+		EBFB61B1DCDBACC69B79E91F /* OrphanCacheCleanupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D1C88F06053052FE6076E1E /* OrphanCacheCleanupSheet.swift */; };
 		EC206872753675B679993AE0 /* VoiceCoordinatorPersonalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA96843CBA430D555D38B317 /* VoiceCoordinatorPersonalizationTests.swift */; };
 		EE66FB190673E5EE456E73D6 /* VoicePostEditLearningMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 454D61A730A929AEDDDCCF8B /* VoicePostEditLearningMonitor.swift */; };
 		F39C33F1D7273FF075D928E4 /* ClipCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74D72FEF8464E388D2C6CC51 /* ClipCard.swift */; };
@@ -297,6 +300,7 @@
 		2876DCA089797AF9F10608C2 /* VoiceTextGenerationProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextGenerationProviderTests.swift; sourceTree = "<group>"; };
 		2B70AD9C6C31FDFAAEFED2F3 /* ClipboardDockModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDockModelTests.swift; sourceTree = "<group>"; };
 		2C9739EFE22157DDF7AFD91B /* ClipboardSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardSettingsView.swift; sourceTree = "<group>"; };
+		2D1C88F06053052FE6076E1E /* OrphanCacheCleanupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrphanCacheCleanupSheet.swift; sourceTree = "<group>"; };
 		2D3189EA90B56114283E8400 /* OnboardingWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWizardView.swift; sourceTree = "<group>"; };
 		2E0CD8F01E8F661BCE2FF0A1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2E0E6B7A6AFFF95766CB5601 /* CopyHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyHUD.swift; sourceTree = "<group>"; };
@@ -397,6 +401,7 @@
 		99553B32911A5BFE1237CAEC /* MainWindowRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowRoot.swift; sourceTree = "<group>"; };
 		99BAE78D49781487A2EA6137 /* CodeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeCard.swift; sourceTree = "<group>"; };
 		9A18BC47E53A3ED05AC8C34F /* VoiceFeatureActivatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceFeatureActivatorTests.swift; sourceTree = "<group>"; };
+		9AB10A7C3ED3A6724CDC8E7F /* OrphanCacheScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrphanCacheScanner.swift; sourceTree = "<group>"; };
 		9AC74F0B4E934741E3274402 /* BootstrapDefaultsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapDefaultsTests.swift; sourceTree = "<group>"; };
 		9CE36E9C60737E2A5F1D1AFB /* ClipboardXPCServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardXPCServer.swift; sourceTree = "<group>"; };
 		9D8A30C84A7A923B6C4A4980 /* PreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPanel.swift; sourceTree = "<group>"; };
@@ -408,6 +413,7 @@
 		A320BFFB4CB076E26BB0770C /* DownloadsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsSettingsView.swift; sourceTree = "<group>"; };
 		A42E7158D5D9C4889AC4A42A /* SearchSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchSettingsView.swift; sourceTree = "<group>"; };
 		A4BD7A88A562D1BB0CC94E9A /* VoiceOnboardingWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceOnboardingWizardView.swift; sourceTree = "<group>"; };
+		A4EDE0471B9720F7C97D8675 /* VoiceCacheCleanupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCacheCleanupSheet.swift; sourceTree = "<group>"; };
 		A5E4FC8E5CBB0AC16F3A8330 /* FeaturesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturesTabView.swift; sourceTree = "<group>"; };
 		A82D1441A94453DD0BD08D77 /* VoiceOnboardingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceOnboardingState.swift; sourceTree = "<group>"; };
 		A9FBB80687F506EE800B058A /* AnthropicVoiceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicVoiceProvider.swift; sourceTree = "<group>"; };
@@ -767,8 +773,11 @@
 				AEF3ED5675B64FA5EAF937D8 /* FeatureCardView.swift */,
 				A5E4FC8E5CBB0AC16F3A8330 /* FeaturesTabView.swift */,
 				DE62551FB3A7E3E624A243E2 /* FeatureStatePublisher.swift */,
+				2D1C88F06053052FE6076E1E /* OrphanCacheCleanupSheet.swift */,
+				9AB10A7C3ED3A6724CDC8E7F /* OrphanCacheScanner.swift */,
 				67B9F0E5EF9A3843B0E122A4 /* UninstallConfirmationSheet.swift */,
 				11269B17971B6EF763BFFBAB /* UninstallSheetState.swift */,
+				A4EDE0471B9720F7C97D8675 /* VoiceCacheCleanupSheet.swift */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -1464,6 +1473,8 @@
 				CCAC8312F9FAC33A1B0CF292 /* OnboardingWindowController.swift in Sources */,
 				BF2FE67769BA290A188D4C52 /* OnboardingWizardView.swift in Sources */,
 				E0438F66610597C697EB648B /* OpenAICompatibleVoiceProvider.swift in Sources */,
+				EBFB61B1DCDBACC69B79E91F /* OrphanCacheCleanupSheet.swift in Sources */,
+				D11055EB489B28A135B57228 /* OrphanCacheScanner.swift in Sources */,
 				F5D1754CA3D5E5AA6A8E9960 /* PermissionStepViews.swift in Sources */,
 				9B576FBC9DA86AEC8500A3EE /* PermissionsSettingsView.swift in Sources */,
 				3F122217C5388A44457FF8AB /* PinnedPinboard.swift in Sources */,
@@ -1497,6 +1508,7 @@
 				F5A04D53A3E77C19484F28D6 /* VoiceActivationMonitor.swift in Sources */,
 				93A69A5ABDABE057553451B8 /* VoiceActivationSettings.swift in Sources */,
 				17A2DF4FECC636650B67C2A2 /* VoiceAutoSubmitService.swift in Sources */,
+				E6F66D3C94D292F14A9A4C15 /* VoiceCacheCleanupSheet.swift in Sources */,
 				BAB11CE90AD4E9225962E59F /* VoiceCleanupPipeline.swift in Sources */,
 				DDC43A3FE1AFA2F69AFC0B29 /* VoiceCleanupSettings.swift in Sources */,
 				89D5E105D7BC49FB7A5783D9 /* VoiceCoordinator.swift in Sources */,

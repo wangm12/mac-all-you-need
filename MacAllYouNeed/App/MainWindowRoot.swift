@@ -10,6 +10,7 @@ struct MainWindowRoot: View {
     let controller: AppController
     @AppStorage(MainAppDestination.storageKey, store: AppGroupSettings.defaults)
     private var selectedRaw = MainAppDestination.dashboard.rawValue
+    @State private var pendingOrphans: [OrphanCacheScanner.Orphan] = []
 
     private var selection: Binding<MainAppDestination> {
         Binding {
@@ -67,6 +68,28 @@ struct MainWindowRoot: View {
             }
             let destination = SettingsDestination.legacySelection(note.object as? String)
             openSettingsInMain(destination)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .orphanCachesFound)) { note in
+            guard let orphans = note.userInfo?["orphans"] as? [OrphanCacheScanner.Orphan] else { return }
+            pendingOrphans = orphans
+        }
+        .sheet(isPresented: Binding(
+            get: { !pendingOrphans.isEmpty },
+            set: { if !$0 { pendingOrphans = [] } }
+        )) {
+            OrphanCacheCleanupSheet(
+                orphans: pendingOrphans,
+                onDelete: {
+                    let scanner = OrphanCacheScanner.makeForRegistry(controller.runtime.registry)
+                    try? scanner.delete(pendingOrphans)
+                    OrphanCacheDismissal.markDismissed(pendingOrphans.map { $0.url.standardizedFileURL.path })
+                    pendingOrphans = []
+                },
+                onDismiss: {
+                    OrphanCacheDismissal.markDismissed(pendingOrphans.map { $0.url.standardizedFileURL.path })
+                    pendingOrphans = []
+                }
+            )
         }
     }
 

@@ -22,6 +22,9 @@ struct FeatureCardView: View {
             if !descriptor.requiredPermissions.isEmpty {
                 Text(permissionsDescription).font(.caption).foregroundStyle(.tertiary)
             }
+            if let usage = diskUsageDescription {
+                Text(usage).font(.caption).foregroundStyle(.tertiary)
+            }
             FeatureCardActionView(
                 descriptor: descriptor,
                 state: state,
@@ -57,6 +60,13 @@ struct FeatureCardView: View {
     private var permissionsDescription: String {
         let names = descriptor.requiredPermissions.map(\.rawValue).joined(separator: ", ")
         return "Permissions: \(names)"
+    }
+
+    private var diskUsageDescription: String? {
+        guard !descriptor.assetCaches.isEmpty || !descriptor.assetPacks.isEmpty else { return nil }
+        let cacheBytes = FeatureCacheManager().totalBytes(for: descriptor)
+        let formatted = ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file)
+        return "Disk: \(formatted)"
     }
 }
 

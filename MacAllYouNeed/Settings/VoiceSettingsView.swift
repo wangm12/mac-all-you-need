@@ -31,6 +31,7 @@ struct VoiceSettingsView: View {
     @State private var modelDownloadFractions: [VoiceASRModelID: Double] = [:]
     @State private var downloadingModelID: VoiceASRModelID?
     @State private var isShowingDictionary = false
+    @State private var showsCacheCleanupSheet = false
     @State private var microphoneOptions = VoiceMicrophoneOptionDescriptor.available()
     @AppStorage(VoiceAudioSettings.microphoneIDKey, store: AppGroupSettings.defaults) private var preferredMicrophoneID = VoiceAudioSettings
         .systemMicrophoneID
@@ -356,6 +357,22 @@ struct VoiceSettingsView: View {
                     StatusPill(text: "Accessibility + Command-V", kind: .neutral)
                 }
             }
+            MAYNSection(title: "Storage") {
+                MAYNSettingsRow(
+                    title: "Cached model files",
+                    subtitle: "Reclaim disk space without removing the Voice feature."
+                ) {
+                    MAYNButton("Clear cached models…") {
+                        showsCacheCleanupSheet = true
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showsCacheCleanupSheet) {
+            VoiceCacheCleanupSheet(
+                descriptor: VoiceDescriptor.descriptor(),
+                onClose: { showsCacheCleanupSheet = false }
+            )
         }
     }
 

@@ -149,6 +149,24 @@ final class AppController {
             try await BootstrapDefaults.seedIfNeeded(manager: fm, defaults: AppGroupSettings.defaults)
             await rt.activateAllEnabled()
         }
+
+        runOrphanCacheScanIfNeeded()
+    }
+
+    private func runOrphanCacheScanIfNeeded() {
+        let registry = runtime.registry
+        Task.detached(priority: .background) {
+            let scanner = OrphanCacheScanner.makeForRegistry(registry)
+            let orphans = OrphanCacheDismissal.unseen(scanner.scan())
+            guard !orphans.isEmpty else { return }
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .orphanCachesFound,
+                    object: nil,
+                    userInfo: ["orphans": orphans]
+                )
+            }
+        }
     }
 
     func applyHotkeyMap(_ map: [HotkeyAction: [Platform.HotkeyDescriptor]]) throws {
