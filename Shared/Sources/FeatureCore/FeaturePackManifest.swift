@@ -5,6 +5,12 @@ public struct FeaturePackManifest: Codable, Equatable, Sendable {
     public let wrapperVersion: String
     public let packs: [String: PackEntry]
 
+    public init(schemaVersion: Int, wrapperVersion: String, packs: [String: PackEntry]) {
+        self.schemaVersion = schemaVersion
+        self.wrapperVersion = wrapperVersion
+        self.packs = packs
+    }
+
     public struct PackEntry: Codable, Equatable, Sendable {
         public let version: String
         public let url: URL
@@ -12,12 +18,34 @@ public struct FeaturePackManifest: Codable, Equatable, Sendable {
         public let sizeBytes: Int64
         public let files: [String: FileEntry]
         public let codesignRequirement: String
+
+        public init(
+            version: String,
+            url: URL,
+            zipSha256: String,
+            sizeBytes: Int64,
+            files: [String: FileEntry],
+            codesignRequirement: String
+        ) {
+            self.version = version
+            self.url = url
+            self.zipSha256 = zipSha256
+            self.sizeBytes = sizeBytes
+            self.files = files
+            self.codesignRequirement = codesignRequirement
+        }
     }
 
     public struct FileEntry: Codable, Equatable, Sendable {
         public let sha256: String
         public let executable: Bool
         public let maxBytes: Int64
+
+        public init(sha256: String, executable: Bool, maxBytes: Int64) {
+            self.sha256 = sha256
+            self.executable = executable
+            self.maxBytes = maxBytes
+        }
     }
 
     public enum DecodingFailure: Error, Equatable {
