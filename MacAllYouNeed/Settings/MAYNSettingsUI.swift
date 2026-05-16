@@ -16,6 +16,9 @@ enum MAYNTheme {
     static let subtleBorder = Color.primary.opacity(0.10)
     static let focusRing = Color.primary.opacity(0.70)
     static let controlTint = Color.secondary
+    static let tabSelectedFill = Color.primary.opacity(0.14)
+    static let tabSelectedBorder = Color.primary.opacity(0.20)
+    static let tabSelectedShadow = Color.black.opacity(0.06)
     static let success = Color.green
     static let warning = Color.orange
     static let danger = Color.red

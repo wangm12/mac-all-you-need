@@ -283,9 +283,9 @@ struct DockListTabs: View {
                 .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 4)
         } else if active {
             Capsule()
-                .fill(Color.primary.opacity(0.14))
-                .overlay(Capsule().stroke(Color.primary.opacity(0.20), lineWidth: 1))
-                .shadow(color: Color.black.opacity(0.06), radius: 2, x: 0, y: 1)
+                .fill(MAYNTheme.tabSelectedFill)
+                .overlay(Capsule().stroke(MAYNTheme.tabSelectedBorder, lineWidth: 1))
+                .shadow(color: MAYNTheme.tabSelectedShadow, radius: 2, x: 0, y: 1)
                 .matchedGeometryEffect(id: "dock-tab-selection", in: selectionNamespace)
         } else {
             Capsule()

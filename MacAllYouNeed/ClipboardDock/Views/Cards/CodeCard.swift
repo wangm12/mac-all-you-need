@@ -14,7 +14,7 @@ struct CodeCard: View {
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Color.secondary.opacity(0.15))
+                .background(MAYNTheme.elevated)
                 .clipShape(Capsule())
             Text(item.displayLabel)
                 .font(.system(.body, design: .monospaced))
