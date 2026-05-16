@@ -1,9 +1,10 @@
+import FeatureCore
 import Foundation
 import Platform
 
 enum HotkeyRegistryError: LocalizedError {
     case validation(String)
-    case duplicate(HotkeyDescriptor)
+    case duplicate(Platform.HotkeyDescriptor)
     case registrationFailed(HotkeyAction, Error)
 
     var errorDescription: String? {
@@ -20,8 +21,8 @@ enum HotkeyRegistryError: LocalizedError {
 
 enum HotkeyRegistryApplyPlan {
     static func shouldSkipApply(
-        next: [HotkeyAction: [HotkeyDescriptor]],
-        configured: [HotkeyAction: [HotkeyDescriptor]],
+        next: [HotkeyAction: [Platform.HotkeyDescriptor]],
+        configured: [HotkeyAction: [Platform.HotkeyDescriptor]],
         hasActiveHandles: Bool
     ) -> Bool {
         hasActiveHandles && next == configured
@@ -31,13 +32,13 @@ enum HotkeyRegistryApplyPlan {
 @MainActor
 final class HotkeyRegistry {
     private var handles: [HotkeyAction: [GlobalHotkey]] = [:]
-    private var configuredMap: [HotkeyAction: [HotkeyDescriptor]] = [:]
+    private var configuredMap: [HotkeyAction: [Platform.HotkeyDescriptor]] = [:]
 
     func unregisterAll() {
         unregisterHandles()
     }
 
-    func apply(_ map: [HotkeyAction: [HotkeyDescriptor]], controller: AppController) throws {
+    func apply(_ map: [HotkeyAction: [Platform.HotkeyDescriptor]], controller: AppController) throws {
         if HotkeyRegistryApplyPlan.shouldSkipApply(
             next: map,
             configured: configuredMap,
@@ -53,7 +54,7 @@ final class HotkeyRegistry {
             throw HotkeyRegistryError.validation(issue.message)
         }
 
-        var seen: [HotkeyDescriptor: HotkeyAction] = [:]
+        var seen: [Platform.HotkeyDescriptor: HotkeyAction] = [:]
         for (action, descriptors) in map {
             for descriptor in descriptors {
                 if seen[descriptor] != nil {
@@ -76,7 +77,7 @@ final class HotkeyRegistry {
     }
 
     private func makeHandles(
-        for map: [HotkeyAction: [HotkeyDescriptor]],
+        for map: [HotkeyAction: [Platform.HotkeyDescriptor]],
         controller: AppController,
         registeringAction: inout HotkeyAction?
     ) throws -> [HotkeyAction: [GlobalHotkey]] {
@@ -107,5 +108,15 @@ final class HotkeyRegistry {
     private func unregisterHandles() {
         handles.values.flatMap { $0 }.forEach { $0.unregister() }
         handles = [:]
+    }
+
+    // MARK: - Registry-driven enumeration (Phase 04)
+
+    /// Returns all hotkey metadata declared by features in `registry`, in registry order.
+    /// Consumed by HotkeysSettingsView (Phase 05) to display per-feature hotkey entries.
+    func declaredHotkeys(from registry: FeatureRegistry) -> [(FeatureID, FeatureCore.HotkeyDescriptor)] {
+        registry.descriptors.flatMap { descriptor in
+            descriptor.hotkeys.map { (descriptor.id, $0) }
+        }
     }
 }
