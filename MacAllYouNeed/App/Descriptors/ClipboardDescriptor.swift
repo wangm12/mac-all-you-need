@@ -10,7 +10,9 @@ enum ClipboardDescriptor {
             summary: "Copy history, snippets, ⌘⇧V popup.",
             detailDescription: "Captures everything you copy and lets you paste any past clip with ⌘⇧V. Includes snippet expansion (type `;email` to expand a saved snippet).",
             requiredPermissions: [.accessibility],
-            activator: NoopFeatureActivator()
+            hotkeys: [HotkeyDescriptor(identifier: "clipboard.popup", displayName: "Show clipboard popup")],
+            activator: ClipboardFeatureActivator()
+            // settingsTabFactory deferred: ClipboardSettingsView requires AppController (Phase 04 DI)
         )
     }
 }

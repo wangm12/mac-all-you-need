@@ -42,6 +42,7 @@
 		2BBD484A5079B4F27A0EFE0D /* HotkeyRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6DCF0AE92FA94E30862798C /* HotkeyRegistry.swift */; };
 		2BC41AD24BD7020F7ADAF022 /* AudioCaptureServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E698DACB526F887522CD22A0 /* AudioCaptureServiceTests.swift */; };
 		2CB5183509389C0786F7C077 /* DockProgressController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46017451A02B97C5F1A59EF3 /* DockProgressController.swift */; };
+		2D5603FCA46C893D5BE60F68 /* ClipboardFeatureActivator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D54D3A1D9C0995103E991D31 /* ClipboardFeatureActivator.swift */; };
 		302C9B013D3A766DBB5BB665 /* AppIconResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F6D7B0F394EAFD0746B1085 /* AppIconResolver.swift */; };
 		3068FA5C5CEE60025308D5D8 /* MiniVoiceHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4122E7FF9ED23208C2073A /* MiniVoiceHUD.swift */; };
 		322BC848FD051ADB897164C2 /* VoiceOnboardingStepTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68118F753D7238BD7FE4BAA9 /* VoiceOnboardingStepTests.swift */; };
@@ -163,6 +164,7 @@
 		CC54C543AA082BEF92EEC797 /* VoicePersonalizationPrivacyFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D987ABFFCBCE9C47280888 /* VoicePersonalizationPrivacyFilterTests.swift */; };
 		CCAC8312F9FAC33A1B0CF292 /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91B9F9F6403ACC97A9E1E6D8 /* OnboardingWindowController.swift */; };
 		CE5988BCECE0B86E99A9E68C /* HotkeyMapStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B945F20C749B8FE7E2336A32 /* HotkeyMapStore.swift */; };
+		D02E087F979CEF23A1A47CDA /* ClipboardFeatureActivatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3860B4EE5F43A41C3E71257 /* ClipboardFeatureActivatorTests.swift */; };
 		D0CBA387D05A4BF6037AC15F /* VoicePersonalizationPrivacyFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 046FB7EE3DE19E5111E957E4 /* VoicePersonalizationPrivacyFilter.swift */; };
 		D1985B818845D087D592D05B /* MainAppDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702265E3CD5662AC69D14691 /* MainAppDestination.swift */; };
 		D21E4CC4BDEF957DC4A4DE63 /* BottomDockWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39254E3F271506135A45C200 /* BottomDockWindow.swift */; };
@@ -413,6 +415,7 @@
 		CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDaemonMain.swift; sourceTree = "<group>"; };
 		D02426F0FD815353A891A5A7 /* SettingsExclusionListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsExclusionListTests.swift; sourceTree = "<group>"; };
 		D35637426A62149C687DE169 /* AdvancedSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSettingsView.swift; sourceTree = "<group>"; };
+		D54D3A1D9C0995103E991D31 /* ClipboardFeatureActivator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardFeatureActivator.swift; sourceTree = "<group>"; };
 		D57B15F3E4259A6B0A662817 /* DownloadCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadCoordinator.swift; sourceTree = "<group>"; };
 		D62D47A19B893BA641E3647C /* BrowseFolderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseFolderCoordinator.swift; sourceTree = "<group>"; };
 		DB3113E09553270B55F20199 /* DockListSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockListSelector.swift; sourceTree = "<group>"; };
@@ -428,6 +431,7 @@
 		ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EF23BB95BEC2DDAA69E88DE2 /* VoiceASRSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceASRSettingsStoreTests.swift; sourceTree = "<group>"; };
 		F2316DD48BA6E95C007CF9FB /* HotkeyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyController.swift; sourceTree = "<group>"; };
+		F3860B4EE5F43A41C3E71257 /* ClipboardFeatureActivatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardFeatureActivatorTests.swift; sourceTree = "<group>"; };
 		F532DF6285CA55E9EEA34A64 /* DockItemRef.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockItemRef.swift; sourceTree = "<group>"; };
 		F57E1D571BD0D16BAABE8A14 /* VoicePostEditLearningMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePostEditLearningMonitorTests.swift; sourceTree = "<group>"; };
 		F60F2E878EE4D45E41DF3706 /* VoiceActivationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceActivationSettings.swift; sourceTree = "<group>"; };
@@ -778,6 +782,7 @@
 		93605A7728BA6EA36F9EA9BF /* Clipboard */ = {
 			isa = PBXGroup;
 			children = (
+				D54D3A1D9C0995103E991D31 /* ClipboardFeatureActivator.swift */,
 				F2316DD48BA6E95C007CF9FB /* HotkeyController.swift */,
 			);
 			path = Clipboard;
@@ -920,6 +925,7 @@
 		DD96612D42F4A1DDF5AE26CB /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				F3860B4EE5F43A41C3E71257 /* ClipboardFeatureActivatorTests.swift */,
 				95F389EE8656024A05A23E32 /* FeatureRegistryProviderTests.swift */,
 			);
 			path = Features;
@@ -1232,6 +1238,7 @@
 				2BC41AD24BD7020F7ADAF022 /* AudioCaptureServiceTests.swift in Sources */,
 				E2D3DB2470FC4899FE972267 /* ClipboardDockModelListSwitchingTests.swift in Sources */,
 				643FAE38B9FE86CB50391E16 /* ClipboardDockModelTests.swift in Sources */,
+				D02E087F979CEF23A1A47CDA /* ClipboardFeatureActivatorTests.swift in Sources */,
 				99F9679CA4CEBCDC5A076E4C /* DockItemTests.swift in Sources */,
 				E84022EA5DE8794285253DF8 /* FeatureRegistryProviderTests.swift in Sources */,
 				DC735024CCED5F4A650D1CF0 /* FileURLLoaderTests.swift in Sources */,
@@ -1319,6 +1326,7 @@
 				89A6BAFF388904DADB924564 /* ClipboardDescriptor.swift in Sources */,
 				202630EB35D64AC40921CE1C /* ClipboardDock.swift in Sources */,
 				16DDE55D34DC095F9E351974 /* ClipboardDockModel.swift in Sources */,
+				2D5603FCA46C893D5BE60F68 /* ClipboardFeatureActivator.swift in Sources */,
 				D89A829D2528DAC4BDEAEF04 /* ClipboardSettingsView.swift in Sources */,
 				3D2F1429F98CEB6491DA8384 /* CodeCard.swift in Sources */,
 				668FEF637DFC580426FCF622 /* ColorCard.swift in Sources */,
