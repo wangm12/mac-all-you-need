@@ -47,3 +47,47 @@ identifier_name:
     - t
     - w
     - h
+
+# Design-system enforcement. See design.md for the canonical rules these guard.
+# Per-rule `excluded` paths grandfather pre-design.md sites; touch the file →
+# fix the violation, don't add to the exclude list.
+custom_rules:
+  mayn_no_raw_color_rgb:
+    name: "Raw Color(red:) bypasses MAYNTheme"
+    regex: '\bColor\(red:'
+    message: "Use MAYNTheme tokens. Raw Color(red:green:blue:) bypasses the design system — see design.md §4.1 and §10."
+    severity: error
+    excluded:
+      # design.md §10.4 — five function-tab brand accent colors
+      - "MacAllYouNeed/App/MainWindowRoot.swift"
+      # design.md §10.3 — HUD processing background, deliberate floating-HUD choice
+      - "MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift"
+      # design.md §10.2 — per-app brand palette for clipboard cards
+      - "MacAllYouNeed/ClipboardDock/Views/Cards/AppIconColor.swift"
+      # User-defined pinboard hex colors parsed at runtime
+      - "MacAllYouNeed/ClipboardDock/Views/DockTopBar/DockListTabs.swift"
+
+  mayn_no_segmented_picker_style:
+    name: "Raw .pickerStyle(.segmented) bypasses FunctionSegmentedTabStrip"
+    regex: '\.pickerStyle\(\.segmented\)|\.pickerStyle\(SegmentedPickerStyle\(\)\)'
+    message: "Use FunctionSegmentedTabStrip for product tab switches — see design.md §6.4 and §8."
+    severity: error
+    excluded:
+      # Pre-design.md mode picker (Files / Grid / Analyze). Slated for
+      # migration to FunctionSegmentedTabStrip; see design.md §11.
+      - "Shared/Sources/UI/FolderPreview/FolderPreviewView.swift"
+
+  mayn_no_raw_animation_duration:
+    name: "Raw Animation.easeOut(duration:) bypasses MAYNMotion"
+    regex: 'Animation\.easeOut\(duration:|Animation\.easeInOut\(duration:|Animation\.linear\(duration:'
+    message: "Route animations through MAYNMotion / MAYNMotionBridge so Reduce Motion is honored — see design.md §4.2 and §9."
+    severity: error
+    excluded:
+      # MAYNMotion's own definitions live here.
+      - "MacAllYouNeed/Settings/MAYNSettingsUI.swift"
+
+  mayn_no_raw_spring_animation:
+    name: "Raw .spring() bypasses MAYNMotion"
+    regex: '\bAnimation\.spring\(|withAnimation\(\.spring\(|\.animation\(\.spring\('
+    message: "Use MAYNMotion.* (or extend MAYNMotion to add a new kind) — see design.md §4.2 and §9."
+    severity: error
