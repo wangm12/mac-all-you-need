@@ -10,7 +10,7 @@ enum DownloaderDescriptor {
             summary: "Universal video downloader (yt-dlp + ffmpeg).",
             detailDescription: "Paste any video URL and the downloader handles formats, fragments, cookies, and re-encoding.",
             assetPacks: [AssetPack(id: "downloader", bundledManifestKey: "downloader")],
-            activator: NoopFeatureActivator()
+            activator: DownloaderFeatureActivator()
         )
     }
 }
