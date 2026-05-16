@@ -89,22 +89,268 @@ The work is split into **12 phase plans**, each in `docs/superpowers/plans/2026-
 
 ## Parallelization map
 
-| Wave | Phases that can run concurrently | Why |
+| Wave | Phases that run concurrently | Concurrency | Why |
+|---|---|---:|---|
+| 1 | **01** alone | 1 | Foundation types + `FeatureManager`; everything else depends on it. |
+| 2 | **02** ∥ **03** | 5 | 02 is one agent. 03 fans out to **four** parallel sub-agents (one per feature) once the Phase 03 shared scaffold (Task 1) lands. |
+| 3 | **04** alone | 1 | Integrates 02 + 03 into the registry-driven bootstrap. |
+| 4 | **05** alone | 1 | Builds the Features tab UI. |
+| 5 | **06** ∥ **07** ∥ **08** ∥ **10** | 4 | All four depend on 05 (or earlier) and touch disjoint primary code paths. |
+| 6 | **09** alone | 1 | Reuses card UI from 05 and pack download from 06. |
+| 7 | **11** alone | 1 | Depends on final disk layout (06) and onboarding decision tree (09). |
+| 8 | **12** alone | 1 | Final cleanup; touches many surfaces. |
+
+**Peak concurrency:** Wave 2 (5 agents) and Wave 5 (4 agents).
+
+---
+
+## Sub-Agent Orchestration Guide
+
+This section is the playbook for an orchestrator (human or top-level Claude) coordinating parallel sub-agents across phases. **Read this before kicking off any wave.**
+
+### Pre-flight (one-time, before Wave 1)
+
+- [ ] Confirm you're on a clean `main` (no uncommitted changes outside this initiative).
+- [ ] Confirm the spec exists at `docs/superpowers/specs/2026-05-15-modular-features-design.md`.
+- [ ] Confirm all 12 phase plans exist in `docs/superpowers/plans/2026-05-15-modular-features/`.
+- [ ] Verify the build environment: `./scripts/ci-build.sh` passes on current `main`.
+- [ ] Create a tracking branch for the whole initiative if you want one umbrella PR series: `git checkout -b modular-features/init`. Each phase still gets its own branch off this.
+- [ ] Decide which sub-skill each phase's agents use:
+  - **Within a phase**: agents use `superpowers:subagent-driven-development` (one fresh sub-agent per task, review between tasks). This is the recommended default.
+  - **Alternative for short phases**: `superpowers:executing-plans` (single agent works the whole phase inline with checkpoints).
+
+### Conflict points (read before dispatching parallel agents)
+
+Parallel phases sometimes touch the **same shared file**. These are real merge-conflict risks. Resolution strategies are noted per file:
+
+| File | Touched by | Resolution |
 |---|---|---|
-| 1 | **01** alone (blocking) | Everything depends on the foundation types and `FeatureManager`. |
-| 2 | **02** ∥ **03** | Both depend only on Phase 01. Pack pipeline (02) and the four feature activators (03) touch disjoint files. |
-| 3 | **04** alone | Integrates 02 + 03 results into the registry-driven bootstrap. Touches `AppController`, `SettingsRoot`, `MenuBarHost`, `HotkeyRegistry`. |
-| 4 | **05** alone | Builds the Features tab UI. Single file group; not worth splitting. |
-| 5 | **06** ∥ **07** ∥ **08** ∥ **10** | All four depend on 05 (or earlier) but touch disjoint code. Downloader pack (06), Voice caches (07), Folder Preview extension (08), and daemon (10) are independent. |
-| 6 | **09** alone | Onboarding picker reuses card UI from 05 and pack download UI from 06. |
-| 7 | **11** alone | Migration depends on the final disk layout from 06 and the onboarding decision tree from 09. |
-| 8 | **12** alone | Final cleanup and polish; touches many surfaces. |
+| `MacAllYouNeed/App/FeatureRegistryProvider.swift` | Phase 03 (×4 sub-agents), Phase 06, 07, 08 | **Pre-split before fan-out.** Within Phase 03 Task 1, split the file into `FeatureRegistryProvider.swift` (composition root, 10 lines) + `<Feature>Descriptor.swift` per feature. Each parallel sub-agent then owns its own file. Later phases (06/07/08) modify their feature's descriptor file only. |
+| `MacAllYouNeed/Settings/Features/FeaturesTabView.swift` | Phase 06, Phase 07 | Have Phase 06 land first; Phase 07 rebases. The handler change in 06 is structural (install/cancel/retry wiring); 07's change is small (uninstall opt-in cache deletion). Phase 06's first PR review should be quick. |
+| `MacAllYouNeed/App/AppController.swift` | Phase 06 (PackInstallController wiring), Phase 07 (orphan scanner init) | Same as above: 06 first, 07 rebases. Both edits are in the bootstrap section; rebase conflict is trivial. |
+| `Shared/Sources/FeatureCore/FeatureStateReader.swift` | Phase 08, Phase 10 | **First-to-land wins.** Whichever phase lands first creates the file. The second phase's "Task: add FeatureStateReader if not present" must check `git ls-files` and skip when present. Both phase plans already document this. |
+| `MacAllYouNeed/Settings/Features/FeatureCardView.swift` | Phase 05 (creates), Phase 08 (adds OS-extension badge) | Phase 05 lands first by definition; Phase 08 modification is additive (a new info badge). No real conflict. |
+| `project.yml` | Phase 01, 02, 04, 08 | Each adds entries to different targets' `dependencies:`. Conflicts are textual but trivial; rebase resolves. |
 
-**Inside Phase 03**, the four activator wrappers can themselves run in parallel sub-agents (one per feature: `clipboard`, `folderPreview`, `downloader`, `voice`). The per-feature work doesn't touch shared files. This is the largest parallel fan-out in the plan.
+**Conflict-resolution policy across the board**:
+1. Land the first-to-finish parallel sub-agent's PR.
+2. For each subsequent sub-agent in the same wave, rebase its branch on the merged `main` and re-run tests + CI.
+3. If a rebase produces a non-trivial conflict (more than reordering imports / merging adjacent lines), pause and resolve in a fresh sub-agent dispatch with a focused "resolve rebase conflict" prompt.
 
-**Recommended sub-agent dispatch**:
-- Wave 2: dispatch one sub-agent for Phase 02, one for each of the four Phase 03 sub-tasks (5 concurrent agents, after Phase 01 lands).
-- Wave 5: dispatch one sub-agent per phase in {06, 07, 08, 10} (4 concurrent agents).
+### Wave-by-wave playbook
+
+#### Wave 1 — Phase 01 (foundation)
+
+**Dispatch**: 1 sub-agent.
+- Prompt template: see "Standard Dispatch Prompt" below; fill in `<phase-id>=01`, `<phase-file>=01-foundation.md`, dependencies=`(none)`.
+- Sub-skill: `superpowers:subagent-driven-development`.
+
+**Verification gate before Wave 2**:
+- [ ] Phase 01's PR merged to `main`.
+- [ ] `cd Shared && PKG_CONFIG_PATH=... swift test --filter FeatureCore` passes.
+- [ ] `FeatureCore` library exports `FeatureID`, `AssetState`, `ActivationState`, `FeatureRuntimeState`, `FeatureDescriptor`, `FeatureRegistry`, `FeatureActivator`, `FeatureManager`, `FeaturePackManifest`, `AssetPack`, `AssetCacheDescriptor`, `DarwinNotification`.
+- [ ] Xcode project regenerated; `xcodebuild build` passes.
+
+#### Wave 2 — Phase 02 ∥ Phase 03 (5 concurrent agents)
+
+This is the largest fan-out. Phase 03's Task 1 (the shared `FeatureRegistryProvider` scaffold) **must land first** before the four activator sub-agents fan out — otherwise they collide on the same file.
+
+**Recommended order within Wave 2**:
+
+1. **Phase 03 Task 1 only** (1 agent): land the `FeatureRegistryProvider.swift` scaffold + the per-descriptor file split (see Conflict Points table). Merge to `main`.
+2. Then dispatch in parallel (5 agents simultaneously):
+   - **Phase 02** (full phase): one agent runs Tasks 1–13 of `02-pack-infrastructure.md`.
+   - **Phase 03 Task 2** (Clipboard activator sub-agent): owner of `MacAllYouNeed/Clipboard/` files + `ClipboardDescriptor.swift`.
+   - **Phase 03 Task 3** (Folder Preview activator sub-agent): owner of `MacAllYouNeed/FolderPreview/` files + `FolderPreviewDescriptor.swift`.
+   - **Phase 03 Task 4** (Downloader activator sub-agent): owner of `MacAllYouNeed/Downloader/` files + `DownloaderDescriptor.swift`.
+   - **Phase 03 Task 5** (Voice activator sub-agent): owner of `MacAllYouNeed/Voice/` files + `VoiceDescriptor.swift`.
+3. After all 5 finish, run **Phase 03 Task 6** (phase verification) as a single follow-up agent (combines all four activator PRs into a final integration check).
+
+**Dispatch prompt** for each Phase 03 sub-agent: see "Standard Dispatch Prompt" below; specify which task numbers the sub-agent owns (e.g., "Task 2 only").
+
+**Verification gate before Wave 3**:
+- [ ] Phase 02 PR merged. `swift test --filter PackPipeline` passes.
+- [ ] All four Phase 03 sub-task PRs merged. Each activator's tests pass.
+- [ ] `FeatureRegistryProvider.makeRegistry()` returns 4 descriptors with real activators (no `NoopFeatureActivator` leftovers).
+- [ ] App still launches and behaves identically (AppController hasn't changed bootstrap yet — that's Wave 3).
+
+#### Wave 3 — Phase 04 (registry-driven bootstrap)
+
+**Dispatch**: 1 sub-agent. Not parallelizable — it's the integration point.
+
+**Verification gate before Wave 4**:
+- [ ] All features still work after launch.
+- [ ] Disable a feature via direct `defaults write` to `AppGroupSettings` → relaunch → that feature is inactive (no hotkey, no menu item, no permission prompt).
+- [ ] Re-enable via `defaults write` → relaunch → it's active.
+
+#### Wave 4 — Phase 05 (Features tab UI)
+
+**Dispatch**: 1 sub-agent.
+
+**Verification gate before Wave 5**:
+- [ ] Settings → Features tab shows 4 cards.
+- [ ] Toggle Enable/Disable on a card; feature activates/deactivates without restart.
+- [ ] Uninstall sheet renders (caches list will be empty for now — Phase 07 fills Voice caches).
+
+#### Wave 5 — Phase 06 ∥ Phase 07 ∥ Phase 08 ∥ Phase 10 (4 concurrent agents)
+
+**Recommended merge order to minimize rebase pain**:
+
+1. **Phase 10 first** (least likely to conflict — daemon code is mostly isolated): dispatch alone or in parallel with 08.
+2. **Phase 08** (isolated extension target + small `FeatureCardView` badge): parallel with 10.
+3. **Phase 06** (shared `FeaturesTabView` + `AppController` edits): land third; rebase if needed.
+4. **Phase 07** (shared `FeaturesTabView` + `AppController` edits): land last; rebase on 06's changes.
+
+**FeatureStateReader race**: Phase 08 and Phase 10 both create `Shared/Sources/FeatureCore/FeatureStateReader.swift`. Whichever lands first creates it; the second checks `git ls-files docs/.../FeatureStateReader.swift` at the start of its relevant task and skips creation if present. Both phase plans document this guard.
+
+**Dispatch all 4 in parallel** if you accept the rebase cost (best wall-clock time). **Or dispatch 10 + 08 first, then 06 + 07** if you want fewer rebases (saves human review time).
+
+**Verification gate before Wave 6**:
+- [ ] Phase 06: clicking Install on Downloader downloads a real pack and activates it.
+- [ ] Phase 07: Voice card's Uninstall sheet shows the two Qwen3 cache rows when present.
+- [ ] Phase 08: toggling Folder Preview off → Quick Look shows placeholder.
+- [ ] Phase 10: toggling Clipboard off → daemon pasteboard poller stops (verify via Console.app or daemon log).
+
+#### Wave 6 — Phase 09 (onboarding redesign)
+
+**Dispatch**: 1 sub-agent.
+
+**Verification gate before Wave 7**:
+- [ ] Wipe `AppGroupSettings` to simulate first launch → onboarding shows new wizard.
+- [ ] Pick Downloader → download progress runs → permission prompts only for declared permissions → Done.
+- [ ] "Skip for now" exits with zero features enabled; app still launches.
+
+#### Wave 7 — Phase 11 (migration)
+
+**Dispatch**: 1 sub-agent.
+
+**Verification gate before Wave 8**:
+- [ ] Simulate existing-user state (write fake clipboard records / download records to App Group DB) → launch new build → migration runs once → "What's new" sheet appears → all features end up in expected state.
+- [ ] Sentinel persists across relaunches; migration doesn't re-run.
+- [ ] Sparkle pre-install script tested in isolation (script harness test passes).
+
+#### Wave 8 — Phase 12 (cleanup & polish)
+
+**Dispatch**: 1 sub-agent.
+
+**Final gate**:
+- [ ] All 12 phases checked off in this index plan.
+- [ ] Manual QA matrix from spec § 11 walked through and recorded.
+- [ ] Initiative marked complete in CLAUDE.md "Plans Status".
+
+### Standard dispatch prompt template
+
+Use this template when dispatching any per-phase sub-agent. Fill in the bracketed placeholders.
+
+```
+You are implementing one phase of the modular-features initiative for the
+Mac All You Need (MAYN) macOS app. Your scope is strictly limited to the
+tasks listed in your phase plan file.
+
+## Your phase
+
+- Phase ID: <phase-id>            e.g. "Phase 02" or "Phase 03 Task 4 (Downloader sub-task)"
+- Plan file (read in full first): docs/superpowers/plans/2026-05-15-modular-features/<phase-file>.md
+- Specific tasks to execute: <task-range>     e.g. "all tasks" or "Task 4 only"
+
+## Context to read before starting
+
+1. The design spec — the section relevant to your phase:
+   docs/superpowers/specs/2026-05-15-modular-features-design.md
+   (Your phase plan's "Goal" + "Depends on" sections tell you which spec § matters.)
+
+2. The index plan — for the dependency graph and conventions:
+   docs/superpowers/plans/2026-05-15-modular-features.md
+
+3. The plan files of every phase listed in your "Depends on":
+   <list-dependency-files>     e.g. "01-foundation.md, 02-pack-infrastructure.md"
+
+4. The repo's CLAUDE.md for project context:
+   /Users/mingjie.wang/Documents/personal/mac-all-you-need/CLAUDE.md
+   and MacAllYouNeed/CLAUDE.md (UI-scoped rules).
+
+## How to execute
+
+Use the `superpowers:subagent-driven-development` skill. For each task in
+your scope:
+- Read the task's "Files" block to know what you'll touch.
+- Walk through every checkbox step in order.
+- Honor the TDD shape: failing test → confirm it fails → implement →
+  confirm it passes → commit.
+- Every commit message: `feat(modular-features): <task summary>`.
+- Do NOT skip the "expected output" assertion on any step.
+
+## Branch
+
+Create a branch: `modular-features/phase-<phase-id-slug>` off current `main`.
+Example: `modular-features/phase-02` or `modular-features/phase-03-downloader`.
+
+## Conflict awareness
+
+These files are shared with other parallel phases — coordinate via rebase:
+<list-from-conflict-points-table>
+
+If you find one of those files already modified by a parallel branch when
+you go to commit, STOP and report. Do not force-push. Do not silently
+overwrite.
+
+## Done criteria
+
+- All checkboxes in your task scope ticked off.
+- `./scripts/ci-build.sh` passes.
+- The phase's "Phase verification" final task completed (tests + manual
+  smoke if applicable).
+- A PR opened with title `Phase <N> — <name>` and the body pointing at
+  the plan file path.
+
+## Out of scope
+
+Anything not in your task scope. If you discover something that "should
+be done" outside your scope, add a TODO comment with a phase reference
+(e.g., `// Phase 11 will handle this`) — do not implement it yourself.
+
+## Output
+
+When done, report: branch name, PR URL, list of commits, and whether
+all verification steps passed. If anything failed, report what and why.
+```
+
+### Failure recovery
+
+When a sub-agent reports failure:
+
+1. **Read the failure output carefully** before re-dispatching. Common causes:
+   - **Test environment mismatch** (e.g., missing `PKG_CONFIG_PATH`): fix the env, re-dispatch the same task.
+   - **Dependency not landed**: a "Depends on" phase didn't fully merge. Wait for it. Don't proceed.
+   - **Conflict point hit**: another parallel branch modified a shared file. Rebase the failing branch on the now-updated `main`, re-run tests, re-dispatch only if tests still fail after rebase.
+   - **Plan defect**: the plan step is wrong (e.g., a referenced symbol doesn't exist). This means the plan needs amending — the orchestrator (you) edits the phase plan file, commits the amendment, and re-dispatches with a note about the change.
+2. **Never** "force" past a failure by skipping the failing step. The TDD shape exists so a green commit is always a known-good state.
+3. **Re-dispatch with a delta prompt**, not a fresh prompt: include the original prompt + a `## Previous attempt failure` block describing what went wrong and what you've fixed.
+
+### Status tracking
+
+The execution checklist below is the source of truth for orchestrator progress. Each phase's final task updates this index. The orchestrator should additionally maintain:
+
+- A scratch doc (e.g., `docs/superpowers/plans/2026-05-15-modular-features-execution-log.md`, optional) recording: which sub-agent ran which phase, when, the PR URL, any rebases, and any plan amendments.
+
+### Plan amendments required before kickoff
+
+Two known plan defects that the orchestrator should patch into the affected phase plan files **before dispatching** the relevant agents:
+
+1. **Phase 03 Task 1 must pre-split `FeatureRegistryProvider.swift`.** As written, Tasks 2–5 each modify a different descriptor function inside the same file; in parallel sub-agents this produces guaranteed merge conflicts. The fix: amend `03-activators.md` Task 1 to split the file into:
+   - `MacAllYouNeed/App/FeatureRegistryProvider.swift` — the 10-line composition root (`makeRegistry()` calling each `<Feature>Descriptor.descriptor()`).
+   - `MacAllYouNeed/App/Descriptors/ClipboardDescriptor.swift`
+   - `MacAllYouNeed/App/Descriptors/FolderPreviewDescriptor.swift`
+   - `MacAllYouNeed/App/Descriptors/DownloaderDescriptor.swift`
+   - `MacAllYouNeed/App/Descriptors/VoiceDescriptor.swift`
+   - Each per-feature descriptor file exposes `enum ClipboardDescriptor { static func descriptor() -> FeatureDescriptor }` etc.
+   Then Tasks 2–5 each own one descriptor file plus their activator file. Zero shared-file conflicts.
+
+2. **Phase 08 + Phase 10 `FeatureStateReader` guard.** Both plans add the same file. Whichever phase's branch is rebased second must skip the "Add `FeatureStateReader`" task if `git ls-files Shared/Sources/FeatureCore/FeatureStateReader.swift` returns non-empty. Both phase plans note this; the orchestrator should confirm the second-merged agent honors it during code review.
+
+The orchestrator should commit these amendments to the phase plans before Wave 2 kicks off so the plans-as-executed match reality.
+
+This is optional but recommended for a 12-phase initiative.
 
 ## Phase summaries
 
