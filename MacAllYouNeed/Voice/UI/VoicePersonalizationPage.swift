@@ -6,32 +6,23 @@ struct VoicePersonalizationPage: View {
     let controller: AppController
     @State private var contexts: [VoicePersonalizationContext] = []
     @State private var settings: VoicePersonalizationSettings = .default
+    @State private var trainingExampleCount = 0
     @State private var showClearConfirm = false
+    @State private var showClearTrainingConfirm = false
+    @State private var showManageApps = false
     @State private var errorMessage: String?
+    @State private var showWritingStyle = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             MAYNSection(
-                title: "Personal style",
-                subtitle: "Describe how you'd like your dictation cleaned up. Applied globally."
+                title: "Personalization",
+                subtitle: "Let the app learn how you clean up dictation."
             ) {
                 MAYNSettingsRow(
-                    title: "Style notes",
-                    subtitle: "Optional. E.g. Remove filler words. Keep it casual.",
-                    minHeight: 92
-                ) {
-                    TextEditor(text: styleNotesBinding)
-                        .font(.callout)
-                        .frame(width: MAYNControlMetrics.wideTextFieldWidth, height: 70)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 4)
-                                .stroke(Color.secondary.opacity(0.2))
-                        }
-                }
-                MAYNDivider()
-                MAYNSettingsRow(
                     title: "Learn from edits",
-                    subtitle: "After you paste dictation and edit it, patterns are stored locally and encrypted. Older patterns are periodically summarized via your cleanup LLM provider."
+                    subtitle: "After you paste dictation and edit it, patterns are stored locally and encrypted."
                 ) {
                     Toggle("", isOn: $settings.learnFromEditsEnabled)
                         .labelsHidden()
@@ -39,28 +30,53 @@ struct VoicePersonalizationPage: View {
                             saveSettings()
                         }
                 }
+                MAYNDivider()
+                writingStyleRow
             }
 
             MAYNSection(
-                title: "Contexts",
-                subtitle: "One row per app where learning has occurred. Tap to expand overrides."
+                title: "Apps",
+                subtitle: "Choose where learned cleanup preferences are allowed."
             ) {
-                if contexts.isEmpty {
-                    MAYNSettingsRow(
-                        title: "No personalization yet",
-                        subtitle: "Personalization starts after you paste dictation and edit it."
-                    ) { EmptyView() }
-                } else {
-                    ForEach(Array(contexts.enumerated()), id: \.element.id) { idx, ctx in
-                        contextRow(ctx)
-                        if idx != contexts.count - 1 { MAYNDivider() }
-                    }
+                MAYNSettingsRow(
+                    title: "App controls",
+                    subtitle: appLearningSummary
+                ) {
+                    MAYNButton("Manage...", action: { showManageApps = true })
+                        .disabled(appContexts.isEmpty)
                 }
             }
 
-            MAYNSection(title: "Data") {
-                MAYNSettingsRow(title: "Clear all personalization data") {
-                    MAYNButton("Clear", role: .destructive) { showClearConfirm = true }
+            MAYNSection(
+                title: "Training data",
+                subtitle: "Saved locally for future model improvement. Not uploaded."
+            ) {
+                MAYNSettingsRow(
+                    title: "Save training examples",
+                    subtitle: "Stores encrypted audio, raw text, cleaned text, and final edited text on this Mac."
+                ) {
+                    Toggle("", isOn: $settings.saveTrainingExamplesEnabled)
+                        .labelsHidden()
+                        .onChange(of: settings.saveTrainingExamplesEnabled) { _, _ in
+                            saveSettings()
+                        }
+                }
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: "Saved examples",
+                    subtitle: "\(trainingExampleCount) local example\(trainingExampleCount == 1 ? "" : "s") saved."
+                ) {
+                    MAYNButton("Clear", role: .destructive) { showClearTrainingConfirm = true }
+                        .disabled(trainingExampleCount == 0)
+                }
+            }
+
+            MAYNSection(title: "Reset") {
+                MAYNSettingsRow(
+                    title: "Reset learned style",
+                    subtitle: "Delete stored samples, summaries, app preferences, and writing notes."
+                ) {
+                    MAYNButton("Reset", role: .destructive) { showClearConfirm = true }
                 }
             }
 
@@ -71,118 +87,103 @@ struct VoicePersonalizationPage: View {
             }
         }
         .onAppear { reload() }
-        .alert("Clear all personalization data?", isPresented: $showClearConfirm) {
-            Button("Clear", role: .destructive) { clearAll() }
+        .sheet(isPresented: $showManageApps) {
+            VoicePersonalizationAppsSheet(
+                contexts: appContexts,
+                onToggle: toggleContext,
+                onForget: resetContext
+            )
+        }
+        .alert("Reset learned style?", isPresented: $showClearConfirm) {
+            Button("Reset", role: .destructive) { clearAll() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Stored samples and summaries will be deleted. This cannot be undone.")
+            Text("Stored samples, summaries, app preferences, and writing notes will be deleted. This cannot be undone.")
+        }
+        .alert("Clear saved training examples?", isPresented: $showClearTrainingConfirm) {
+            Button("Clear", role: .destructive) { clearTrainingExamples() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saved training audio and final edited text will be deleted from this Mac. Personalization can stay on.")
         }
     }
 
-    // MARK: - Context row
+    // MARK: - Rows
 
-    @ViewBuilder
-    private func contextRow(_ ctx: VoicePersonalizationContext) -> some View {
-        DisclosureGroup {
-            overrideRows(ctx)
-        } label: {
-            HStack {
-                appIcon(bundleID: ctx.bundleID)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(ctx.displayName).font(.body)
-                    if ctx.sampleCount > 0 {
-                        Text("\(ctx.sampleCount) sample\(ctx.sampleCount == 1 ? "" : "s")\(ctx.lastLearnedAt.map { " · " + $0.relativeLabel } ?? "")")
+    private var writingStyleRow: some View {
+        VStack(spacing: 0) {
+            Button {
+                showWritingStyle.toggle()
+            } label: {
+                HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(showWritingStyle ? 90 : 0))
+                        .frame(width: 14, height: 14)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Writing style").font(.body)
+                        Text(styleNotesSummary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else {
-                        Text("No samples yet").font(.caption).foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { ctx.enabled },
-                    set: { enabled in toggleContext(ctx, enabled: enabled) }
-                ))
-                .labelsHidden()
-                MAYNButton(role: .destructive, height: 24, action: { resetContext(ctx) }) {
-                    Image(systemName: "xmark")
-                }
+                .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+                .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
+                .frame(minHeight: 56)
             }
-        }
-        .padding(.vertical, 4)
-    }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Writing style")
+            .accessibilityValue(showWritingStyle ? "Expanded" : "Collapsed")
 
-    @ViewBuilder
-    private func overrideRows(_ ctx: VoicePersonalizationContext) -> some View {
-        VStack(spacing: 0) {
-            MAYNDivider()
-            MAYNSettingsRow(title: "ASR model") {
-                MAYNDropdown(
-                    selection: Binding(
-                        get: { ctx.asrModelID ?? "inherit" },
-                        set: { updateASRModel(ctx, modelID: $0 == "inherit" ? nil : $0) }
-                    ),
-                    options: ["inherit"] + VoiceASRModelID.allCases.map(\.rawValue),
-                    title: { id in
-                        id == "inherit" ? "Inherit" : VoiceASRModelID(rawValue: id)?.title ?? id
-                    }
-                )
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Auto-submit") {
-                MAYNDropdown(
-                    selection: Binding(
-                        get: { ctx.autoSubmitKey?.rawValue ?? VoiceAutoSubmitKey.none.rawValue },
-                        set: { updateAutoSubmit(ctx, key: VoiceAutoSubmitKey(rawValue: $0) ?? .none) }
-                    ),
-                    options: VoiceAutoSubmitKey.allCases.map(\.rawValue),
-                    title: { raw in
-                        switch VoiceAutoSubmitKey(rawValue: raw) {
-                        case .returnKey: "Return"
-                        case .commandReturn: "Command-Return"
-                        default: "None"
+            if showWritingStyle {
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: "Notes",
+                    subtitle: "Optional. Applied globally.",
+                    minHeight: 92
+                ) {
+                    TextEditor(text: styleNotesBinding)
+                        .font(.callout)
+                        .frame(width: MAYNControlMetrics.wideTextFieldWidth, height: 70)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.secondary.opacity(0.2))
                         }
-                    }
-                )
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Custom prompt", minHeight: 80) {
-                TextEditor(text: Binding(
-                    get: { ctx.customPromptOverride ?? "" },
-                    set: { updateCustomPrompt(ctx, prompt: $0) }
-                ))
-                .font(.callout)
-                .frame(width: MAYNControlMetrics.wideTextFieldWidth, height: 60)
-                .overlay { RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.2)) }
+                }
             }
         }
+        .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: showWritingStyle)
     }
 
-    @ViewBuilder
-    private func appIcon(bundleID: String) -> some View {
-        if bundleID == VoicePersonalizationContext.globalBundleID {
-            Image(systemName: "globe")
-                .font(.title2)
-                .frame(width: 28, height: 28)
-        } else if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first,
-                  let icon = app.icon
-        {
-            Image(nsImage: icon)
-                .resizable()
-                .frame(width: 28, height: 28)
-        } else {
-            Image(systemName: "app.dashed")
-                .font(.title2)
-                .frame(width: 28, height: 28)
-                .foregroundStyle(.secondary)
+    private var appContexts: [VoicePersonalizationContext] {
+        contexts.filter { !$0.isGlobal }
+    }
+
+    private var appLearningSummary: String {
+        guard !appContexts.isEmpty else {
+            return "No app learning yet."
         }
+        let sampleCount = appContexts.reduce(0) { $0 + $1.sampleCount }
+        return "Learned from \(sampleCount) edit\(sampleCount == 1 ? "" : "s") in \(appContexts.count) app\(appContexts.count == 1 ? "" : "s")."
+    }
+
+    private var styleNotesSummary: String {
+        let notes = styleNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        return notes.isEmpty ? "Optional guide for tone and cleanup." : "Custom notes set."
+    }
+
+    private var styleNotes: String {
+        contexts.first(where: { $0.bundleID == VoicePersonalizationContext.globalBundleID })?.styleNotes ?? ""
     }
 
     // MARK: - Actions
 
     private var styleNotesBinding: Binding<String> {
         Binding(
-            get: { contexts.first(where: { $0.bundleID == VoicePersonalizationContext.globalBundleID })?.styleNotes ?? "" },
+            get: { styleNotes },
             set: { saveStyleNotes($0) }
         )
     }
@@ -223,48 +224,6 @@ struct VoicePersonalizationPage: View {
         }
     }
 
-    private func updateASRModel(_ ctx: VoicePersonalizationContext, modelID: String?) {
-        let draft = VoicePersonalizationContextDraft(
-            bundleID: ctx.bundleID,
-            displayName: ctx.displayName,
-            enabled: ctx.enabled,
-            asrModelID: modelID,
-            autoSubmitKey: ctx.autoSubmitKey,
-            customPromptOverride: ctx.customPromptOverride,
-            styleNotes: ctx.styleNotes
-        )
-        try? controller.upsertPersonalizationContext(draft)
-        reload()
-    }
-
-    private func updateAutoSubmit(_ ctx: VoicePersonalizationContext, key: VoiceAutoSubmitKey) {
-        let draft = VoicePersonalizationContextDraft(
-            bundleID: ctx.bundleID,
-            displayName: ctx.displayName,
-            enabled: ctx.enabled,
-            asrModelID: ctx.asrModelID,
-            autoSubmitKey: key == .none ? nil : key,
-            customPromptOverride: ctx.customPromptOverride,
-            styleNotes: ctx.styleNotes
-        )
-        try? controller.upsertPersonalizationContext(draft)
-        reload()
-    }
-
-    private func updateCustomPrompt(_ ctx: VoicePersonalizationContext, prompt: String) {
-        let draft = VoicePersonalizationContextDraft(
-            bundleID: ctx.bundleID,
-            displayName: ctx.displayName,
-            enabled: ctx.enabled,
-            asrModelID: ctx.asrModelID,
-            autoSubmitKey: ctx.autoSubmitKey,
-            customPromptOverride: prompt.isEmpty ? nil : prompt,
-            styleNotes: ctx.styleNotes
-        )
-        try? controller.upsertPersonalizationContext(draft)
-        reload()
-    }
-
     private func resetContext(_ ctx: VoicePersonalizationContext) {
         do {
             try controller.deletePersonalizationContext(id: ctx.id)
@@ -283,10 +242,128 @@ struct VoicePersonalizationPage: View {
         }
     }
 
+    private func clearTrainingExamples() {
+        do {
+            try controller.clearVoiceTrainingExamples()
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func reload() {
         contexts = controller.listPersonalizationContexts()
         settings = controller.voicePersonalizationSettings()
+        trainingExampleCount = controller.voiceTrainingExampleCount()
         errorMessage = nil
+    }
+}
+
+private struct VoicePersonalizationAppsSheet: View {
+    let contexts: [VoicePersonalizationContext]
+    let onToggle: (VoicePersonalizationContext, Bool) -> Void
+    let onForget: (VoicePersonalizationContext) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Manage Apps")
+                        .font(.title3.weight(.semibold))
+                    Text("Pause personalization or forget app-specific learning data.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                MAYNButton("Done", role: .primary) { dismiss() }
+            }
+
+            MAYNTextField(placeholder: "Search apps", text: $searchText, width: 320)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if filteredContexts.isEmpty {
+                        Text("No matching apps")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 120)
+                    } else {
+                        ForEach(Array(filteredContexts.enumerated()), id: \.element.id) { idx, ctx in
+                            appRow(ctx)
+                            if idx != filteredContexts.count - 1 { MAYNDivider() }
+                        }
+                    }
+                }
+            }
+            .frame(width: 560, height: 360)
+            .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius))
+        }
+        .padding(20)
+        .frame(width: 600)
+    }
+
+    private var filteredContexts: [VoicePersonalizationContext] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return contexts }
+        return contexts.filter {
+            $0.displayName.localizedCaseInsensitiveContains(query)
+                || $0.bundleID.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func appRow(_ ctx: VoicePersonalizationContext) -> some View {
+        HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
+            VoicePersonalizationAppIcon(bundleID: ctx.bundleID)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ctx.displayName).font(.body)
+                Text(contextSampleLabel(ctx))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Toggle("", isOn: Binding(
+                get: { ctx.enabled },
+                set: { enabled in onToggle(ctx, enabled) }
+            ))
+            .labelsHidden()
+            .help(ctx.enabled ? "Pause personalization for this app" : "Use learned style in this app")
+
+            MAYNButton("Forget data", role: .destructive, height: 24) {
+                onForget(ctx)
+            }
+        }
+        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+        .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
+        .frame(minHeight: 64)
+    }
+
+    private func contextSampleLabel(_ ctx: VoicePersonalizationContext) -> String {
+        let countLabel = "\(ctx.sampleCount) edit\(ctx.sampleCount == 1 ? "" : "s")"
+        guard let lastLearnedAt = ctx.lastLearnedAt else { return countLabel }
+        return "\(countLabel) · \(lastLearnedAt.relativeLabel)"
+    }
+}
+
+private struct VoicePersonalizationAppIcon: View {
+    let bundleID: String
+
+    var body: some View {
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first,
+           let icon = app.icon
+        {
+            Image(nsImage: icon)
+                .resizable()
+                .frame(width: 28, height: 28)
+        } else {
+            Image(systemName: "app.dashed")
+                .font(.title2)
+                .frame(width: 28, height: 28)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

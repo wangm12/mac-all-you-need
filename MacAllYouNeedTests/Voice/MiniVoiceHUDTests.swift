@@ -17,12 +17,19 @@ final class MiniVoiceHUDTests: XCTestCase {
         XCTAssertNil(MiniVoiceHUDPresentationState(state: .error("failed")).tipTitle)
     }
 
-    func testPanelUsesPillSizeForRecordingAndTranscribing() {
+    func testTranscribingUsesThinkingProgressPresentation() {
+        let presentation = MiniVoiceHUDPresentationState(state: .transcribing)
+
+        XCTAssertEqual(presentation.processingTitle, "Thinking")
+        XCTAssertTrue(presentation.showsProgress)
+    }
+
+    func testPanelUsesDistinctPillSizesForRecordingAndTranscribing() {
         let recordingSize = MiniVoiceHUDLayout.size(for: .recording(level: 0.4))
         let transcribingSize = MiniVoiceHUDLayout.size(for: .transcribing)
 
         XCTAssertEqual(recordingSize, CGSize(width: MiniVoiceHUDLayout.controlWidth, height: MiniVoiceHUDLayout.controlHeight))
-        XCTAssertEqual(transcribingSize, CGSize(width: MiniVoiceHUDLayout.controlWidth, height: MiniVoiceHUDLayout.controlHeight))
+        XCTAssertEqual(transcribingSize, CGSize(width: MiniVoiceHUDLayout.processingWidth, height: MiniVoiceHUDLayout.processingHeight))
     }
 
     @MainActor

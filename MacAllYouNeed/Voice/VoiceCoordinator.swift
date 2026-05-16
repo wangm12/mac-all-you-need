@@ -20,9 +20,9 @@ final class VoiceCoordinator {
     private let transcripts: VoiceTranscriptStore
     private let dictionary: VoiceDictionaryStore?
     private let personalizationStore: VoicePersonalizationStore?
+    private let trainingExampleStore: VoiceTrainingExampleStore?
     private let personalizationSettings: () -> VoicePersonalizationSettings
     private let cleanupKeyStore: VoiceCleanupKeyStore
-    private let autoSubmit: VoiceAutoSubmitService
     private let learningMonitor: VoicePostEditLearningMonitor
     private let summarizer: VoicePersonalizationSummarizer?
     private let hud = MiniVoiceHUD()
@@ -41,22 +41,22 @@ final class VoiceCoordinator {
         transcripts: VoiceTranscriptStore,
         dictionary: VoiceDictionaryStore? = nil,
         personalizationStore: VoicePersonalizationStore? = nil,
+        trainingExampleStore: VoiceTrainingExampleStore? = nil,
         personalizationSettings: @escaping () -> VoicePersonalizationSettings = { .default },
         engine: any VoiceTranscriptionEngine = Qwen3Engine(),
         cleanupSettings: VoiceCleanupSettings = VoiceCleanupSettingsStore.load(),
         cleanupKeyStore: VoiceCleanupKeyStore = VoiceCleanupKeyStore(keychain: SystemKeychain()),
-        autoSubmit: VoiceAutoSubmitService = VoiceAutoSubmitService(),
         learningMonitor: VoicePostEditLearningMonitor? = nil,
         summarizer: VoicePersonalizationSummarizer? = nil
     ) {
         self.transcripts = transcripts
         self.dictionary = dictionary
         self.personalizationStore = personalizationStore
+        self.trainingExampleStore = trainingExampleStore
         self.personalizationSettings = personalizationSettings
         self.engine = engine
         self.cleanupSettings = cleanupSettings
         self.cleanupKeyStore = cleanupKeyStore
-        self.autoSubmit = autoSubmit
         self.learningMonitor = learningMonitor ?? VoicePostEditLearningMonitor()
         self.summarizer = summarizer
         activation.onPress = { [weak self] in Task { @MainActor in await self?.handleActivationPress() } }
@@ -158,9 +158,8 @@ final class VoiceCoordinator {
         do {
             let appBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 
-            // Load personalization context for this app (overrides + style hints).
+            // Load personalization context for this app (style hints only).
             let (appCtx, globalCtx) = loadContexts(bundleID: appBundleID)
-            let overrides = Self.effectiveOverrides(appContext: appCtx, globalContext: globalCtx)
             let recentExamplesContext = (appCtx?.enabled == false)
                 ? nil
                 : (appCtx ?? globalCtx)
@@ -168,9 +167,7 @@ final class VoiceCoordinator {
             let result = try await engine.transcribe(
                 samples: captured.samples,
                 sampleRate: captured.sampleRate,
-                options: VoiceTranscriptionOptions(
-                    preferredModelIdentifier: overrides.asrModelID
-                )
+                options: .default
             )
             guard isCurrentOperation(generation), state == .transcribing else { return }
             let dictionaryEntries = (try? dictionary?.list()) ?? []
@@ -205,26 +202,25 @@ final class VoiceCoordinator {
             let savedTranscript = try saveTranscript(
                 captured: captured, result: result, cleanedText: text, appBundleID: appBundleID
             )
+            saveTrainingExample(
+                captured: captured,
+                result: result,
+                cleanedText: text,
+                transcriptID: savedTranscript.id,
+                appBundleID: appBundleID
+            )
 
             hud.show(
                 pasteResult.didPostPasteEvent ? .pasted : .error("Text copied. Press Command-V to paste."),
                 onPrimary: makeDismissAction()
             )
 
-            // Auto-submit (app-specific, respects disabled-context opt-out).
-            let autoSubmitKey = overrides.autoSubmitKey
-            if pasteResult.didPostPasteEvent, let key = autoSubmitKey, key != .none {
-                try? await Task.sleep(for: .milliseconds(80))
-                autoSubmit.submit(key)
-            }
-
             // Fire post-edit learning monitor (fire-and-forget).
-            let isAutoSubmit = autoSubmitKey != nil && autoSubmitKey != .none
             startLearningMonitor(
                 pastedText: text,
                 transcriptID: savedTranscript.id,
                 appBundleID: appBundleID,
-                isAutoSubmit: isAutoSubmit,
+                isAutoSubmit: false,
                 snapshot: axSnapshot
             )
 
@@ -321,19 +317,7 @@ final class VoiceCoordinator {
         )
     }
 
-    /// Resolves the ASR override / auto-submit honoring disabled-context opt-out.
-    private static func effectiveOverrides(
-        appContext: VoicePersonalizationContext?,
-        globalContext: VoicePersonalizationContext?
-    ) -> (asrModelID: String?, autoSubmitKey: VoiceAutoSubmitKey?) {
-        if let appCtx = appContext, !appCtx.enabled {
-            return (nil, nil)
-        }
-        let effective = appContext ?? globalContext
-        return (effective?.asrModelID, effective?.autoSubmitKey)
-    }
-
-    // Internal for testing via VoiceCoordinatorPersonalizationTests.
+    /// Internal for testing via VoiceCoordinatorPersonalizationTests.
     func startLearningMonitor(
         pastedText: String,
         transcriptID: String?,
@@ -382,8 +366,10 @@ final class VoiceCoordinator {
                 ctxID = global.id
             } else {
                 guard let created = try? store.upsertContext(
-                    .init(bundleID: VoicePersonalizationContext.globalBundleID,
-                          displayName: VoicePersonalizationContext.globalDisplayName)
+                    .init(
+                        bundleID: VoicePersonalizationContext.globalBundleID,
+                        displayName: VoicePersonalizationContext.globalDisplayName
+                    )
                 ) else { return }
                 ctxID = created.id
             }
@@ -393,20 +379,75 @@ final class VoiceCoordinator {
 
         monitorTask = Task { [weak self] in
             guard let self else { return }
-            let draft = await self.learningMonitor.observe(
+            let draft = await learningMonitor.observe(
                 pastedText: pastedText,
                 transcriptID: transcriptID,
                 contextID: ctxID,
                 isAutoSubmitContext: isAutoSubmit,
                 snapshot: snapshot
             )
-            guard let draft else { return }
+            guard let draft else {
+                if let transcriptID {
+                    try? trainingExampleStore?.updateQuality(
+                        transcriptID: transcriptID,
+                        quality: .medium,
+                        qualityReason: "post_edit_verification_unavailable"
+                    )
+                }
+                return
+            }
             try? store.appendSample(draft)
+            if let transcriptID, let finalText = draft.finalText {
+                try? trainingExampleStore?.updateFinalText(
+                    transcriptID: transcriptID,
+                    finalText: finalText,
+                    quality: draft.quality,
+                    qualityReason: draft.qualityReason
+                )
+            }
             // I4: enforce retention limits on every append so they hold even when
             // the LLM provider is unavailable and the summarizer never fires.
             try? store.expireSamplesByCount(contextID: ctxID, max: maxSamples)
             try? store.expireSamplesByDate()
-            await self.summarizer?.maybeRun(contextID: ctxID)
+            await summarizer?.maybeRun(contextID: ctxID)
+        }
+    }
+
+    private func saveTrainingExample(
+        captured: CapturedAudio,
+        result: VoiceTranscriptionResult,
+        cleanedText: String,
+        transcriptID: String,
+        appBundleID: String?
+    ) {
+        guard personalizationSettings().saveTrainingExamplesEnabled,
+              let trainingExampleStore else { return }
+
+        let sampleRate = max(1, Int(captured.sampleRate.rounded()))
+        let wavData = GroqASREngine.encodeWAV(samples: captured.samples, sampleRate: sampleRate)
+        let audioPath: String?
+        do {
+            audioPath = try trainingExampleStore.saveEncryptedAudio(wavData, id: transcriptID)
+        } catch {
+            audioPath = nil
+            log.error("Voice training audio save failed: \(error.localizedDescription, privacy: .public)")
+        }
+
+        do {
+            try trainingExampleStore.save(.init(
+                transcriptID: transcriptID,
+                rawText: result.text,
+                cleanedText: cleanedText,
+                finalText: cleanedText,
+                appBundleID: appBundleID,
+                language: result.language,
+                modelIdentifier: result.modelIdentifier,
+                audioPath: audioPath,
+                quality: .medium,
+                qualityReason: "awaiting_post_edit_verification"
+            ))
+        } catch {
+            log.error("Voice training example save failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -449,7 +490,7 @@ final class VoiceCoordinator {
         levelTask = Task { @MainActor in
             while !Task.isCancelled, state == .recording {
                 hud.show(.recording(level: audio.peakLevel), onCancel: makeCancelAction(), onPrimary: makeStopAction())
-                try? await Task.sleep(for: .milliseconds(50))
+                try? await Task.sleep(for: .milliseconds(VoiceLevelSampling.intervalMilliseconds))
             }
         }
     }
@@ -491,4 +532,8 @@ final class VoiceCoordinator {
             }
         }
     }
+}
+
+enum VoiceLevelSampling {
+    static let intervalMilliseconds = 25
 }

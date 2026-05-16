@@ -25,9 +25,11 @@ actor GroqASREngine: VoiceTranscriptionEngine {
     }
 
     /// Testable init — inject the API key directly.
-    init(settings: @escaping () -> GroqASRSettings,
-         apiKeyProvider: @escaping () throws -> String?,
-         session: URLSession = .shared) {
+    init(
+        settings: @escaping () -> GroqASRSettings,
+        apiKeyProvider: @escaping () throws -> String?,
+        session: URLSession = .shared
+    ) {
         self.settings = settings
         self.apiKeyProvider = apiKeyProvider
         self.session = session
@@ -36,9 +38,10 @@ actor GroqASREngine: VoiceTranscriptionEngine {
     func transcribe(
         samples: [Float],
         sampleRate: Double,
-        options: VoiceTranscriptionOptions
+        options _: VoiceTranscriptionOptions
     ) async throws -> VoiceTranscriptionResult {
         let currentSettings = settings()
+        let capturedModelID = "groq-\(currentSettings.modelID.rawValue)"
 
         guard let apiKey = try apiKeyProvider() else {
             throw GroqASRError.missingAPIKey
@@ -66,7 +69,7 @@ actor GroqASREngine: VoiceTranscriptionEngine {
         return VoiceTranscriptionResult(
             text: text,
             language: .mixed,
-            modelIdentifier: modelIdentifier
+            modelIdentifier: capturedModelID
         )
     }
 
@@ -165,9 +168,9 @@ actor GroqASREngine: VoiceTranscriptionEngine {
             return Int16(max(Float(Int16.min), min(Float(Int16.max), scaled)))
         }
 
-        let dataSize = int16Samples.count * 2  // 2 bytes per Int16 sample
+        let dataSize = int16Samples.count * 2 // 2 bytes per Int16 sample
         let fmtSize = 16
-        let fileSize = 4 + 8 + fmtSize + 8 + dataSize  // "WAVE" + fmt chunk + data chunk
+        let fileSize = 4 + 8 + fmtSize + 8 + dataSize // "WAVE" + fmt chunk + data chunk
 
         var wav = Data(capacity: 8 + fileSize)
 
@@ -197,7 +200,7 @@ actor GroqASREngine: VoiceTranscriptionEngine {
         // fmt chunk
         writeASCII("fmt ")
         write(UInt32(fmtSize))
-        write(UInt16(1))          // PCM
+        write(UInt16(1)) // PCM
         write(numChannels)
         write(sampleRateU)
         write(byteRate)
@@ -228,11 +231,11 @@ enum GroqASRError: LocalizedError {
         switch self {
         case .missingAPIKey:
             "Groq API key not configured. Add your key in Voice Settings → Recognition."
-        case .httpError(let code):
+        case let .httpError(code):
             "Groq API returned HTTP \(code). Check your API key."
         case .invalidResponse:
             "Groq API returned an unexpected response."
-        case .fileTooLarge(let seconds):
+        case let .fileTooLarge(seconds):
             "Recording (\(seconds)s) exceeds Groq's 25 MB upload limit (~13 min). Split into shorter segments."
         }
     }

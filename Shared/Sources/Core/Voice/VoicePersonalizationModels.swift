@@ -5,7 +5,9 @@ public enum VoiceAutoSubmitKey: String, Codable, CaseIterable, Identifiable, Sen
     case returnKey = "return_key"
     case commandReturn = "command_return"
 
-    public var id: String { rawValue }
+    public var id: String {
+        rawValue
+    }
 }
 
 public struct VoicePersonalizationContext: Identifiable, Equatable, Sendable {
@@ -62,7 +64,9 @@ public struct VoicePersonalizationContext: Identifiable, Equatable, Sendable {
         self.updatedAt = updatedAt
     }
 
-    public var isGlobal: Bool { bundleID == Self.globalBundleID }
+    public var isGlobal: Bool {
+        bundleID == Self.globalBundleID
+    }
 }
 
 public struct VoicePersonalizationContextDraft: Equatable, Sendable {
@@ -130,11 +134,19 @@ public struct VoicePersonalizationSample: Identifiable, Equatable, Sendable {
     }
 }
 
+public enum VoiceTrainingExampleQuality: String, Codable, Equatable, Sendable {
+    case high
+    case medium
+}
+
 public struct VoicePersonalizationSampleDraft: Equatable, Sendable {
     public var contextID: String
     public var transcriptID: String?
     public var before: String
     public var after: String
+    public var finalText: String?
+    public var quality: VoiceTrainingExampleQuality
+    public var qualityReason: String?
     public var diffOffset: Int
     public var diffLength: Int
     public var ttlSeconds: TimeInterval
@@ -144,6 +156,9 @@ public struct VoicePersonalizationSampleDraft: Equatable, Sendable {
         transcriptID: String?,
         before: String,
         after: String,
+        finalText: String? = nil,
+        quality: VoiceTrainingExampleQuality = .medium,
+        qualityReason: String? = nil,
         diffOffset: Int,
         diffLength: Int,
         ttlSeconds: TimeInterval = 30 * 24 * 60 * 60
@@ -152,6 +167,9 @@ public struct VoicePersonalizationSampleDraft: Equatable, Sendable {
         self.transcriptID = transcriptID
         self.before = before
         self.after = after
+        self.finalText = finalText
+        self.quality = quality
+        self.qualityReason = qualityReason
         self.diffOffset = diffOffset
         self.diffLength = diffLength
         self.ttlSeconds = ttlSeconds

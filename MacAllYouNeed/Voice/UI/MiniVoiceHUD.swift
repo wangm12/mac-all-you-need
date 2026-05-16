@@ -118,12 +118,18 @@ enum MiniVoiceHUDLayout {
     static let tipHeight: CGFloat = 30
     static let controlWidth: CGFloat = 128
     static let controlHeight: CGFloat = 42
+    static let processingWidth: CGFloat = 166
+    static let processingHeight: CGFloat = 54
     static let buttonSize: CGFloat = 34
     static let waveformWidth: CGFloat = 40
     static let waveformHeight: CGFloat = 20
 
     static func size(for state: MiniVoiceHUD.State) -> CGSize {
-        MiniVoiceHUDPresentationState(state: state).tipTitle == nil
+        let presentation = MiniVoiceHUDPresentationState(state: state)
+        if presentation.showsProgress {
+            return CGSize(width: processingWidth, height: processingHeight)
+        }
+        return presentation.tipTitle == nil
             ? CGSize(width: controlWidth, height: controlHeight)
             : panelSize
     }
@@ -173,13 +179,23 @@ struct MiniVoiceHUDActionState: Equatable {
 
 struct MiniVoiceHUDPresentationState: Equatable {
     let tipTitle: String?
+    let processingTitle: String?
+    let showsProgress: Bool
 
     init(state: MiniVoiceHUD.State) {
         switch state.displayState {
         case .idlePreview, .recording:
             tipTitle = nil
-        case .transcribing, .pasted, .noSpeech, .error:
+            processingTitle = nil
+            showsProgress = false
+        case .transcribing:
             tipTitle = nil
+            processingTitle = "Thinking"
+            showsProgress = true
+        case .pasted, .noSpeech, .error:
+            tipTitle = nil
+            processingTitle = nil
+            showsProgress = false
         }
     }
 }
@@ -202,17 +218,21 @@ private struct MiniVoiceHUDView: View {
     let onPrimary: (() -> Void)?
 
     var body: some View {
-        VStack(spacing: 6) {
-            if let tipTitle = presentation.tipTitle {
-                Text(tipTitle)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                    .frame(width: MiniVoiceHUDLayout.tipWidth, height: MiniVoiceHUDLayout.tipHeight)
-                    .background(Color.black, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        Group {
+            if presentation.showsProgress, let title = presentation.processingTitle {
+                ProcessingHUDPill(title: title)
+            } else {
+                recordingControls
             }
+        }
+        .frame(
+            width: MiniVoiceHUDLayout.size(for: state).width,
+            height: MiniVoiceHUDLayout.size(for: state).height
+        )
+    }
 
+    private var recordingControls: some View {
+        VStack(spacing: 6) {
             HStack(spacing: 7) {
                 HUDCircleButton(
                     symbol: "xmark",
@@ -236,10 +256,6 @@ private struct MiniVoiceHUDView: View {
             .frame(width: MiniVoiceHUDLayout.controlWidth, height: MiniVoiceHUDLayout.controlHeight)
             .background(Color.black, in: Capsule())
         }
-        .frame(
-            width: MiniVoiceHUDLayout.size(for: state).width,
-            height: MiniVoiceHUDLayout.size(for: state).height
-        )
     }
 
     private var actionState: MiniVoiceHUDActionState {
@@ -272,6 +288,53 @@ private struct MiniVoiceHUDView: View {
 
     private var visualState: MiniVoiceHUD.State {
         state.displayState
+    }
+}
+
+private struct ProcessingHUDPill: View {
+    let title: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.94))
+                .lineLimit(1)
+
+            progressBar
+        }
+        .padding(.horizontal, 18)
+        .frame(width: MiniVoiceHUDLayout.processingWidth, height: MiniVoiceHUDLayout.processingHeight)
+        .background(
+            Color(red: 0.11, green: 0.11, blue: 0.12),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+    }
+
+    private var progressBar: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: reduceMotion)) { context in
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                let markerWidth = max(width * 0.34, 34)
+                let travel = max(width - markerWidth, 0)
+                let progress = reduceMotion
+                    ? 0.5
+                    : context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: 1.15) / 1.15
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.white.opacity(0.16))
+                    Capsule()
+                        .fill(Color.white.opacity(0.82))
+                        .frame(width: markerWidth)
+                        .offset(x: travel * progress)
+                }
+            }
+        }
+        .frame(height: 4)
+        .accessibilityHidden(true)
     }
 }
 
@@ -343,19 +406,22 @@ private struct VoiceWaveform: View {
 
     let level: Float
     let phase: Phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let base: [CGFloat] = [0.34, 0.58, 0.42, 0.78, 0.50, 0.90, 0.62, 0.44, 0.70, 0.36]
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(base.indices, id: \.self) { index in
-                Capsule()
-                    .fill(barColor)
-                    .frame(width: 2, height: barHeight(index))
-                    .animation(.easeOut(duration: 0.06), value: barHeight(index))
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || phase != .recording)) { context in
+            HStack(spacing: 2) {
+                ForEach(base.indices, id: \.self) { index in
+                    Capsule()
+                        .fill(barColor)
+                        .frame(width: 2, height: barHeight(index, time: context.date.timeIntervalSinceReferenceDate))
+                        .animation(.easeOut(duration: 0.045), value: level)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var barColor: Color {
@@ -369,13 +435,17 @@ private struct VoiceWaveform: View {
         }
     }
 
-    private func barHeight(_ index: Int) -> CGFloat {
+    private func barHeight(_ index: Int, time: TimeInterval) -> CGFloat {
         switch phase {
         case .idle:
             return 5 + base[index] * 5
         case .recording:
-            let scaled = CGFloat(min(max(level * 3, 0.12), 1))
-            return 5 + base[index] * 17 * scaled
+            let shapedLevel = CGFloat(pow(Double(min(max(level, 0), 1)), 0.62))
+            let pulse = reduceMotion
+                ? 1
+                : 0.78 + 0.22 * CGFloat((sin(time * 18 + Double(index) * 0.85) + 1) / 2)
+            let scaled = min(max(shapedLevel * pulse, 0.10), 1)
+            return 4 + base[index] * 18 * scaled
         case .transcribing:
             return 6 + base.reversed()[index] * 14
         case .complete:

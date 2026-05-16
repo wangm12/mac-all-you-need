@@ -38,7 +38,9 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
     case qwen3ASR06BF32 = "qwen3-asr-0.6b-f32"
     case qwen3ASR06BInt8 = "qwen3-asr-0.6b-int8"
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     init?(storedIdentifier: String?) {
         guard let storedIdentifier else { return nil }
@@ -161,6 +163,25 @@ struct VoiceASRModelRowPresentation: Equatable {
             actionTitle: isSelected ? nil : "Use"
         )
     }
+
+    static func cloudModel(
+        isSelected: Bool,
+        hasUsableAPIKey: Bool = true
+    ) -> VoiceASRModelRowPresentation {
+        guard hasUsableAPIKey else {
+            return VoiceASRModelRowPresentation(
+                statusText: "Needs API key",
+                statusKind: .warning,
+                actionTitle: nil
+            )
+        }
+
+        return VoiceASRModelRowPresentation(
+            statusText: isSelected ? "Selected" : nil,
+            statusKind: isSelected ? .success : .neutral,
+            actionTitle: isSelected ? nil : "Use"
+        )
+    }
 }
 
 enum VoiceASRModelTitlePresentation {
@@ -170,6 +191,91 @@ enum VoiceASRModelTitlePresentation {
 
     static func sizeLabel(for modelID: VoiceASRModelID) -> String {
         modelID.diskLabel
+    }
+}
+
+enum VoiceASRModelSelectionState {
+    static func isLocalModelSelected(
+        providerKind: VoiceASRProviderKind,
+        selectedModelID: VoiceASRModelID,
+        modelID: VoiceASRModelID
+    ) -> Bool {
+        providerKind == .local && selectedModelID == modelID
+    }
+
+    static func isCloudModelSelected(
+        providerKind: VoiceASRProviderKind,
+        selectedModelID: GroqASRModelID,
+        modelID: GroqASRModelID,
+        hasUsableAPIKey: Bool = true
+    ) -> Bool {
+        hasUsableAPIKey && providerKind == .groq && selectedModelID == modelID
+    }
+
+    static func providerKindAfterSelectingLocalModel() -> VoiceASRProviderKind {
+        .local
+    }
+
+    static func canSelectCloudModel(apiKey: String) -> Bool {
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func providerKindAfterSelectingCloudModel() -> VoiceASRProviderKind {
+        .groq
+    }
+}
+
+enum VoiceASRProviderControlsPresentation {
+    static let showsSaveButton = false
+
+    static func connectionActionTitle(for providerKind: VoiceASRProviderKind) -> String? {
+        switch providerKind {
+        case .local:
+            nil
+        case .groq:
+            "Test connection"
+        }
+    }
+}
+
+struct VoiceCloudASRSetupStatusPresentation: Equatable {
+    let text: String
+    let kind: VoiceASRModelRowPresentation.StatusKind
+}
+
+enum VoiceCloudASRSetupDrawerPresentation {
+    static let title = "API setup"
+    static let subtitle = "Language, API key, and connection test."
+
+    static func status(
+        apiKey: String,
+        isTesting: Bool,
+        statusMessage: String?
+    ) -> VoiceCloudASRSetupStatusPresentation {
+        if isTesting {
+            return VoiceCloudASRSetupStatusPresentation(text: "Testing", kind: .progress)
+        }
+
+        if apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return VoiceCloudASRSetupStatusPresentation(text: "Needs API key", kind: .warning)
+        }
+
+        let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if normalizedStatus.localizedCaseInsensitiveContains("succeeded")
+            || normalizedStatus.localizedCaseInsensitiveContains("selected")
+        {
+            return VoiceCloudASRSetupStatusPresentation(text: "Connected", kind: .success)
+        }
+
+        if normalizedStatus.localizedCaseInsensitiveContains("connecting") {
+            return VoiceCloudASRSetupStatusPresentation(text: "Testing", kind: .progress)
+        }
+
+        if !normalizedStatus.isEmpty {
+            return VoiceCloudASRSetupStatusPresentation(text: "Check setup", kind: .warning)
+        }
+
+        return VoiceCloudASRSetupStatusPresentation(text: "Key entered", kind: .neutral)
     }
 }
 
@@ -204,8 +310,10 @@ struct VoiceASRSettings: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let storedModelID = try container.decodeIfPresent(String.self, forKey: .modelID)
         modelID = VoiceASRModelID(storedIdentifier: storedModelID) ?? VoiceASRSettings.default.modelID
-        languageHint = try container.decodeIfPresent(VoiceASRLanguageHint.self, forKey: .languageHint) ?? VoiceASRSettings.default.languageHint
-        providerKind = try container.decodeIfPresent(VoiceASRProviderKind.self, forKey: .providerKind) ?? VoiceASRSettings.default.providerKind
+        languageHint = try container.decodeIfPresent(VoiceASRLanguageHint.self, forKey: .languageHint) ?? VoiceASRSettings.default
+            .languageHint
+        providerKind = try container.decodeIfPresent(VoiceASRProviderKind.self, forKey: .providerKind) ?? VoiceASRSettings.default
+            .providerKind
     }
 
     func resolvedModelID(preferredModelIdentifier: String?) -> VoiceASRModelID {
@@ -214,6 +322,57 @@ struct VoiceASRSettings: Codable, Equatable {
             return modelID
         }
         return profileModelID
+    }
+
+    func updating(modelID: VoiceASRModelID) -> VoiceASRSettings {
+        VoiceASRSettings(
+            modelID: modelID,
+            languageHint: languageHint,
+            providerKind: providerKind
+        )
+    }
+
+    func updating(languageHint: VoiceASRLanguageHint) -> VoiceASRSettings {
+        VoiceASRSettings(
+            modelID: modelID,
+            languageHint: languageHint,
+            providerKind: providerKind
+        )
+    }
+
+    func updating(providerKind: VoiceASRProviderKind) -> VoiceASRSettings {
+        VoiceASRSettings(
+            modelID: modelID,
+            languageHint: languageHint,
+            providerKind: providerKind
+        )
+    }
+}
+
+enum VoiceASRProviderApplyPlan {
+    enum Step: Equatable {
+        case saveGroqSettings
+        case applyASRSettings
+    }
+
+    static func steps(for providerKind: VoiceASRProviderKind) -> [Step] {
+        switch providerKind {
+        case .local:
+            [.applyASRSettings]
+        case .groq:
+            [.saveGroqSettings, .applyASRSettings]
+        }
+    }
+
+    static func validationMessage(providerKind: VoiceASRProviderKind, apiKey: String) -> String? {
+        switch providerKind {
+        case .local:
+            nil
+        case .groq:
+            apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Groq API key is required."
+                : nil
+        }
     }
 }
 

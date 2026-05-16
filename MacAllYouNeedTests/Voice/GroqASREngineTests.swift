@@ -15,13 +15,13 @@ final class GroqASREngineTests: XCTestCase {
 
         XCTAssertGreaterThan(wav.count, 44)
         // RIFF
-        XCTAssertEqual(wav[0...3], Data("RIFF".utf8))
+        XCTAssertEqual(wav[0 ... 3], Data("RIFF".utf8))
         // WAVE
-        XCTAssertEqual(wav[8...11], Data("WAVE".utf8))
+        XCTAssertEqual(wav[8 ... 11], Data("WAVE".utf8))
         // fmt
-        XCTAssertEqual(wav[12...15], Data("fmt ".utf8))
+        XCTAssertEqual(wav[12 ... 15], Data("fmt ".utf8))
         // data
-        XCTAssertEqual(wav[36...39], Data("data".utf8))
+        XCTAssertEqual(wav[36 ... 39], Data("data".utf8))
     }
 
     func testWAVSampleRateIsEmbedded() {
@@ -105,7 +105,7 @@ final class GroqASREngineTests: XCTestCase {
                 options: .init(preferredModelIdentifier: nil)
             )
             XCTFail("Expected throw")
-        } catch GroqASRError.httpError(let code) {
+        } catch let GroqASRError.httpError(code) {
             XCTAssertEqual(code, 401)
         } catch {
             XCTFail("Unexpected error: \(error)")
@@ -127,6 +127,21 @@ final class GroqASREngineTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    // MARK: - VoiceASRSettings persistence
+
+    func testVoiceASRSettingsPreservesGroqProviderKind() throws {
+        let original = VoiceASRSettings(modelID: .qwen3ASR06BF32, languageHint: .automatic, providerKind: .groq)
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(VoiceASRSettings.self, from: data)
+        XCTAssertEqual(decoded.providerKind, .groq)
+    }
+
+    func testVoiceASRSettingsDefaultsToLocalWhenProviderKindMissing() throws {
+        let json = #"{"modelID":"qwen3-asr-0.6b-f32","languageHint":"automatic"}"#
+        let decoded = try JSONDecoder().decode(VoiceASRSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.providerKind, .local)
     }
 
     // MARK: - Helpers
@@ -184,8 +199,14 @@ final class GroqASREngineTests: XCTestCase {
 
 private final class GroqMockURLProtocol: URLProtocol {
     static var handler: ((URLRequest) -> (HTTPURLResponse, Data))?
-    override static func canInit(with _: URLRequest) -> Bool { true }
-    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with _: URLRequest) -> Bool {
+        true
+    }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
     override func startLoading() {
         guard let handler = Self.handler else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
@@ -196,5 +217,6 @@ private final class GroqMockURLProtocol: URLProtocol {
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
+
     override func stopLoading() {}
 }

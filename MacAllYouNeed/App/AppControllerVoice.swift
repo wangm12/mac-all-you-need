@@ -43,6 +43,14 @@ extension AppController {
         try voicePersonalizationStore.clearAll()
     }
 
+    func voiceTrainingExampleCount() -> Int {
+        (try? voiceTrainingExampleStore.count()) ?? 0
+    }
+
+    func clearVoiceTrainingExamples() throws {
+        try voiceTrainingExampleStore.clearAll()
+    }
+
     func voicePersonalizationSettings() -> VoicePersonalizationSettings {
         VoicePersonalizationSettingsStore.load()
     }
@@ -69,28 +77,60 @@ extension AppController {
         voiceCoordinator.applyASRProvider(settings.providerKind, keychain: SystemKeychain())
     }
 
+    func applyVoiceASRProviderSettings(
+        asrSettings: VoiceASRSettings,
+        groqSettings: GroqASRSettings,
+        groqAPIKey: String
+    ) throws {
+        let normalizedGroqAPIKey = groqAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let validationMessage = VoiceASRProviderApplyPlan.validationMessage(
+            providerKind: asrSettings.providerKind,
+            apiKey: normalizedGroqAPIKey
+        ) {
+            throw VoiceASRProviderSettingsError.validationFailed(validationMessage)
+        }
+
+        for step in VoiceASRProviderApplyPlan.steps(for: asrSettings.providerKind) {
+            switch step {
+            case .saveGroqSettings:
+                try applyGroqASRSettings(groqSettings, apiKey: normalizedGroqAPIKey)
+            case .applyASRSettings:
+                applyVoiceASRSettings(asrSettings)
+            }
+        }
+    }
+
     func applyGroqASRSettings(_ settings: GroqASRSettings, apiKey: String) throws {
         let keyStore = GroqASRKeyStore(keychain: SystemKeychain())
         try keyStore.saveAPIKey(apiKey)
         GroqASRSettingsStore.save(settings)
     }
 
+    func applyGroqASRSettings(_ settings: GroqASRSettings) {
+        GroqASRSettingsStore.save(settings)
+    }
+
     func testGroqASRSettings(_ settings: GroqASRSettings, apiKey: String) async -> String {
-        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let normalizedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAPIKey.isEmpty else {
             return "API key is required."
         }
         // Use the key in-memory only — do NOT write to Keychain before we know it works.
         let engine = GroqASREngine(
             settings: { settings },
-            apiKeyProvider: { apiKey }
+            apiKeyProvider: { normalizedAPIKey }
         )
         let silence = [Float](repeating: 0.0, count: 8000)
         do {
-            _ = try await engine.transcribe(samples: silence, sampleRate: 16000, options: VoiceTranscriptionOptions(preferredModelIdentifier: nil))
+            _ = try await engine.transcribe(
+                samples: silence,
+                sampleRate: 16000,
+                options: VoiceTranscriptionOptions(preferredModelIdentifier: nil)
+            )
             return "Connection succeeded."
         } catch GroqASRError.missingAPIKey {
             return "API key not saved."
-        } catch GroqASRError.httpError(let code) {
+        } catch let GroqASRError.httpError(code) {
             return "HTTP \(code) — check your API key."
         } catch {
             let msg = error.localizedDescription
@@ -190,6 +230,17 @@ private enum VoiceCleanupSettingsTestError: LocalizedError {
         switch self {
         case .timedOut:
             "Provider ping timed out."
+        }
+    }
+}
+
+private enum VoiceASRProviderSettingsError: LocalizedError {
+    case validationFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .validationFailed(message):
+            message
         }
     }
 }

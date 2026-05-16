@@ -189,7 +189,14 @@ final class AudioCaptureService {
     }
 
     nonisolated static func livePeakLevel(previous: Float, incomingPeak: Float) -> Float {
-        max(max(incomingPeak, 0), previous * 0.72)
+        max(normalizedLivePeak(incomingPeak), previous * 0.62)
+    }
+
+    nonisolated static func normalizedLivePeak(_ incomingPeak: Float) -> Float {
+        let floor: Float = 0.012
+        let ceiling: Float = 0.18
+        let clamped = min(max(incomingPeak - floor, 0), ceiling - floor) / (ceiling - floor)
+        return Float(pow(Double(clamped), 0.55))
     }
 
     private func stopWithoutResult() {

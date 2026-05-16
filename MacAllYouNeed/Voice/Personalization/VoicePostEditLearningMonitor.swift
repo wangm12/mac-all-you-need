@@ -46,7 +46,7 @@ final class VoicePostEditLearningMonitor {
         readCurrentValue: @escaping (AXTargetSnapshot) -> String?
     ) {
         self.config = config
-        self.isCancelledCheck = isCancelled
+        isCancelledCheck = isCancelled
         self.matchesFocused = matchesFocused
         self.readCurrentValue = readCurrentValue
     }
@@ -103,6 +103,7 @@ final class VoicePostEditLearningMonitor {
                 return makeDraft(
                     initial: initial,
                     final: finalValue,
+                    pastedText: pastedText,
                     transcriptID: transcriptID,
                     contextID: contextID
                 )
@@ -122,6 +123,7 @@ final class VoicePostEditLearningMonitor {
     private func makeDraft(
         initial: String,
         final finalValue: String,
+        pastedText: String,
         transcriptID: String?,
         contextID: String
     ) -> VoicePersonalizationSampleDraft? {
@@ -135,11 +137,18 @@ final class VoicePostEditLearningMonitor {
             "Learning sample: before=\(before.utf8.count, privacy: .public)B after=\(after.utf8.count, privacy: .public)B"
         )
 
+        let finalText = Self.extractEditedPastedText(initial: initial, final: finalValue, pastedText: pastedText)
+
         return VoicePersonalizationSampleDraft(
             contextID: contextID,
             transcriptID: transcriptID,
             before: before,
             after: after,
+            finalText: finalText,
+            quality: finalText == nil ? .medium : .high,
+            qualityReason: finalText == nil
+                ? "edit_observed_without_final_text"
+                : "post_edit_final_text_observed",
             diffOffset: 0,
             diffLength: before.count
         )
@@ -183,5 +192,54 @@ final class VoicePostEditLearningMonitor {
         let after = String(finalValue.unicodeScalars[afterStart ..< afterEnd])
 
         return (before, after)
+    }
+
+    static func extractEditedPastedText(initial: String, final finalValue: String, pastedText: String) -> String? {
+        guard !pastedText.isEmpty,
+              let pastedRange = initial.range(of: pastedText)
+        else {
+            return nil
+        }
+
+        let initialScalars = Array(initial.unicodeScalars)
+        let finalScalars = Array(finalValue.unicodeScalars)
+        let pastedScalars = Array(pastedText.unicodeScalars)
+        let pastedStart = initial.unicodeScalars.distance(
+            from: initial.unicodeScalars.startIndex,
+            to: pastedRange.lowerBound
+        )
+        let pastedEnd = initial.unicodeScalars.distance(
+            from: initial.unicodeScalars.startIndex,
+            to: pastedRange.upperBound
+        )
+
+        var prefixLen = 0
+        let minLen = min(initialScalars.count, finalScalars.count)
+        while prefixLen < minLen, initialScalars[prefixLen] == finalScalars[prefixLen] {
+            prefixLen += 1
+        }
+
+        var suffixLen = 0
+        let maxSuffix = min(initialScalars.count - prefixLen, finalScalars.count - prefixLen)
+        while suffixLen < maxSuffix,
+              initialScalars[initialScalars.count - 1 - suffixLen] == finalScalars[finalScalars.count - 1 - suffixLen]
+        {
+            suffixLen += 1
+        }
+
+        let changedStart = prefixLen
+        let changedEnd = initialScalars.count - suffixLen
+        guard changedStart >= pastedStart, changedEnd <= pastedEnd else { return nil }
+
+        let replacementStart = prefixLen
+        let replacementEnd = finalScalars.count - suffixLen
+        let pastedReplacementStart = changedStart - pastedStart
+        let pastedReplacementEnd = changedEnd - pastedStart
+
+        var editedScalars: [Unicode.Scalar] = []
+        editedScalars.append(contentsOf: pastedScalars[..<pastedReplacementStart])
+        editedScalars.append(contentsOf: finalScalars[replacementStart ..< replacementEnd])
+        editedScalars.append(contentsOf: pastedScalars[pastedReplacementEnd...])
+        return String(String.UnicodeScalarView(editedScalars))
     }
 }

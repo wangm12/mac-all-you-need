@@ -44,7 +44,121 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
         XCTAssertEqual(loaded.languageHint.qwen3Language, .english)
     }
 
-    func testLoadsLegacyLanguageOnlyPayloadWithDefaultModel() throws {
+    func testUpdatingLanguageHintPreservesProviderKind() {
+        let settings = VoiceASRSettings(
+            modelID: .qwen3ASR06BF32,
+            languageHint: .automatic,
+            providerKind: .groq
+        )
+
+        let updated = settings.updating(languageHint: .english)
+
+        XCTAssertEqual(updated.modelID, .qwen3ASR06BF32)
+        XCTAssertEqual(updated.languageHint, .english)
+        XCTAssertEqual(updated.providerKind, .groq)
+    }
+
+    func testUpdatingModelPreservesProviderKind() {
+        let settings = VoiceASRSettings(
+            modelID: .qwen3ASR06BF32,
+            languageHint: .chinese,
+            providerKind: .groq
+        )
+
+        let updated = settings.updating(modelID: .qwen3ASR06BInt8)
+
+        XCTAssertEqual(updated.modelID, .qwen3ASR06BInt8)
+        XCTAssertEqual(updated.languageHint, .chinese)
+        XCTAssertEqual(updated.providerKind, .groq)
+    }
+
+    func testGroqProviderApplyPlanSavesGroqConfigBeforeSwitchingProvider() {
+        XCTAssertEqual(
+            VoiceASRProviderApplyPlan.steps(for: .groq),
+            [.saveGroqSettings, .applyASRSettings]
+        )
+    }
+
+    func testGroqProviderApplyPlanRejectsBlankAPIKey() {
+        XCTAssertEqual(
+            VoiceASRProviderApplyPlan.validationMessage(providerKind: .groq, apiKey: " \n "),
+            "Groq API key is required."
+        )
+    }
+
+    func testLocalProviderApplyPlanDoesNotRequireGroqAPIKey() {
+        XCTAssertNil(VoiceASRProviderApplyPlan.validationMessage(providerKind: .local, apiKey: ""))
+        XCTAssertEqual(VoiceASRProviderApplyPlan.steps(for: .local), [.applyASRSettings])
+    }
+
+    func testProviderControlsDoNotShowSaveButtonForDropdownChanges() {
+        XCTAssertFalse(VoiceASRProviderControlsPresentation.showsSaveButton)
+        XCTAssertNil(VoiceASRProviderControlsPresentation.connectionActionTitle(for: .local))
+        XCTAssertEqual(
+            VoiceASRProviderControlsPresentation.connectionActionTitle(for: .groq),
+            "Test connection"
+        )
+    }
+
+    func testCloudASRSetupDrawerShowsMissingKeyStatus() {
+        let presentation = VoiceCloudASRSetupDrawerPresentation.status(
+            apiKey: " \n ",
+            isTesting: false,
+            statusMessage: nil
+        )
+
+        XCTAssertEqual(presentation.text, "Needs API key")
+        XCTAssertEqual(presentation.kind, .warning)
+    }
+
+    func testCloudASRSetupDrawerShowsTestingStatus() {
+        let presentation = VoiceCloudASRSetupDrawerPresentation.status(
+            apiKey: "",
+            isTesting: true,
+            statusMessage: nil
+        )
+
+        XCTAssertEqual(presentation.text, "Testing")
+        XCTAssertEqual(presentation.kind, .progress)
+    }
+
+    func testCloudASRSetupDrawerShowsConnectedStatusAfterSuccess() {
+        let presentation = VoiceCloudASRSetupDrawerPresentation.status(
+            apiKey: "gsk_test",
+            isTesting: false,
+            statusMessage: "Connection succeeded. Future dictations will use Groq."
+        )
+
+        XCTAssertEqual(presentation.text, "Connected")
+        XCTAssertEqual(presentation.kind, .success)
+    }
+
+    func testCloudASRSetupDrawerShowsEnteredKeyWithoutConnectionResult() {
+        let presentation = VoiceCloudASRSetupDrawerPresentation.status(
+            apiKey: "gsk_test",
+            isTesting: false,
+            statusMessage: nil
+        )
+
+        XCTAssertEqual(presentation.text, "Key entered")
+        XCTAssertEqual(presentation.kind, .neutral)
+    }
+
+    func testUpdatingProviderKindPreservesModelAndLanguage() {
+        let settings = VoiceASRSettings(
+            modelID: .qwen3ASR06BInt8,
+            languageHint: .english,
+            providerKind: .local
+        )
+
+        let updated = settings.updating(providerKind: .groq)
+
+        XCTAssertEqual(updated.modelID, .qwen3ASR06BInt8)
+        XCTAssertEqual(updated.languageHint, .english)
+        XCTAssertEqual(updated.providerKind, .groq)
+    }
+
+    func testLoadsLegacyLanguageOnlyPayloadWithDefaultModel() {
         let legacyPayload = #"{"languageHint":"chinese"}"#.data(using: .utf8)!
         defaults.set(legacyPayload, forKey: VoiceASRSettingsStore.key)
 
@@ -54,7 +168,7 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
         XCTAssertEqual(loaded.languageHint, .chinese)
     }
 
-    func testLoadsLegacyModelIdentifierAsF32Model() throws {
+    func testLoadsLegacyModelIdentifierAsF32Model() {
         let legacyPayload = #"{"modelID":"qwen3-asr-0.6b","languageHint":"english"}"#.data(using: .utf8)!
         defaults.set(legacyPayload, forKey: VoiceASRSettingsStore.key)
 
@@ -131,6 +245,97 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
         XCTAssertEqual(VoiceASRModelTitlePresentation.title(for: .qwen3ASR06BF32), "Qwen3-ASR 0.6B f32")
         XCTAssertEqual(VoiceASRModelTitlePresentation.sizeLabel(for: .qwen3ASR06BF32), "~1.75 GB")
         XCTAssertEqual(VoiceASRModelTitlePresentation.sizeLabel(for: .qwen3ASR06BInt8), "~900 MB")
+    }
+
+    func testSelectedCloudModelPresentationUsesStatusWithoutAction() {
+        let presentation = VoiceASRModelRowPresentation.cloudModel(isSelected: true)
+
+        XCTAssertEqual(presentation.statusText, "Selected")
+        XCTAssertEqual(presentation.statusKind, .success)
+        XCTAssertNil(presentation.actionTitle)
+    }
+
+    func testAvailableCloudModelPresentationUsesUseAction() {
+        let presentation = VoiceASRModelRowPresentation.cloudModel(isSelected: false)
+
+        XCTAssertNil(presentation.statusText)
+        XCTAssertEqual(presentation.statusKind, .neutral)
+        XCTAssertEqual(presentation.actionTitle, "Use")
+    }
+
+    func testCloudModelPresentationDisablesUseWhenAPIKeyIsMissing() {
+        let presentation = VoiceASRModelRowPresentation.cloudModel(
+            isSelected: false,
+            hasUsableAPIKey: false
+        )
+
+        XCTAssertEqual(presentation.statusText, "Needs API key")
+        XCTAssertEqual(presentation.statusKind, .warning)
+        XCTAssertNil(presentation.actionTitle)
+    }
+
+    func testCloudModelSelectionRequiresUsableAPIKey() {
+        XCTAssertFalse(
+            VoiceASRModelSelectionState.isCloudModelSelected(
+                providerKind: .groq,
+                selectedModelID: .whisperLargeV3Turbo,
+                modelID: .whisperLargeV3Turbo,
+                hasUsableAPIKey: false
+            )
+        )
+    }
+
+    func testCanSelectCloudModelRequiresNonBlankAPIKey() {
+        XCTAssertFalse(VoiceASRModelSelectionState.canSelectCloudModel(apiKey: " \n "))
+        XCTAssertTrue(VoiceASRModelSelectionState.canSelectCloudModel(apiKey: "gsk_test"))
+    }
+
+    func testLocalModelSelectionRequiresLocalProvider() {
+        XCTAssertTrue(
+            VoiceASRModelSelectionState.isLocalModelSelected(
+                providerKind: .local,
+                selectedModelID: .qwen3ASR06BF32,
+                modelID: .qwen3ASR06BF32
+            )
+        )
+        XCTAssertFalse(
+            VoiceASRModelSelectionState.isLocalModelSelected(
+                providerKind: .groq,
+                selectedModelID: .qwen3ASR06BF32,
+                modelID: .qwen3ASR06BF32
+            )
+        )
+    }
+
+    func testCloudModelSelectionRequiresGroqProvider() {
+        XCTAssertTrue(
+            VoiceASRModelSelectionState.isCloudModelSelected(
+                providerKind: .groq,
+                selectedModelID: .whisperLargeV3Turbo,
+                modelID: .whisperLargeV3Turbo
+            )
+        )
+        XCTAssertFalse(
+            VoiceASRModelSelectionState.isCloudModelSelected(
+                providerKind: .local,
+                selectedModelID: .whisperLargeV3Turbo,
+                modelID: .whisperLargeV3Turbo
+            )
+        )
+    }
+
+    func testSelectingLocalModelSwitchesProviderToLocal() {
+        XCTAssertEqual(
+            VoiceASRModelSelectionState.providerKindAfterSelectingLocalModel(),
+            .local
+        )
+    }
+
+    func testSelectingCloudModelSwitchesProviderToGroq() {
+        XCTAssertEqual(
+            VoiceASRModelSelectionState.providerKindAfterSelectingCloudModel(),
+            .groq
+        )
     }
 
     func testMissingModelPresentationKeepsSingleDownloadAction() {

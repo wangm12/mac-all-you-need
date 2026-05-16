@@ -3,27 +3,32 @@ import Foundation
 
 struct VoicePersonalizationSettings: Codable, Equatable {
     var learnFromEditsEnabled: Bool
+    var saveTrainingExamplesEnabled: Bool
     var rollingCacheDays: Int
     var rollingCacheMaxSamples: Int
 
     static let `default` = VoicePersonalizationSettings(
         learnFromEditsEnabled: true,
+        saveTrainingExamplesEnabled: true,
         rollingCacheDays: 30,
         rollingCacheMaxSamples: 50
     )
 
     init(
         learnFromEditsEnabled: Bool = true,
+        saveTrainingExamplesEnabled: Bool = true,
         rollingCacheDays: Int = 30,
         rollingCacheMaxSamples: Int = 50
     ) {
         self.learnFromEditsEnabled = learnFromEditsEnabled
+        self.saveTrainingExamplesEnabled = saveTrainingExamplesEnabled
         self.rollingCacheDays = rollingCacheDays
         self.rollingCacheMaxSamples = rollingCacheMaxSamples
     }
 
     private enum CodingKeys: String, CodingKey {
         case learnFromEditsEnabled
+        case saveTrainingExamplesEnabled
         case rollingCacheDays
         case rollingCacheMaxSamples
     }
@@ -32,6 +37,8 @@ struct VoicePersonalizationSettings: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         learnFromEditsEnabled = try container.decodeIfPresent(Bool.self, forKey: .learnFromEditsEnabled)
             ?? VoicePersonalizationSettings.default.learnFromEditsEnabled
+        saveTrainingExamplesEnabled = try container.decodeIfPresent(Bool.self, forKey: .saveTrainingExamplesEnabled)
+            ?? VoicePersonalizationSettings.default.saveTrainingExamplesEnabled
         rollingCacheDays = try container.decodeIfPresent(Int.self, forKey: .rollingCacheDays)
             ?? VoicePersonalizationSettings.default.rollingCacheDays
         rollingCacheMaxSamples = try container.decodeIfPresent(Int.self, forKey: .rollingCacheMaxSamples)

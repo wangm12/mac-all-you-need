@@ -1387,6 +1387,7 @@ private struct VoiceMainPage: View {
     @AppStorage(VoiceAudioSettings.microphoneIDKey, store: AppGroupSettings.defaults) private var preferredMicrophoneID = VoiceAudioSettings.systemMicrophoneID
     @AppStorage("voice.audio.interactionSounds", store: AppGroupSettings.defaults) private var interactionSounds = true
     @AppStorage("voice.audio.muteWhenDictating", store: AppGroupSettings.defaults) private var muteWhenDictating = false
+    @AppStorage("voice.asr.groq.apiSetupExpanded", store: AppGroupSettings.defaults) private var isCloudAPISetupExpanded = false
     @State private var shortcut: HotkeyDescriptor
     @State private var mode: VoiceActivationMode
     @State private var selectedASRModelID: VoiceASRModelID
@@ -1476,6 +1477,7 @@ private struct VoiceMainPage: View {
                 }
             case .models:
                 FunctionPageScrollContent {
+                    voiceCloudASRModelsSection
                     voiceModelsSection
                 }
             case .history:
@@ -1494,7 +1496,7 @@ private struct VoiceMainPage: View {
                     voiceLanguageSection
                     voiceAudioSection
                     voiceCleanupSection
-                    voiceASRProviderSection
+                    voiceCloudASRModelsSection
                 }
             }
         }
@@ -1514,7 +1516,16 @@ private struct VoiceMainPage: View {
             cleanupAPIKey = controller.voiceCleanupAPIKey(for: provider)
         }
         .onChange(of: languageHint) { _, hint in
-            VoiceASRSettingsStore.save(VoiceASRSettings(modelID: selectedASRModelID, languageHint: hint))
+            controller.applyVoiceASRSettings(currentAppliedASRSettings.updating(languageHint: hint))
+        }
+        .onChange(of: asrProviderKind) { _, providerKind in
+            applyASRProviderSelection(providerKind)
+        }
+        .onChange(of: groqModelID) { _, _ in
+            applyGroqDropdownSettings()
+        }
+        .onChange(of: groqLanguageHint) { _, _ in
+            applyGroqDropdownSettings()
         }
     }
 
@@ -1559,18 +1570,53 @@ private struct VoiceMainPage: View {
     private var voiceModelsSection: some View {
         MAYNSection(
             title: "Local ASR models",
-            subtitle: "Choose the recognition model that runs before dictionary and cleanup."
+            subtitle: "Choose the on-device ASR model. Selecting a local model switches recognition to Local."
         ) {
             ForEach(Array(VoiceASRModelID.allCases.enumerated()), id: \.element.id) { index, modelID in
                 if index > 0 { MAYNDivider() }
                 VoiceASRModelRow(
                     modelID: modelID,
-                    isSelected: selectedASRModelID == modelID,
+                    isSelected: VoiceASRModelSelectionState.isLocalModelSelected(
+                        providerKind: asrProviderKind,
+                        selectedModelID: selectedASRModelID,
+                        modelID: modelID
+                    ),
                     isDownloaded: isDownloaded(modelID),
                     statusMessage: modelDownloadStatus[modelID],
                     downloadFraction: modelDownloadFractions[modelID],
                     isDownloading: downloadingModelID == modelID,
                     onSelect: { selectModel(modelID) }
+                )
+            }
+        }
+    }
+
+    private var voiceCloudASRModelsSection: some View {
+        MAYNSection(
+            title: "Cloud ASR models",
+            subtitle: "Choose a Groq Whisper model. Selecting a cloud model switches recognition to Groq."
+        ) {
+            VoiceCloudASRSetupDrawer(
+                isExpanded: $isCloudAPISetupExpanded,
+                languageHint: $groqLanguageHint,
+                apiKey: $groqAPIKey,
+                isTestingGroq: isTestingGroq,
+                statusMessage: groqStatusMessage,
+                testConnection: testGroqConnection
+            )
+            MAYNDivider()
+            ForEach(Array(GroqASRModelID.allCases.enumerated()), id: \.element.id) { index, modelID in
+                if index > 0 { MAYNDivider() }
+                VoiceCloudASRModelRow(
+                    modelID: modelID,
+                    isSelected: VoiceASRModelSelectionState.isCloudModelSelected(
+                        providerKind: asrProviderKind,
+                        selectedModelID: groqModelID,
+                        modelID: modelID,
+                        hasUsableAPIKey: hasUsableGroqAPIKey
+                    ),
+                    hasUsableAPIKey: hasUsableGroqAPIKey,
+                    action: { selectCloudModel(modelID) }
                 )
             }
         }
@@ -1752,8 +1798,13 @@ private struct VoiceMainPage: View {
     private func reload() {
         onboardingProgress = VoiceOnboardingProgressStore.load()
         let asrSettings = VoiceASRSettingsStore.load()
+        let groqSettings = GroqASRSettingsStore.load()
         selectedASRModelID = asrSettings.modelID
         languageHint = asrSettings.languageHint
+        asrProviderKind = asrSettings.providerKind
+        groqModelID = groqSettings.modelID
+        groqLanguageHint = groqSettings.languageHint
+        groqAPIKey = controller.groqASRAPIKey()
         transcripts = controller.listRecentVoiceTranscripts(limit: 20)
         pruneVoiceTranscriptSelection()
         refreshMicrophoneOptions()
@@ -1777,98 +1828,59 @@ private struct VoiceMainPage: View {
         transcriptAnchorID = state.anchorID
     }
 
-    // MARK: - ASR Provider section
-
-    private var voiceASRProviderSection: some View {
-        MAYNSection(
-            title: "Recognition provider",
-            subtitle: "Local uses on-device Qwen3-ASR. Groq sends audio to Groq's servers for better code-switching quality."
-        ) {
-            MAYNSettingsRow(title: "Provider") {
-                MAYNDropdown(
-                    selection: $asrProviderKind,
-                    options: VoiceASRProviderKind.allCases,
-                    title: { $0.label }
-                )
-                .onChange(of: asrProviderKind) { _, _ in saveASRProviderSettings() }
+    private func applyASRProviderSelection(_ providerKind: VoiceASRProviderKind) {
+        switch providerKind {
+        case .local:
+            controller.applyVoiceASRSettings(providerASRSettingsDraft)
+            groqStatusMessage = nil
+            errorMessage = nil
+        case .groq:
+            guard hasUsableGroqAPIKey else {
+                groqStatusMessage = "Add an API key before dictating with Groq."
+                return
             }
-
-            if asrProviderKind == .groq {
-                MAYNDivider()
-                MAYNSettingsRow(title: "Model") {
-                    MAYNDropdown(
-                        selection: $groqModelID,
-                        options: GroqASRModelID.allCases,
-                        title: { $0.title }
-                    )
-                    .onChange(of: groqModelID) { _, _ in saveASRProviderSettings() }
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "Language") {
-                    MAYNDropdown(
-                        selection: $groqLanguageHint,
-                        options: VoiceASRLanguageHint.allCases,
-                        title: { $0.label }
-                    )
-                    .onChange(of: groqLanguageHint) { _, _ in saveASRProviderSettings() }
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "API key") {
-                    MAYNSecureField(
-                        placeholder: "gsk_…",
-                        text: $groqAPIKey,
-                        width: MAYNControlMetrics.wideTextFieldWidth
-                    )
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "Connection") {
-                    HStack(spacing: 8) {
-                        MAYNButton(isTestingGroq ? "Testing…" : "Test") {
-                            testGroqConnection()
-                        }
-                        .disabled(isTestingGroq)
-                        MAYNButton("Apply", role: .primary) {
-                            saveASRProviderSettings()
-                        }
-                    }
-                }
-                if let status = groqStatusMessage {
-                    MAYNSettingsRow(title: "") {
-                        Text(status)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
+            controller.applyGroqASRSettings(groqASRSettingsDraft)
+            controller.applyVoiceASRSettings(providerASRSettingsDraft)
+            applyGroqProviderSettings(successMessage: "Groq selected.")
         }
     }
 
-    private func saveASRProviderSettings() {
-        let asrSettings = VoiceASRSettings(
-            modelID: selectedASRModelID,
-            languageHint: languageHint,
-            providerKind: asrProviderKind
-        )
-        controller.applyVoiceASRSettings(asrSettings)
+    private func applyGroqDropdownSettings() {
+        controller.applyGroqASRSettings(groqASRSettingsDraft)
+        if asrProviderKind == .groq {
+            applyASRProviderSelection(.groq)
+        }
+    }
 
-        let groqSettings = GroqASRSettings(modelID: groqModelID, languageHint: groqLanguageHint)
+    private func applyGroqProviderSettings(successMessage: String) {
         do {
-            try controller.applyGroqASRSettings(groqSettings, apiKey: groqAPIKey)
+            try controller.applyVoiceASRProviderSettings(
+                asrSettings: providerASRSettingsDraft,
+                groqSettings: groqASRSettingsDraft,
+                groqAPIKey: groqAPIKey
+            )
+            groqStatusMessage = successMessage
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            let message = error.localizedDescription
+            groqStatusMessage = message
+            errorMessage = message
         }
     }
 
     private func testGroqConnection() {
         isTestingGroq = true
         groqStatusMessage = "Connecting…"
-        let groqSettings = GroqASRSettings(modelID: groqModelID, languageHint: groqLanguageHint)
+        let groqSettings = groqASRSettingsDraft
         let key = groqAPIKey
         Task {
             let result = await controller.testGroqASRSettings(groqSettings, apiKey: key)
             await MainActor.run {
-                groqStatusMessage = result
+                if result.localizedCaseInsensitiveContains("succeeded") {
+                    applyGroqProviderSettings(successMessage: "Connection succeeded. Future dictations will use Groq.")
+                } else {
+                    groqStatusMessage = result
+                }
                 isTestingGroq = false
             }
         }
@@ -2075,9 +2087,30 @@ private struct VoiceMainPage: View {
         }
     }
 
+    private func selectCloudModel(_ modelID: GroqASRModelID) {
+        guard hasUsableGroqAPIKey else {
+            isCloudAPISetupExpanded = true
+            groqStatusMessage = "Add an API key before selecting a cloud model."
+            return
+        }
+
+        groqModelID = modelID
+        let providerKind = VoiceASRModelSelectionState.providerKindAfterSelectingCloudModel()
+        asrProviderKind = providerKind
+        applyASRProviderSelection(providerKind)
+    }
+
     private func useModel(_ modelID: VoiceASRModelID) {
         selectedASRModelID = modelID
-        VoiceASRSettingsStore.save(VoiceASRSettings(modelID: modelID, languageHint: languageHint))
+        let providerKind = VoiceASRModelSelectionState.providerKindAfterSelectingLocalModel()
+        asrProviderKind = providerKind
+        controller.applyVoiceASRSettings(
+            VoiceASRSettings(
+                modelID: modelID,
+                languageHint: languageHint,
+                providerKind: providerKind
+            )
+        )
         modelDownloadStatus[modelID] = "Selected for future dictation."
     }
 
@@ -2198,6 +2231,30 @@ private struct VoiceMainPage: View {
             baseURLString: cleanupBaseURLString,
             timeoutSeconds: cleanupTimeoutSeconds
         )
+    }
+
+    private var currentAppliedASRSettings: VoiceASRSettings {
+        VoiceASRSettings(
+            modelID: selectedASRModelID,
+            languageHint: languageHint,
+            providerKind: VoiceASRSettingsStore.load().providerKind
+        )
+    }
+
+    private var providerASRSettingsDraft: VoiceASRSettings {
+        VoiceASRSettings(
+            modelID: selectedASRModelID,
+            languageHint: languageHint,
+            providerKind: asrProviderKind
+        )
+    }
+
+    private var groqASRSettingsDraft: GroqASRSettings {
+        GroqASRSettings(modelID: groqModelID, languageHint: groqLanguageHint)
+    }
+
+    private var hasUsableGroqAPIKey: Bool {
+        VoiceASRModelSelectionState.canSelectCloudModel(apiKey: groqAPIKey)
     }
 }
 

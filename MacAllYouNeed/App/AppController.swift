@@ -12,6 +12,7 @@ private struct StartupStores {
     let voiceTranscripts: VoiceTranscriptStore
     let voiceDictionary: VoiceDictionaryStore
     let voicePersonalization: VoicePersonalizationStore
+    let voiceTrainingExamples: VoiceTrainingExampleStore
     let blob: BlobStore
     let search: SearchStore
 }
@@ -41,6 +42,7 @@ final class AppController {
     let voiceTranscriptStore: VoiceTranscriptStore
     let voiceDictionaryStore: VoiceDictionaryStore
     let voicePersonalizationStore: VoicePersonalizationStore
+    let voiceTrainingExampleStore: VoiceTrainingExampleStore
     let voiceCoordinator: VoiceCoordinator
 
     private let hotkeyRegistry = HotkeyRegistry()
@@ -91,6 +93,7 @@ final class AppController {
         voiceTranscriptStore = stores.voiceTranscripts
         voiceDictionaryStore = stores.voiceDictionary
         voicePersonalizationStore = stores.voicePersonalization
+        voiceTrainingExampleStore = stores.voiceTrainingExamples
         voiceCoordinator = makeVoiceCoordinator(stores: stores, cleanupKeyStore: cleanupKeyStore)
 
         clipboardReader = LocalClipboardReader(store: stores.clipboard)
@@ -217,6 +220,11 @@ final class AppController {
             voiceTranscripts: VoiceTranscriptStore(database: clipboardDatabase),
             voiceDictionary: VoiceDictionaryStore(database: clipboardDatabase),
             voicePersonalization: VoicePersonalizationStore(database: clipboardDatabase, deviceKey: key),
+            voiceTrainingExamples: VoiceTrainingExampleStore(
+                database: clipboardDatabase,
+                deviceKey: key,
+                audioRoot: AppGroup.containerURL().appendingPathComponent("voice-training-audio", isDirectory: true)
+            ),
             blob: makeBlobStore(key: key),
             search: searchStore
         )
@@ -457,12 +465,11 @@ private func makeVoiceCoordinator(
     )
 
     let asrSettings = VoiceASRSettingsStore.load()
-    let engine: any VoiceTranscriptionEngine
-    switch asrSettings.providerKind {
+    let engine: any VoiceTranscriptionEngine = switch asrSettings.providerKind {
     case .local:
-        engine = Qwen3Engine()
+        Qwen3Engine()
     case .groq:
-        engine = GroqASREngine(
+        GroqASREngine(
             settings: { GroqASRSettingsStore.load() },
             keyStore: GroqASRKeyStore(keychain: keychain)
         )
@@ -472,6 +479,7 @@ private func makeVoiceCoordinator(
         transcripts: stores.voiceTranscripts,
         dictionary: stores.voiceDictionary,
         personalizationStore: stores.voicePersonalization,
+        trainingExampleStore: stores.voiceTrainingExamples,
         personalizationSettings: { VoicePersonalizationSettingsStore.load() },
         engine: engine,
         cleanupKeyStore: cleanupKeyStore,

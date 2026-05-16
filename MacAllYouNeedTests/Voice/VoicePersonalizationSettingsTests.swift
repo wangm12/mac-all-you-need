@@ -17,10 +17,11 @@ final class VoicePersonalizationSettingsTests: XCTestCase {
         suiteName = nil
     }
 
-    func testDefaultSettingsHaveLearningOnAndStandardCacheLimits() {
+    func testDefaultSettingsHaveLearningAndTrainingExamplesOnWithStandardCacheLimits() {
         let settings = VoicePersonalizationSettingsStore.load(from: defaults)
 
         XCTAssertTrue(settings.learnFromEditsEnabled)
+        XCTAssertTrue(settings.saveTrainingExamplesEnabled)
         XCTAssertEqual(settings.rollingCacheDays, 30)
         XCTAssertEqual(settings.rollingCacheMaxSamples, 50)
     }
@@ -28,6 +29,7 @@ final class VoicePersonalizationSettingsTests: XCTestCase {
     func testSavesAndLoadsAllFields() {
         let saved = VoicePersonalizationSettings(
             learnFromEditsEnabled: false,
+            saveTrainingExamplesEnabled: false,
             rollingCacheDays: 14,
             rollingCacheMaxSamples: 100
         )
@@ -45,6 +47,7 @@ final class VoicePersonalizationSettingsTests: XCTestCase {
         let loaded = VoicePersonalizationSettingsStore.load(from: defaults)
 
         XCTAssertFalse(loaded.learnFromEditsEnabled)
+        XCTAssertTrue(loaded.saveTrainingExamplesEnabled)
         XCTAssertEqual(loaded.rollingCacheDays, 30)
         XCTAssertEqual(loaded.rollingCacheMaxSamples, 50)
     }
