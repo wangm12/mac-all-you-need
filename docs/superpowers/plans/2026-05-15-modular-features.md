@@ -443,7 +443,7 @@ This is optional but recommended for a 12-phase initiative.
 Use this top-level checklist to track plan completion. Each row's detail lives in its phase plan.
 
 - [ ] Phase 01 — Foundation
-- [ ] Phase 02 — Pack infrastructure
+- [x] Phase 02 — Pack infrastructure
 - [ ] Phase 03 — Feature activators
 - [ ] Phase 04 — Registry-driven bootstrap
 - [ ] Phase 05 — Features tab UI
