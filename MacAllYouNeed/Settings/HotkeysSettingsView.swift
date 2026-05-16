@@ -1,13 +1,19 @@
+import FeatureCore
 import Platform
 import SwiftUI
 
+// Platform.HotkeyDescriptor (keyCode+modifiers) takes precedence in this file.
+private typealias HotkeyDescriptor = Platform.HotkeyDescriptor
+
 struct HotkeysSettingsView: View {
     let controller: AppController
+    @ObservedObject private var statePublisher: FeatureStatePublisher
     @State private var map: [HotkeyAction: [HotkeyDescriptor]]
     @State private var errorMessage: String?
 
     init(controller: AppController) {
         self.controller = controller
+        self.statePublisher = controller.featureStatePublisher
         _map = State(initialValue: HotkeyMapStore.load())
     }
 
@@ -19,9 +25,12 @@ struct HotkeysSettingsView: View {
             MAYNSection(title: "Global triggers") {
                 ForEach(Array(HotkeyAction.allCases.enumerated()), id: \.element.id) { offset, action in
                     let descriptors = map[action] ?? [action.defaultDescriptor]
+                    let featureEnabled = isEnabled(action: action)
                     MAYNSettingsRow(
                         title: action.label,
-                        subtitle: "Add up to three trigger combinations.",
+                        subtitle: featureEnabled
+                            ? "Add up to three trigger combinations."
+                            : "Feature is disabled — hotkey inactive.",
                         minHeight: descriptors.count > 1 ? 46 + CGFloat(descriptors.count - 1) * 32 : 46
                     ) {
                         VStack(alignment: .trailing, spacing: 8) {
@@ -79,6 +88,7 @@ struct HotkeysSettingsView: View {
                             }
                         }
                     }
+                    .opacity(featureEnabled ? 1.0 : 0.45)
 
                     if offset != HotkeyAction.allCases.count - 1 {
                         MAYNDivider()
@@ -94,6 +104,12 @@ struct HotkeysSettingsView: View {
                 }
             }
         }
+    }
+
+    /// Returns true when the feature backing this hotkey action is enabled (or unknown).
+    private func isEnabled(action: HotkeyAction) -> Bool {
+        guard let featureID = action.relatedFeatureID else { return true }
+        return statePublisher.state(for: featureID).activationState == .enabled
     }
 
     private func binding(for action: HotkeyAction, index: Int, defaultValue: HotkeyDescriptor) -> Binding<HotkeyDescriptor> {
