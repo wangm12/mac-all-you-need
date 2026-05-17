@@ -27,7 +27,8 @@ struct FeatureToolCard<Footer: View>: View {
     let state: FeatureRuntimeState?
 
     /// true while an `applyTransition` Task is in flight (but state has not
-    /// changed to `.downloading` yet). Shows a small spinner in the badge area.
+    /// changed to `.downloading` yet). Shows a small spinner overlaid in the
+    /// top-right corner of the card; the status badge remains visible.
     let isPending: Bool
 
     // MARK: Actions
@@ -75,6 +76,16 @@ struct FeatureToolCard<Footer: View>: View {
         }
         .opacity(cardOpacity)
         .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: cardOpacity)
+        .overlay(alignment: .topTrailing) {
+            if isPending, case .downloading = visualState {
+                // .downloading already has its own progress bar — no overlay
+            } else if isPending {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .accessibilityLabel("In progress")
+            }
+        }
         .contextMenu { contextMenuItems }
     }
 
@@ -115,17 +126,9 @@ struct FeatureToolCard<Footer: View>: View {
         case .enabled:
             StatusPill(text: "Enabled", kind: .success)
         case .disabled:
-            if isPending {
-                pendingSpinner
-            } else {
-                StatusPill(text: "Disabled", kind: .neutral)
-            }
+            StatusPill(text: "Disabled", kind: .neutral)
         case .notDownloaded:
-            if isPending {
-                pendingSpinner
-            } else {
-                StatusPill(text: "Not installed", kind: .neutral)
-            }
+            StatusPill(text: "Not installed", kind: .neutral)
         case .downloading(let progress):
             ProgressView(value: progress, total: 1.0)
                 .progressViewStyle(.linear)
@@ -133,21 +136,8 @@ struct FeatureToolCard<Footer: View>: View {
                 .tint(MAYNTheme.progress)
                 .accessibilityLabel("Downloading: \(Int(progress * 100))%")
         case .failed:
-            if isPending {
-                pendingSpinner
-            } else {
-                StatusPill(text: "Failed", kind: .danger)
-            }
+            StatusPill(text: "Failed", kind: .danger)
         }
-    }
-
-    /// Small indeterminate spinner shown when a transition is in-flight
-    /// and state is not `.downloading` (which has its own progress bar).
-    private var pendingSpinner: some View {
-        ProgressView()
-            .progressViewStyle(.circular)
-            .controlSize(.small)
-            .accessibilityLabel("In progress")
     }
 
     // MARK: Inline button
