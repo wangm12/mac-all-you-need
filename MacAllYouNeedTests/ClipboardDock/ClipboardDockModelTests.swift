@@ -12,6 +12,7 @@ final class ClipboardDockModelTests: XCTestCase {
 
     override func tearDown() {
         AppGroupSettings.defaults.removeObject(forKey: "search.fuzzy")
+        AppGroupSettings.defaults.removeObject(forKey: ClipboardDockOpenFocusSetting.key)
         super.tearDown()
     }
 
@@ -70,7 +71,7 @@ final class ClipboardDockModelTests: XCTestCase {
     }
 
     private func closeVisibleDockWindows() {
-        NSApp.windows
+        NSApplication.shared.windows
             .compactMap { $0 as? BottomDockWindow }
             .forEach { window in
                 window.orderOut(nil)
@@ -90,11 +91,68 @@ final class ClipboardDockModelTests: XCTestCase {
         XCTAssertEqual(model.items.first?.preview, "alpha")
     }
 
+    func testDockOpenFocusSettingDefaultsToNewestItem() {
+        let suiteName = "dock-open-focus-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(ClipboardDockOpenFocusSetting.load(from: defaults))
+    }
+
+    func testDockOpenFocusSettingCanPreservePreviousFocus() {
+        let suiteName = "dock-open-focus-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: ClipboardDockOpenFocusSetting.key)
+
+        XCTAssertTrue(ClipboardDockOpenFocusSetting.load(from: defaults))
+    }
+
+    func testRefreshForDockOpenFocusesNewestItemWhenPreserveFocusIsOff() async {
+        let mock = MockClient()
+        mock.listResults = [
+            ClipboardXPCMeta(id: "old", modified: Date(), kind: "clipboardItem", preview: "old")
+        ]
+        let model = makeModel(mock)
+        await model.refresh()
+
+        mock.listResults = [
+            ClipboardXPCMeta(id: "new", modified: Date(), kind: "clipboardItem", preview: "new"),
+            ClipboardXPCMeta(id: "old", modified: Date(), kind: "clipboardItem", preview: "old")
+        ]
+        await model.refreshForDockOpen(preserveFocus: false)
+
+        XCTAssertEqual(model.items.map(\.id), ["new", "old"])
+        XCTAssertEqual(model.focusedIndex, 0)
+        XCTAssertEqual(model.items[model.focusedIndex].id, "new")
+    }
+
+    func testRefreshForDockOpenCanPreservePreviousFocusedItem() async {
+        let mock = MockClient()
+        mock.listResults = [
+            ClipboardXPCMeta(id: "old", modified: Date(), kind: "clipboardItem", preview: "old")
+        ]
+        let model = makeModel(mock)
+        await model.refresh()
+
+        mock.listResults = [
+            ClipboardXPCMeta(id: "new", modified: Date(), kind: "clipboardItem", preview: "new"),
+            ClipboardXPCMeta(id: "old", modified: Date(), kind: "clipboardItem", preview: "old")
+        ]
+        await model.refreshForDockOpen(preserveFocus: true)
+
+        XCTAssertEqual(model.items.map(\.id), ["new", "old"])
+        XCTAssertEqual(model.focusedIndex, 1)
+        XCTAssertEqual(model.items[model.focusedIndex].id, "old")
+    }
+
     func testDockWindowShowReusesVisiblePanel() {
         closeVisibleDockWindows()
         let mock = MockClient()
+        let model = makeModel(mock)
         let controller = DockWindowController(
-            model: makeModel(mock),
+            model: model,
             pasteCoordinator: DockPasteCoordinator(xpc: mock),
             favicons: FaviconCache(),
             registry: ShortcutRegistry()
@@ -111,7 +169,7 @@ final class ClipboardDockModelTests: XCTestCase {
 
         controller.show()
 
-        let visibleDockWindows = NSApp.windows
+        let visibleDockWindows = NSApplication.shared.windows
             .compactMap { $0 as? BottomDockWindow }
             .filter(\.isVisible)
         XCTAssertEqual(visibleDockWindows.count, 1)
@@ -119,6 +177,17 @@ final class ClipboardDockModelTests: XCTestCase {
         XCTAssertTrue(visibleDockWindows.first === panel)
         XCTAssertTrue(controller.debugHasGlobalOutsideClickMonitorForTesting)
         XCTAssertTrue(controller.debugHasLocalOutsideClickMonitorForTesting)
+        XCTAssertEqual(model.searchFocusRequestID, 1)
+    }
+
+    func testRequestSearchFocusIncrementsToken() {
+        let mock = MockClient()
+        let model = makeModel(mock)
+
+        model.requestSearchFocus()
+        model.requestSearchFocus()
+
+        XCTAssertEqual(model.searchFocusRequestID, 2)
     }
 
     func testDockWindowUsesLevelAboveSystemDockAndBelowNativeDragPreview() {

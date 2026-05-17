@@ -5,4 +5,6 @@ public enum FeatureID: String, CaseIterable, Codable, Sendable, Hashable {
     case folderPreview
     case downloader
     case voice
+    case windowLayouts
+    case windowGrab
 }

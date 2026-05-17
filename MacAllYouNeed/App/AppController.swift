@@ -19,6 +19,43 @@ private struct StartupStores {
     let search: SearchStore
 }
 
+private extension HotkeyAction {
+    var windowAction: WindowAction? {
+        switch self {
+        case .windowLeftHalf:
+            .leftHalf
+        case .windowRightHalf:
+            .rightHalf
+        case .windowTopHalf:
+            .topHalf
+        case .windowBottomHalf:
+            .bottomHalf
+        case .windowTopLeft:
+            .topLeft
+        case .windowTopRight:
+            .topRight
+        case .windowBottomLeft:
+            .bottomLeft
+        case .windowBottomRight:
+            .bottomRight
+        case .windowMaximize:
+            .maximize
+        case .windowAlmostMaximize:
+            .almostMaximize
+        case .windowCenter:
+            .center
+        case .windowRestore:
+            .restore
+        case .windowNextDisplay:
+            .nextDisplay
+        case .windowPreviousDisplay:
+            .previousDisplay
+        case .clipboard, .browseFolder:
+            nil
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppController {
@@ -62,6 +99,8 @@ final class AppController {
     let voicePersonalizationStore: VoicePersonalizationStore
     let voiceTrainingExampleStore: VoiceTrainingExampleStore
     let voiceCoordinator: VoiceCoordinator
+    let windowControl: WindowControlCoordinator
+    private let windowControlAccessibilityTrustMonitor: WindowControlAccessibilityTrustMonitor
 
     private let hotkeyRegistry = HotkeyRegistry()
     private var fallbackHotkey: GlobalHotkey?
@@ -71,6 +110,7 @@ final class AppController {
     private var clearOlderThanObserver: NSObjectProtocol?
     private var clearAllClipboardObserver: NSObjectProtocol?
     private var mainWindowSettingsObserver: NSObjectProtocol?
+    private var featureStateObserver: NSObjectProtocol?
     private var hotkeyRecorderStartObserver: NSObjectProtocol?
     private var hotkeyRecorderStopObserver: NSObjectProtocol?
     private var activeHotkeyRecorderCount = 0
@@ -113,6 +153,16 @@ final class AppController {
         voicePersonalizationStore = stores.voicePersonalization
         voiceTrainingExampleStore = stores.voiceTrainingExamples
         voiceCoordinator = makeVoiceCoordinator(stores: stores, cleanupKeyStore: cleanupKeyStore)
+        let windowControl = WindowControlCoordinator()
+        self.windowControl = windowControl
+        windowControlAccessibilityTrustMonitor = WindowControlAccessibilityTrustMonitor(
+            onTrustChanged: { [windowControl] trusted in
+                windowControl.refreshAccessibilityTrust(trusted)
+            },
+            shouldPoll: { [windowControl] in
+                windowControl.shouldPollAccessibilityTrust
+            }
+        )
 
         clipboardReader = LocalClipboardReader(store: stores.clipboard)
         clipboardReader.blobsRef = stores.blob
@@ -154,8 +204,14 @@ final class AppController {
         )
         sideloadController = SideloadController(manager: fm, manifestLoader: manifestLoader)
 
+        windowControl.setHotkeyRegistrationNeedsRefresh { [weak self] in
+            self?.registerConfiguredHotkeys()
+        }
+
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()
+        windowControl.start()
+        windowControlAccessibilityTrustMonitor.start()
 
         registerConfiguredHotkeys()
         registerAppObservers()
@@ -184,6 +240,9 @@ final class AppController {
                 _ = try? await DownloaderFeatureActivator.migrateLegacyAssetStateIfNeeded(
                     manager: fm, loader: manifestLoader
                 )
+            }
+            if let self {
+                await self.refreshWindowControlFeatureAvailability()
             }
             await rt.activateAllEnabled()
 
@@ -214,14 +273,31 @@ final class AppController {
 
     func applyHotkeyMap(_ map: [HotkeyAction: [Platform.HotkeyDescriptor]]) throws {
         fallbackHotkey = nil
-        try hotkeyRegistry.apply(map, controller: self)
+        try hotkeyRegistry.apply(
+            map,
+            controller: self,
+            windowControlEnabled: windowControl.settings.enabled,
+            windowActionPerformerAvailable: windowControl.windowActionPerformerAvailable
+        )
     }
 
     func performHotkeyAction(_ action: HotkeyAction) {
         switch action {
         case .clipboard: clipboardDock.toggle()
         case .browseFolder: folder.openPanelAndBrowse()
+        case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
+             .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
+             .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
+             .windowNextDisplay, .windowPreviousDisplay:
+            if let action = action.windowAction {
+                windowControl.perform(action: action)
+            }
         }
+    }
+
+    func applyWindowControlSettings(_ settings: WindowControlSettings) {
+        windowControl.applySettings(settings)
+        registerConfiguredHotkeys()
     }
 
     func suspendCaptureFor60Seconds() {
@@ -314,7 +390,12 @@ final class AppController {
 
     private func registerConfiguredHotkeys() {
         do {
-            try hotkeyRegistry.apply(HotkeyMapStore.load(), controller: self)
+            try hotkeyRegistry.apply(
+                HotkeyMapStore.load(),
+                controller: self,
+                windowControlEnabled: windowControl.settings.enabled,
+                windowActionPerformerAvailable: windowControl.windowActionPerformerAvailable
+            )
         } catch {
             let hk = GlobalHotkey(descriptor: .defaultClipboard) { [weak clipboardDock] in
                 Task { @MainActor in clipboardDock?.toggle() }
@@ -377,6 +458,13 @@ final class AppController {
                 self?.showMainWindow(destination: .settings)
             }
         }
+        featureStateObserver = NotificationCenter.default.addObserver(
+            forName: .featureRuntimeStateChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                await self?.refreshWindowControlFeatureAvailability()
+            }
+        }
         hotkeyRecorderStartObserver = NotificationCenter.default.addObserver(
             forName: .hotkeyRecorderDidStartRecording, object: nil, queue: .main
         ) { [weak self] _ in
@@ -389,6 +477,15 @@ final class AppController {
         }
     }
 
+    private func refreshWindowControlFeatureAvailability() async {
+        let layoutsState = await featureManager.state(for: .windowLayouts)
+        let grabState = await featureManager.state(for: .windowGrab)
+        windowControl.applyFeatureAvailability(WindowControlFeatureAvailability(
+            windowLayoutsEnabled: layoutsState.activationState == .enabled,
+            windowGrabEnabled: grabState.activationState == .enabled
+        ))
+    }
+
     private func suspendShortcutTriggersForHotkeyRecording() {
         activeHotkeyRecorderCount += 1
         guard activeHotkeyRecorderCount == 1 else { return }
@@ -396,6 +493,7 @@ final class AppController {
         fallbackHotkey?.unregister()
         fallbackHotkey = nil
         voiceCoordinator.suspendActivationMonitoring()
+        windowControl.suspendForHotkeyRecording()
     }
 
     private func resumeShortcutTriggersAfterHotkeyRecording() {
@@ -403,6 +501,7 @@ final class AppController {
         activeHotkeyRecorderCount -= 1
         guard activeHotkeyRecorderCount == 0 else { return }
         voiceCoordinator.resumeActivationMonitoring()
+        windowControl.resumeAfterHotkeyRecording()
         registerConfiguredHotkeys()
     }
 

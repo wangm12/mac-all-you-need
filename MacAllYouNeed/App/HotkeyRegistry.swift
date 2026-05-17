@@ -29,6 +29,18 @@ enum HotkeyRegistryApplyPlan {
     }
 }
 
+enum HotkeyRegistryRegistrationPlan {
+    static func activeMap(
+        from map: [HotkeyAction: [Platform.HotkeyDescriptor]],
+        windowControlEnabled: Bool,
+        windowActionPerformerAvailable: Bool = false
+    ) -> [HotkeyAction: [Platform.HotkeyDescriptor]] {
+        map.filter { action, _ in
+            !action.isWindowControlAction || (windowControlEnabled && windowActionPerformerAvailable)
+        }
+    }
+}
+
 @MainActor
 final class HotkeyRegistry {
     private var handles: [HotkeyAction: [GlobalHotkey]] = [:]
@@ -38,9 +50,19 @@ final class HotkeyRegistry {
         unregisterHandles()
     }
 
-    func apply(_ map: [HotkeyAction: [Platform.HotkeyDescriptor]], controller: AppController) throws {
+    func apply(
+        _ map: [HotkeyAction: [Platform.HotkeyDescriptor]],
+        controller: AppController,
+        windowControlEnabled: Bool = WindowControlSettingsStore.load().enabled,
+        windowActionPerformerAvailable: Bool = false
+    ) throws {
+        let activeMap = HotkeyRegistryRegistrationPlan.activeMap(
+            from: map,
+            windowControlEnabled: windowControlEnabled,
+            windowActionPerformerAvailable: windowActionPerformerAvailable
+        )
         if HotkeyRegistryApplyPlan.shouldSkipApply(
-            next: map,
+            next: activeMap,
             configured: configuredMap,
             hasActiveHandles: !handles.isEmpty
         ) {
@@ -48,14 +70,14 @@ final class HotkeyRegistry {
         }
 
         if let issue = HotkeyValidation.firstIssue(
-            in: map,
+            in: activeMap,
             voiceShortcut: VoiceActivationSettingsStore.load().shortcut
         ) {
             throw HotkeyRegistryError.validation(issue.message)
         }
 
         var seen: [Platform.HotkeyDescriptor: HotkeyAction] = [:]
-        for (action, descriptors) in map {
+        for (action, descriptors) in activeMap {
             for descriptor in descriptors {
                 if seen[descriptor] != nil {
                     throw HotkeyRegistryError.duplicate(descriptor)
@@ -67,8 +89,8 @@ final class HotkeyRegistry {
         var registeringAction: HotkeyAction?
         unregisterHandles()
         do {
-            handles = try makeHandles(for: map, controller: controller, registeringAction: &registeringAction)
-            configuredMap = map
+            handles = try makeHandles(for: activeMap, controller: controller, registeringAction: &registeringAction)
+            configuredMap = activeMap
         } catch {
             unregisterHandles()
             let failed = registeringAction ?? .clipboard

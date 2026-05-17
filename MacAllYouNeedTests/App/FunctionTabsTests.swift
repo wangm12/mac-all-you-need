@@ -53,6 +53,16 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(SnippetsFunctionTab.storageKey, "main.snippets.selectedTab")
     }
 
+    func testWindowControlPresentationUsesFirstClassDestinationsInsteadOfNestedTabs() {
+        XCTAssertEqual(WindowControlPagePresentation.firstClassDestinations, [
+            .windowLayouts,
+            .grabAnywhere
+        ])
+        XCTAssertFalse(WindowControlPagePresentation.showsCombinedTabbedPage)
+        XCTAssertFalse(WindowControlPagePresentation.usesSharedSegmentedTabs)
+        XCTAssertFalse(WindowControlPagePresentation.usesRawSegmentedPicker)
+    }
+
     func testAppearanceModeUsesSharedSegmentedTabContract() {
         XCTAssertEqual(AppAppearanceMode.allCases.map(\.title), ["System", "Light", "Dark"])
         XCTAssertEqual(AppAppearanceMode.allCases.map(\.symbolName), [
@@ -78,14 +88,18 @@ final class FunctionTabsTests: XCTestCase {
             .voice,
             .downloads,
             .folderPreview,
-            .snippets
+            .snippets,
+            .windowLayouts,
+            .grabAnywhere
         ])
         XCTAssertEqual(tiles.map(\.title), [
             "Clipboard",
             "Voice",
             "Downloads",
             "Folder Preview",
-            "Snippets"
+            "Snippets",
+            "Window Layouts",
+            "Window Grab"
         ])
         XCTAssertEqual(tiles.first?.detail, "Capture, search, pin, and paste clipboard history.")
         XCTAssertEqual(tiles.first?.metric, "30")
@@ -102,7 +116,9 @@ final class FunctionTabsTests: XCTestCase {
             "Dictate into any app with local speech recognition.",
             "Download media and manage saved files.",
             "Preview Finder folders and archives.",
-            "Expand reusable text from this Mac."
+            "Expand reusable text from this Mac.",
+            "Arrange, snap, and restore windows.",
+            "Move windows by holding a modifier and dragging."
         ])
         XCTAssertFalse(tiles.map(\.detail).contains("1 queue item"))
     }
@@ -113,7 +129,67 @@ final class FunctionTabsTests: XCTestCase {
             downloadsQueueCount: 0
         )
 
-        XCTAssertEqual(tiles.map(\.metric), ["30", nil, "0", nil, nil])
+        XCTAssertEqual(tiles.map(\.metric), ["30", nil, "0", nil, nil, nil, nil])
+    }
+
+    func testDashboardWindowLayoutTileSurfacesOffAndAccessibilityStatus() {
+        var enabledSettings = WindowControlSettings.default
+        enabledSettings.enabled = true
+
+        let offTile = DashboardToolTilePresentation.dashboardTiles(
+            clipboardCount: 0,
+            downloadsQueueCount: 0,
+            windowControlSettings: .default,
+            windowControlAXTrusted: false
+        ).first { $0.destination == .windowLayouts }
+        let needsAccessibilityTile = DashboardToolTilePresentation.dashboardTiles(
+            clipboardCount: 0,
+            downloadsQueueCount: 0,
+            windowControlSettings: enabledSettings,
+            windowControlAXTrusted: false
+        ).first { $0.destination == .windowLayouts }
+        let readyTile = DashboardToolTilePresentation.dashboardTiles(
+            clipboardCount: 0,
+            downloadsQueueCount: 0,
+            windowControlSettings: enabledSettings,
+            windowControlAXTrusted: true
+        ).first { $0.destination == .windowLayouts }
+
+        XCTAssertEqual(offTile?.statusText, "Off")
+        XCTAssertEqual(needsAccessibilityTile?.statusText, "Needs Accessibility")
+        XCTAssertEqual(readyTile?.statusText, "Ready")
+    }
+
+    func testDashboardGrabAnywhereTileSurfacesOffAndAccessibilityStatus() {
+        var enabledSettings = WindowControlSettings.default
+        enabledSettings.enabled = true
+        enabledSettings.dragAnywhereEnabled = true
+
+        var disabledDragSettings = enabledSettings
+        disabledDragSettings.dragAnywhereEnabled = false
+
+        let offTile = DashboardToolTilePresentation.dashboardTiles(
+            clipboardCount: 0,
+            downloadsQueueCount: 0,
+            windowControlSettings: disabledDragSettings,
+            windowControlAXTrusted: true
+        ).first { $0.destination == .grabAnywhere }
+        let needsAccessibilityTile = DashboardToolTilePresentation.dashboardTiles(
+            clipboardCount: 0,
+            downloadsQueueCount: 0,
+            windowControlSettings: enabledSettings,
+            windowControlAXTrusted: false
+        ).first { $0.destination == .grabAnywhere }
+        let readyTile = DashboardToolTilePresentation.dashboardTiles(
+            clipboardCount: 0,
+            downloadsQueueCount: 0,
+            windowControlSettings: enabledSettings,
+            windowControlAXTrusted: true
+        ).first { $0.destination == .grabAnywhere }
+
+        XCTAssertEqual(offTile?.statusText, "Off")
+        XCTAssertEqual(needsAccessibilityTile?.statusText, "Needs Accessibility")
+        XCTAssertEqual(readyTile?.statusText, "Ready")
     }
 
     func testDashboardDownloadQueueCountExcludesCompletedAndKeepsFailedRecords() {
@@ -145,6 +221,8 @@ final class FunctionTabsTests: XCTestCase {
             "2"
         )
         XCTAssertNil(MainSidebarBadgePresentation.badgeText(for: .clipboard, records: records))
+        XCTAssertNil(MainSidebarBadgePresentation.badgeText(for: .windowLayouts, records: records))
+        XCTAssertNil(MainSidebarBadgePresentation.badgeText(for: .grabAnywhere, records: records))
         XCTAssertNil(MainSidebarBadgePresentation.badgeText(for: .downloads, records: [downloadRecord(state: .queued)]))
     }
 
@@ -163,8 +241,128 @@ final class FunctionTabsTests: XCTestCase {
             "⌃⌥Space",
             nil,
             "Space",
+            nil,
+            nil,
             nil
         ])
+    }
+
+    func testDashboardWindowLayoutTileDoesNotExposePerActionShortcutWall() {
+        let tiles = DashboardToolTilePresentation.dashboardTiles(
+            clipboardCount: 30,
+            downloadsQueueCount: 0,
+            hotkeys: [
+                .windowLeftHalf: [.defaultClipboard],
+                .windowRightHalf: [.defaultDownload],
+                .windowMaximize: [.defaultFolder]
+            ]
+        )
+        let windowsTile = tiles.first { $0.destination == .windowLayouts }
+
+        XCTAssertEqual(windowsTile?.title, "Window Layouts")
+        XCTAssertEqual(windowsTile?.detail, "Arrange, snap, and restore windows.")
+        XCTAssertNil(windowsTile?.shortcutDisplay)
+    }
+
+    func testDashboardTileOpenRouteOpensWindowFeaturesDirectly() {
+        XCTAssertNil(DashboardToolOpenNavigation.route(for: .windowLayouts).tabStorageKey)
+        XCTAssertNil(DashboardToolOpenNavigation.route(for: .grabAnywhere).tabStorageKey)
+        XCTAssertNil(DashboardToolOpenNavigation.route(for: .clipboard).tabStorageKey)
+    }
+
+    func testMainHotkeyPresentationShowsOffForExplicitlyDisabledAction() {
+        XCTAssertEqual(
+            MainHotkeyPresentation.display(for: .clipboard, in: [.clipboard: []]),
+            "Off"
+        )
+    }
+
+    func testMainHotkeyPresentationFallsBackToMissingDefaultAndOffWhenNoDefaultExists() {
+        XCTAssertEqual(
+            MainHotkeyPresentation.display(for: .clipboard, in: [:]),
+            "⇧⌘V"
+        )
+        XCTAssertEqual(
+            MainHotkeyPresentation.display(for: .windowTopLeft, in: [:]),
+            "Off"
+        )
+    }
+
+    func testHotkeysSettingsPresentationGroupsActionsByFeature() {
+        XCTAssertEqual(HotkeysSettingsPresentation.groups.map(\.title), [
+            "Core tools",
+            "Window Layouts"
+        ])
+        XCTAssertEqual(HotkeysSettingsPresentation.groups.first?.actions, [
+            .clipboard,
+            .browseFolder
+        ])
+        XCTAssertTrue(HotkeysSettingsPresentation.groups[1].actions.contains(.windowLeftHalf))
+        XCTAssertTrue(HotkeysSettingsPresentation.groups[1].actions.contains(.windowRestore))
+    }
+
+    func testHotkeysSettingsPresentationCanAddCustomTriggerForDefaultDisabledAction() {
+        XCTAssertNil(HotkeyAction.windowTopLeft.primaryDefaultDescriptor)
+        XCTAssertTrue(HotkeysSettingsPresentation.canAddTrigger(to: []))
+        XCTAssertEqual(
+            HotkeysSettingsPresentation.seedDescriptor(for: .windowTopLeft),
+            HotkeysSettingsPresentation.customTriggerSeedDescriptor
+        )
+    }
+
+    func testHotkeysSettingsPresentationKeepsNewTriggerPendingUntilRecorded() {
+        let stored: [HotkeyDescriptor] = []
+        let pending = HotkeysSettingsPresentation.pendingDescriptorsAfterAdding(
+            action: .windowTopLeft,
+            storedDescriptors: stored,
+            pendingDescriptors: []
+        )
+
+        XCTAssertEqual(stored, [])
+        XCTAssertEqual(pending, [HotkeysSettingsPresentation.customTriggerSeedDescriptor])
+        XCTAssertEqual(
+            HotkeysSettingsPresentation.displayedDescriptors(stored: stored, pending: pending),
+            [HotkeysSettingsPresentation.customTriggerSeedDescriptor]
+        )
+    }
+
+    func testHotkeysSettingsPresentationAllowsOnlyOnePendingTriggerPerAction() {
+        let pending = [HotkeysSettingsPresentation.customTriggerSeedDescriptor]
+
+        XCTAssertEqual(
+            HotkeysSettingsPresentation.pendingDescriptorsAfterAdding(
+                action: .windowTopLeft,
+                storedDescriptors: [],
+                pendingDescriptors: pending
+            ),
+            pending
+        )
+    }
+
+    func testHotkeysSettingsPresentationCanRemoveOnlyTriggerToDisableAction() {
+        XCTAssertEqual(
+            HotkeysSettingsPresentation.descriptorsAfterRemoving(index: 0, from: [.defaultClipboard]),
+            []
+        )
+    }
+
+    func testHotkeysSettingsPresentationDoesNotOfferNoopAddAtLimit() {
+        XCTAssertFalse(
+            HotkeysSettingsPresentation.canAddTrigger(to: [
+                .defaultClipboard,
+                .defaultFolder,
+                .defaultDownload
+            ])
+        )
+    }
+
+    func testHotkeysSettingsPresentationDisablesResetWhenActionHasNoDefault() {
+        let descriptor = HotkeyDescriptor(keyCode: 18, modifiers: [.control, .option])
+
+        XCTAssertEqual(
+            HotkeysSettingsPresentation.resetDescriptor(for: .windowTopLeft, current: descriptor),
+            descriptor
+        )
     }
 
     func testDashboardToolTilesDoNotExposeInlineSettingsButtons() {
@@ -250,6 +448,14 @@ final class FunctionTabsTests: XCTestCase {
                 tabRawValue: SnippetsFunctionTab.settings.rawValue
             )
         )
+        XCTAssertEqual(
+            DashboardToolSettingsNavigation.route(for: .windowLayouts),
+            DashboardToolSettingsRoute(destination: .windowLayouts, tabStorageKey: nil, tabRawValue: nil)
+        )
+        XCTAssertEqual(
+            DashboardToolSettingsNavigation.route(for: .grabAnywhere),
+            DashboardToolSettingsRoute(destination: .grabAnywhere, tabStorageKey: nil, tabRawValue: nil)
+        )
     }
 
     func testFunctionPageHeaderShortcutsAreReadOnlyDisplayOnly() {
@@ -286,6 +492,12 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(
             MainToolHeaderShortcutModel.display(for: .folderPreview, hotkeys: hotkeys, voiceSettings: voiceSettings),
             "Space"
+        )
+        XCTAssertNil(
+            MainToolHeaderShortcutModel.display(for: .windowLayouts, hotkeys: hotkeys, voiceSettings: voiceSettings)
+        )
+        XCTAssertNil(
+            MainToolHeaderShortcutModel.display(for: .grabAnywhere, hotkeys: hotkeys, voiceSettings: voiceSettings)
         )
     }
 

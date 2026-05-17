@@ -6,6 +6,9 @@ import UniformTypeIdentifiers
 struct BundleIDExclusionEditor: View {
     @Binding var bundleIDs: [String]
     let save: ([String]) -> Void
+    var addSubtitle = "Choose one or more apps. Clipboard content copied from them will not be saved."
+    var panelTitle = "Choose Apps to Exclude"
+    var panelMessage = "Select apps whose clipboard content should never be captured."
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,7 +24,7 @@ struct BundleIDExclusionEditor: View {
 
             MAYNSettingsRow(
                 title: "Add apps",
-                subtitle: "Choose one or more apps. Clipboard content copied from them will not be saved."
+                subtitle: addSubtitle
             ) {
                 MAYNButton(role: .secondary, height: MAYNControlMetrics.controlHeight, action: {
                     chooseApps()
@@ -34,9 +37,9 @@ struct BundleIDExclusionEditor: View {
 
     private func chooseApps() {
         let panel = NSOpenPanel()
-        panel.title = "Choose Apps to Exclude"
+        panel.title = panelTitle
         panel.prompt = "Add Apps"
-        panel.message = "Select apps whose clipboard content should never be captured."
+        panel.message = panelMessage
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
         panel.allowsMultipleSelection = true
         panel.canChooseFiles = true

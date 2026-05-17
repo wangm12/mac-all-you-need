@@ -3,7 +3,14 @@ import XCTest
 
 final class FeatureIDTests: XCTestCase {
     func testAllCasesPresent() {
-        let expected: Set<FeatureID> = [.clipboard, .folderPreview, .downloader, .voice]
+        let expected: Set<FeatureID> = [
+            .clipboard,
+            .folderPreview,
+            .downloader,
+            .voice,
+            .windowLayouts,
+            .windowGrab
+        ]
         XCTAssertEqual(Set(FeatureID.allCases), expected)
     }
 
@@ -12,6 +19,8 @@ final class FeatureIDTests: XCTestCase {
         XCTAssertEqual(FeatureID.folderPreview.rawValue, "folderPreview")
         XCTAssertEqual(FeatureID.downloader.rawValue, "downloader")
         XCTAssertEqual(FeatureID.voice.rawValue, "voice")
+        XCTAssertEqual(FeatureID.windowLayouts.rawValue, "windowLayouts")
+        XCTAssertEqual(FeatureID.windowGrab.rawValue, "windowGrab")
     }
 
     func testCodableRoundTrip() throws {

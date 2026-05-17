@@ -1,3 +1,4 @@
+import ApplicationServices
 import Core
 import Foundation
 import Platform
@@ -185,6 +186,29 @@ enum SnippetsSettingsPresentation {
     static let visibleRowTitles = [accessibilityRowTitle, shortcutRowTitle]
 }
 
+enum WindowControlPagePresentation {
+    static let showsCombinedTabbedPage = false
+    static let firstClassDestinations: [MainAppDestination] = [.windowLayouts, .grabAnywhere]
+    static let usesSharedSegmentedTabs = false
+    static let usesRawSegmentedPicker = false
+}
+
+enum WindowControlSettingsPresentation {
+    static let sectionTitles = ["Window Layouts", "Layout Shortcuts", "Edge Snap", "Window Grab", "Double-Click Layout", "Shared Ignored Apps", "Shared Diagnostics"]
+    static let editsShortcutsInToolSettings = true
+    static var customShortcutSeedDescriptor: HotkeyDescriptor {
+        HotkeysSettingsPresentation.customTriggerSeedDescriptor
+    }
+
+    static func canEditShortcut(for action: HotkeyAction) -> Bool {
+        action.isWindowControlAction
+    }
+
+    static func seedDescriptor(for action: HotkeyAction) -> HotkeyDescriptor {
+        action.primaryDefaultDescriptor ?? customShortcutSeedDescriptor
+    }
+}
+
 struct DashboardToolTileItem: Equatable, Identifiable {
     let destination: MainAppDestination
     let title: String
@@ -192,6 +216,8 @@ struct DashboardToolTileItem: Equatable, Identifiable {
     let detail: String
     let symbolName: String
     let shortcutDisplay: String?
+    let statusText: String?
+    let statusKind: StatusPill.Kind?
 
     var id: String { destination.rawValue }
 }
@@ -201,7 +227,9 @@ enum DashboardToolTilePresentation {
         clipboardCount: Int,
         downloadsQueueCount: Int,
         hotkeys: [HotkeyAction: [HotkeyDescriptor]] = [:],
-        voiceSettings: VoiceActivationSettings = .default
+        voiceSettings: VoiceActivationSettings = .default,
+        windowControlSettings: WindowControlSettings = WindowControlSettingsStore.load(),
+        windowControlAXTrusted: Bool = AXIsProcessTrusted()
     ) -> [DashboardToolTileItem] {
         [
             DashboardToolTileItem(
@@ -210,7 +238,9 @@ enum DashboardToolTilePresentation {
                 metric: "\(clipboardCount)",
                 detail: "Capture, search, pin, and paste clipboard history.",
                 symbolName: "doc.on.clipboard",
-                shortcutDisplay: MainHotkeyPresentation.display(for: .clipboard, in: hotkeys)
+                shortcutDisplay: MainHotkeyPresentation.display(for: .clipboard, in: hotkeys),
+                statusText: nil,
+                statusKind: nil
             ),
             DashboardToolTileItem(
                 destination: .voice,
@@ -218,7 +248,9 @@ enum DashboardToolTilePresentation {
                 metric: nil,
                 detail: "Dictate into any app with local speech recognition.",
                 symbolName: "mic",
-                shortcutDisplay: voiceSettings.shortcut.display
+                shortcutDisplay: voiceSettings.shortcut.display,
+                statusText: nil,
+                statusKind: nil
             ),
             DashboardToolTileItem(
                 destination: .downloads,
@@ -226,7 +258,9 @@ enum DashboardToolTilePresentation {
                 metric: "\(downloadsQueueCount)",
                 detail: "Download media and manage saved files.",
                 symbolName: "arrow.down.circle",
-                shortcutDisplay: nil
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil
             ),
             DashboardToolTileItem(
                 destination: .folderPreview,
@@ -234,7 +268,9 @@ enum DashboardToolTilePresentation {
                 metric: nil,
                 detail: "Preview Finder folders and archives.",
                 symbolName: "folder.badge.gearshape",
-                shortcutDisplay: "Space"
+                shortcutDisplay: "Space",
+                statusText: nil,
+                statusKind: nil
             ),
             DashboardToolTileItem(
                 destination: .snippets,
@@ -242,9 +278,59 @@ enum DashboardToolTilePresentation {
                 metric: nil,
                 detail: "Expand reusable text from this Mac.",
                 symbolName: "text.quote",
-                shortcutDisplay: nil
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil
+            ),
+            DashboardToolTileItem(
+                destination: .windowLayouts,
+                title: "Window Layouts",
+                metric: nil,
+                detail: "Arrange, snap, and restore windows.",
+                symbolName: "rectangle.3.group",
+                shortcutDisplay: nil,
+                statusText: windowLayoutsStatusText(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
+                statusKind: windowLayoutsStatusKind(settings: windowControlSettings, axTrusted: windowControlAXTrusted)
+            ),
+            DashboardToolTileItem(
+                destination: .grabAnywhere,
+                title: "Window Grab",
+                metric: nil,
+                detail: "Move windows by holding a modifier and dragging.",
+                symbolName: "hand.draw",
+                shortcutDisplay: nil,
+                statusText: grabAnywhereStatusText(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
+                statusKind: grabAnywhereStatusKind(settings: windowControlSettings, axTrusted: windowControlAXTrusted)
             )
         ]
+    }
+
+    private static func windowLayoutsStatusText(settings: WindowControlSettings, axTrusted: Bool) -> String {
+        guard settings.enabled else {
+            return "Off"
+        }
+        return axTrusted ? "Ready" : "Needs Accessibility"
+    }
+
+    private static func windowLayoutsStatusKind(settings: WindowControlSettings, axTrusted: Bool) -> StatusPill.Kind {
+        guard settings.enabled else {
+            return .neutral
+        }
+        return axTrusted ? .success : .warning
+    }
+
+    private static func grabAnywhereStatusText(settings: WindowControlSettings, axTrusted: Bool) -> String {
+        guard settings.enabled, settings.dragAnywhereEnabled else {
+            return "Off"
+        }
+        return axTrusted ? "Ready" : "Needs Accessibility"
+    }
+
+    private static func grabAnywhereStatusKind(settings: WindowControlSettings, axTrusted: Bool) -> StatusPill.Kind {
+        guard settings.enabled, settings.dragAnywhereEnabled else {
+            return .neutral
+        }
+        return axTrusted ? .success : .warning
     }
 }
 
@@ -260,9 +346,13 @@ enum DashboardDownloadSummaryPresentation {
 
 enum MainSidebarBadgePresentation {
     static func badgeText(for destination: MainAppDestination, records: [DownloadRecord]) -> String? {
-        guard destination == .downloads else { return nil }
-        let count = inProgressDownloadCount(in: records)
-        return count > 0 ? "\(count)" : nil
+        switch destination {
+        case .downloads:
+            let count = inProgressDownloadCount(in: records)
+            return count > 0 ? "\(count)" : nil
+        case .dashboard, .clipboard, .voice, .folderPreview, .snippets, .windowLayouts, .grabAnywhere, .settings:
+            return nil
+        }
     }
 
     static func inProgressDownloadCount(in records: [DownloadRecord]) -> Int {
@@ -309,7 +399,7 @@ enum DashboardToolSettingsNavigation {
                 tabStorageKey: SnippetsFunctionTab.storageKey,
                 tabRawValue: SnippetsFunctionTab.settings.rawValue
             )
-        case .dashboard, .settings:
+        case .windowLayouts, .grabAnywhere, .dashboard, .settings:
             DashboardToolSettingsRoute(
                 destination: destination,
                 tabStorageKey: nil,
@@ -319,12 +409,24 @@ enum DashboardToolSettingsNavigation {
     }
 }
 
+enum DashboardToolOpenNavigation {
+    static func route(for destination: MainAppDestination) -> DashboardToolSettingsRoute {
+        switch destination {
+        case .dashboard, .clipboard, .voice, .downloads, .folderPreview, .snippets, .windowLayouts, .grabAnywhere, .settings:
+            DashboardToolSettingsRoute(destination: destination, tabStorageKey: nil, tabRawValue: nil)
+        }
+    }
+}
+
 enum MainHotkeyPresentation {
     static func display(
         for action: HotkeyAction,
         in hotkeys: [HotkeyAction: [HotkeyDescriptor]]
     ) -> String {
-        (hotkeys[action]?.first ?? action.defaultDescriptor).display
+        guard let descriptors = hotkeys[action] else {
+            return action.primaryDefaultDescriptor?.display ?? "Off"
+        }
+        return descriptors.first?.display ?? "Off"
     }
 
 }
@@ -350,7 +452,7 @@ enum MainToolHeaderShortcutModel {
             voiceSettings.shortcut.display
         case .folderPreview:
             "Space"
-        case .dashboard, .settings:
+        case .windowLayouts, .grabAnywhere, .dashboard, .settings:
             nil
         }
     }
@@ -377,7 +479,7 @@ enum MainToolHeaderShortcutModel {
                 appHotkeys: hotkeys,
                 systemHotkeys: systemHotkeys
             )?.message
-        case .folderPreview, .snippets, .dashboard, .settings:
+        case .folderPreview, .snippets, .windowLayouts, .grabAnywhere, .dashboard, .settings:
             return nil
         }
     }
@@ -388,7 +490,9 @@ enum MainToolHeaderShortcutModel {
         voiceSettings: VoiceActivationSettings,
         systemHotkeys: Set<HotkeyDescriptor>
     ) -> String? {
-        let descriptor = hotkeys[action]?.first ?? action.defaultDescriptor
+        guard let descriptor = hotkeys[action]?.first ?? action.primaryDefaultDescriptor else {
+            return nil
+        }
         return HotkeyValidation.issue(
             forAppHotkey: descriptor,
             action: action,

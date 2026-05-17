@@ -8,6 +8,8 @@ enum FeatureRegistryProvider {
             FolderPreviewDescriptor.descriptor(),
             DownloaderDescriptor.descriptor(),
             VoiceDescriptor.descriptor(),
+            WindowLayoutsDescriptor.descriptor(),
+            WindowGrabDescriptor.descriptor(),
         ])
     }
 }

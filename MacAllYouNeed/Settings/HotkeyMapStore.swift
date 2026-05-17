@@ -7,6 +7,20 @@ import Platform
 enum HotkeyAction: String, CaseIterable, Identifiable {
     case clipboard
     case browseFolder
+    case windowLeftHalf
+    case windowRightHalf
+    case windowTopHalf
+    case windowBottomHalf
+    case windowTopLeft
+    case windowTopRight
+    case windowBottomLeft
+    case windowBottomRight
+    case windowMaximize
+    case windowAlmostMaximize
+    case windowCenter
+    case windowRestore
+    case windowNextDisplay
+    case windowPreviousDisplay
 
     var id: String { rawValue }
 
@@ -16,37 +30,154 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
             return "Open clipboard popup"
         case .browseFolder:
             return "Folder preview"
+        case .windowLeftHalf:
+            return "Window Layouts: Left half"
+        case .windowRightHalf:
+            return "Window Layouts: Right half"
+        case .windowTopHalf:
+            return "Window Layouts: Top half"
+        case .windowBottomHalf:
+            return "Window Layouts: Bottom half"
+        case .windowTopLeft:
+            return "Window Layouts: Top left"
+        case .windowTopRight:
+            return "Window Layouts: Top right"
+        case .windowBottomLeft:
+            return "Window Layouts: Bottom left"
+        case .windowBottomRight:
+            return "Window Layouts: Bottom right"
+        case .windowMaximize:
+            return "Window Layouts: Maximize"
+        case .windowAlmostMaximize:
+            return "Window Layouts: Almost maximize"
+        case .windowCenter:
+            return "Window Layouts: Center"
+        case .windowRestore:
+            return "Window Layouts: Restore"
+        case .windowNextDisplay:
+            return "Window Layouts: Next display"
+        case .windowPreviousDisplay:
+            return "Window Layouts: Previous display"
         }
     }
 
-    var defaultDescriptor: HotkeyDescriptor {
+    var defaultDescriptors: [HotkeyDescriptor] {
         switch self {
         case .clipboard:
-            return .defaultClipboard
+            return [.defaultClipboard]
         case .browseFolder:
-            return .defaultFolder
+            return [.defaultFolder]
+        case .windowLeftHalf:
+            return [HotkeyDescriptor(keyCode: UInt32(kVK_LeftArrow), modifiers: [.control, .option])]
+        case .windowRightHalf:
+            return [HotkeyDescriptor(keyCode: UInt32(kVK_RightArrow), modifiers: [.control, .option])]
+        case .windowTopHalf:
+            return [HotkeyDescriptor(keyCode: UInt32(kVK_UpArrow), modifiers: [.control, .option])]
+        case .windowBottomHalf:
+            return [HotkeyDescriptor(keyCode: UInt32(kVK_DownArrow), modifiers: [.control, .option])]
+        case .windowMaximize:
+            return [HotkeyDescriptor(keyCode: UInt32(kVK_Return), modifiers: [.control, .option])]
+        case .windowCenter:
+            return [HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_C), modifiers: [.control, .option])]
+        case .windowRestore:
+            return [HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_R), modifiers: [.control, .option])]
+        case .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
+             .windowAlmostMaximize, .windowNextDisplay, .windowPreviousDisplay:
+            return []
+        }
+    }
+
+    var primaryDefaultDescriptor: HotkeyDescriptor? {
+        defaultDescriptors.first
+    }
+
+    var isWindowControlAction: Bool {
+        switch self {
+        case .clipboard, .browseFolder:
+            return false
+        case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
+             .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
+             .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
+             .windowNextDisplay, .windowPreviousDisplay:
+            return true
+        }
+    }
+
+    fileprivate var usesV2EmptyArrayAsDefault: Bool {
+        switch self {
+        case .clipboard, .browseFolder:
+            return true
+        case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
+             .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
+             .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
+             .windowNextDisplay, .windowPreviousDisplay:
+            return false
+        }
+    }
+
+    fileprivate func normalizedV3Descriptors(_ descriptors: [HotkeyDescriptor]) -> [HotkeyDescriptor] {
+        switch self {
+        case .windowLeftHalf
+            where descriptors == [HotkeyDescriptor(keyCode: UInt32(kVK_LeftArrow), modifiers: [.command, .shift])]:
+            return defaultDescriptors
+        case .windowRightHalf
+            where descriptors == [HotkeyDescriptor(keyCode: UInt32(kVK_RightArrow), modifiers: [.command, .shift])]:
+            return defaultDescriptors
+        default:
+            return descriptors
         }
     }
 }
 
 enum HotkeyMapStore {
-    static let key = "hotkeyMapV2"
+    static let v3Key = "hotkeyMapV3"
+    static let v2Key = "hotkeyMapV2"
+    static let key = v2Key
     /// Pre-Phase-C key holding `[String: HotkeyDescriptor]`. Migrated to V2 on
     /// first read; deleted afterward so we never re-import.
     static let legacyKey = "hotkeyMap"
     static var defaultMap: [HotkeyAction: [HotkeyDescriptor]] {
-        [
-            .clipboard: [.defaultClipboard],
-            .browseFolder: [.defaultFolder]
-        ]
+        Dictionary(uniqueKeysWithValues: HotkeyAction.allCases.map { ($0, $0.defaultDescriptors) })
     }
 
     static func load(from defaults: UserDefaults = AppGroupSettings.defaults) -> [HotkeyAction: [HotkeyDescriptor]] {
         var result = defaultMap
 
-        // One-shot migration: when V2 is missing but V1 exists, lift each
-        // single descriptor into a one-element array, persist as V2, drop V1.
-        if defaults.data(forKey: key) == nil,
+        if let data = defaults.data(forKey: v3Key),
+           let decoded = try? JSONDecoder().decode([String: [HotkeyDescriptor]].self, from: data)
+        {
+            var didNormalize = false
+            for (rawKey, descriptors) in decoded {
+                guard let action = HotkeyAction(rawValue: rawKey) else { continue }
+                let normalized = action.normalizedV3Descriptors(descriptors)
+                didNormalize = didNormalize || normalized != descriptors
+                result[action] = normalized
+            }
+            if didNormalize {
+                save(result, to: defaults)
+            }
+            return result
+        }
+
+        if let data = defaults.data(forKey: v2Key),
+           let decoded = try? JSONDecoder().decode([String: [HotkeyDescriptor]].self, from: data)
+        {
+            for (rawKey, descriptors) in decoded {
+                guard let action = HotkeyAction(rawValue: rawKey) else { continue }
+                if descriptors.isEmpty, action.usesV2EmptyArrayAsDefault {
+                    result[action] = action.defaultDescriptors
+                } else {
+                    result[action] = descriptors
+                }
+            }
+            save(result, to: defaults)
+            defaults.removeObject(forKey: v2Key)
+            return result
+        }
+
+        // One-shot migration: when V3/V2 is missing but V1 exists, lift each
+        // single descriptor into a one-element array, persist as V3, drop V1.
+        if defaults.data(forKey: v2Key) == nil,
            let legacyData = defaults.data(forKey: legacyKey),
            let legacy = try? JSONDecoder().decode([String: HotkeyDescriptor].self, from: legacyData)
         {
@@ -60,22 +191,13 @@ enum HotkeyMapStore {
             return migrated
         }
 
-        if let data = defaults.data(forKey: key),
-           let decoded = try? JSONDecoder().decode([String: [HotkeyDescriptor]].self, from: data)
-        {
-            for (rawKey, descriptors) in decoded {
-                guard let action = HotkeyAction(rawValue: rawKey) else { continue }
-                result[action] = descriptors.isEmpty ? [action.defaultDescriptor] : descriptors
-            }
-        }
-
         return result
     }
 
     static func save(_ map: [HotkeyAction: [HotkeyDescriptor]], to defaults: UserDefaults = AppGroupSettings.defaults) {
         let dict = Dictionary(uniqueKeysWithValues: map.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(dict) {
-            defaults.set(data, forKey: key)
+            defaults.set(data, forKey: v3Key)
         }
     }
 }

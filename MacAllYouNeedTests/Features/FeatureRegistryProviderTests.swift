@@ -3,10 +3,10 @@ import FeatureCore
 @testable import MacAllYouNeed
 
 final class FeatureRegistryProviderTests: XCTestCase {
-    func testProviderReturnsAllFourFeatures() {
+    func testProviderReturnsAllProductFeatures() {
         let registry = FeatureRegistryProvider.makeRegistry()
         let ids = registry.descriptors.map(\.id)
-        XCTAssertEqual(ids, [.clipboard, .folderPreview, .downloader, .voice],
+        XCTAssertEqual(ids, [.clipboard, .folderPreview, .downloader, .voice, .windowLayouts, .windowGrab],
                        "Registry order is contractual; UI iterates this order.")
     }
 

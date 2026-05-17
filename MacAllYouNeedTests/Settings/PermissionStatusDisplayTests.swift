@@ -64,6 +64,8 @@ final class PermissionStatusDisplayTests: XCTestCase {
         XCTAssertEqual(instruction.systemSettingsAnchor, "Privacy_Accessibility")
         XCTAssertTrue(instruction.supportsAppDrag)
         XCTAssertTrue(instruction.primaryText.contains("Drag Mac All You Need"))
+        XCTAssertTrue(instruction.secondaryText.contains("Window Layouts"))
+        XCTAssertTrue(instruction.secondaryText.contains("Window Grab"))
         XCTAssertTrue(instruction.secondaryText.contains("already appears"))
     }
 

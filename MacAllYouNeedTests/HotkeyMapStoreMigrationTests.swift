@@ -20,7 +20,7 @@ final class HotkeyMapStoreMigrationTests: XCTestCase {
         super.tearDown()
     }
 
-    func testMigratesV1IntoV2WrappingDescriptorInArray() throws {
+    func testMigratesV1IntoV3WrappingDescriptorInArray() throws {
         let custom = HotkeyDescriptor.defaultClipboard
         let legacy: [String: HotkeyDescriptor] = [
             HotkeyAction.clipboard.rawValue: custom
@@ -33,7 +33,7 @@ final class HotkeyMapStoreMigrationTests: XCTestCase {
                        "V1 single-descriptor entry must be wrapped into a one-element array")
     }
 
-    func testMigrationDeletesV1KeyAndPersistsV2() throws {
+    func testMigrationDeletesV1KeyAndPersistsV3() throws {
         let legacy: [String: HotkeyDescriptor] = [
             HotkeyAction.clipboard.rawValue: .defaultClipboard,
             "addDownload": .defaultDownload
@@ -44,8 +44,8 @@ final class HotkeyMapStoreMigrationTests: XCTestCase {
 
         XCTAssertNil(defaults.data(forKey: HotkeyMapStore.legacyKey),
                      "V1 key must be removed after one-shot migration")
-        XCTAssertNotNil(defaults.data(forKey: HotkeyMapStore.key),
-                        "V2 key must be written so subsequent loads skip the migration path")
+        XCTAssertNotNil(defaults.data(forKey: HotkeyMapStore.v3Key),
+                        "V3 key must be written so subsequent loads skip the migration path")
     }
 
     func testMigrationIsIdempotent() throws {
@@ -79,7 +79,7 @@ final class HotkeyMapStoreMigrationTests: XCTestCase {
             HotkeyAction.clipboard.rawValue: [.defaultClipboard],
             "addDownload": [.defaultDownload]
         ]
-        defaults.set(try JSONEncoder().encode(v2), forKey: HotkeyMapStore.key)
+        defaults.set(try JSONEncoder().encode(v2), forKey: HotkeyMapStore.v2Key)
 
         let map = HotkeyMapStore.load(from: defaults)
 
@@ -96,11 +96,134 @@ final class HotkeyMapStoreMigrationTests: XCTestCase {
         let v1: [String: HotkeyDescriptor] = [
             HotkeyAction.clipboard.rawValue: .defaultFolder
         ]
-        defaults.set(try JSONEncoder().encode(v2), forKey: HotkeyMapStore.key)
+        defaults.set(try JSONEncoder().encode(v2), forKey: HotkeyMapStore.v2Key)
         defaults.set(try JSONEncoder().encode(v1), forKey: HotkeyMapStore.legacyKey)
 
         let map = HotkeyMapStore.load(from: defaults)
         XCTAssertEqual(map[.clipboard], [.defaultClipboard, .defaultDownload])
+    }
+
+    func testSaveWritesV3Key() {
+        HotkeyMapStore.save([.clipboard: []], to: defaults)
+
+        XCTAssertNotNil(defaults.data(forKey: HotkeyMapStore.v3Key))
+        XCTAssertNil(defaults.data(forKey: HotkeyMapStore.v2Key))
+    }
+
+    func testV3EmptyArrayDisablesClipboardHotkey() throws {
+        let v3: [String: [HotkeyDescriptor]] = [
+            HotkeyAction.clipboard.rawValue: []
+        ]
+        defaults.set(try JSONEncoder().encode(v3), forKey: HotkeyMapStore.v3Key)
+
+        let map = HotkeyMapStore.load(from: defaults)
+
+        XCTAssertEqual(map[.clipboard], [])
+        XCTAssertEqual(map[.browseFolder], [.defaultFolder])
+    }
+
+    func testV2EmptyClipboardMigratesToDefaultClipboard() throws {
+        let v2: [String: [HotkeyDescriptor]] = [
+            HotkeyAction.clipboard.rawValue: []
+        ]
+        defaults.set(try JSONEncoder().encode(v2), forKey: HotkeyMapStore.v2Key)
+
+        let map = HotkeyMapStore.load(from: defaults)
+
+        XCTAssertEqual(map[.clipboard], [.defaultClipboard])
+    }
+
+    func testV2EmptyBrowseFolderMigratesToDefaultFolder() throws {
+        let v2: [String: [HotkeyDescriptor]] = [
+            HotkeyAction.browseFolder.rawValue: []
+        ]
+        defaults.set(try JSONEncoder().encode(v2), forKey: HotkeyMapStore.v2Key)
+
+        let map = HotkeyMapStore.load(from: defaults)
+
+        XCTAssertEqual(map[.browseFolder], [.defaultFolder])
+    }
+
+    func testV2MigrationPersistsV3AndRemovesV2() throws {
+        let v2: [String: [HotkeyDescriptor]] = [
+            HotkeyAction.clipboard.rawValue: [],
+            HotkeyAction.browseFolder.rawValue: [.defaultDownload]
+        ]
+        defaults.set(try JSONEncoder().encode(v2), forKey: HotkeyMapStore.v2Key)
+
+        _ = HotkeyMapStore.load(from: defaults)
+
+        XCTAssertNotNil(defaults.data(forKey: HotkeyMapStore.v3Key))
+        XCTAssertNil(defaults.data(forKey: HotkeyMapStore.v2Key))
+    }
+
+    func testV3UnknownKeysAreIgnored() throws {
+        let v3: [String: [HotkeyDescriptor]] = [
+            HotkeyAction.clipboard.rawValue: [.defaultClipboard],
+            "unknownWindowThing": [.defaultDownload]
+        ]
+        defaults.set(try JSONEncoder().encode(v3), forKey: HotkeyMapStore.v3Key)
+
+        let map = HotkeyMapStore.load(from: defaults)
+
+        XCTAssertEqual(map[.clipboard], [.defaultClipboard])
+        XCTAssertFalse(map.keys.map(\.rawValue).contains("unknownWindowThing"))
+    }
+
+    func testV3DeprecatedCommandShiftWindowDefaultsMigrateBackToControlOption() throws {
+        let v3: [String: [HotkeyDescriptor]] = [
+            HotkeyAction.windowLeftHalf.rawValue: [
+                HotkeyDescriptor(keyCode: UInt32(kVK_LeftArrow), modifiers: [.command, .shift])
+            ],
+            HotkeyAction.windowRightHalf.rawValue: [
+                HotkeyDescriptor(keyCode: UInt32(kVK_RightArrow), modifiers: [.command, .shift])
+            ]
+        ]
+        defaults.set(try JSONEncoder().encode(v3), forKey: HotkeyMapStore.v3Key)
+
+        let map = HotkeyMapStore.load(from: defaults)
+
+        XCTAssertEqual(HotkeyAction.windowLeftHalf.defaultDescriptors, map[.windowLeftHalf])
+        XCTAssertEqual(HotkeyAction.windowRightHalf.defaultDescriptors, map[.windowRightHalf])
+    }
+
+    func testWindowHotkeyActionsExposeExpectedDefaults() {
+        XCTAssertEqual(
+            HotkeyAction.windowLeftHalf.defaultDescriptors,
+            [HotkeyDescriptor(keyCode: UInt32(kVK_LeftArrow), modifiers: [.control, .option])]
+        )
+        XCTAssertEqual(
+            HotkeyAction.windowRightHalf.defaultDescriptors,
+            [HotkeyDescriptor(keyCode: UInt32(kVK_RightArrow), modifiers: [.control, .option])]
+        )
+        XCTAssertEqual(
+            HotkeyAction.windowTopHalf.defaultDescriptors,
+            [HotkeyDescriptor(keyCode: UInt32(kVK_UpArrow), modifiers: [.control, .option])]
+        )
+        XCTAssertEqual(
+            HotkeyAction.windowBottomHalf.defaultDescriptors,
+            [HotkeyDescriptor(keyCode: UInt32(kVK_DownArrow), modifiers: [.control, .option])]
+        )
+        XCTAssertEqual(
+            HotkeyAction.windowRestore.defaultDescriptors,
+            [HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_R), modifiers: [.control, .option])]
+        )
+        XCTAssertEqual(HotkeyAction.windowTopLeft.defaultDescriptors, [])
+        XCTAssertNil(HotkeyAction.windowTopLeft.primaryDefaultDescriptor)
+    }
+
+    func testWindowConflictMessageUsesGroupedLabel() {
+        let descriptor = HotkeyDescriptor(keyCode: UInt32(kVK_LeftArrow), modifiers: [.control, .option])
+
+        let issue = HotkeyValidation.issue(
+            forAppHotkey: descriptor,
+            action: .clipboard,
+            index: 0,
+            appHotkeys: [.windowLeftHalf: [descriptor]],
+            systemHotkeys: []
+        )
+
+        XCTAssertEqual(issue?.message, "This shortcut is already used by Window Layouts: Left half.")
     }
 
     func testVoiceShortcutValidationRejectsSystemReservedShortcut() {

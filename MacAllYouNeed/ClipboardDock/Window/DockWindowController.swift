@@ -126,11 +126,17 @@ final class DockWindowController {
         // Capture the user's app FIRST — before any activation our own panel
         // would do — so right-click "Paste to <App>" knows the target.
         model.previousFrontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        // Newest item should always be focused when the dock opens fresh.
-        // Mid-session refreshes preserve focus via performRefresh's previousID
-        // logic; we only override here on the user-initiated open.
-        model.focusedIndex = 0
-        Task { await model.refresh() }
+        let preserveFocusOnOpen = ClipboardDockOpenFocusSetting.load()
+        // Default open behavior focuses the newest item. A clipboard setting
+        // can opt back into preserving the previous focused card.
+        if !preserveFocusOnOpen {
+            model.focusedIndex = 0
+        }
+        Task {
+            await model.refreshForDockOpen(
+                preserveFocus: preserveFocusOnOpen
+            )
+        }
 
         guard let screen = screenWithCursor() ?? NSScreen.main else { return }
         // Use the screen's full frame (not visibleFrame) so the dock sits flush
@@ -190,6 +196,7 @@ final class DockWindowController {
         DockAnimator.slideUp(panel, finalOrigin: NSPoint(x: frame.minX, y: frame.minY)) { [weak self, weak panel, log] in
             if self?.heightPreviewInvokerWindow == nil {
                 panel?.makeKey()
+                self?.model.requestSearchFocus()
             } else {
                 self?.raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
             }
@@ -235,6 +242,7 @@ final class DockWindowController {
         panel.orderFrontRegardless()
         if heightPreviewInvokerWindow == nil {
             panel.makeKey()
+            model.requestSearchFocus()
         } else {
             raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
         }
@@ -470,6 +478,11 @@ final class DockWindowController {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, let window = self.window, window.isVisible else { return event }
 
+            if registry.matches(event: event, .focusSearch) {
+                model.requestSearchFocus()
+                return nil
+            }
+
             if registry.matches(event: event, .quickLook) {
                 // Image / text cards open the floating PreviewPanel
                 // (same behavior as the menu bar popover). Other kinds
@@ -644,6 +657,7 @@ final class DockWindowController {
                )
             {
                 model.search = updatedQuery
+                model.requestSearchFocus()
                 return nil
             }
 

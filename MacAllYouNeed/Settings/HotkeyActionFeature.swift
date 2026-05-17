@@ -7,6 +7,11 @@ extension HotkeyAction {
         switch self {
         case .clipboard: return .clipboard
         case .browseFolder: return .folderPreview
+        case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
+             .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
+             .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
+             .windowNextDisplay, .windowPreviousDisplay:
+            return .windowLayouts
         }
     }
 }

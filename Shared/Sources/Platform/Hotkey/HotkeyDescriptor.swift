@@ -68,6 +68,10 @@ public struct HotkeyDescriptor: Hashable, Codable, Sendable {
         case kVK_Return: "Return"
         case kVK_Tab: "Tab"
         case kVK_Escape: "Esc"
+        case kVK_LeftArrow: "←"
+        case kVK_RightArrow: "→"
+        case kVK_UpArrow: "↑"
+        case kVK_DownArrow: "↓"
         default: "?"
         }
     }

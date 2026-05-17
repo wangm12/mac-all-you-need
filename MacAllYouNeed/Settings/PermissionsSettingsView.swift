@@ -149,7 +149,7 @@ enum PermissionInstructionTarget: String, Equatable, Identifiable {
         case .accessibility:
             PermissionInstruction(
                 primaryText: "Drag \(appName) into Accessibility.",
-                secondaryText: "If \(appName) already appears in the list, turn on its switch.",
+                secondaryText: "Window Layouts, Window Grab, paste injection, and snippets need this. If \(appName) already appears in the list, turn on its switch.",
                 systemSettingsAnchor: "Privacy_Accessibility",
                 symbol: "arrow.up.forward.app",
                 supportsAppDrag: true
@@ -570,7 +570,7 @@ struct PermissionsSettingsView: View {
             ) {
                 PermissionCard(
                     title: "Accessibility",
-                    reason: "Allows global shortcuts, paste injection, and snippet expansion in the active app.",
+                    reason: "Allows global shortcuts, paste injection, snippet expansion, and window features in the active app.",
                     state: accessibilityStatus.cardState,
                     actionTitle: accessibilityStatus == .granted ? "Granted" : "Open",
                     isHighlighted: highlightedPermission == .accessibility

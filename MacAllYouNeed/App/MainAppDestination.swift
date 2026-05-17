@@ -7,6 +7,8 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
     case downloads
     case folderPreview
     case snippets
+    case windowLayouts
+    case grabAnywhere
     case settings
 
     static let storageKey = "main.selectedDestination"
@@ -16,7 +18,9 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         .voice,
         .downloads,
         .folderPreview,
-        .snippets
+        .snippets,
+        .windowLayouts,
+        .grabAnywhere
     ]
 
     var id: String { rawValue }
@@ -29,6 +33,8 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .downloads: "Downloads"
         case .folderPreview: "Folder Preview"
         case .snippets: "Snippets"
+        case .windowLayouts: "Window Layouts"
+        case .grabAnywhere: "Window Grab"
         case .settings: "Settings"
         }
     }
@@ -41,6 +47,8 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .downloads: "Queue and completed items"
         case .folderPreview: "Finder Quick Look settings"
         case .snippets: "Reusable text entries"
+        case .windowLayouts: "Keyboard shortcuts and edge snapping"
+        case .grabAnywhere: "Modifier-drag windows"
         case .settings: "Global app settings"
         }
     }
@@ -53,11 +61,16 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .downloads: "arrow.down.circle"
         case .folderPreview: "folder"
         case .snippets: "text.quote"
+        case .windowLayouts: "rectangle.3.group"
+        case .grabAnywhere: "hand.draw"
         case .settings: "gearshape"
         }
     }
 
     static func storedSelection(_ raw: String?) -> MainAppDestination {
+        if raw == "windows" {
+            return .windowLayouts
+        }
         return raw.flatMap(MainAppDestination.init(rawValue:)) ?? .dashboard
     }
 

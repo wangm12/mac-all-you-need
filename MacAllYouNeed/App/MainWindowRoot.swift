@@ -136,6 +136,10 @@ struct MainWindowRoot: View {
             AnyView(FolderPreviewMainPage(controller: controller))
         case .snippets:
             AnyView(SnippetsMainPage(controller: controller))
+        case .windowLayouts:
+            AnyView(WindowLayoutsMainPage(controller: controller))
+        case .grabAnywhere:
+            AnyView(GrabAnywhereMainPage(controller: controller))
         case .settings:
             AnyView(EmbeddedSettingsView(controller: controller))
         }
@@ -286,7 +290,7 @@ private struct DashboardMainPage: View {
                     accent: accent(for: tile.destination),
                     fixedHeight: DashboardRenderingPresentation.toolCardHeight
                 ) {
-                    openDestination(tile.destination)
+                    openTile(tile)
                 } content: {
                     DashboardToolCardFooter(
                         tile: tile,
@@ -305,6 +309,14 @@ private struct DashboardMainPage: View {
             hotkeys: HotkeyMapStore.load(),
             voiceSettings: VoiceActivationSettingsStore.load()
         )
+    }
+
+    private func openTile(_ tile: DashboardToolTileItem) {
+        let route = DashboardToolOpenNavigation.route(for: tile.destination)
+        if let tabStorageKey = route.tabStorageKey, let tabRawValue = route.tabRawValue {
+            AppGroupSettings.defaults.set(tabRawValue, forKey: tabStorageKey)
+        }
+        openDestination(route.destination)
     }
 
     private var voiceStatusText: String {
@@ -337,6 +349,10 @@ private struct DashboardMainPage: View {
             Color(red: 0.86, green: 0.46, blue: 0.12)
         case .snippets:
             Color(red: 0.82, green: 0.18, blue: 0.36)
+        case .windowLayouts:
+            Color(red: 0.20, green: 0.48, blue: 0.72)
+        case .grabAnywhere:
+            Color(red: 0.24, green: 0.46, blue: 0.36)
         case .dashboard, .settings:
             .secondary
         }
@@ -368,6 +384,8 @@ private struct DashboardToolCardFooter: View {
                     .foregroundStyle(.primary)
             } else if tile.destination == .voice {
                 StatusPill(text: voiceStatusText, kind: voiceStatusKind)
+            } else if let statusText = tile.statusText, let statusKind = tile.statusKind {
+                StatusPill(text: statusText, kind: statusKind)
             }
 
             Spacer(minLength: 8)
@@ -549,10 +567,15 @@ private struct ClipboardMainPage: View {
                     HotkeyRecorderControl(
                         descriptor: hotkeyBinding(for: .clipboard),
                         issueMessage: hotkeyIssueMessage(for: .clipboard),
-                        defaultDescriptor: HotkeyAction.clipboard.defaultDescriptor,
+                        candidateIssueMessage: { hotkeyCandidateIssueMessage($0, for: .clipboard) },
+                        defaultDescriptor: HotkeyAction.clipboard.primaryDefaultDescriptor,
                         recorderWidth: 112,
                         errorWidth: 260,
-                        reset: { setHotkey(HotkeyAction.clipboard.defaultDescriptor, for: .clipboard) }
+                        reset: {
+                            if let descriptor = HotkeyAction.clipboard.primaryDefaultDescriptor {
+                                setHotkey(descriptor, for: .clipboard)
+                            }
+                        }
                     )
                 }
             }
@@ -635,8 +658,9 @@ private struct ClipboardMainPage: View {
     private func hotkeyBinding(for action: HotkeyAction) -> Binding<HotkeyDescriptor> {
         Binding(
             get: {
-                let descriptors = hotkeyMap[action] ?? [action.defaultDescriptor]
-                return descriptors.first ?? action.defaultDescriptor
+                let defaultDescriptor = action.primaryDefaultDescriptor ?? .defaultClipboard
+                let descriptors = hotkeyMap[action] ?? [defaultDescriptor]
+                return descriptors.first ?? defaultDescriptor
             },
             set: { descriptor in
                 setHotkey(descriptor, for: action)
@@ -645,7 +669,7 @@ private struct ClipboardMainPage: View {
     }
 
     private func setHotkey(_ descriptor: HotkeyDescriptor, for action: HotkeyAction) {
-        var descriptors = hotkeyMap[action] ?? [action.defaultDescriptor]
+        var descriptors = hotkeyMap[action] ?? action.defaultDescriptors
         if descriptors.isEmpty {
             descriptors = [descriptor]
         } else {
@@ -657,8 +681,10 @@ private struct ClipboardMainPage: View {
     }
 
     private func hotkeyIssueMessage(for action: HotkeyAction) -> String? {
-        let descriptors = hotkeyMap[action] ?? [action.defaultDescriptor]
-        let descriptor = descriptors.first ?? action.defaultDescriptor
+        let descriptors = hotkeyMap[action] ?? action.defaultDescriptors
+        guard let descriptor = descriptors.first ?? action.primaryDefaultDescriptor else {
+            return nil
+        }
         let validationIssue = HotkeyValidation.issue(
             forAppHotkey: descriptor,
             action: action,
@@ -671,6 +697,16 @@ private struct ClipboardMainPage: View {
             registrationErrors: hotkeyRegistrationErrors,
             action: action
         )
+    }
+
+    private func hotkeyCandidateIssueMessage(_ descriptor: HotkeyDescriptor, for action: HotkeyAction) -> String? {
+        HotkeyValidation.issue(
+            forAppHotkey: descriptor,
+            action: action,
+            index: 0,
+            appHotkeys: hotkeyMap,
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+        )?.message
     }
 
     private func autoApplyHotkeys(_ next: [HotkeyAction: [HotkeyDescriptor]], changedAction: HotkeyAction) {
@@ -1723,6 +1759,7 @@ private struct VoiceMainPage: View {
                 HotkeyRecorderControl(
                     descriptor: activationShortcutBinding,
                     issueMessage: shortcutIssue?.message,
+                    candidateIssueMessage: { shortcutCandidateIssue($0)?.message },
                     defaultDescriptor: VoiceActivationSettings.default.shortcut,
                     recorderWidth: 160,
                     recorderHeight: 26,
@@ -2239,6 +2276,10 @@ private struct VoiceMainPage: View {
         HotkeyValidation.issue(forVoiceShortcut: shortcut, appHotkeys: HotkeyMapStore.load())
     }
 
+    private func shortcutCandidateIssue(_ descriptor: HotkeyDescriptor) -> HotkeyValidationIssue? {
+        HotkeyValidation.issue(forVoiceShortcut: descriptor, appHotkeys: HotkeyMapStore.load())
+    }
+
     private var voiceStateTitle: String {
         switch controller.voiceCoordinator.state {
         case .idle:
@@ -2562,8 +2603,9 @@ private struct DownloadsMainPage: View {
     private func hotkeyBinding(for action: HotkeyAction) -> Binding<HotkeyDescriptor> {
         Binding(
             get: {
-                let descriptors = hotkeyMap[action] ?? [action.defaultDescriptor]
-                return descriptors.first ?? action.defaultDescriptor
+                let defaultDescriptor = action.primaryDefaultDescriptor ?? .defaultClipboard
+                let descriptors = hotkeyMap[action] ?? [defaultDescriptor]
+                return descriptors.first ?? defaultDescriptor
             },
             set: { descriptor in
                 setHotkey(descriptor, for: action)
@@ -2572,7 +2614,7 @@ private struct DownloadsMainPage: View {
     }
 
     private func setHotkey(_ descriptor: HotkeyDescriptor, for action: HotkeyAction) {
-        var descriptors = hotkeyMap[action] ?? [action.defaultDescriptor]
+        var descriptors = hotkeyMap[action] ?? action.defaultDescriptors
         if descriptors.isEmpty {
             descriptors = [descriptor]
         } else {
@@ -2584,8 +2626,10 @@ private struct DownloadsMainPage: View {
     }
 
     private func hotkeyIssueMessage(for action: HotkeyAction) -> String? {
-        let descriptors = hotkeyMap[action] ?? [action.defaultDescriptor]
-        let descriptor = descriptors.first ?? action.defaultDescriptor
+        let descriptors = hotkeyMap[action] ?? action.defaultDescriptors
+        guard let descriptor = descriptors.first ?? action.primaryDefaultDescriptor else {
+            return nil
+        }
         let validationIssue = HotkeyValidation.issue(
             forAppHotkey: descriptor,
             action: action,
@@ -2755,10 +2799,15 @@ private struct SnippetsMainPage: View {
                 HotkeyRecorderControl(
                     descriptor: hotkeyBinding,
                     issueMessage: hotkeyIssueMessage,
-                    defaultDescriptor: HotkeyAction.clipboard.defaultDescriptor,
+                    candidateIssueMessage: { hotkeyCandidateIssueMessage($0) },
+                    defaultDescriptor: HotkeyAction.clipboard.primaryDefaultDescriptor,
                     recorderWidth: 112,
                     errorWidth: 260,
-                    reset: { setHotkey(HotkeyAction.clipboard.defaultDescriptor) }
+                    reset: {
+                        if let descriptor = HotkeyAction.clipboard.primaryDefaultDescriptor {
+                            setHotkey(descriptor)
+                        }
+                    }
                 )
             }
         }
@@ -2767,8 +2816,9 @@ private struct SnippetsMainPage: View {
     private var hotkeyBinding: Binding<HotkeyDescriptor> {
         Binding(
             get: {
-                let descriptors = hotkeyMap[.clipboard] ?? [HotkeyAction.clipboard.defaultDescriptor]
-                return descriptors.first ?? HotkeyAction.clipboard.defaultDescriptor
+                let defaultDescriptor = HotkeyAction.clipboard.primaryDefaultDescriptor ?? .defaultClipboard
+                let descriptors = hotkeyMap[.clipboard] ?? [defaultDescriptor]
+                return descriptors.first ?? defaultDescriptor
             },
             set: { descriptor in
                 setHotkey(descriptor)
@@ -2777,8 +2827,10 @@ private struct SnippetsMainPage: View {
     }
 
     private var hotkeyIssueMessage: String? {
-        let descriptors = hotkeyMap[.clipboard] ?? [HotkeyAction.clipboard.defaultDescriptor]
-        let descriptor = descriptors.first ?? HotkeyAction.clipboard.defaultDescriptor
+        let descriptors = hotkeyMap[.clipboard] ?? HotkeyAction.clipboard.defaultDescriptors
+        guard let descriptor = descriptors.first ?? HotkeyAction.clipboard.primaryDefaultDescriptor else {
+            return nil
+        }
         let validationIssue = HotkeyValidation.issue(
             forAppHotkey: descriptor,
             action: .clipboard,
@@ -2793,8 +2845,18 @@ private struct SnippetsMainPage: View {
         )
     }
 
+    private func hotkeyCandidateIssueMessage(_ descriptor: HotkeyDescriptor) -> String? {
+        HotkeyValidation.issue(
+            forAppHotkey: descriptor,
+            action: .clipboard,
+            index: 0,
+            appHotkeys: hotkeyMap,
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+        )?.message
+    }
+
     private func setHotkey(_ descriptor: HotkeyDescriptor) {
-        var descriptors = hotkeyMap[.clipboard] ?? [HotkeyAction.clipboard.defaultDescriptor]
+        var descriptors = hotkeyMap[.clipboard] ?? HotkeyAction.clipboard.defaultDescriptors
         if descriptors.isEmpty {
             descriptors = [descriptor]
         } else {

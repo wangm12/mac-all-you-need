@@ -6,28 +6,30 @@ public struct PasteboardChange: Equatable, Sendable {
     public let items: [PasteboardItem]
 
     public var historyCaptureItems: [PasteboardItem] {
-        for item in items {
+        let capturableItems = items.filter(\.hasVisibleHistoryContent)
+
+        for item in capturableItems {
             if case .png = item { return [item] }
         }
-        for item in items {
+        for item in capturableItems {
             if case .tiff = item { return [item] }
         }
 
-        let hasPlainText = items.contains { item in
+        let hasPlainText = capturableItems.contains { item in
             if case .text = item { return true }
             return false
         }
-        let hasRTF = items.contains { item in
+        let hasRTF = capturableItems.contains { item in
             if case .rtf = item { return true }
             return false
         }
         if hasPlainText || hasRTF {
-            return items.filter { item in
+            return capturableItems.filter { item in
                 if case .html = item { return false }
                 return true
             }
         }
-        return items
+        return capturableItems
     }
 }
 
@@ -39,4 +41,27 @@ public enum PasteboardItem: Equatable, Sendable {
     case tiff(Data)
     case fileURLs([URL])
     case unknown(uti: String, data: Data)
+}
+
+private extension PasteboardItem {
+    var hasVisibleHistoryContent: Bool {
+        switch self {
+        case let .text(text):
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case let .html(html):
+            return !Self.visibleHTMLText(html).isEmpty
+        case let .rtf(data):
+            return !data.isEmpty
+        case .png, .tiff, .fileURLs, .unknown:
+            return true
+        }
+    }
+
+    static func visibleHTMLText(_ html: String) -> String {
+        html
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

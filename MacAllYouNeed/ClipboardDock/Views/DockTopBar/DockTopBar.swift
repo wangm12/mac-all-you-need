@@ -6,7 +6,10 @@ struct DockTopBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            DockSearchField(query: $model.search)
+            DockSearchField(
+                query: $model.search,
+                focusRequestID: model.searchFocusRequestID
+            )
                 .onChange(of: model.search) { _, _ in
                     model.refreshDebounced()
                 }

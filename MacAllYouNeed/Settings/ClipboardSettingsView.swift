@@ -21,6 +21,15 @@ enum ClipboardDockHeightSetting {
     }
 }
 
+enum ClipboardDockOpenFocusSetting {
+    static let key = "dock.preserveFocusOnOpen"
+    static let defaultValue = false
+
+    static func load(from defaults: UserDefaults = AppGroupSettings.defaults) -> Bool {
+        defaults.object(forKey: key) as? Bool ?? defaultValue
+    }
+}
+
 struct ClipboardSettingsView: View {
     let controller: AppController
     @AppStorage("clipboardMaxItems", store: AppGroupSettings.defaults) private var maxItems = 10000
@@ -118,9 +127,18 @@ struct ClipboardDockHeightSection: View {
     let controller: AppController
     @State private var dockHeight = ClipboardDockHeightSetting.load()
     @State private var hostWindow: NSWindow?
+    @AppStorage(ClipboardDockOpenFocusSetting.key, store: AppGroupSettings.defaults) private var preserveFocusOnOpen = ClipboardDockOpenFocusSetting.defaultValue
 
     var body: some View {
         MAYNSection(title: "Clipboard dock") {
+            MAYNSettingsRow(
+                title: "Keep focused card on open",
+                subtitle: "When off, opening Clipboard History highlights the newest item."
+            ) {
+                Toggle("", isOn: $preserveFocusOnOpen)
+                    .labelsHidden()
+            }
+            MAYNDivider()
             MAYNSettingsRow(
                 title: "Dock height",
                 subtitle: "Drag to preview the bottom clipboard surface height immediately."

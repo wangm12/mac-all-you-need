@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DockSearchField: View {
     @Binding var query: String
+    let focusRequestID: Int
     @FocusState private var focused: Bool
     @State private var expanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -12,8 +13,7 @@ struct DockSearchField: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 22, height: 22)
                 .onTapGesture {
-                    expanded = true
-                    focused = true
+                    focusSearchField()
                 }
 
             if expanded || !query.isEmpty {
@@ -36,6 +36,16 @@ struct DockSearchField: View {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .stroke(focused ? MAYNTheme.focusRing : MAYNTheme.subtleBorder, lineWidth: 1)
         )
+        .onChange(of: focusRequestID) { _, _ in
+            focusSearchField()
+        }
         .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: expanded)
+    }
+
+    private func focusSearchField() {
+        expanded = true
+        DispatchQueue.main.async {
+            focused = true
+        }
     }
 }

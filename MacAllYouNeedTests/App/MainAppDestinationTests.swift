@@ -10,7 +10,13 @@ final class MainAppDestinationTests: XCTestCase {
         XCTAssertEqual(MainAppDestination.storedSelection("downloads"), .downloads)
         XCTAssertEqual(MainAppDestination.storedSelection("folderPreview"), .folderPreview)
         XCTAssertEqual(MainAppDestination.storedSelection("snippets"), .snippets)
+        XCTAssertEqual(MainAppDestination.storedSelection("windowLayouts"), .windowLayouts)
+        XCTAssertEqual(MainAppDestination.storedSelection("grabAnywhere"), .grabAnywhere)
         XCTAssertEqual(MainAppDestination.storedSelection("settings"), .settings)
+    }
+
+    func testLegacyWindowsSelectionMapsToWindowLayouts() {
+        XCTAssertEqual(MainAppDestination.storedSelection("windows"), .windowLayouts)
     }
 
     func testStoredSelectionFallsBackToDashboard() {
@@ -42,6 +48,29 @@ final class MainAppDestinationTests: XCTestCase {
     func testPrimarySidebarDestinationsExcludeFooterSettings() {
         XCTAssertFalse(MainAppDestination.primarySidebarDestinations.contains(.settings))
         XCTAssertTrue(MainAppDestination.allCases.contains(.settings))
+    }
+
+    func testWindowFeatureDestinationsUseStablePresentationMetadata() {
+        XCTAssertEqual(MainAppDestination.windowLayouts.title, "Window Layouts")
+        XCTAssertEqual(MainAppDestination.windowLayouts.subtitle, "Keyboard shortcuts and edge snapping")
+        XCTAssertEqual(MainAppDestination.windowLayouts.symbolName, "rectangle.3.group")
+        XCTAssertEqual(MainAppDestination.grabAnywhere.title, "Window Grab")
+        XCTAssertEqual(MainAppDestination.grabAnywhere.subtitle, "Modifier-drag windows")
+        XCTAssertEqual(MainAppDestination.grabAnywhere.symbolName, "hand.draw")
+    }
+
+    func testPrimarySidebarDestinationsPlaceWindowFeaturesAfterSnippetsBeforeFooterSettings() {
+        XCTAssertEqual(MainAppDestination.primarySidebarDestinations, [
+            .dashboard,
+            .clipboard,
+            .voice,
+            .downloads,
+            .folderPreview,
+            .snippets,
+            .windowLayouts,
+            .grabAnywhere
+        ])
+        XCTAssertFalse(MainAppDestination.primarySidebarDestinations.contains(.settings))
     }
 }
 

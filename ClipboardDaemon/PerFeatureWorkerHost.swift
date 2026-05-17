@@ -8,8 +8,8 @@ import Platform
 /// - `PasteboardObserver` — polls NSPasteboard for changes.
 /// - `SnippetExpander` — expands snippet triggers via CGEventTap.
 ///
-/// `.downloader`, `.folderPreview`, and `.voice` have no daemon-side workers
-/// (the DispatchServer lives in the main app).
+/// `.downloader`, `.folderPreview`, `.voice`, `.windowLayouts`, and `.windowGrab`
+/// have no daemon-side workers (the DispatchServer and Window Control live in the main app).
 final class PerFeatureWorkerHost {
     private let observer: PasteboardObserver
     private let expander: SnippetExpander
@@ -35,7 +35,7 @@ final class PerFeatureWorkerHost {
             }
             expander.start()
             clipboardRunning = true
-        case .downloader, .folderPreview, .voice:
+        case .downloader, .folderPreview, .voice, .windowLayouts, .windowGrab:
             break // no daemon-side workers for these features
         }
     }
@@ -48,7 +48,7 @@ final class PerFeatureWorkerHost {
             observer.stop()
             expander.stop()
             clipboardRunning = false
-        case .downloader, .folderPreview, .voice:
+        case .downloader, .folderPreview, .voice, .windowLayouts, .windowGrab:
             break
         }
     }

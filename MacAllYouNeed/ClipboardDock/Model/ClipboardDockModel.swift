@@ -29,6 +29,7 @@ final class ClipboardDockModel {
     var items: [DockItem] = []
     var snippetItems: [Snippet] = []
     var search: String = ""
+    var searchFocusRequestID: Int = 0
     var focusedIndex: Int = 0
     var activeList: DockListSelector = .history
     var availableLists: [Pinboard] = []
@@ -99,6 +100,17 @@ final class ClipboardDockModel {
         refreshDebounceTask = nil
         let sequence = nextRefreshSequence()
         await performRefresh(sequence: sequence, preserveFocus: true)
+    }
+
+    func refreshForDockOpen(preserveFocus: Bool) async {
+        refreshDebounceTask?.cancel()
+        refreshDebounceTask = nil
+        let sequence = nextRefreshSequence()
+        await performRefresh(sequence: sequence, preserveFocus: preserveFocus)
+    }
+
+    func requestSearchFocus() {
+        searchFocusRequestID += 1
     }
 
     /// Animated variant of `refresh` — wraps the items-array assignment in

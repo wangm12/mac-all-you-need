@@ -903,6 +903,7 @@ private struct VoiceHotkeyStepView: View {
                 HotkeyRecorderControl(
                     descriptor: shortcutBinding,
                     issueMessage: shortcutIssueMessage,
+                    candidateIssueMessage: { shortcutCandidateIssueMessage($0) },
                     defaultDescriptor: VoiceActivationSettings.default.shortcut,
                     recorderWidth: 140,
                     recorderHeight: 26,
@@ -965,6 +966,10 @@ private struct VoiceHotkeyStepView: View {
     private func applyShortcut(_ descriptor: HotkeyDescriptor) {
         shortcut = descriptor
         applySettingsIfValid()
+    }
+
+    private func shortcutCandidateIssueMessage(_ descriptor: HotkeyDescriptor) -> String? {
+        HotkeyValidation.issue(forVoiceShortcut: descriptor, appHotkeys: HotkeyMapStore.load())?.message
     }
 
     private func applySettingsIfValid() {

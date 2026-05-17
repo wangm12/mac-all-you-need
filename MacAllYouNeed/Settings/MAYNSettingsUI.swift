@@ -955,7 +955,7 @@ struct MAYNToolCard<Content: View>: View {
 }
 
 struct StatusPill: View {
-    enum Kind {
+    enum Kind: Equatable {
         case neutral
         case success
         case warning

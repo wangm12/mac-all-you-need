@@ -6,26 +6,33 @@ final class DownloaderFeatureActivatorTests: XCTestCase {
     func testActivateStartsCoordinatorAndDispatchServer() async throws {
         let activator = DownloaderFeatureActivator(testMode: true)
         try await activator.activate()
-        XCTAssertTrue(activator.isCoordinatorRunning)
-        XCTAssertTrue(activator.isDispatchServerRunning)
+        let isCoordinatorRunningAfterActivate = await activator.isCoordinatorRunning
+        let isDispatchServerRunningAfterActivate = await activator.isDispatchServerRunning
+        XCTAssertTrue(isCoordinatorRunningAfterActivate)
+        XCTAssertTrue(isDispatchServerRunningAfterActivate)
         try await activator.deactivate()
-        XCTAssertFalse(activator.isCoordinatorRunning)
-        XCTAssertFalse(activator.isDispatchServerRunning)
+        let isCoordinatorRunningAfterDeactivate = await activator.isCoordinatorRunning
+        let isDispatchServerRunningAfterDeactivate = await activator.isDispatchServerRunning
+        XCTAssertFalse(isCoordinatorRunningAfterDeactivate)
+        XCTAssertFalse(isDispatchServerRunningAfterDeactivate)
     }
 
     func testActivateIsIdempotent() async throws {
         let activator = DownloaderFeatureActivator(testMode: true)
         try await activator.activate()
         try await activator.activate()   // second call must not crash or double-start
-        XCTAssertTrue(activator.isCoordinatorRunning)
+        let isCoordinatorRunning = await activator.isCoordinatorRunning
+        XCTAssertTrue(isCoordinatorRunning)
         try await activator.deactivate()
     }
 
     func testDeactivateIsIdempotent() async throws {
         let activator = DownloaderFeatureActivator(testMode: true)
         try await activator.deactivate()   // already inactive — must not crash
-        XCTAssertFalse(activator.isCoordinatorRunning)
-        XCTAssertFalse(activator.isDispatchServerRunning)
+        let isCoordinatorRunning = await activator.isCoordinatorRunning
+        let isDispatchServerRunning = await activator.isDispatchServerRunning
+        XCTAssertFalse(isCoordinatorRunning)
+        XCTAssertFalse(isDispatchServerRunning)
     }
 
     func testAssetPackProbeMissingDirectory() {

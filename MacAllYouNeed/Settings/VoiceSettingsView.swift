@@ -185,6 +185,7 @@ struct VoiceSettingsView: View {
                     HotkeyRecorderControl(
                         descriptor: activationShortcutBinding,
                         issueMessage: shortcutIssue?.message,
+                        candidateIssueMessage: { shortcutCandidateIssue($0)?.message },
                         defaultDescriptor: VoiceActivationSettings.default.shortcut,
                         recorderWidth: 160,
                         recorderHeight: 26,
@@ -612,6 +613,10 @@ struct VoiceSettingsView: View {
 
     private var shortcutIssue: HotkeyValidationIssue? {
         HotkeyValidation.issue(forVoiceShortcut: shortcut, appHotkeys: HotkeyMapStore.load())
+    }
+
+    private func shortcutCandidateIssue(_ descriptor: HotkeyDescriptor) -> HotkeyValidationIssue? {
+        HotkeyValidation.issue(forVoiceShortcut: descriptor, appHotkeys: HotkeyMapStore.load())
     }
 
     private var voiceStateTitle: String {

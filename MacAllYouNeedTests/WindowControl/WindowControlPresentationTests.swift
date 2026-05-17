@@ -1,0 +1,102 @@
+@testable import MacAllYouNeed
+import AppKit
+import Core
+import Platform
+import XCTest
+
+final class WindowControlPresentationTests: XCTestCase {
+    func testWindowControlPagePresentationUsesSeparateMainDestinations() {
+        XCTAssertEqual(WindowControlPagePresentation.firstClassDestinations, [
+            .windowLayouts,
+            .grabAnywhere
+        ])
+        XCTAssertFalse(WindowControlPagePresentation.showsCombinedTabbedPage)
+        XCTAssertFalse(WindowControlPagePresentation.usesSharedSegmentedTabs)
+        XCTAssertFalse(WindowControlPagePresentation.usesRawSegmentedPicker)
+    }
+
+    func testWindowControlSettingsPresentationShowsExpectedSectionsAcrossSplitPages() {
+        XCTAssertEqual(WindowControlSettingsPresentation.sectionTitles, [
+            "Window Layouts",
+            "Layout Shortcuts",
+            "Edge Snap",
+            "Window Grab",
+            "Double-Click Layout",
+            "Shared Ignored Apps",
+            "Shared Diagnostics"
+        ])
+        XCTAssertTrue(WindowControlSettingsPresentation.editsShortcutsInToolSettings)
+    }
+
+    func testWindowControlSettingsCanEditDefaultDisabledActionShortcutsInTool() {
+        XCTAssertTrue(WindowControlSettingsPresentation.canEditShortcut(for: .windowTopLeft))
+        XCTAssertEqual(
+            WindowControlSettingsPresentation.seedDescriptor(for: .windowTopLeft),
+            WindowControlSettingsPresentation.customShortcutSeedDescriptor
+        )
+        XCTAssertFalse(HotkeyAction.windowTopLeft.windowControlSubtitle.contains("Global Hotkeys"))
+    }
+
+    func testWindowGestureModifierPickerExposesFnAndSideSpecificModifiers() {
+        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.fn))
+        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.leftControl))
+        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.rightControl))
+        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.leftOption))
+        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.rightOption))
+        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.leftCommand))
+        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.rightCommand))
+        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.leftShift))
+        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.rightShift))
+    }
+
+    func testActionsTabRoutesShortcutEditsToSettings() {
+        XCTAssertEqual(
+            WindowControlActionPresentation.editRoute(for: .windowTopLeft),
+            .windowLayouts
+        )
+        XCTAssertEqual(
+            WindowControlActionPresentation.editRoute(for: .windowLeftHalf),
+            .windowLayouts
+        )
+    }
+
+    func testSnapOverlayPresentationUsesSharedPanelMetricsWithoutGlow() {
+        if #available(macOS 26.0, *) {
+            XCTAssertEqual(WindowSnapOverlayPresentation.cornerRadius, 16)
+        } else if #available(macOS 11.0, *) {
+            XCTAssertEqual(WindowSnapOverlayPresentation.cornerRadius, 10)
+        } else {
+            XCTAssertEqual(WindowSnapOverlayPresentation.cornerRadius, 5)
+        }
+        XCTAssertTrue(WindowSnapOverlayPresentation.respectsReduceMotion)
+        XCTAssertFalse(WindowSnapOverlayPresentation.usesGlow)
+        XCTAssertTrue(WindowSnapOverlayPresentation.usesNeutralPalette)
+        XCTAssertFalse(WindowSnapOverlayPresentation.usesProgressAccent)
+        XCTAssertTrue(WindowSnapOverlayPresentation.usesFixedBlackOverlay)
+        XCTAssertTrue(WindowSnapOverlayPresentation.cancelsStaleDismissAnimation)
+        XCTAssertEqual(WindowSnapOverlayPresentation.visibleAlpha, 0.30, accuracy: 0.001)
+        XCTAssertEqual(WindowSnapOverlayPresentation.borderWidth, 2)
+        XCTAssertEqual(WindowSnapOverlayPresentation.fillColor, .black)
+        XCTAssertEqual(WindowSnapOverlayPresentation.borderColor, .lightGray)
+        XCTAssertEqual(WindowSnapOverlayPresentation.fillOpacity, 1.0, accuracy: 0.001)
+        XCTAssertEqual(WindowSnapOverlayPresentation.strokeOpacity, 1.0, accuracy: 0.001)
+        XCTAssertFalse(WindowSnapOverlayPresentation.acceptsMouseEvents)
+        XCTAssertTrue(WindowSnapOverlayPresentation.styleMask.contains(.borderless))
+        XCTAssertTrue(WindowSnapOverlayPresentation.styleMask.contains(.nonactivatingPanel))
+    }
+
+    @MainActor
+    func testWindowControlDiagnosticsPresentationExposesRuntimeFields() {
+        let result = WindowMovementResult(
+            action: .leftHalf,
+            status: .moved,
+            originalFrame: .zero,
+            proposedFrame: CGRect(x: 0, y: 0, width: 500, height: 700),
+            resultingFrame: CGRect(x: 0, y: 0, width: 500, height: 700)
+        )
+
+        XCTAssertEqual(WindowControlDiagnosticsPresentation.eventTapText(for: .active), "Running")
+        XCTAssertEqual(WindowControlDiagnosticsPresentation.lastActionText(.leftHalf), "Left half")
+        XCTAssertEqual(WindowControlDiagnosticsPresentation.lastResultText(result), "Moved")
+    }
+}
