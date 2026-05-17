@@ -34,12 +34,12 @@ struct FeatureToolCard<Footer: View>: View {
     // MARK: Actions
 
     var onOpen: (() -> Void)?
-    var onEnable: () -> Void
-    var onDisable: () -> Void
-    var onInstall: () -> Void
-    var onCancelDownload: () -> Void
-    var onRetryInstall: () -> Void
-    var onUninstall: () -> Void
+    var onEnable: (() -> Void)? = nil
+    var onDisable: (() -> Void)? = nil
+    var onInstall: (() -> Void)? = nil
+    var onCancelDownload: (() -> Void)? = nil
+    var onRetryInstall: (() -> Void)? = nil
+    var onUninstall: (() -> Void)? = nil
 
     // MARK: Tool-specific footer
 
@@ -77,13 +77,12 @@ struct FeatureToolCard<Footer: View>: View {
         .opacity(cardOpacity)
         .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: cardOpacity)
         .overlay(alignment: .topTrailing) {
-            if isPending, case .downloading = visualState {
-                // .downloading already has its own progress bar — no overlay
-            } else if isPending {
+            // Show spinner only while a transition is queued; downloading already shows its own progress bar.
+            if isPending, case .downloading = visualState {} else if isPending {
                 ProgressView()
                     .controlSize(.small)
                     .padding(8)
-                    .accessibilityLabel("In progress")
+                    .accessibilityLabel("Operation pending for \(title)")
             }
         }
         .contextMenu { contextMenuItems }
@@ -135,8 +134,9 @@ struct FeatureToolCard<Footer: View>: View {
                 .frame(maxWidth: 100)
                 .tint(MAYNTheme.progress)
                 .accessibilityLabel("Downloading: \(Int(progress * 100))%")
-        case .failed:
+        case .failed(let reason):
             StatusPill(text: "Failed", kind: .danger)
+                .accessibilityLabel("Download failed for \(title): \(reason)")
         }
     }
 
@@ -146,15 +146,18 @@ struct FeatureToolCard<Footer: View>: View {
     private var inlineButton: some View {
         switch visualState {
         case .unmanaged, .enabled:
+            // "Disable" is intentionally right-click only — it is a destructive-ish
+            // action and should not sit next to the primary open affordance.
             EmptyView()
         case .disabled:
-            MAYNButton("Enable", role: .primary, action: onEnable)
+            MAYNButton("Enable", role: .primary, action: { onEnable?() })
         case .notDownloaded:
-            MAYNButton("Install", role: .primary, action: onInstall)
+            MAYNButton("Install", role: .primary, action: { onInstall?() })
         case .downloading:
-            MAYNButton("Cancel", role: .secondary, action: onCancelDownload)
+            MAYNButton("Cancel", role: .secondary, action: { onCancelDownload?() })
+                .accessibilityLabel("Cancel download for \(title)")
         case .failed:
-            MAYNButton("Retry", role: .primary, action: onRetryInstall)
+            MAYNButton("Retry", role: .primary, action: { onRetryInstall?() })
         }
     }
 
@@ -175,25 +178,29 @@ struct FeatureToolCard<Footer: View>: View {
         case .unmanaged:
             EmptyView()
         case .enabled:
+            // Divider() is correct here: SwiftUI context menus require the platform
+            // separator primitive. MAYNDivider renders as a Rectangle and is
+            // invisible inside a context menu — context menus are an accepted
+            // exception to the MAYNDivider rule (design.md §10).
             Divider()
-            Button("Disable") { onDisable() }
+            Button("Disable") { onDisable?() }
         case .disabled:
             Divider()
-            Button("Enable") { onEnable() }
+            Button("Enable") { onEnable?() }
         case .notDownloaded:
             Divider()
-            Button("Install…") { onInstall() }
+            Button("Install…") { onInstall?() }
         case .downloading:
             Divider()
-            Button("Cancel Download") { onCancelDownload() }
+            Button("Cancel Download") { onCancelDownload?() }
         case .failed:
             Divider()
-            Button("Retry Install") { onRetryInstall() }
+            Button("Retry Install") { onRetryInstall?() }
         }
 
         // Uninstall — only for asset-backed features that are present
         if showUninstallOption {
-            Button("Uninstall…", role: .destructive) { onUninstall() }
+            Button("Uninstall…", role: .destructive) { onUninstall?() }
         }
 
         Divider()
@@ -221,7 +228,7 @@ struct FeatureToolCard<Footer: View>: View {
         case disabled
         case notDownloaded
         case downloading(progress: Double)
-        case failed
+        case failed(reason: String)
     }
 
     private var visualState: VisualState {
@@ -233,8 +240,8 @@ struct FeatureToolCard<Footer: View>: View {
             return .notDownloaded
         case .downloading(let progress):
             return .downloading(progress: progress)
-        case .downloadFailed:
-            return .failed
+        case .downloadFailed(let reason):
+            return .failed(reason: reason)
         }
     }
 }
