@@ -1,5 +1,6 @@
 import ApplicationServices
 import Core
+import FeatureCore
 import Foundation
 import Platform
 
@@ -218,6 +219,10 @@ struct DashboardToolTileItem: Equatable, Identifiable {
     let shortcutDisplay: String?
     let statusText: String?
     let statusKind: StatusPill.Kind?
+    /// The FeatureID this tile directly manages. nil for non-feature tiles.
+    var featureID: FeatureID? = nil
+    /// When set, enable/disable on this tile proxies to this FeatureID instead.
+    var proxiesFeatureID: FeatureID? = nil
 
     var id: String { destination.rawValue }
 }
@@ -240,7 +245,8 @@ enum DashboardToolTilePresentation {
                 symbolName: "doc.on.clipboard",
                 shortcutDisplay: MainHotkeyPresentation.display(for: .clipboard, in: hotkeys),
                 statusText: nil,
-                statusKind: nil
+                statusKind: nil,
+                featureID: .clipboard
             ),
             DashboardToolTileItem(
                 destination: .voice,
@@ -250,7 +256,8 @@ enum DashboardToolTilePresentation {
                 symbolName: "mic",
                 shortcutDisplay: voiceSettings.shortcut.display,
                 statusText: nil,
-                statusKind: nil
+                statusKind: nil,
+                featureID: .voice
             ),
             DashboardToolTileItem(
                 destination: .downloads,
@@ -260,7 +267,8 @@ enum DashboardToolTilePresentation {
                 symbolName: "arrow.down.circle",
                 shortcutDisplay: nil,
                 statusText: nil,
-                statusKind: nil
+                statusKind: nil,
+                featureID: .downloader
             ),
             DashboardToolTileItem(
                 destination: .folderPreview,
@@ -270,7 +278,8 @@ enum DashboardToolTilePresentation {
                 symbolName: "folder.badge.gearshape",
                 shortcutDisplay: "Space",
                 statusText: nil,
-                statusKind: nil
+                statusKind: nil,
+                featureID: .folderPreview
             ),
             DashboardToolTileItem(
                 destination: .snippets,
@@ -280,7 +289,9 @@ enum DashboardToolTilePresentation {
                 symbolName: "text.quote",
                 shortcutDisplay: nil,
                 statusText: nil,
-                statusKind: nil
+                statusKind: nil,
+                featureID: .clipboard,
+                proxiesFeatureID: .clipboard
             ),
             DashboardToolTileItem(
                 destination: .windowLayouts,
@@ -290,7 +301,8 @@ enum DashboardToolTilePresentation {
                 symbolName: "rectangle.3.group",
                 shortcutDisplay: nil,
                 statusText: windowLayoutsStatusText(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
-                statusKind: windowLayoutsStatusKind(settings: windowControlSettings, axTrusted: windowControlAXTrusted)
+                statusKind: windowLayoutsStatusKind(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
+                featureID: .windowLayouts
             ),
             DashboardToolTileItem(
                 destination: .grabAnywhere,
@@ -300,7 +312,8 @@ enum DashboardToolTilePresentation {
                 symbolName: "hand.draw",
                 shortcutDisplay: nil,
                 statusText: grabAnywhereStatusText(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
-                statusKind: grabAnywhereStatusKind(settings: windowControlSettings, axTrusted: windowControlAXTrusted)
+                statusKind: grabAnywhereStatusKind(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
+                featureID: .windowGrab
             )
         ]
     }
