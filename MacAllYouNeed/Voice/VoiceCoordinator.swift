@@ -564,3 +564,72 @@ enum VoiceLevelSampling {
 extension Notification.Name {
     static let voiceTranscriptAppended = Notification.Name("com.macallyouneed.voiceTranscriptAppended")
 }
+
+enum VoiceRetryError: Error, Equatable {
+    case transcriptNotFound
+    case noAudio
+    case audioReadFailed
+    case audioDecodeFailed
+}
+
+extension VoiceCoordinator {
+    func retryTranscript(id: String) async throws -> VoiceTranscript {
+        guard let original = try transcripts.fetch(id: id) else {
+            throw VoiceRetryError.transcriptNotFound
+        }
+        guard let audioPath = original.audioPath else {
+            throw VoiceRetryError.noAudio
+        }
+        guard let trainingExampleStore else {
+            throw VoiceRetryError.audioReadFailed
+        }
+
+        let wavData: Data
+        do {
+            wavData = try trainingExampleStore.loadEncryptedAudio(path: audioPath)
+        } catch {
+            throw VoiceRetryError.audioReadFailed
+        }
+        let decoded: VoiceAudioCodec.DecodedAudio
+        do {
+            decoded = try VoiceAudioCodec.decodeWAV(wavData)
+        } catch {
+            throw VoiceRetryError.audioDecodeFailed
+        }
+
+        let asrResult = try await engine.transcribe(
+            samples: decoded.samples,
+            sampleRate: Double(decoded.sampleRate),
+            options: .default
+        )
+        let dictionaryEntries = (try? dictionary?.list()) ?? []
+        let (appCtx, globalCtx) = loadContexts(bundleID: original.appBundleID)
+        let recentExamples = loadRecentExamples(context: appCtx ?? globalCtx)
+        let cleanupRequest = Self.buildCleanupRequest(
+            rawText: asrResult.text,
+            appBundleID: original.appBundleID,
+            language: asrResult.language,
+            dictionaryEntries: dictionaryEntries,
+            appContext: appCtx,
+            globalContext: globalCtx,
+            recentExamples: recentExamples
+        )
+        let cleanedResult = await makeCleanupPipeline().clean(cleanupRequest)
+        let cleanedText = cleanedResult.cleanedText
+
+        let saved = try transcripts.save(
+            VoiceTranscriptDraft(
+                startedAt: original.startedAt,
+                endedAt: original.endedAt,
+                rawText: asrResult.text,
+                cleanedText: cleanedText,
+                appBundleID: original.appBundleID,
+                language: asrResult.language,
+                modelIdentifier: asrResult.modelIdentifier,
+                audioPath: audioPath
+            )
+        )
+        NotificationCenter.default.post(name: .voiceTranscriptAppended, object: saved.id)
+        return saved
+    }
+}
