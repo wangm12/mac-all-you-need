@@ -55,11 +55,10 @@ struct CardContextMenu: View {
         Divider()
 
         Button("Quick Look") {
-            // Focus the right card so QuickLookOverlay shows this one.
             if let idx = model.items.firstIndex(where: { $0.id == item.id }) {
                 model.focusedIndex = idx
             }
-            model.isQuickLooking = true
+            showQuickLook()
         }
         Button("Share…") {
             shareItem()
@@ -75,6 +74,19 @@ struct CardContextMenu: View {
         NotificationCenter.default.post(
             name: .dockPasteRequested,
             object: DockPasteIntent(itemID: item.id, plainText: plainText)
+        )
+    }
+
+    private func showQuickLook() {
+        guard let clip = model.clip,
+              let rid = RecordID(rawValue: item.id),
+              let body = try? clip.body(for: rid)
+        else { return }
+
+        ClipboardSystemQuickLookCoordinator.shared.show(
+            record: body,
+            title: item.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines),
+            blobs: model.blobs
         )
     }
 

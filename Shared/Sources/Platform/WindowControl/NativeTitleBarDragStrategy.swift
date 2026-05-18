@@ -1,21 +1,40 @@
 import CoreGraphics
 import Foundation
 
-public struct NativeTitleBarDragConfiguration: Equatable, Sendable {
+public struct NativeWindowDragConfiguration: Equatable, Sendable {
     public var titleBarYOffset: CGFloat
+    public var movementThreshold: CGFloat
 
-    public init(titleBarYOffset: CGFloat = 8) {
+    public init(titleBarYOffset: CGFloat = 8, movementThreshold: CGFloat = 3) {
         self.titleBarYOffset = titleBarYOffset
+        self.movementThreshold = movementThreshold
     }
 }
 
-public enum NativeTitleBarDragEvent: Equatable, Sendable {
+public typealias NativeTitleBarDragConfiguration = NativeWindowDragConfiguration
+
+public enum NativeWindowDragEvent: Equatable, Sendable {
     case mouseDown(at: CGPoint, axTrusted: Bool)
     case mouseDragged(to: CGPoint, axTrusted: Bool)
     case mouseUp(at: CGPoint, axTrusted: Bool)
 }
 
-public typealias NativeTitleBarDragDecision = WindowEventTapMouseDownDecision
+public typealias NativeTitleBarDragEvent = NativeWindowDragEvent
+
+public enum NativeWindowDragOutputEventType: Equatable, Sendable {
+    case mouseDown
+    case mouseDragged
+    case mouseUp
+}
+
+public enum NativeWindowDragDecision: Equatable, Sendable {
+    case passThrough
+    case suppress
+    case rewrite(type: NativeWindowDragOutputEventType, location: CGPoint)
+    case replayClick(down: CGPoint, up: CGPoint)
+}
+
+public typealias NativeTitleBarDragDecision = NativeWindowDragDecision
 
 public enum WindowTitleBarDragRegion {
     public static let defaultHeight: CGFloat = 56
@@ -32,42 +51,38 @@ public enum WindowTitleBarDragRegion {
     }
 }
 
-public final class NativeTitleBarDragStrategy {
-    public let configuration: NativeTitleBarDragConfiguration
+public final class NativeWindowDragStrategy {
+    public let configuration: NativeWindowDragConfiguration
 
-    private weak var activeTarget: (any WindowMovableElement)?
     private var dragStartLocation: CGPoint?
-    private var dragStartFrame: CGRect?
-    private var previousEnhancedUserInterface: Bool?
-    private var didDrag = false
+    private var rewrittenMouseDownLocation: CGPoint?
+    public private(set) var didDrag = false
 
-    public init(configuration: NativeTitleBarDragConfiguration = NativeTitleBarDragConfiguration()) {
+    public init(configuration: NativeWindowDragConfiguration = NativeWindowDragConfiguration()) {
         self.configuration = configuration
     }
 
     public var isActive: Bool {
-        activeTarget != nil
+        dragStartLocation != nil
     }
 
     public func handle(
-        _ event: NativeTitleBarDragEvent,
+        _ event: NativeWindowDragEvent,
         target: (any WindowMovableElement)? = nil
-    ) -> NativeTitleBarDragDecision {
+    ) -> NativeWindowDragDecision {
         switch event {
         case let .mouseDown(location, axTrusted):
-            return beginDrag(at: location, target: target, axTrusted: axTrusted)
+            beginDrag(at: location, target: target, axTrusted: axTrusted)
         case let .mouseDragged(location, axTrusted):
-            return updateDrag(to: location, axTrusted: axTrusted)
-        case let .mouseUp(_, axTrusted):
-            return endDrag(axTrusted: axTrusted)
+            updateDrag(to: location, axTrusted: axTrusted)
+        case let .mouseUp(location, axTrusted):
+            endDrag(at: location, axTrusted: axTrusted)
         }
     }
 
     public func cancel() {
-        restoreEnhancedUserInterfaceIfNeeded()
-        activeTarget = nil
         dragStartLocation = nil
-        dragStartFrame = nil
+        rewrittenMouseDownLocation = nil
         didDrag = false
     }
 
@@ -75,65 +90,90 @@ public final class NativeTitleBarDragStrategy {
         at location: CGPoint,
         target: (any WindowMovableElement)?,
         axTrusted: Bool
-    ) -> NativeTitleBarDragDecision {
+    ) -> NativeWindowDragDecision {
         cancel()
         guard axTrusted,
               let target,
               target.isSupportedForWindowControl,
-              target.isMovable
+              target.isMovable,
+              isValid(frame: target.frame)
         else {
             return .passThrough
         }
 
-        activeTarget = target
         dragStartLocation = location
-        dragStartFrame = target.frame
-        previousEnhancedUserInterface = target.enhancedUserInterfaceEnabled
-        if previousEnhancedUserInterface != nil {
-            _ = target.setEnhancedUserInterfaceEnabled(false)
-        }
-        return .passThrough
-    }
-
-    private func updateDrag(to location: CGPoint, axTrusted: Bool) -> NativeTitleBarDragDecision {
-        guard axTrusted else {
-            cancel()
-            return .passThrough
-        }
-        guard let activeTarget,
-              let dragStartLocation,
-              let dragStartFrame
-        else {
-            return .passThrough
-        }
-
-        let proposedOrigin = CGPoint(
-            x: dragStartFrame.origin.x + location.x - dragStartLocation.x,
-            y: dragStartFrame.origin.y + location.y - dragStartLocation.y
-        )
-        guard activeTarget.setPosition(proposedOrigin) else {
-            cancel()
-            return .passThrough
-        }
-
-        didDrag = true
+        rewrittenMouseDownLocation = titleBarMouseDownLocation(for: location, in: target.frame)
         return .suppress
     }
 
-    private func endDrag(axTrusted: Bool) -> NativeTitleBarDragDecision {
+    private func updateDrag(to location: CGPoint, axTrusted: Bool) -> NativeWindowDragDecision {
         guard axTrusted else {
             cancel()
             return .passThrough
         }
-        let shouldSuppress = didDrag
-        cancel()
-        return shouldSuppress ? .suppress : .passThrough
+        guard let dragStartLocation,
+              let rewrittenMouseDownLocation
+        else {
+            return .passThrough
+        }
+
+        guard didDrag || distance(from: dragStartLocation, to: location) >= configuration.movementThreshold else {
+            return .suppress
+        }
+
+        let rewrittenLocation = CGPoint(
+            x: rewrittenMouseDownLocation.x + location.x - dragStartLocation.x,
+            y: rewrittenMouseDownLocation.y + location.y - dragStartLocation.y
+        )
+        if didDrag {
+            return .rewrite(type: .mouseDragged, location: rewrittenLocation)
+        } else {
+            didDrag = true
+            return .rewrite(type: .mouseDown, location: rewrittenMouseDownLocation)
+        }
     }
 
-    private func restoreEnhancedUserInterfaceIfNeeded() {
-        if let previousEnhancedUserInterface, let activeTarget {
-            _ = activeTarget.setEnhancedUserInterfaceEnabled(previousEnhancedUserInterface)
+    private func endDrag(at location: CGPoint, axTrusted: Bool) -> NativeWindowDragDecision {
+        guard axTrusted else {
+            cancel()
+            return .passThrough
         }
-        self.previousEnhancedUserInterface = nil
+        guard let dragStartLocation,
+              let rewrittenMouseDownLocation
+        else {
+            return .passThrough
+        }
+
+        let decision: NativeWindowDragDecision = if didDrag {
+            .rewrite(
+                type: .mouseUp,
+                location: CGPoint(
+                    x: rewrittenMouseDownLocation.x + location.x - dragStartLocation.x,
+                    y: rewrittenMouseDownLocation.y + location.y - dragStartLocation.y
+                )
+            )
+        } else {
+            .replayClick(down: dragStartLocation, up: location)
+        }
+        cancel()
+        return decision
+    }
+
+    private func titleBarMouseDownLocation(for point: CGPoint, in frame: CGRect) -> CGPoint {
+        let yOffset = min(max(0, configuration.titleBarYOffset), max(0, frame.height))
+        return CGPoint(
+            x: min(max(point.x, frame.minX), frame.maxX),
+            y: frame.minY + yOffset
+        )
+    }
+
+    private func distance(from lhs: CGPoint, to rhs: CGPoint) -> CGFloat {
+        hypot(rhs.x - lhs.x, rhs.y - lhs.y)
+    }
+
+    private func isValid(frame: CGRect) -> Bool {
+        !frame.isNull && !frame.isEmpty && frame.width.isFinite && frame.height.isFinite
     }
 }
+
+public typealias NativeTitleBarDragStrategy = NativeWindowDragStrategy

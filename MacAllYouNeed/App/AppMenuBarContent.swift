@@ -109,9 +109,11 @@ struct AppMenuBarContent: View {
             // Also dismiss any floating preview/HUD so the popover appears
             // on a clean canvas.
             PreviewPanel.dismiss()
+            ClipboardSystemQuickLookCoordinator.shared.dismiss()
         }
         .onDisappear {
             PreviewPanel.dismiss()
+            ClipboardSystemQuickLookCoordinator.shared.dismiss()
         }
     }
 
@@ -558,6 +560,10 @@ struct ClipboardMenuBarContent: View {
                 return nil
             }
             if event.keyCode == 53 {  // Escape: clear multi-selection (back to anchor)
+                if ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                    ClipboardSystemQuickLookCoordinator.shared.dismiss()
+                    return nil
+                }
                 if reader.selectedIDs.count > 1, let a = reader.anchorID {
                     reader.selectedIDs = [a]
                     return nil
@@ -569,20 +575,24 @@ struct ClipboardMenuBarContent: View {
                 return nil
             }
             if event.keyCode == 49 {  // Space: preview
-                Task { @MainActor in Self.previewAnchor(reader: reader, blobs: blobs) }
-                return nil
-            }
-            if PreviewPanel.isVisible, event.keyCode == 124 {  // Right arrow: next preview
-                Task { @MainActor in
-                    let direction = Self.moveAnchor(reader: reader, by: 1)
-                    Self.previewAnchor(reader: reader, blobs: blobs, direction: direction)
+                if ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                    ClipboardSystemQuickLookCoordinator.shared.dismiss()
+                } else {
+                    Task { @MainActor in Self.previewAnchor(reader: reader, blobs: blobs) }
                 }
                 return nil
             }
-            if PreviewPanel.isVisible, event.keyCode == 123 {  // Left arrow: previous preview
+            if ClipboardSystemQuickLookCoordinator.shared.isVisible, event.keyCode == 124 {  // Right arrow: next preview
                 Task { @MainActor in
-                    let direction = Self.moveAnchor(reader: reader, by: -1)
-                    Self.previewAnchor(reader: reader, blobs: blobs, direction: direction)
+                    Self.moveAnchor(reader: reader, by: 1)
+                    Self.previewAnchor(reader: reader, blobs: blobs)
+                }
+                return nil
+            }
+            if ClipboardSystemQuickLookCoordinator.shared.isVisible, event.keyCode == 123 {  // Left arrow: previous preview
+                Task { @MainActor in
+                    Self.moveAnchor(reader: reader, by: -1)
+                    Self.previewAnchor(reader: reader, blobs: blobs)
                 }
                 return nil
             }
@@ -594,7 +604,7 @@ struct ClipboardMenuBarContent: View {
                 if next != cur {
                     reader.anchorID = ids[next]
                     reader.selectedIDs = [ids[next]]
-                    if PreviewPanel.isVisible {
+                    if ClipboardSystemQuickLookCoordinator.shared.isVisible {
                         Task { @MainActor in Self.previewAnchor(reader: reader, blobs: blobs) }
                     }
                 }
@@ -608,7 +618,7 @@ struct ClipboardMenuBarContent: View {
                 if next != cur {
                     reader.anchorID = ids[next]
                     reader.selectedIDs = [ids[next]]
-                    if PreviewPanel.isVisible {
+                    if ClipboardSystemQuickLookCoordinator.shared.isVisible {
                         Task { @MainActor in Self.previewAnchor(reader: reader, blobs: blobs) }
                     }
                 }
@@ -637,16 +647,15 @@ struct ClipboardMenuBarContent: View {
     private static func moveAnchor(
         reader: LocalClipboardReader,
         by delta: Int
-    ) -> PreviewPanelTransitionDirection {
+    ) {
         let ids = reader.items.map(\.id.rawValue)
-        guard !ids.isEmpty else { return .none }
+        guard !ids.isEmpty else { return }
         let currentIdx = reader.anchorID.flatMap { ids.firstIndex(of: $0) } ?? 0
         let nextIdx = max(0, min(ids.count - 1, currentIdx + delta))
-        guard nextIdx != currentIdx else { return .none }
+        guard nextIdx != currentIdx else { return }
         let newID = ids[nextIdx]
         reader.anchorID = newID
         reader.selectedIDs = [newID]
-        return .horizontal(from: currentIdx, to: nextIdx)
     }
 
     @MainActor
@@ -686,8 +695,7 @@ struct ClipboardMenuBarContent: View {
     @MainActor
     private static func previewAnchor(
         reader: LocalClipboardReader,
-        blobs: BlobStore,
-        direction: PreviewPanelTransitionDirection = .none
+        blobs: BlobStore
     ) {
         let id = reader.anchorID ?? reader.selectedIDs.first
         guard let id,
@@ -695,72 +703,19 @@ struct ClipboardMenuBarContent: View {
               let store = reader.store,
               let body = try? store.body(for: item.id)
         else { return }
-        switch body {
-        case let .image(blobID, _, _):
-            if let data = try? blobs.read(id: blobID),
-               let image = NSImage(data: data) {
-                PreviewPanel.show(
-                    .image(image),
-                    metadata: previewMetadata(for: item, kind: "Image"),
-                    direction: direction
-                )
-            }
-        case let .files(urls) where urls.count == 1 && Self.isImageURL(urls[0]):
-            if let image = NSImage(contentsOf: urls[0]) {
-                PreviewPanel.show(
-                    .image(image),
-                    metadata: previewMetadata(for: item, kind: "File image"),
-                    direction: direction
-                )
-            }
-        case let .text(s):
-            PreviewPanel.show(
-                .text(s, monospaced: false),
-                metadata: previewMetadata(for: item, kind: "Text"),
-                direction: direction
-            )
-        case let .html(s):
-            let plain = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            PreviewPanel.show(
-                .text(plain, monospaced: false),
-                metadata: previewMetadata(for: item, kind: "HTML"),
-                direction: direction
-            )
-        case let .rtf(data):
-            if let attr = NSAttributedString(rtf: data, documentAttributes: nil) {
-                PreviewPanel.show(
-                    .text(attr.string, monospaced: false),
-                    metadata: previewMetadata(for: item, kind: "Rich text"),
-                    direction: direction
-                )
-            }
-        case .files:
-            break
-        }
+        ClipboardSystemQuickLookCoordinator.shared.show(
+            record: body,
+            title: previewTitle(for: item),
+            blobs: blobs
+        )
     }
 
     /// Used by inner ScrollView's onChange (which captures self) for parity.
     private func copySelectedAndDismiss() { Self.copyAndDismiss(reader: reader, blobs: blobs) }
 
-    private static func previewMetadata(
-        for item: ClipboardItemMeta,
-        kind: String
-    ) -> PreviewPanelMetadata {
+    private static func previewTitle(for item: ClipboardItemMeta) -> String {
         let title = (item.customLabel ?? item.preview).trimmingCharacters(in: .whitespacesAndNewlines)
-        return PreviewPanelMetadata(
-            title: title.isEmpty ? kind : title,
-            subtitle: "\(kind) · \(CompactTimestamp.format(item.modified))",
-            badge: "Space / Esc",
-            symbol: previewSymbol(for: item)
-        )
-    }
-
-    private static func previewSymbol(for item: ClipboardItemMeta) -> String {
-        if item.preview.hasPrefix("(image ") { return "photo" }
-        if item.preview.hasPrefix("("), item.preview.contains("file") { return "doc" }
-        if item.preview == "(rich text)" { return "textformat" }
-        if item.preview.hasPrefix("http") { return "link" }
-        return "text.alignleft"
+        return title.isEmpty ? "Clipboard Preview" : title
     }
 
     /// Programmatically close the MenuBarExtra `.window`-style popover.
@@ -777,10 +732,6 @@ struct ClipboardMenuBarContent: View {
         NSApp.deactivate()
     }
 
-    private static func isImageURL(_ url: URL) -> Bool {
-        let ext = url.pathExtension.lowercased()
-        return ["png", "jpg", "jpeg", "gif", "heic", "heif", "webp", "tiff", "tif", "bmp"].contains(ext)
-    }
 }
 
 private struct ClipboardItemRow2: View {

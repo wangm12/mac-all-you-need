@@ -110,6 +110,31 @@ final class WindowGeometryCalculatorTests: XCTestCase {
         XCTAssertNil(WindowSnapZone.inside.action)
     }
 
+    func testSnapZoneMapsClearSideEdgeBandsToTopAndBottomHalves() {
+        let frame = CGRect(x: 0, y: 0, width: 1440, height: 900)
+
+        XCTAssertEqual(
+            WindowSnapZone.zone(
+                for: CGPoint(x: 5, y: 140),
+                in: frame,
+                edgeThreshold: 20,
+                cornerThreshold: 80,
+                sideHalfThreshold: 180
+            ),
+            .topHalf
+        )
+        XCTAssertEqual(
+            WindowSnapZone.zone(
+                for: CGPoint(x: 1435, y: 760),
+                in: frame,
+                edgeThreshold: 20,
+                cornerThreshold: 80,
+                sideHalfThreshold: 180
+            ),
+            .bottomHalf
+        )
+    }
+
     func testSnapZoneUsesAXScreenCoordinatesWithNonZeroOrigin() {
         let frame = CGRect(x: 100, y: 50, width: 1200, height: 800)
 

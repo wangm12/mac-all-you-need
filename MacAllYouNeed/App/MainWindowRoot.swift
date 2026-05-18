@@ -7,6 +7,8 @@ import FluidAudio
 import Platform
 import SwiftUI
 
+private typealias HotkeyDescriptor = Platform.HotkeyDescriptor
+
 struct MainWindowRoot: View {
     let controller: AppController
     @AppStorage(MainAppDestination.storageKey, store: AppGroupSettings.defaults)
@@ -309,15 +311,26 @@ private struct DashboardMainPage: View {
         .task {
             await controller.downloaderVM.refresh()
         }
-        .sheet(item: $showingUninstallFor) { descriptor in
-            UninstallConfirmationSheet(
-                descriptor: descriptor,
-                onCancel: { showingUninstallFor = nil },
-                onConfirm: { sheet in
-                    showingUninstallFor = nil
-                    Task { await performUninstall(descriptor: descriptor, sheetState: sheet) }
+        .sheet(
+            isPresented: Binding(
+                get: { showingUninstallFor != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        showingUninstallFor = nil
+                    }
                 }
             )
+        ) {
+            if let descriptor = showingUninstallFor {
+                UninstallConfirmationSheet(
+                    descriptor: descriptor,
+                    onCancel: { showingUninstallFor = nil },
+                    onConfirm: { sheet in
+                        showingUninstallFor = nil
+                        Task { await performUninstall(descriptor: descriptor, sheetState: sheet) }
+                    }
+                )
+            }
         }
     }
 
@@ -351,8 +364,8 @@ private struct DashboardMainPage: View {
                     symbolName: tile.symbolName,
                     accent: accent(for: tile.destination),
                     fixedHeight: DashboardRenderingPresentation.toolCardHeight,
-                    descriptor: descriptor(for: tile),
                     state: state(for: tile),
+                    descriptor: descriptor(for: tile),
                     isPending: (tile.proxiesFeatureID ?? tile.featureID).map { pendingFeatureIDs.contains($0) } ?? false,
                     onOpen: { openTile(tile) },
                     onEnable: { Task { await handleAction(.enable, for: tile) } },

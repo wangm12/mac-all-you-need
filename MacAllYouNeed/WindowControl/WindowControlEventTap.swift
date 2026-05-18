@@ -36,6 +36,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
     private var activeTarget: ResolvedWindowTarget?
     private var activeSnapAction: WindowAction?
     private var gestureMode: GestureMode = .none
+    private var snapIntent = WindowSnapIntentTracker()
     private var snapOverlayVisible = false
     private let stateMachine = WindowEventTapStateMachine()
     private let resolver: WindowTargetResolver
@@ -44,6 +45,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
     private var movementHandler: (@MainActor (WindowAction, WindowMovementResult, WindowIdentity?) -> Void)?
     private var showSnapOverlay: @MainActor (CGRect) -> Void = { _ in }
     private var hideSnapOverlay: @MainActor () -> Void = {}
+    private static let syntheticEventMarker: Int64 = 0x4D41_594E_5744
 
     init(
         resolver: WindowTargetResolver = WindowTargetResolver(),
@@ -150,6 +152,10 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             return Unmanaged.passUnretained(event)
         }
 
+        if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticEventMarker {
+            return Unmanaged.passUnretained(event)
+        }
+
         switch type {
         case .leftMouseDown:
             return handleMouseDown(event, allowsNativeTitleBarTracking: true)
@@ -195,6 +201,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             if allowsNativeTitleBarTracking, shouldTrackNativeTitleBarSnap(from: location, target: target, flags: event.flags) {
                 activeTarget = target
                 gestureMode = .nativeTitleBarSnap
+                beginSnapIntent(at: location)
             } else {
                 cancelGesture()
             }
@@ -229,7 +236,9 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             return Unmanaged.passUnretained(event)
         }
 
-        _ = dragStrategy.handle(
+        activateTargetForNativeDrag(target)
+        beginSnapIntent(at: location)
+        let decision = dragStrategy.handle(
             .mouseDown(at: location, axTrusted: runtime.axTrusted),
             target: target.element
         )
@@ -238,7 +247,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             return Unmanaged.passUnretained(event)
         }
         gestureMode = .dragAnywhere
-        return nil
+        return eventResponse(for: decision, originalEvent: event)
     }
 
     private func handleMouseDragged(_ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -250,12 +259,15 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             let decision = dragStrategy.handle(
                 .mouseDragged(to: event.location, axTrusted: runtime.axTrusted)
             )
-            if decision == .suppress {
+            if dragStrategy.didDrag {
                 updateSnapOverlay(at: event.location, flags: event.flags)
             } else {
                 hideSnapOverlayIfNeeded()
             }
-            return decision == .suppress ? nil : Unmanaged.passUnretained(event)
+            if decision == .passThrough {
+                cancelGesture()
+            }
+            return eventResponse(for: decision, originalEvent: event)
 
         case .nativeTitleBarSnap:
             guard activeTarget != nil else {
@@ -276,18 +288,22 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
                 cancelGesture()
                 return Unmanaged.passUnretained(event)
             }
-            if let target = activeTarget, let action = activeSnapAction {
-                move(target, action: action)
-            }
+            let target = activeTarget
+            let snapAction = snapIntent.commit()
             let decision = dragStrategy.handle(
                 .mouseUp(at: event.location, axTrusted: runtime.axTrusted)
             )
             cancelGesture()
-            return decision == .suppress ? nil : Unmanaged.passUnretained(event)
+            if let target, let snapAction {
+                DispatchQueue.main.async { [weak self] in
+                    self?.move(target, action: snapAction)
+                }
+            }
+            return eventResponse(for: decision, originalEvent: event)
 
         case .nativeTitleBarSnap:
             let target = activeTarget
-            let action = activeSnapAction
+            let action = snapIntent.commit()
             cancelGesture()
             if let target, let action {
                 DispatchQueue.main.async { [weak self] in
@@ -307,21 +323,23 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
               runtime.settings.allowsDragEdgeSnap(activeModifiers: Self.modifiers(from: flags))
         else {
             activeSnapAction = nil
+            snapIntent.reset()
             hideSnapOverlayIfNeeded()
             return
         }
 
         guard let screen = WindowScreenDetector.current().screen(containing: location) else {
             activeSnapAction = nil
+            snapIntent.reset()
             hideSnapOverlayIfNeeded()
             return
         }
 
-        let zone = WindowSnapZone.zone(for: location, in: screen.visibleFrame)
-        guard let action = zone.action,
+        guard let zone = snapIntent.update(at: location, visibleFrame: screen.visibleFrame),
+              let action = zone.action,
               let frame = WindowGeometryCalculator().rect(
-                for: action,
-                visibleFrame: screen.visibleFrame
+                  for: action,
+                  visibleFrame: screen.visibleFrame
               )
         else {
             activeSnapAction = nil
@@ -366,6 +384,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
 
     private func cancelGesture() {
         dragStrategy.cancel()
+        snapIntent.reset()
         activeTarget = nil
         activeSnapAction = nil
         gestureMode = .none
@@ -376,6 +395,15 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         runtime.layoutsRuntimeEnabled
             && runtime.settings.allowsDragEdgeSnap(activeModifiers: Self.modifiers(from: flags))
             && WindowTitleBarDragRegion.contains(location, in: target.element.frame)
+    }
+
+    private func beginSnapIntent(at location: CGPoint) {
+        activeSnapAction = nil
+        guard let screen = WindowScreenDetector.current().screen(containing: location) else {
+            snapIntent.reset()
+            return
+        }
+        snapIntent.begin(at: location, visibleFrame: screen.visibleFrame)
     }
 
     private func hideSnapOverlayIfNeeded() {
@@ -393,6 +421,89 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
 
     private func modifier(_ modifier: WindowGestureModifier, isHeldIn flags: CGEventFlags) -> Bool {
         modifier.isSatisfied(by: Self.modifiers(from: flags))
+    }
+
+    private func eventResponse(for decision: NativeTitleBarDragDecision, originalEvent event: CGEvent) -> Unmanaged<CGEvent>? {
+        switch decision {
+        case .passThrough:
+            return Unmanaged.passUnretained(event)
+        case .suppress:
+            return nil
+        case let .rewrite(type, location):
+            return rewrittenEvent(from: event, type: type, location: location)
+        case let .replayClick(down, up):
+            postReplayedClick(from: event, down: down, up: up)
+            return nil
+        }
+    }
+
+    private func rewrittenEvent(
+        from event: CGEvent,
+        type: NativeWindowDragOutputEventType,
+        location: CGPoint
+    ) -> Unmanaged<CGEvent>? {
+        guard let rewritten = event.copy() else {
+            return nil
+        }
+        rewritten.type = cgEventType(for: type, originalType: event.type)
+        rewritten.location = location
+        return Unmanaged.passRetained(rewritten)
+    }
+
+    private func postReplayedClick(from event: CGEvent, down: CGPoint, up: CGPoint) {
+        guard let mouseDown = event.copy(),
+              let mouseUp = event.copy()
+        else {
+            return
+        }
+        mouseDown.type = cgEventType(for: .mouseDown, originalType: event.type)
+        mouseDown.location = down
+        mouseDown.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventMarker)
+
+        mouseUp.type = cgEventType(for: .mouseUp, originalType: event.type)
+        mouseUp.location = up
+        mouseUp.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventMarker)
+
+        mouseDown.post(tap: .cghidEventTap)
+        mouseUp.post(tap: .cghidEventTap)
+    }
+
+    private func cgEventType(
+        for type: NativeWindowDragOutputEventType,
+        originalType: CGEventType
+    ) -> CGEventType {
+        let isRightMouseEvent = originalType == .rightMouseDown
+            || originalType == .rightMouseDragged
+            || originalType == .rightMouseUp
+        switch (type, isRightMouseEvent) {
+        case (.mouseDown, true):
+            return .rightMouseDown
+        case (.mouseDragged, true):
+            return .rightMouseDragged
+        case (.mouseUp, true):
+            return .rightMouseUp
+        case (.mouseDown, false):
+            return .leftMouseDown
+        case (.mouseDragged, false):
+            return .leftMouseDragged
+        case (.mouseUp, false):
+            return .leftMouseUp
+        }
+    }
+
+    private func activateTargetForNativeDrag(_ target: ResolvedWindowTarget) {
+        let pid = target.element.processIdentifier
+        if pid == pid_t(ProcessInfo.processInfo.processIdentifier) {
+            NSApp.activate(ignoringOtherApps: true)
+            if let window = NSApp.windows.first(where: {
+                AppKitWindowIdentifier.matches(windowNumber: $0.windowNumber, cgWindowID: target.windowID)
+            }) {
+                window.makeKeyAndOrderFront(nil)
+            }
+            return
+        }
+
+        NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateIgnoringOtherApps])
     }
 
     private static func modifiers(from flags: CGEventFlags) -> WindowGestureModifier {

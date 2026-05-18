@@ -24,6 +24,7 @@ final class MainWindowController {
         }
 
         PreviewPanel.dismiss()
+        ClipboardSystemQuickLookCoordinator.shared.dismiss()
         controller.clipboardDock.hide()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

@@ -25,13 +25,12 @@ final class WindowTargetResolverTests: XCTestCase {
         XCTAssertTrue(target?.element === candidate)
     }
 
-    func testIgnoresDesktopNonLayerZeroOwnBundleAndMenuBarWindows() {
+    func testIgnoresDesktopNonLayerZeroAndMenuBarWindows() {
         let resolver = WindowTargetResolver(
             ownBundleIdentifier: "com.macallyouneed",
             visibleFrames: [CGRect(x: 0, y: 0, width: 1440, height: 875)]
         )
         let desktop = window(id: 1, pid: 200, isDesktopElement: true)
-        let overlay = window(id: 2, pid: 201, ownerBundleIdentifier: "com.macallyouneed")
         let nonLayerZero = window(id: 3, pid: 202, layer: 25)
         let normal = window(id: 4, pid: 203)
         let menuBarWindow = window(
@@ -48,12 +47,29 @@ final class WindowTargetResolverTests: XCTestCase {
         )
         let normalTarget = resolver.resolveTopmostWindow(
             at: CGPoint(x: 50, y: 50),
-            windows: [desktop, overlay, nonLayerZero, normal],
+            windows: [desktop, nonLayerZero, normal],
             candidates: [candidate]
         )
 
         XCTAssertNil(menuBarTarget)
         XCTAssertEqual(normalTarget?.windowID, 4)
+    }
+
+    func testResolvesOwnBundleStandardWindows() {
+        let resolver = WindowTargetResolver(
+            ownBundleIdentifier: "com.macallyouneed",
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1440, height: 875)]
+        )
+        let ownWindow = window(id: 12, pid: 200, ownerBundleIdentifier: "com.macallyouneed")
+        let candidate = FakeTargetElement(processIdentifier: 200, frame: ownWindow.bounds)
+
+        let target = resolver.resolveTopmostWindow(
+            at: CGPoint(x: 50, y: 50),
+            windows: [ownWindow],
+            candidates: [candidate]
+        )
+
+        XCTAssertEqual(target?.windowID, 12)
     }
 
     func testReturnsNilWhenFrameMatchIsAmbiguous() {

@@ -197,7 +197,7 @@ enum WindowControlPagePresentation {
 enum WindowControlSettingsPresentation {
     static let sectionTitles = ["Window Layouts", "Layout Shortcuts", "Edge Snap", "Window Grab", "Double-Click Layout", "Shared Ignored Apps", "Shared Diagnostics"]
     static let editsShortcutsInToolSettings = true
-    static var customShortcutSeedDescriptor: HotkeyDescriptor {
+    static var customShortcutSeedDescriptor: Platform.HotkeyDescriptor {
         HotkeysSettingsPresentation.customTriggerSeedDescriptor
     }
 
@@ -205,7 +205,7 @@ enum WindowControlSettingsPresentation {
         action.isWindowControlAction
     }
 
-    static func seedDescriptor(for action: HotkeyAction) -> HotkeyDescriptor {
+    static func seedDescriptor(for action: HotkeyAction) -> Platform.HotkeyDescriptor {
         action.primaryDefaultDescriptor ?? customShortcutSeedDescriptor
     }
 }
@@ -231,7 +231,7 @@ enum DashboardToolTilePresentation {
     static func dashboardTiles(
         clipboardCount: Int,
         downloadsQueueCount: Int,
-        hotkeys: [HotkeyAction: [HotkeyDescriptor]] = [:],
+        hotkeys: [HotkeyAction: [Platform.HotkeyDescriptor]] = [:],
         voiceSettings: VoiceActivationSettings = .default,
         windowControlSettings: WindowControlSettings = WindowControlSettingsStore.load(),
         windowControlAXTrusted: Bool = AXIsProcessTrusted()
@@ -435,7 +435,7 @@ enum DashboardToolOpenNavigation {
 enum MainHotkeyPresentation {
     static func display(
         for action: HotkeyAction,
-        in hotkeys: [HotkeyAction: [HotkeyDescriptor]]
+        in hotkeys: [HotkeyAction: [Platform.HotkeyDescriptor]]
     ) -> String {
         guard let descriptors = hotkeys[action] else {
             return action.primaryDefaultDescriptor?.display ?? "Off"
@@ -452,7 +452,7 @@ enum MainToolHeaderShortcutModel {
 
     static func display(
         for destination: MainAppDestination,
-        hotkeys: [HotkeyAction: [HotkeyDescriptor]],
+        hotkeys: [HotkeyAction: [Platform.HotkeyDescriptor]],
         voiceSettings: VoiceActivationSettings
     ) -> String? {
         switch destination {
@@ -473,9 +473,9 @@ enum MainToolHeaderShortcutModel {
 
     static func issue(
         for destination: MainAppDestination,
-        hotkeys: [HotkeyAction: [HotkeyDescriptor]],
+        hotkeys: [HotkeyAction: [Platform.HotkeyDescriptor]],
         voiceSettings: VoiceActivationSettings,
-        systemHotkeys: Set<HotkeyDescriptor> = SystemHotkeyConflictDetector.currentEnabledSymbolicHotkeys()
+        systemHotkeys: Set<Platform.HotkeyDescriptor> = SystemHotkeyConflictDetector.currentEnabledSymbolicHotkeys()
     ) -> String? {
         switch destination {
         case .clipboard:
@@ -500,9 +500,9 @@ enum MainToolHeaderShortcutModel {
 
     private static func appHotkeyIssue(
         for action: HotkeyAction,
-        hotkeys: [HotkeyAction: [HotkeyDescriptor]],
+        hotkeys: [HotkeyAction: [Platform.HotkeyDescriptor]],
         voiceSettings: VoiceActivationSettings,
-        systemHotkeys: Set<HotkeyDescriptor>
+        systemHotkeys: Set<Platform.HotkeyDescriptor>
     ) -> String? {
         guard let descriptor = hotkeys[action]?.first ?? action.primaryDefaultDescriptor else {
             return nil

@@ -237,6 +237,7 @@ private final class AppStatusItemController: NSObject, NSPopoverDelegate {
         guard let button = statusItem?.button else { return }
         controller.clipboardDock.hide()
         PreviewPanel.dismiss()
+        ClipboardSystemQuickLookCoordinator.shared.dismiss()
 
         let popover = popover ?? makePopover()
         self.popover = popover

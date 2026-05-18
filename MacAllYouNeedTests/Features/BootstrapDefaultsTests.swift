@@ -1,4 +1,5 @@
 import XCTest
+import Core
 import FeatureCore
 @testable import MacAllYouNeed
 
@@ -37,5 +38,29 @@ final class BootstrapDefaultsTests: XCTestCase {
 
         let state = await manager.state(for: .clipboard)
         XCTAssertEqual(state.activationState, .disabled, "second seed must not undo user changes")
+    }
+}
+
+final class PriorUsageDetectorWindowControlTests: XCTestCase {
+    func testDetectsEnabledWindowControlAsLayoutsAndGrabUsage() throws {
+        let suiteName = "PriorUsageDetectorWindowControlTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var settings = WindowControlSettings.default
+        settings.enabled = true
+        settings.dragAnywhereEnabled = true
+        WindowControlSettingsStore.save(settings, to: defaults)
+
+        let detector = PriorUsageDetector(
+            defaults: defaults,
+            clipboardRecordCount: { 0 },
+            downloadRecordCount: { 0 },
+            folderPreviewLastInvoked: { nil }
+        )
+
+        let usage = try detector.detect()
+
+        XCTAssertEqual(usage[.windowLayouts], .directEvidence)
+        XCTAssertEqual(usage[.windowGrab], .directEvidence)
     }
 }

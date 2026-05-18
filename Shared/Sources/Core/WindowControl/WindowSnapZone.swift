@@ -8,9 +8,11 @@ public enum WindowSnapZone: String, CaseIterable, Codable, Sendable {
     case top
     case topRight
     case left
+    case topHalf
     case right
     case bottomLeft
     case bottom
+    case bottomHalf
     case bottomRight
     case inside
 
@@ -24,11 +26,15 @@ public enum WindowSnapZone: String, CaseIterable, Codable, Sendable {
             .topRight
         case .left:
             .leftHalf
+        case .topHalf:
+            .topHalf
         case .right:
             .rightHalf
         case .bottomLeft:
             .bottomLeft
         case .bottom:
+            .bottomHalf
+        case .bottomHalf:
             .bottomHalf
         case .bottomRight:
             .bottomRight
@@ -41,7 +47,8 @@ public enum WindowSnapZone: String, CaseIterable, Codable, Sendable {
         for point: CGPoint,
         in visibleFrame: CGRect,
         edgeThreshold: CGFloat = 24,
-        cornerThreshold: CGFloat = 96
+        cornerThreshold: CGFloat = 96,
+        sideHalfThreshold: CGFloat = 160
     ) -> WindowSnapZone {
         let nearLeftEdge = point.x <= visibleFrame.minX + edgeThreshold
         let nearRightEdge = point.x >= visibleFrame.maxX - edgeThreshold
@@ -67,6 +74,14 @@ public enum WindowSnapZone: String, CaseIterable, Codable, Sendable {
         }
         if nearTopEdge {
             return .top
+        }
+        if nearLeftEdge || nearRightEdge {
+            if point.y <= visibleFrame.minY + sideHalfThreshold {
+                return .topHalf
+            }
+            if point.y >= visibleFrame.maxY - sideHalfThreshold {
+                return .bottomHalf
+            }
         }
         if nearLeftEdge {
             return .left

@@ -37,6 +37,8 @@ struct PriorUsageDetector {
         result[.downloader] = try detectDownloader()
         result[.voice] = detectVoice()
         result[.folderPreview] = detectFolderPreview()
+        result[.windowLayouts] = detectWindowLayouts()
+        result[.windowGrab] = detectWindowGrab()
         return result
     }
 
@@ -90,5 +92,17 @@ struct PriorUsageDetector {
             return .indirectEvidence
         }
         return .none
+    }
+
+    private func detectWindowLayouts() -> PriorUsageLevel {
+        guard defaults.data(forKey: WindowControlSettingsStore.key) != nil else { return .none }
+        let settings = WindowControlSettingsStore.load(from: defaults)
+        return settings.enabled ? .directEvidence : .none
+    }
+
+    private func detectWindowGrab() -> PriorUsageLevel {
+        guard defaults.data(forKey: WindowControlSettingsStore.key) != nil else { return .none }
+        let settings = WindowControlSettingsStore.load(from: defaults)
+        return settings.enabled && settings.dragAnywhereEnabled ? .directEvidence : .none
     }
 }

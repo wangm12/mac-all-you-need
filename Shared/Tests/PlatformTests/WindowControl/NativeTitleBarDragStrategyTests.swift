@@ -3,46 +3,87 @@ import CoreGraphics
 import XCTest
 
 final class NativeTitleBarDragStrategyTests: XCTestCase {
-    func testModifierDragMovesWindowOriginByCursorDelta() {
+    func testStartsOnlyWithValidTargetAndAccessibilityTrust() {
+        let window = FakeDragWindow(frame: CGRect(x: 20, y: 40, width: 800, height: 600))
+        let strategy = NativeTitleBarDragStrategy()
+
+        XCTAssertEqual(
+            strategy.handle(.mouseDown(at: CGPoint(x: 100, y: 100), axTrusted: false), target: window),
+            .passThrough
+        )
+        XCTAssertFalse(strategy.isActive)
+
+        XCTAssertEqual(
+            strategy.handle(
+                .mouseDown(at: CGPoint(x: 100, y: 100), axTrusted: true),
+                target: FakeDragWindow(
+                    frame: CGRect(x: 20, y: 40, width: 800, height: 600),
+                    isSupportedForWindowControl: false
+                )
+            ),
+            .passThrough
+        )
+        XCTAssertFalse(strategy.isActive)
+    }
+
+    func testFirstDragRewritesToTitleBarMouseDownAfterMovementThreshold() {
+        let window = FakeDragWindow(frame: CGRect(x: 20, y: 40, width: 800, height: 600))
+        let strategy = NativeTitleBarDragStrategy(
+            configuration: NativeWindowDragConfiguration(titleBarYOffset: 10, movementThreshold: 4)
+        )
+
+        XCTAssertEqual(
+            strategy.handle(.mouseDown(at: CGPoint(x: 100, y: 100), axTrusted: true), target: window),
+            .suppress
+        )
+        XCTAssertEqual(
+            strategy.handle(.mouseDragged(to: CGPoint(x: 102, y: 102), axTrusted: true)),
+            .suppress
+        )
+        XCTAssertFalse(strategy.didDrag)
+
+        XCTAssertEqual(
+            strategy.handle(.mouseDragged(to: CGPoint(x: 116, y: 112), axTrusted: true)),
+            .rewrite(type: .mouseDown, location: CGPoint(x: 100, y: 50))
+        )
+        XCTAssertTrue(strategy.didDrag)
+    }
+
+    func testLaterDragAndMouseUpPreserveCursorRelativeMovementAndClearState() {
+        let window = FakeDragWindow(frame: CGRect(x: 20, y: 40, width: 800, height: 600))
+        let strategy = NativeTitleBarDragStrategy(
+            configuration: NativeWindowDragConfiguration(titleBarYOffset: 10, movementThreshold: 4)
+        )
+
+        _ = strategy.handle(.mouseDown(at: CGPoint(x: 100, y: 100), axTrusted: true), target: window)
+        _ = strategy.handle(.mouseDragged(to: CGPoint(x: 116, y: 112), axTrusted: true))
+
+        XCTAssertEqual(
+            strategy.handle(.mouseDragged(to: CGPoint(x: 140, y: 132), axTrusted: true)),
+            .rewrite(type: .mouseDragged, location: CGPoint(x: 140, y: 82))
+        )
+        XCTAssertEqual(
+            strategy.handle(.mouseUp(at: CGPoint(x: 150, y: 142), axTrusted: true)),
+            .rewrite(type: .mouseUp, location: CGPoint(x: 150, y: 92))
+        )
+        XCTAssertFalse(strategy.isActive)
+        XCTAssertFalse(strategy.didDrag)
+    }
+
+    func testClickWithoutMovementReplaysOriginalClickAndClearsState() {
         let window = FakeDragWindow(frame: CGRect(x: 20, y: 40, width: 800, height: 600))
         let strategy = NativeTitleBarDragStrategy()
 
         XCTAssertEqual(
             strategy.handle(.mouseDown(at: CGPoint(x: 100, y: 100), axTrusted: true), target: window),
-            .passThrough
-        )
-        XCTAssertEqual(
-            strategy.handle(.mouseDragged(to: CGPoint(x: 160, y: 135), axTrusted: true)),
             .suppress
         )
-
-        XCTAssertEqual(window.frame.origin, CGPoint(x: 80, y: 75))
-        XCTAssertEqual(window.positions, [CGPoint(x: 80, y: 75)])
-    }
-
-    func testClickWithoutDragDoesNotMoveWindowOrSwallowClick() {
-        let window = FakeDragWindow(frame: CGRect(x: 20, y: 40, width: 800, height: 600))
-        let strategy = NativeTitleBarDragStrategy()
-
-        let downDecision = strategy.handle(.mouseDown(at: CGPoint(x: 100, y: 100), axTrusted: true), target: window)
-        let upDecision = strategy.handle(.mouseUp(at: CGPoint(x: 100, y: 100), axTrusted: true))
-
-        XCTAssertEqual(downDecision, .passThrough)
-        XCTAssertEqual(upDecision, .passThrough)
-        XCTAssertEqual(window.frame.origin, CGPoint(x: 20, y: 40))
-        XCTAssertEqual(window.positions, [])
-    }
-
-    func testMouseUpAfterDragExitsActiveStateAndSubsequentEventsPassThrough() {
-        let window = FakeDragWindow(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
-        let strategy = NativeTitleBarDragStrategy()
-
-        _ = strategy.handle(.mouseDown(at: CGPoint(x: 100, y: 100), axTrusted: true), target: window)
-        XCTAssertEqual(strategy.handle(.mouseDragged(to: CGPoint(x: 150, y: 150), axTrusted: true)), .suppress)
-        XCTAssertEqual(strategy.handle(.mouseUp(at: CGPoint(x: 150, y: 150), axTrusted: true)), .suppress)
+        XCTAssertEqual(
+            strategy.handle(.mouseUp(at: CGPoint(x: 101, y: 101), axTrusted: true)),
+            .replayClick(down: CGPoint(x: 100, y: 100), up: CGPoint(x: 101, y: 101))
+        )
         XCTAssertFalse(strategy.isActive)
-        XCTAssertEqual(strategy.handle(.mouseDragged(to: CGPoint(x: 200, y: 200), axTrusted: true)), .passThrough)
-        XCTAssertEqual(window.positions, [CGPoint(x: 50, y: 50)])
+        XCTAssertFalse(strategy.didDrag)
     }
 
     func testLosingAccessibilityTrustCancelsDragAndPassesSubsequentEventsThrough() {
@@ -53,35 +94,6 @@ final class NativeTitleBarDragStrategyTests: XCTestCase {
         XCTAssertEqual(strategy.handle(.mouseDragged(to: CGPoint(x: 150, y: 150), axTrusted: false)), .passThrough)
         XCTAssertFalse(strategy.isActive)
         XCTAssertEqual(strategy.handle(.mouseDragged(to: CGPoint(x: 200, y: 200), axTrusted: true)), .passThrough)
-        XCTAssertEqual(window.positions, [])
-    }
-
-    func testUnsupportedTargetDoesNotStartGesture() {
-        let window = FakeDragWindow(
-            frame: CGRect(x: 0, y: 0, width: 800, height: 600),
-            isSupportedForWindowControl: false
-        )
-        let strategy = NativeTitleBarDragStrategy()
-
-        XCTAssertEqual(strategy.handle(.mouseDown(at: CGPoint(x: 100, y: 100), axTrusted: true), target: window), .passThrough)
-        XCTAssertEqual(strategy.handle(.mouseDragged(to: CGPoint(x: 150, y: 150), axTrusted: true)), .passThrough)
-        XCTAssertFalse(strategy.isActive)
-        XCTAssertEqual(window.positions, [])
-    }
-
-    func testEnhancedUserInterfaceIsDisabledDuringDragAndRestoredOnMouseUp() {
-        let window = FakeDragWindow(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
-        window.enhancedUserInterfaceEnabled = true
-        let strategy = NativeTitleBarDragStrategy()
-
-        _ = strategy.handle(.mouseDown(at: CGPoint(x: 100, y: 100), axTrusted: true), target: window)
-        XCTAssertEqual(window.enhancedUserInterfaceEnabled, false)
-
-        _ = strategy.handle(.mouseDragged(to: CGPoint(x: 150, y: 150), axTrusted: true))
-        _ = strategy.handle(.mouseUp(at: CGPoint(x: 150, y: 150), axTrusted: true))
-
-        XCTAssertEqual(window.enhancedUserInterfaceEnabled, true)
-        XCTAssertEqual(window.enhancedUserInterfaceWrites, [false, true])
     }
 
     func testTitleBarDragRegionUsesTopOfAXFrame() {
@@ -100,7 +112,6 @@ private final class FakeDragWindow: WindowMovableElement {
     let isSupportedForWindowControl: Bool
     var enhancedUserInterfaceEnabled: Bool?
     private(set) var enhancedUserInterfaceWrites: [Bool] = []
-    private(set) var positions: [CGPoint] = []
 
     init(frame: CGRect, isSupportedForWindowControl: Bool = true, enhancedUserInterfaceEnabled: Bool? = nil) {
         self.frame = frame
@@ -116,7 +127,6 @@ private final class FakeDragWindow: WindowMovableElement {
 
     func setPosition(_ position: CGPoint) -> Bool {
         frame.origin = position
-        positions.append(position)
         return true
     }
 

@@ -108,9 +108,6 @@ public struct WindowTargetResolver {
         else {
             return false
         }
-        if let ownBundleIdentifier, info.ownerBundleIdentifier == ownBundleIdentifier {
-            return false
-        }
         return true
     }
 

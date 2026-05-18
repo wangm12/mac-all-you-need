@@ -1,5 +1,7 @@
 import AppKit
+import Core
 import QuartzCore
+import QuickLookUI
 import SwiftUI
 
 enum PreviewPanelTransitionDirection: Equatable {
@@ -75,10 +77,288 @@ private extension NSRect {
     }
 }
 
-/// Floating Quick-Look-style preview panel used by both the dock (⌘⇧V) and
-/// the menu bar popover. Borderless `.popUpMenu`-level NSPanel so it
-/// appears on top of any active full-screen Space without stealing focus
-/// from the underlying app or popover. Dismissed by Space, Esc, or click.
+final class ClipboardQuickLookPreviewItem: NSObject, QLPreviewItem {
+    let previewItemURL: URL!
+    let previewItemTitle: String!
+
+    init(url: URL, title: String) {
+        previewItemURL = url
+        previewItemTitle = title
+        super.init()
+    }
+}
+
+struct ClipboardQuickLookPayload {
+    let items: [ClipboardQuickLookPreviewItem]
+    let temporaryURLs: [URL]
+}
+
+enum ClipboardSystemQuickLookMaterializationError: Error {
+    case missingBlobStore
+    case noPreviewableItems
+}
+
+enum ClipboardSystemQuickLookLayering {
+    static let panelLevel = NSWindow.Level.screenSaver
+    static let collectionBehavior: NSWindow.CollectionBehavior = [
+        .canJoinAllSpaces,
+        .fullScreenAuxiliary,
+        .stationary
+    ]
+
+    static func apply(to panel: QLPreviewPanel) {
+        panel.level = panelLevel
+        panel.collectionBehavior.formUnion(collectionBehavior)
+        panel.hidesOnDeactivate = false
+    }
+}
+
+enum ClipboardSystemQuickLookMaterializer {
+    static func materialize(
+        record: ClipboardRecord,
+        title: String,
+        blobs: BlobStore?,
+        temporaryDirectory: URL
+    ) throws -> ClipboardQuickLookPayload {
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+
+        switch record {
+        case let .files(urls):
+            guard !urls.isEmpty else { throw ClipboardSystemQuickLookMaterializationError.noPreviewableItems }
+            let fallbackTitle = displayTitle(title, fallback: "Files")
+            let items = urls.enumerated().map { index, url in
+                let itemTitle: String
+                if urls.count == 1 {
+                    itemTitle = displayTitle(title, fallback: url.lastPathComponent)
+                } else {
+                    itemTitle = url.lastPathComponent.isEmpty ? "\(fallbackTitle) \(index + 1)" : url.lastPathComponent
+                }
+                return ClipboardQuickLookPreviewItem(url: url, title: itemTitle)
+            }
+            return ClipboardQuickLookPayload(items: items, temporaryURLs: [])
+
+        case let .text(text):
+            let url = try writeTemporaryFile(
+                data: Data(text.utf8),
+                title: title,
+                fallbackTitle: "Copied Text",
+                pathExtension: "txt",
+                temporaryDirectory: temporaryDirectory
+            )
+            return ClipboardQuickLookPayload(
+                items: [ClipboardQuickLookPreviewItem(url: url, title: displayTitle(title, fallback: "Copied Text"))],
+                temporaryURLs: [url]
+            )
+
+        case let .html(html):
+            let url = try writeTemporaryFile(
+                data: Data(html.utf8),
+                title: title,
+                fallbackTitle: "Copied HTML",
+                pathExtension: "html",
+                temporaryDirectory: temporaryDirectory
+            )
+            return ClipboardQuickLookPayload(
+                items: [ClipboardQuickLookPreviewItem(url: url, title: displayTitle(title, fallback: "Copied HTML"))],
+                temporaryURLs: [url]
+            )
+
+        case let .rtf(data):
+            let url = try writeTemporaryFile(
+                data: data,
+                title: title,
+                fallbackTitle: "Copied Rich Text",
+                pathExtension: "rtf",
+                temporaryDirectory: temporaryDirectory
+            )
+            return ClipboardQuickLookPayload(
+                items: [ClipboardQuickLookPreviewItem(url: url, title: displayTitle(title, fallback: "Copied Rich Text"))],
+                temporaryURLs: [url]
+            )
+
+        case let .image(blobID, _, _):
+            guard let blobs else { throw ClipboardSystemQuickLookMaterializationError.missingBlobStore }
+            let raw = try blobs.read(id: blobID)
+            let image = quickLookImageData(from: raw)
+            let url = try writeTemporaryFile(
+                data: image.data,
+                title: title,
+                fallbackTitle: "Copied Image",
+                pathExtension: image.pathExtension,
+                temporaryDirectory: temporaryDirectory
+            )
+            return ClipboardQuickLookPayload(
+                items: [ClipboardQuickLookPreviewItem(url: url, title: displayTitle(title, fallback: "Copied Image"))],
+                temporaryURLs: [url]
+            )
+        }
+    }
+
+    private static func writeTemporaryFile(
+        data: Data,
+        title: String,
+        fallbackTitle: String,
+        pathExtension: String,
+        temporaryDirectory: URL
+    ) throws -> URL {
+        let fileName = "\(safeFilenameBase(title, fallback: fallbackTitle))-\(UUID().uuidString).\(pathExtension)"
+        let url = temporaryDirectory.appendingPathComponent(fileName)
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    private static func displayTitle(_ title: String, fallback: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    private static func safeFilenameBase(_ title: String, fallback: String) -> String {
+        let base = displayTitle(title, fallback: fallback)
+        let cleaned = base.replacingOccurrences(
+            of: "[^A-Za-z0-9._ -]+",
+            with: "-",
+            options: .regularExpression
+        )
+        let collapsed = cleaned
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".-_ "))
+        return String((collapsed.isEmpty ? fallback : collapsed).prefix(48))
+    }
+
+    private static func quickLookImageData(from data: Data) -> (data: Data, pathExtension: String) {
+        if hasPrefix([0x89, 0x50, 0x4E, 0x47], data: data) { return (data, "png") }
+        if hasPrefix([0xFF, 0xD8, 0xFF], data: data) { return (data, "jpg") }
+        if hasPrefix([0x47, 0x49, 0x46, 0x38], data: data) { return (data, "gif") }
+        if hasPrefix([0x49, 0x49, 0x2A, 0x00], data: data)
+            || hasPrefix([0x4D, 0x4D, 0x00, 0x2A], data: data) {
+            return (data, "tiff")
+        }
+        if let image = NSImage(data: data),
+           let tiff = image.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:])
+        {
+            return (png, "png")
+        }
+        return (data, "bin")
+    }
+
+    private static func hasPrefix(_ prefix: [UInt8], data: Data) -> Bool {
+        data.count >= prefix.count && data.prefix(prefix.count).elementsEqual(prefix)
+    }
+}
+
+@MainActor
+final class ClipboardSystemQuickLookCoordinator {
+    static let shared = ClipboardSystemQuickLookCoordinator()
+
+    private let source = ClipboardSystemQuickLookPanelSource()
+    private var temporaryURLs: [URL] = []
+
+    private init() {
+        source.onClose = { [weak self] in
+            Task { @MainActor in
+                self?.cleanupTemporaryFiles()
+                self?.source.items = []
+            }
+        }
+    }
+
+    var isVisible: Bool {
+        guard QLPreviewPanel.sharedPreviewPanelExists() else { return false }
+        return QLPreviewPanel.shared()?.isVisible ?? false
+    }
+
+    func show(record: ClipboardRecord, title: String, blobs: BlobStore?) {
+        do {
+            let payload = try ClipboardSystemQuickLookMaterializer.materialize(
+                record: record,
+                title: title,
+                blobs: blobs,
+                temporaryDirectory: temporaryDirectory()
+            )
+            show(payload: payload, index: 0)
+        } catch {
+            dismiss()
+        }
+    }
+
+    func show(payload: ClipboardQuickLookPayload, index: Int = 0) {
+        guard !payload.items.isEmpty else { return }
+        guard let panel = QLPreviewPanel.shared() else {
+            removeTemporaryFiles(payload.temporaryURLs)
+            return
+        }
+
+        let oldTemporaryURLs = temporaryURLs
+        temporaryURLs = payload.temporaryURLs
+        source.items = payload.items
+
+        panel.dataSource = source
+        panel.delegate = source
+        ClipboardSystemQuickLookLayering.apply(to: panel)
+        panel.reloadData()
+        panel.currentPreviewItemIndex = max(0, min(index, payload.items.count - 1))
+        panel.refreshCurrentPreviewItem()
+        panel.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
+        ClipboardSystemQuickLookLayering.apply(to: panel)
+        DispatchQueue.main.async {
+            ClipboardSystemQuickLookLayering.apply(to: panel)
+            panel.orderFrontRegardless()
+        }
+        removeTemporaryFiles(oldTemporaryURLs)
+    }
+
+    func dismiss() {
+        if QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared() {
+            panel.orderOut(nil)
+            panel.dataSource = nil
+            panel.delegate = nil
+        }
+        source.items = []
+        cleanupTemporaryFiles()
+    }
+
+    private func cleanupTemporaryFiles() {
+        removeTemporaryFiles(temporaryURLs)
+        temporaryURLs = []
+    }
+
+    private func removeTemporaryFiles(_ urls: [URL]) {
+        for url in urls {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func temporaryDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("MacAllYouNeed-ClipboardQuickLook", isDirectory: true)
+    }
+}
+
+private final class ClipboardSystemQuickLookPanelSource: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    var items: [ClipboardQuickLookPreviewItem] = []
+    var onClose: (() -> Void)?
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        items.count
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        guard items.indices.contains(index) else { return nil }
+        return items[index]
+    }
+
+    func previewPanelWillClose(_ panel: QLPreviewPanel!) {
+        onClose?()
+    }
+}
+
+/// Legacy floating preview panel. Clipboard previews use
+/// `ClipboardSystemQuickLookCoordinator`; this remains for focused app-owned
+/// previews such as voice transcripts.
 @MainActor
 enum PreviewPanel {
     /// Payload kinds the panel knows how to render. Keep this small —

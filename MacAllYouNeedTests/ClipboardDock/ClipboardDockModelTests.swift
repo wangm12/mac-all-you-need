@@ -79,6 +79,13 @@ final class ClipboardDockModelTests: XCTestCase {
             }
     }
 
+    private func temporaryDirectoryForTest() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mayn-quicklook-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     func testRefreshLoadsItemsFromXPC() async {
         let mock = MockClient()
         mock.listResults = [
@@ -177,6 +184,7 @@ final class ClipboardDockModelTests: XCTestCase {
         XCTAssertTrue(visibleDockWindows.first === panel)
         XCTAssertTrue(controller.debugHasGlobalOutsideClickMonitorForTesting)
         XCTAssertTrue(controller.debugHasLocalOutsideClickMonitorForTesting)
+        XCTAssertTrue(controller.debugHasGlobalKeyMonitorForTesting)
         XCTAssertEqual(model.searchFocusRequestID, 1)
     }
 
@@ -215,6 +223,55 @@ final class ClipboardDockModelTests: XCTestCase {
             invokerLevel.rawValue,
             NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.draggingWindow))).rawValue
         )
+    }
+
+    func testSystemQuickLookLevelSitsAboveDockPanelAndCanJoinFullScreenSpaces() {
+        let panel = BottomDockWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 180))
+        defer { panel.close() }
+
+        XCTAssertGreaterThan(
+            ClipboardSystemQuickLookLayering.panelLevel.rawValue,
+            panel.level.rawValue
+        )
+        XCTAssertTrue(ClipboardSystemQuickLookLayering.collectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(ClipboardSystemQuickLookLayering.collectionBehavior.contains(.fullScreenAuxiliary))
+    }
+
+    func testGlobalKeyFallbackMapsSpaceEscapeAndPlainArrowKeys() {
+        let bindings = DockGlobalKeyFallbackBindings(
+            quickLook: [ShortcutBinding(keyCode: 49, modifierMask: 0)],
+            dismiss: [ShortcutBinding(keyCode: 53, modifierMask: 0)]
+        )
+
+        XCTAssertEqual(
+            DockGlobalKeyFallbackPolicy.action(keyCode: 49, modifierMask: 0, bindings: bindings),
+            .quickLook
+        )
+        XCTAssertEqual(
+            DockGlobalKeyFallbackPolicy.action(keyCode: 53, modifierMask: 0, bindings: bindings),
+            .dismiss
+        )
+        XCTAssertEqual(
+            DockGlobalKeyFallbackPolicy.action(keyCode: 123, modifierMask: 0, bindings: bindings),
+            .focusBackward
+        )
+        XCTAssertEqual(
+            DockGlobalKeyFallbackPolicy.action(keyCode: 124, modifierMask: 0, bindings: bindings),
+            .focusForward
+        )
+    }
+
+    func testGlobalKeyFallbackIgnoresModifiedArrowKeys() {
+        let bindings = DockGlobalKeyFallbackBindings(
+            quickLook: [ShortcutBinding(keyCode: 49, modifierMask: 0)],
+            dismiss: [ShortcutBinding(keyCode: 53, modifierMask: 0)]
+        )
+
+        XCTAssertNil(DockGlobalKeyFallbackPolicy.action(
+            keyCode: 124,
+            modifierMask: NSEvent.ModifierFlags.shift.rawValue,
+            bindings: bindings
+        ))
     }
 
     func testDockOutsideClickPolicyHidesOnlyOutsidePanelAfterIgnoreWindow() {
@@ -259,6 +316,67 @@ final class ClipboardDockModelTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(frame.minY, dockFrame.maxY + PreviewPanelLayout.minimumClearance)
         XCTAssertLessThanOrEqual(frame.maxY, visibleFrame.maxY)
+    }
+
+    func testQuickLookMaterializerUsesOriginalFileURLs() throws {
+        let temp = try temporaryDirectoryForTest()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let fileURL = temp.appendingPathComponent("Report.txt")
+        try "file body".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let payload = try ClipboardSystemQuickLookMaterializer.materialize(
+            record: .files([fileURL]),
+            title: "Report",
+            blobs: nil,
+            temporaryDirectory: temp
+        )
+
+        XCTAssertEqual(payload.items.count, 1)
+        XCTAssertEqual(payload.items.first?.previewItemURL, fileURL)
+        XCTAssertEqual(payload.items.first?.previewItemTitle, "Report")
+        XCTAssertTrue(payload.temporaryURLs.isEmpty)
+    }
+
+    func testQuickLookMaterializerWritesTextToTemporaryFile() throws {
+        let temp = try temporaryDirectoryForTest()
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let payload = try ClipboardSystemQuickLookMaterializer.materialize(
+            record: .text("hello quick look"),
+            title: "Copied Text",
+            blobs: nil,
+            temporaryDirectory: temp
+        )
+
+        let url = try XCTUnwrap(payload.items.first?.previewItemURL)
+        XCTAssertEqual(url.pathExtension, "txt")
+        XCTAssertEqual(payload.items.first?.previewItemTitle, "Copied Text")
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "hello quick look")
+        XCTAssertEqual(payload.temporaryURLs, [url])
+    }
+
+    func testQuickLookMaterializerWritesImageBlobToTemporaryImageFile() throws {
+        let temp = try temporaryDirectoryForTest()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let blobs = BlobStore(
+            rootURL: temp.appendingPathComponent("blobs", isDirectory: true),
+            key: SymmetricKey(size: .bits256)
+        )
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="))
+        let blobID = try blobs.write(png)
+
+        let payload = try ClipboardSystemQuickLookMaterializer.materialize(
+            record: .image(blobID: blobID, width: 1, height: 1),
+            title: "Copied Image",
+            blobs: blobs,
+            temporaryDirectory: temp
+        )
+
+        let url = try XCTUnwrap(payload.items.first?.previewItemURL)
+        XCTAssertEqual(url.pathExtension, "png")
+        XCTAssertEqual(payload.items.first?.previewItemTitle, "Copied Image")
+        XCTAssertEqual(try Data(contentsOf: url), png)
+        XCTAssertEqual(payload.temporaryURLs, [url])
     }
 
     func testDockWindowHideDismissesFloatingPreview() {

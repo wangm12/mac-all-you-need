@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Core
 import SwiftUI
 
@@ -52,6 +53,149 @@ enum DockHeightPreviewLayering {
     }
 }
 
+enum DockGlobalKeyFallbackAction: Equatable {
+    case quickLook
+    case dismiss
+    case focusBackward
+    case focusForward
+}
+
+struct DockGlobalKeyFallbackBindings {
+    let quickLook: [ShortcutBinding]
+    let dismiss: [ShortcutBinding]
+}
+
+enum DockGlobalKeyFallbackPolicy {
+    static func modifierMask(from flags: CGEventFlags) -> UInt {
+        var modifiers: NSEvent.ModifierFlags = []
+        if flags.contains(.maskAlphaShift) { modifiers.insert(.capsLock) }
+        if flags.contains(.maskShift) { modifiers.insert(.shift) }
+        if flags.contains(.maskControl) { modifiers.insert(.control) }
+        if flags.contains(.maskAlternate) { modifiers.insert(.option) }
+        if flags.contains(.maskCommand) { modifiers.insert(.command) }
+        return modifiers.rawValue & NSEvent.ModifierFlags.deviceIndependentFlagsMask.rawValue
+    }
+
+    static func action(
+        keyCode: UInt16,
+        modifierMask: UInt,
+        bindings: DockGlobalKeyFallbackBindings
+    ) -> DockGlobalKeyFallbackAction? {
+        if matches(bindings.quickLook, keyCode: keyCode, modifierMask: modifierMask) {
+            return .quickLook
+        }
+        if matches(bindings.dismiss, keyCode: keyCode, modifierMask: modifierMask) {
+            return .dismiss
+        }
+
+        guard modifierMask == 0 else { return nil }
+        switch keyCode {
+        case 123:
+            return .focusBackward
+        case 124:
+            return .focusForward
+        default:
+            return nil
+        }
+    }
+
+    private static func matches(
+        _ bindings: [ShortcutBinding],
+        keyCode: UInt16,
+        modifierMask: UInt
+    ) -> Bool {
+        bindings.contains { binding in
+            binding.keyCode == keyCode && binding.modifierMask == modifierMask
+        }
+    }
+}
+
+private final class DockGlobalKeyEventTap {
+    private let bindings: DockGlobalKeyFallbackBindings
+    private let handleAction: @MainActor (DockGlobalKeyFallbackAction) -> Void
+    private var eventTap: CFMachPort?
+    private var eventTapSource: CFRunLoopSource?
+
+    init(
+        bindings: DockGlobalKeyFallbackBindings,
+        handleAction: @escaping @MainActor (DockGlobalKeyFallbackAction) -> Void
+    ) {
+        self.bindings = bindings
+        self.handleAction = handleAction
+    }
+
+    @discardableResult
+    func start() -> Bool {
+        guard eventTap == nil else { return true }
+
+        let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+            | CGEventMask(1 << CGEventType.tapDisabledByTimeout.rawValue)
+            | CGEventMask(1 << CGEventType.tapDisabledByUserInput.rawValue)
+        let userInfo = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: eventMask,
+            callback: { _, type, event, userInfo in
+                guard let userInfo else { return Unmanaged.passUnretained(event) }
+                let eventTap = Unmanaged<DockGlobalKeyEventTap>.fromOpaque(userInfo).takeUnretainedValue()
+                return eventTap.handle(type: type, event: event)
+            },
+            userInfo: userInfo
+        ) else {
+            return false
+        }
+
+        eventTap = tap
+        eventTapSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        if let eventTapSource {
+            CFRunLoopAddSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
+        }
+        CGEvent.tapEnable(tap: tap, enable: true)
+        return true
+    }
+
+    func stop() {
+        if let eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+        }
+        if let eventTapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
+        }
+        eventTapSource = nil
+        eventTap = nil
+    }
+
+    private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let eventTap {
+                CGEvent.tapEnable(tap: eventTap, enable: true)
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard type == .keyDown else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        let modifierMask = DockGlobalKeyFallbackPolicy.modifierMask(from: event.flags)
+        guard let action = DockGlobalKeyFallbackPolicy.action(
+            keyCode: keyCode,
+            modifierMask: modifierMask,
+            bindings: bindings
+        ) else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        Task { @MainActor [handleAction] in
+            handleAction(action)
+        }
+        return nil
+    }
+}
+
 @MainActor
 final class DockWindowController {
     private let model: ClipboardDockModel
@@ -63,6 +207,8 @@ final class DockWindowController {
     private var globalOutsideClickMonitor: Any?
     private var localOutsideClickMonitor: Any?
     private var keyMonitor: Any?
+    private var globalKeyMonitor: Any?
+    private var globalKeyEventTap: DockGlobalKeyEventTap?
     private var dragMonitor: Any?
     private var dragSurfaceClearTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
@@ -102,6 +248,7 @@ final class DockWindowController {
     var debugWindowForTesting: BottomDockWindow? { window }
     var debugHasGlobalOutsideClickMonitorForTesting: Bool { globalOutsideClickMonitor != nil }
     var debugHasLocalOutsideClickMonitorForTesting: Bool { localOutsideClickMonitor != nil }
+    var debugHasGlobalKeyMonitorForTesting: Bool { globalKeyMonitor != nil }
 
     func debugSetWindowForTesting(_ window: BottomDockWindow?) {
         self.window = window
@@ -192,10 +339,13 @@ final class DockWindowController {
         window = panel
 
         panel.orderFrontRegardless()
+        focusDockPanelForKeyboardInput(panel)
         raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
         DockAnimator.slideUp(panel, finalOrigin: NSPoint(x: frame.minX, y: frame.minY)) { [weak self, weak panel, log] in
             if self?.heightPreviewInvokerWindow == nil {
-                panel?.makeKey()
+                if let panel {
+                    self?.focusDockPanelForKeyboardInput(panel)
+                }
                 self?.model.requestSearchFocus()
             } else {
                 self?.raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
@@ -241,7 +391,7 @@ final class DockWindowController {
         panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
         panel.orderFrontRegardless()
         if heightPreviewInvokerWindow == nil {
-            panel.makeKey()
+            focusDockPanelForKeyboardInput(panel)
             model.requestSearchFocus()
         } else {
             raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
@@ -274,6 +424,7 @@ final class DockWindowController {
 
     func hide() {
         PreviewPanel.dismiss()
+        ClipboardSystemQuickLookCoordinator.shared.dismiss()
         model.isQuickLooking = false
         restoreHeightPreviewInvokerWindowLevel()
         stopOutsideClickMonitor()
@@ -473,6 +624,11 @@ final class DockWindowController {
         }
     }
 
+    private func focusDockPanelForKeyboardInput(_ panel: BottomDockWindow) {
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeKey()
+    }
+
     private func startKeyMonitor() {
         stopKeyMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -484,15 +640,7 @@ final class DockWindowController {
             }
 
             if registry.matches(event: event, .quickLook) {
-                // Image / text cards open the floating PreviewPanel
-                // (same behavior as the menu bar popover). Other kinds
-                // fall back to the in-window QuickLookOverlay so the user
-                // can still preview color / link / multi-file cards.
-                if PreviewPanel.isVisible {
-                    PreviewPanel.dismiss()
-                } else if !showFloatingImagePreviewForFocused() {
-                    model.isQuickLooking.toggle()
-                }
+                toggleSystemQuickLookForFocused()
                 return nil
             }
 
@@ -534,6 +682,8 @@ final class DockWindowController {
             if registry.matches(event: event, .dismiss) {
                 if model.isQuickLooking {
                     model.isQuickLooking = false
+                } else if ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                    ClipboardSystemQuickLookCoordinator.shared.dismiss()
                 } else if model.showCheatsheet {
                     model.showCheatsheet = false
                 } else if model.showTransformMenu {
@@ -575,7 +725,7 @@ final class DockWindowController {
                 return nil
             }
 
-            if model.isQuickLooking || PreviewPanel.isVisible {
+            if model.isQuickLooking || ClipboardSystemQuickLookCoordinator.shared.isVisible {
                 if event.keyCode == 124 {
                     // Boundary no-op: at the rightmost card focusForward is
                     // a no-op on focusedIndex, but we'd still re-fire the
@@ -583,20 +733,16 @@ final class DockWindowController {
                     // the re-show when focus didn't actually move.
                     let before = model.focusedIndex
                     model.focusForward()
-                    if model.focusedIndex != before, PreviewPanel.isVisible {
-                        showFloatingImagePreviewForFocused(
-                            direction: .horizontal(from: before, to: model.focusedIndex)
-                        )
+                    if model.focusedIndex != before, ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                        showSystemQuickLookForFocused()
                     }
                     return nil
                 }
                 if event.keyCode == 123 {
                     let before = model.focusedIndex
                     model.focusBackward()
-                    if model.focusedIndex != before, PreviewPanel.isVisible {
-                        showFloatingImagePreviewForFocused(
-                            direction: .horizontal(from: before, to: model.focusedIndex)
-                        )
+                    if model.focusedIndex != before, ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                        showSystemQuickLookForFocused()
                     }
                     return nil
                 }
@@ -666,19 +812,15 @@ final class DockWindowController {
                 case 0x7B:
                     let before = model.focusedIndex
                     model.focusBackward()
-                    if model.focusedIndex != before, PreviewPanel.isVisible {
-                        showFloatingImagePreviewForFocused(
-                            direction: .horizontal(from: before, to: model.focusedIndex)
-                        )
+                    if model.focusedIndex != before, ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                        showSystemQuickLookForFocused()
                     }
                     return nil
                 case 0x7C:
                     let before = model.focusedIndex
                     model.focusForward()
-                    if model.focusedIndex != before, PreviewPanel.isVisible {
-                        showFloatingImagePreviewForFocused(
-                            direction: .horizontal(from: before, to: model.focusedIndex)
-                        )
+                    if model.focusedIndex != before, ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                        showSystemQuickLookForFocused()
                     }
                     return nil
                 default:
@@ -687,6 +829,23 @@ final class DockWindowController {
             }
 
             return event
+        }
+
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor in
+                self?.handleGlobalKeyDown(event)
+            }
+        }
+
+        let fallbackBindings = DockGlobalKeyFallbackBindings(
+            quickLook: registry.bindings(for: .quickLook),
+            dismiss: registry.bindings(for: .dismiss)
+        )
+        let eventTap = DockGlobalKeyEventTap(bindings: fallbackBindings) { [weak self] action in
+            self?.handleGlobalKeyFallbackAction(action)
+        }
+        if eventTap.start() {
+            globalKeyEventTap = eventTap
         }
     }
 
@@ -741,6 +900,59 @@ final class DockWindowController {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
         }
+        if let globalKeyMonitor {
+            NSEvent.removeMonitor(globalKeyMonitor)
+            self.globalKeyMonitor = nil
+        }
+        globalKeyEventTap?.stop()
+        globalKeyEventTap = nil
+    }
+
+    private func handleGlobalKeyDown(_ event: NSEvent) {
+        guard let window, window.isVisible else { return }
+
+        let modifierMask = event.modifierFlags.rawValue
+            & NSEvent.ModifierFlags.deviceIndependentFlagsMask.rawValue
+        let fallbackBindings = DockGlobalKeyFallbackBindings(
+            quickLook: registry.bindings(for: .quickLook),
+            dismiss: registry.bindings(for: .dismiss)
+        )
+        guard let action = DockGlobalKeyFallbackPolicy.action(
+            keyCode: event.keyCode,
+            modifierMask: modifierMask,
+            bindings: fallbackBindings
+        ) else { return }
+
+        handleGlobalKeyFallbackAction(action)
+    }
+
+    private func handleGlobalKeyFallbackAction(_ action: DockGlobalKeyFallbackAction) {
+        guard let window, window.isVisible else { return }
+
+        switch action {
+        case .quickLook:
+            toggleSystemQuickLookForFocused()
+        case .dismiss:
+            if model.isQuickLooking {
+                model.isQuickLooking = false
+            } else if ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                ClipboardSystemQuickLookCoordinator.shared.dismiss()
+            } else {
+                hide()
+            }
+        case .focusForward:
+            let before = model.focusedIndex
+            model.focusForward()
+            if model.focusedIndex != before, ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                showSystemQuickLookForFocused()
+            }
+        case .focusBackward:
+            let before = model.focusedIndex
+            model.focusBackward()
+            if model.focusedIndex != before, ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                showSystemQuickLookForFocused()
+            }
+        }
     }
 
     /// True when the dock's key window has a text editor as its first
@@ -756,14 +968,9 @@ final class DockWindowController {
         return false
     }
 
-    /// Open the floating `PreviewPanel` for the focused card. Returns true
-    /// if a preview was shown — caller falls through to the in-window
-    /// QuickLookOverlay if false (handled kinds: image, image file URL,
-    /// text, html, rtf; falls through for color/link/multi-file).
+    /// Open the native macOS Quick Look panel for the focused card.
     @discardableResult
-    func showFloatingImagePreviewForFocused(
-        direction: PreviewPanelTransitionDirection = .none
-    ) -> Bool {
+    func showSystemQuickLookForFocused() -> Bool {
         guard model.items.indices.contains(model.focusedIndex),
               let clip = model.clip
         else { return false }
@@ -771,91 +978,24 @@ final class DockWindowController {
         guard let rid = Core.RecordID(rawValue: item.id),
               let body = try? clip.body(for: rid)
         else { return false }
-        switch body {
-        case let .image(blobID, _, _):
-            guard let blobs = model.blobs,
-                  let data = try? blobs.read(id: blobID),
-                  let image = NSImage(data: data)
-            else { return false }
-            PreviewPanel.show(
-                .image(image),
-                metadata: previewMetadata(for: item, kind: "Image"),
-                direction: direction,
-                avoiding: window?.frame
-            )
-            return true
-        case let .files(urls) where urls.count == 1 && Self.isImageURL(urls[0]):
-            guard let image = NSImage(contentsOf: urls[0]) else { return false }
-            PreviewPanel.show(
-                .image(image),
-                metadata: previewMetadata(for: item, kind: "File image"),
-                direction: direction,
-                avoiding: window?.frame
-            )
-            return true
-        case let .text(s):
-            PreviewPanel.show(
-                .text(s, monospaced: false),
-                metadata: previewMetadata(for: item, kind: "Text"),
-                direction: direction,
-                avoiding: window?.frame
-            )
-            return true
-        case let .html(s):
-            let plain = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            PreviewPanel.show(
-                .text(plain, monospaced: false),
-                metadata: previewMetadata(for: item, kind: "HTML"),
-                direction: direction,
-                avoiding: window?.frame
-            )
-            return true
-        case let .rtf(data):
-            if let attr = NSAttributedString(rtf: data, documentAttributes: nil) {
-                PreviewPanel.show(
-                    .text(attr.string, monospaced: false),
-                    metadata: previewMetadata(for: item, kind: "Rich text"),
-                    direction: direction,
-                    avoiding: window?.frame
-                )
-                return true
-            }
-            return false
-        case .files:
-            // Multi-file or non-image file — let the in-window overlay handle it.
-            return false
-        }
-    }
-
-    private static func isImageURL(_ url: URL) -> Bool {
-        let ext = url.pathExtension.lowercased()
-        return ["png", "jpg", "jpeg", "gif", "heic", "heif", "webp", "tiff", "tif", "bmp"].contains(ext)
-    }
-
-    private func previewMetadata(for item: DockItem, kind: String) -> PreviewPanelMetadata {
-        let title = item.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        return PreviewPanelMetadata(
-            title: title.isEmpty ? kind : title,
-            subtitle: "\(kind) · \(CompactTimestamp.format(item.modified))",
-            badge: "Space / Esc",
-            symbol: previewSymbol(for: item)
+        ClipboardSystemQuickLookCoordinator.shared.show(
+            record: body,
+            title: previewTitle(for: item),
+            blobs: model.blobs
         )
+        return true
     }
 
-    private func previewSymbol(for item: DockItem) -> String {
-        switch item.kind {
-        case .text, .rtf:
-            return "text.alignleft"
-        case .code:
-            return "chevron.left.forwardslash.chevron.right"
-        case .image:
-            return "photo"
-        case .file:
-            return "doc"
-        case .link:
-            return "link"
-        case .color:
-            return "circle.fill"
+    private func toggleSystemQuickLookForFocused() {
+        if ClipboardSystemQuickLookCoordinator.shared.isVisible {
+            ClipboardSystemQuickLookCoordinator.shared.dismiss()
+        } else {
+            showSystemQuickLookForFocused()
         }
+    }
+
+    private func previewTitle(for item: DockItem) -> String {
+        let title = item.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? "Clipboard Preview" : title
     }
 }
