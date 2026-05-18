@@ -30,16 +30,17 @@ struct MainWindowRoot: View {
                     .frame(height: 34)
 
                 ForEach(MainAppDestination.primarySidebarDestinations) { destination in
+                    let isDisabled = isFeatureDisabled(for: destination)
                     MainSidebarButton(
                         destination: destination,
                         isSelected: selection.wrappedValue == destination,
-                        isDisabled: isFeatureDisabled(for: destination),
+                        isDisabled: isDisabled,
                         badge: MainSidebarBadgePresentation.badgeText(
                             for: destination,
                             records: controller.downloaderVM.rows
                         )
                     ) {
-                        if isFeatureDisabled(for: destination) {
+                        if isDisabled {
                             openMainDestination(.dashboard)
                         } else {
                             selection.wrappedValue = destination
@@ -172,10 +173,20 @@ struct MainWindowRoot: View {
 
     // MARK: Feature gating helpers
 
+    // Static mapping avoids calling dashboardTiles() (which triggers AXIsProcessTrusted()
+    // and JSONDecoder deserialization) on every sidebar render.
+    private static let destinationFeatureIDs: [MainAppDestination: FeatureID] = [
+        .clipboard: .clipboard,
+        .voice: .voice,
+        .downloads: .downloader,
+        .folderPreview: .folderPreview,
+        .snippets: .clipboard,        // Snippets proxies to Clipboard feature
+        .windowLayouts: .windowLayouts,
+        .grabAnywhere: .windowGrab,
+    ]
+
     private func featureID(for destination: MainAppDestination) -> FeatureID? {
-        DashboardToolTilePresentation.dashboardTiles(clipboardCount: 0, downloadsQueueCount: 0)
-            .first { $0.destination == destination }
-            .flatMap { $0.proxiesFeatureID ?? $0.featureID }
+        MainWindowRoot.destinationFeatureIDs[destination]
     }
 
     private func isFeatureDisabled(for destination: MainAppDestination) -> Bool {
