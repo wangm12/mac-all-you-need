@@ -6,6 +6,7 @@ import FeatureCore
 import FluidAudio
 import Platform
 import SwiftUI
+import UniformTypeIdentifiers
 
 private typealias HotkeyDescriptor = Platform.HotkeyDescriptor
 
@@ -1632,6 +1633,9 @@ private struct VoiceMainPage: View {
     @State private var errorMessage: String?
     @State private var transcripts: [VoiceTranscript] = []
     @State private var selectedTranscriptIDs: Set<String> = []
+    @State private var voiceHistorySettings = VoiceHistorySettings()
+    @State private var historyToast: VoiceHistoryUndoToken?
+    @State private var toastClearTask: Task<Void, Never>?
     @State private var transcriptAnchorID: String?
     @State private var microphoneOptions = VoiceMicrophoneOptionDescriptor.available()
     @State private var modelDownloadStatus: [VoiceASRModelID: String] = [:]
@@ -1846,24 +1850,46 @@ private struct VoiceMainPage: View {
     }
 
     private var voiceHistorySection: some View {
-        MAYNSection(title: "Recent transcripts") {
-            if transcripts.isEmpty {
-                MAYNSettingsRow(
-                    title: "No transcripts yet",
-                    subtitle: "Completed voice dictations appear here after transcription and paste."
-                ) {
-                    EmptyView()
+        VStack(spacing: 12) {
+            VoiceHistoryStorageHeader(settings: $voiceHistorySettings)
+                .onChange(of: voiceHistorySettings) { _, new in
+                    controller.saveVoiceHistorySettings(new)
                 }
-            } else {
-                ForEach(Array(transcripts.enumerated()), id: \.element.id) { index, transcript in
-                    if index > 0 { MAYNDivider() }
-                    VoiceTranscriptHistoryRow(
-                        transcript: transcript,
-                        isSelected: selectedTranscriptIDs.contains(transcript.id),
-                        onSelect: { selectVoiceTranscript(transcript) },
-                        onCopy: { copyVoiceTranscripts(ids: [transcript.id]) }
-                    )
+
+            MAYNSection(title: "Recent transcripts") {
+                if transcripts.isEmpty {
+                    MAYNSettingsRow(
+                        title: "No transcripts yet",
+                        subtitle: "Completed voice dictations appear here after transcription and paste."
+                    ) {
+                        EmptyView()
+                    }
+                } else {
+                    ForEach(Array(transcripts.enumerated()), id: \.element.id) { index, transcript in
+                        if index > 0 { MAYNDivider() }
+                        VoiceTranscriptHistoryRow(
+                            transcript: transcript,
+                            isSelected: selectedTranscriptIDs.contains(transcript.id),
+                            onSelect: { selectVoiceTranscript(transcript) },
+                            onCopy: { copyVoiceTranscripts(ids: [transcript.id]) },
+                            onRetry: { retryTranscript(transcript) },
+                            onDownload: { downloadTranscript(transcript) },
+                            onDelete: { deleteTranscriptWithUndo(transcript) }
+                        )
+                    }
                 }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let toast = historyToast {
+                VoiceHistoryToastView(message: toast.message) {
+                    toast.undo()
+                    toastClearTask?.cancel()
+                    historyToast = nil
+                    reload()
+                }
+                .padding(.bottom, 12)
+                .transition(.opacity)
             }
         }
         .focusable()
@@ -2032,6 +2058,7 @@ private struct VoiceMainPage: View {
         transcripts = controller.listRecentVoiceTranscripts(limit: 20)
         pruneVoiceTranscriptSelection()
         refreshMicrophoneOptions()
+        voiceHistorySettings = controller.loadVoiceHistorySettings()
     }
 
     private var voiceTranscriptIDs: [String] {
@@ -2231,6 +2258,47 @@ private struct VoiceMainPage: View {
         if let transcriptAnchorID, !existingIDs.contains(transcriptAnchorID) {
             self.transcriptAnchorID = selectedTranscriptIDs.first ?? voiceTranscriptIDs.first
         }
+    }
+
+    private func retryTranscript(_ transcript: VoiceTranscript) {
+        Task { @MainActor in
+            do {
+                _ = try await controller.retryVoiceTranscript(id: transcript.id)
+                reload()
+            } catch {
+                CopyHUD.show("Retry failed", symbol: "exclamationmark.triangle.fill")
+            }
+        }
+    }
+
+    private func downloadTranscript(_ transcript: VoiceTranscript) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.wav]
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmm"
+        panel.nameFieldStringValue = "voice-\(formatter.string(from: transcript.endedAt)).wav"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try controller.downloadVoiceAudio(transcript: transcript, to: url)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't save audio"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
+    private func deleteTranscriptWithUndo(_ transcript: VoiceTranscript) {
+        let token = controller.deleteVoiceTranscriptWithUndo(transcript)
+        toastClearTask?.cancel()
+        historyToast = token
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            historyToast = nil
+        }
+        toastClearTask = task
+        reload()
     }
 
     private static func isDeleteKey(_ character: Character) -> Bool {
@@ -2491,6 +2559,9 @@ private struct VoiceTranscriptHistoryRow: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onCopy: () -> Void
+    let onRetry: () -> Void
+    let onDownload: () -> Void
+    let onDelete: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
@@ -2500,14 +2571,22 @@ private struct VoiceTranscriptHistoryRow: View {
                 Text(displayText)
                     .font(.callout)
                     .lineLimit(2)
-                Text("\(CompactTimestamp.format(transcript.endedAt)) · \(transcript.language.rawValue) · \(transcript.modelIdentifier)")
+                Text(metadataLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            StatusPill(text: "\(transcript.durationMs) ms", kind: .neutral)
+            VoiceTranscriptRowMenu(
+                hasAudio: transcript.audioPath != nil,
+                onRetry: onRetry,
+                onDownload: onDownload,
+                onDelete: onDelete
+            )
+            .opacity(isHovering || isSelected ? 1 : 0)
+            .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
+            .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -2516,11 +2595,7 @@ private struct VoiceTranscriptHistoryRow: View {
         .background(rowBackground)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded {
-                onCopy()
-            }
-        )
+        .simultaneousGesture(TapGesture(count: 2).onEnded { onCopy() })
         .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
         .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
         .onHover { isHovering = $0 }
@@ -2528,6 +2603,20 @@ private struct VoiceTranscriptHistoryRow: View {
 
     private var displayText: String {
         MainVoiceTranscriptHistoryPresentation.displayText(transcript)
+    }
+
+    private var metadataLine: String {
+        let time = CompactTimestamp.format(transcript.endedAt)
+        let duration = formatDuration(ms: transcript.durationMs)
+        return "\(time) · \(transcript.language.rawValue) · \(transcript.modelIdentifier) · \(duration)"
+    }
+
+    private func formatDuration(ms: Int) -> String {
+        let seconds = Double(ms) / 1000.0
+        if seconds < 60 { return String(format: "%.1f s", seconds) }
+        let minutes = Int(seconds / 60)
+        let remainder = Int(seconds.truncatingRemainder(dividingBy: 60))
+        return "\(minutes)m \(remainder)s"
     }
 
     private var rowBackground: Color {
