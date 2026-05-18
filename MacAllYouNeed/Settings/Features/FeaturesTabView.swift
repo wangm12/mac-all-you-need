@@ -58,7 +58,10 @@ struct FeaturesTabView: View {
         case .uninstall:
             pendingUninstall = descriptor
         case .cancelDownload:
-            Task { await controller.packInstallController.cancel(featureID: descriptor.id) }
+            Task {
+                await controller.packInstallController.cancel(featureID: descriptor.id)
+                await controller.featureStatePublisher.refresh()
+            }
         case .retryInstall:
             Task {
                 try? await controller.packInstallController.install(featureID: descriptor.id)

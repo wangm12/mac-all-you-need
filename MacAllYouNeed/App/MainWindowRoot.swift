@@ -311,7 +311,7 @@ private struct DashboardMainPage: View {
                     fixedHeight: DashboardRenderingPresentation.toolCardHeight,
                     descriptor: descriptor(for: tile),
                     state: state(for: tile),
-                    isPending: tile.featureID.map { pendingFeatureIDs.contains($0) } ?? false,
+                    isPending: (tile.proxiesFeatureID ?? tile.featureID).map { pendingFeatureIDs.contains($0) } ?? false,
                     onOpen: { openTile(tile) },
                     onEnable: { Task { await handleAction(.enable, for: tile) } },
                     onDisable: { Task { await handleAction(.disable, for: tile) } },
@@ -340,8 +340,9 @@ private struct DashboardMainPage: View {
     }
 
     private func openTile(_ tile: DashboardToolTileItem) {
-        if let featureID = tile.featureID,
-           statePublisher.state(for: featureID).activationState != .enabled {
+        let effectiveID = tile.proxiesFeatureID ?? tile.featureID
+        if let effectiveID,
+           statePublisher.state(for: effectiveID).activationState != .enabled {
             return
         }
         let route = DashboardToolOpenNavigation.route(for: tile.destination)
@@ -384,6 +385,7 @@ private struct DashboardMainPage: View {
             await controller.featureStatePublisher.refresh()
         case .cancelDownload:
             await controller.packInstallController.cancel(featureID: targetID)
+            await controller.featureStatePublisher.refresh()
         case .retryInstall:
             try? await controller.packInstallController.install(featureID: targetID)
             await controller.featureStatePublisher.refresh()
