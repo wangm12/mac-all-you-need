@@ -5,6 +5,6 @@
   },
   "ffmpeg": {
     "version": "8.1-https://www.martin-riedl.de",
-    "sha256": "4bd861efc491f82074377db93128b1623304891064a1884f339e22502c5490eb"
+    "sha256": "cb8a46903b8ebafbab71a01a19096c5cdfb015b90d107a78f75c7206c0c7158b"
   }
 }
