@@ -59,7 +59,7 @@ public struct VoiceTrainingExample: Identifiable, Equatable, Sendable {
 public final class VoiceTrainingExampleStore: @unchecked Sendable {
     private let db: Database
     private let key: SymmetricKey
-    private let audioRoot: URL
+    public let audioRoot: URL
     private let now: () -> Date
 
     public init(
@@ -120,6 +120,12 @@ public final class VoiceTrainingExampleStore: @unchecked Sendable {
         let url = audioRoot.appendingPathComponent("\(id).wav.aesgcm", isDirectory: false)
         try envelope.combined.write(to: url, options: .atomic)
         return url.path
+    }
+
+    public func loadEncryptedAudio(path: String) throws -> Data {
+        let url = URL(fileURLWithPath: path)
+        let encrypted = try Data(contentsOf: url)
+        return try Cipher.open(Envelope(combined: encrypted), with: key)
     }
 
     public func updateFinalText(
