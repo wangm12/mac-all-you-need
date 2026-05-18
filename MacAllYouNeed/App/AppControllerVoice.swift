@@ -221,6 +221,70 @@ extension AppController {
             return output
         }
     }
+
+    func loadVoiceHistorySettings() -> VoiceHistorySettings {
+        VoiceHistorySettings.load(from: AppGroupSettings.defaults)
+    }
+
+    func saveVoiceHistorySettings(_ settings: VoiceHistorySettings) {
+        settings.save(to: AppGroupSettings.defaults)
+        voiceRetentionRunner.sweepNow()
+    }
+
+    func retryVoiceTranscript(id: String) async throws -> VoiceTranscript {
+        try await voiceCoordinator.retryTranscript(id: id)
+    }
+
+    func downloadVoiceAudio(transcript: VoiceTranscript, to url: URL) throws {
+        guard let path = transcript.audioPath else {
+            throw VoiceRetryError.noAudio
+        }
+        let wav = try voiceTrainingExampleStore.loadEncryptedAudio(path: path)
+        try wav.write(to: url, options: .atomic)
+    }
+
+    /// Deletes the transcript row immediately and defers audio-file deletion by 5 seconds.
+    /// Returns a token whose `undo()` re-saves the row and cancels the deferred delete.
+    func deleteVoiceTranscriptWithUndo(_ transcript: VoiceTranscript) -> VoiceHistoryUndoToken {
+        try? voiceTranscriptStore.delete(ids: [transcript.id])
+
+        let id = transcript.id
+        let audioPath = transcript.audioPath
+        let store = voiceTranscriptStore
+        let trainingStore = voiceTrainingExampleStore
+
+        // Defer audio cleanup so undo can restore the row before the file is gone.
+        let cleanupTask = Task.detached {
+            try? await Task.sleep(for: .seconds(5))
+            guard let audioPath else { return }
+            // Don't delete if training example store still references the file.
+            if let paths = try? trainingStore.allAudioPaths(), paths.contains(audioPath) { return }
+            try? FileManager.default.removeItem(atPath: audioPath)
+        }
+
+        let undo: () -> Void = { [transcript, store] in
+            cleanupTask.cancel()
+            _ = try? store.save(
+                VoiceTranscriptDraft(
+                    startedAt: transcript.startedAt,
+                    endedAt: transcript.endedAt,
+                    rawText: transcript.rawText,
+                    cleanedText: transcript.cleanedText,
+                    appBundleID: transcript.appBundleID,
+                    language: transcript.language,
+                    modelIdentifier: transcript.modelIdentifier,
+                    audioPath: transcript.audioPath
+                ),
+                existingID: id
+            )
+        }
+
+        return VoiceHistoryUndoToken(
+            message: "Transcript deleted",
+            undo: undo,
+            expiresAt: Date().addingTimeInterval(5)
+        )
+    }
 }
 
 private enum VoiceCleanupSettingsTestError: LocalizedError {

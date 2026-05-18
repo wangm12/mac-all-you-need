@@ -99,7 +99,7 @@ final class AppController {
     let voicePersonalizationStore: VoicePersonalizationStore
     let voiceTrainingExampleStore: VoiceTrainingExampleStore
     let voiceCoordinator: VoiceCoordinator
-    private let voiceRetentionRunner: VoiceTranscriptRetentionRunner
+    let voiceRetentionRunner: VoiceTranscriptRetentionRunner
     let windowControl: WindowControlCoordinator
     private let windowControlAccessibilityTrustMonitor: WindowControlAccessibilityTrustMonitor
 

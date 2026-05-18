@@ -264,6 +264,7 @@
 		F2936641DC35BAE476FB82AC /* PermissionGateProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC930B7441713DFDDF4BF2E /* PermissionGateProbe.swift */; };
 		F39C33F1D7273FF075D928E4 /* ClipCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74D72FEF8464E388D2C6CC51 /* ClipCard.swift */; };
 		F3BCF0DC26E2F7BC5B70FE15 /* LinkCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC359D212D1313EAD394319 /* LinkCard.swift */; };
+		F42745D6FEB7DAC1F87F0FD5 /* VoiceHistoryUndoToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05FAF7E33EF79F05F7932ED6 /* VoiceHistoryUndoToken.swift */; };
 		F58246B262BB6AC5E76647AE /* SideloadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E67B8274004E0F4709F8B36 /* SideloadController.swift */; };
 		F5A04D53A3E77C19484F28D6 /* VoiceActivationMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43807BDAF3B94EC1A857C5C8 /* VoiceActivationMonitor.swift */; };
 		F5D1754CA3D5E5AA6A8E9960 /* PermissionStepViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7E844406A10FA770722A46 /* PermissionStepViews.swift */; };
@@ -323,6 +324,7 @@
 		044427E436B002B16EDA1075 /* HotkeyMapStoreMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyMapStoreMigrationTests.swift; sourceTree = "<group>"; };
 		046FB7EE3DE19E5111E957E4 /* VoicePersonalizationPrivacyFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePersonalizationPrivacyFilter.swift; sourceTree = "<group>"; };
 		055CC0AC88D562BDEB2C19B4 /* FeatureRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureRuntimeTests.swift; sourceTree = "<group>"; };
+		05FAF7E33EF79F05F7932ED6 /* VoiceHistoryUndoToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceHistoryUndoToken.swift; sourceTree = "<group>"; };
 		0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FolderPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		07D9491FEF0B4BA6626760F8 /* AppIconResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconResolverTests.swift; sourceTree = "<group>"; };
 		0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacAllYouNeed.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -802,6 +804,7 @@
 				84C2F00A4CB648E177FB218E /* VoiceAudioAccess.swift */,
 				9FA39F8E6AF2A1720ACB256A /* VoiceCoordinator.swift */,
 				1C48CA7B357190CBD6D68BCD /* VoiceFeatureActivator.swift */,
+				05FAF7E33EF79F05F7932ED6 /* VoiceHistoryUndoToken.swift */,
 				5DE04D12C9DE286CFFDAF02F /* VoiceTranscriptRetentionRunner.swift */,
 				E6F8E5EFC388DFA24C31B26A /* ASR */,
 				317349CB4FAB4A089D2898F3 /* Audio */,
@@ -1747,6 +1750,7 @@
 				B7ADEFB4DB7607B3D3F325B6 /* VoiceDescriptor.swift in Sources */,
 				645FB169BC3723B39231C767 /* VoiceDictionaryPage.swift in Sources */,
 				9DDFDC3C7F81A5912A8612DF /* VoiceFeatureActivator.swift in Sources */,
+				F42745D6FEB7DAC1F87F0FD5 /* VoiceHistoryUndoToken.swift in Sources */,
 				385B8AD7734D35118085409C /* VoiceLLMProviderError.swift in Sources */,
 				140B9401BF7AF2057D272A99 /* VoiceLocalTextCleaner.swift in Sources */,
 				637C8AF50E3FB2C6A0DD2931 /* VoiceOnboardingState.swift in Sources */,
