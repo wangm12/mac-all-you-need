@@ -290,6 +290,7 @@ enum DashboardToolTilePresentation {
                 shortcutDisplay: nil,
                 statusText: nil,
                 statusKind: nil,
+                // Snippets surfaces the Clipboard feature; there is no separate SnippetsFeatureID.
                 featureID: .clipboard,
                 proxiesFeatureID: .clipboard
             ),
