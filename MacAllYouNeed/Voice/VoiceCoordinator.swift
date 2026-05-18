@@ -22,6 +22,7 @@ final class VoiceCoordinator {
     private let personalizationStore: VoicePersonalizationStore?
     private let trainingExampleStore: VoiceTrainingExampleStore?
     private let personalizationSettings: () -> VoicePersonalizationSettings
+    private let historySettings: () -> VoiceHistorySettings
     private let cleanupKeyStore: VoiceCleanupKeyStore
     private let learningMonitor: VoicePostEditLearningMonitor
     private let summarizer: VoicePersonalizationSummarizer?
@@ -47,7 +48,8 @@ final class VoiceCoordinator {
         cleanupSettings: VoiceCleanupSettings = VoiceCleanupSettingsStore.load(),
         cleanupKeyStore: VoiceCleanupKeyStore = VoiceCleanupKeyStore(keychain: SystemKeychain()),
         learningMonitor: VoicePostEditLearningMonitor? = nil,
-        summarizer: VoicePersonalizationSummarizer? = nil
+        summarizer: VoicePersonalizationSummarizer? = nil,
+        historySettings: @escaping () -> VoiceHistorySettings = { .init() }
     ) {
         self.transcripts = transcripts
         self.dictionary = dictionary
@@ -59,6 +61,7 @@ final class VoiceCoordinator {
         self.cleanupKeyStore = cleanupKeyStore
         self.learningMonitor = learningMonitor ?? VoicePostEditLearningMonitor()
         self.summarizer = summarizer
+        self.historySettings = historySettings
         activation.onPress = { [weak self] in Task { @MainActor in await self?.handleActivationPress() } }
         activation.onRelease = { [weak self] in Task { @MainActor in await self?.handleActivationRelease() } }
     }
@@ -199,16 +202,25 @@ final class VoiceCoordinator {
 
             state = .pasting
             let pasteResult = await CursorPaster.paste(text)
+            let transcriptID = UUID().uuidString
+            let audioPath = persistAudio(captured: captured, transcriptID: transcriptID)
             let savedTranscript = try saveTranscript(
-                captured: captured, result: result, cleanedText: text, appBundleID: appBundleID
+                transcriptID: transcriptID,
+                captured: captured,
+                result: result,
+                cleanedText: text,
+                appBundleID: appBundleID,
+                audioPath: audioPath
             )
             saveTrainingExample(
                 captured: captured,
                 result: result,
                 cleanedText: text,
                 transcriptID: savedTranscript.id,
-                appBundleID: appBundleID
+                appBundleID: appBundleID,
+                audioPath: audioPath
             )
+            NotificationCenter.default.post(name: .voiceTranscriptAppended, object: savedTranscript.id)
 
             hud.show(
                 pasteResult.didPostPasteEvent ? .pasted : .error("Text copied. Press Command-V to paste."),
@@ -246,11 +258,14 @@ final class VoiceCoordinator {
         hud.dismiss()
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func saveTranscript(
+        transcriptID: String,
         captured: CapturedAudio,
         result: VoiceTranscriptionResult,
         cleanedText: String,
-        appBundleID: String?
+        appBundleID: String?,
+        audioPath: String?
     ) throws -> VoiceTranscript {
         try transcripts.save(VoiceTranscriptDraft(
             startedAt: captured.startedAt,
@@ -260,8 +275,8 @@ final class VoiceCoordinator {
             appBundleID: appBundleID,
             language: result.language,
             modelIdentifier: result.modelIdentifier,
-            audioPath: nil
-        ))
+            audioPath: audioPath
+        ), existingID: transcriptID)
     }
 
     private func loadContexts(bundleID: String?) -> (app: VoicePersonalizationContext?, global: VoicePersonalizationContext?) {
@@ -413,26 +428,17 @@ final class VoiceCoordinator {
         }
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func saveTrainingExample(
         captured: CapturedAudio,
         result: VoiceTranscriptionResult,
         cleanedText: String,
         transcriptID: String,
-        appBundleID: String?
+        appBundleID: String?,
+        audioPath: String?
     ) {
         guard personalizationSettings().saveTrainingExamplesEnabled,
               let trainingExampleStore else { return }
-
-        let sampleRate = max(1, Int(captured.sampleRate.rounded()))
-        let wavData = GroqASREngine.encodeWAV(samples: captured.samples, sampleRate: sampleRate)
-        let audioPath: String?
-        do {
-            audioPath = try trainingExampleStore.saveEncryptedAudio(wavData, id: transcriptID)
-        } catch {
-            audioPath = nil
-            log.error("Voice training audio save failed: \(error.localizedDescription, privacy: .public)")
-        }
-
         do {
             try trainingExampleStore.save(.init(
                 transcriptID: transcriptID,
@@ -448,6 +454,23 @@ final class VoiceCoordinator {
             ))
         } catch {
             log.error("Voice training example save failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Internal for testing — call before building VoiceTranscriptDraft so audioPath is set on save.
+    @discardableResult
+    func persistAudio(captured: CapturedAudio, transcriptID: String) -> String? {
+        let shouldSave = personalizationSettings().saveTrainingExamplesEnabled
+            || historySettings().saveAudio
+        guard shouldSave, let trainingExampleStore else { return nil }
+
+        let sampleRate = max(1, Int(captured.sampleRate.rounded()))
+        let wavData = VoiceAudioCodec.encodeWAV(samples: captured.samples, sampleRate: sampleRate)
+        do {
+            return try trainingExampleStore.saveEncryptedAudio(wavData, id: transcriptID)
+        } catch {
+            log.error("Voice audio persist failed: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
@@ -536,4 +559,8 @@ final class VoiceCoordinator {
 
 enum VoiceLevelSampling {
     static let intervalMilliseconds = 25
+}
+
+extension Notification.Name {
+    static let voiceTranscriptAppended = Notification.Name("com.macallyouneed.voiceTranscriptAppended")
 }

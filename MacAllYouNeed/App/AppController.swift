@@ -664,7 +664,8 @@ private func makeVoiceCoordinator(
         personalizationSettings: { VoicePersonalizationSettingsStore.load() },
         engine: engine,
         cleanupKeyStore: cleanupKeyStore,
-        summarizer: summarizer
+        summarizer: summarizer,
+        historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) }
     )
 }
 

@@ -80,6 +80,7 @@
 		4E2A90A33C17E3966185B78F /* UninstallSheetState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11269B17971B6EF763BFFBAB /* UninstallSheetState.swift */; };
 		4FEC0DC0A85C35983F7E20FF /* DockAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA69C93A707658137819D776 /* DockAnimator.swift */; };
 		4FF1325B4E8AD38676BB3EDB /* MigrationReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1308D6CD01832168B6A99A7E /* MigrationReport.swift */; };
+		506DB76C254F145A0C90BD73 /* VoiceCoordinatorAudioPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E910A27E23F56E6922FFED54 /* VoiceCoordinatorAudioPolicyTests.swift */; };
 		506F0C499D0BA28FBB1D7B36 /* DockMoreMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB589829CC24E72873D4FF1 /* DockMoreMenu.swift */; };
 		50FBF9E56266F42D0947A917 /* SettingsWindowConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5A39FD01CC23C1BE9DE623 /* SettingsWindowConfig.swift */; };
 		5238F67D6D46D9FAAE7FD31D /* OnboardingDoneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E19A163466CB888C368A496 /* OnboardingDoneView.swift */; };
@@ -554,6 +555,7 @@
 		E33C08F9E8586A89286B4700 /* MacAllYouNeedApplicationDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAllYouNeedApplicationDelegateTests.swift; sourceTree = "<group>"; };
 		E3F2359150C892558B6A7FB3 /* CursorPaster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorPaster.swift; sourceTree = "<group>"; };
 		E698DACB526F887522CD22A0 /* AudioCaptureServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureServiceTests.swift; sourceTree = "<group>"; };
+		E910A27E23F56E6922FFED54 /* VoiceCoordinatorAudioPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCoordinatorAudioPolicyTests.swift; sourceTree = "<group>"; };
 		EA69C93A707658137819D776 /* DockAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockAnimator.swift; sourceTree = "<group>"; };
 		EA92B9375FB58120C7881CC2 /* FeaturePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePickerView.swift; sourceTree = "<group>"; };
 		EB4C4AE4541A7E50F1EBAE31 /* GroqASREngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqASREngineTests.swift; sourceTree = "<group>"; };
@@ -684,6 +686,7 @@
 				33BD4B505313FFE1090292B2 /* VoiceAutoSubmitServiceTests.swift */,
 				492DE154454B27F9AB550B54 /* VoiceCleanupPipelineTests.swift */,
 				48F94CAA62E9153A576A6BBE /* VoiceCleanupSettingsTests.swift */,
+				E910A27E23F56E6922FFED54 /* VoiceCoordinatorAudioPolicyTests.swift */,
 				AA96843CBA430D555D38B317 /* VoiceCoordinatorPersonalizationTests.swift */,
 				E0DC776BDC0141F4040902CF /* VoiceDictionaryPresentationTests.swift */,
 				892BB77EC395C1A4D9C8205F /* VoiceLLMProviderTests.swift */,
@@ -1529,6 +1532,7 @@
 				D5F051109A97EDC4DF3971A5 /* VoiceAutoSubmitServiceTests.swift in Sources */,
 				64B153A78E93B84BD64A1CDB /* VoiceCleanupPipelineTests.swift in Sources */,
 				FC0037150FD4F12BBD4CB06B /* VoiceCleanupSettingsTests.swift in Sources */,
+				506DB76C254F145A0C90BD73 /* VoiceCoordinatorAudioPolicyTests.swift in Sources */,
 				EC206872753675B679993AE0 /* VoiceCoordinatorPersonalizationTests.swift in Sources */,
 				CC368986AE56BBA76614F84D /* VoiceDictionaryPresentationTests.swift in Sources */,
 				A8648889AE9F703A37B1465A /* VoiceFeatureActivatorTests.swift in Sources */,
