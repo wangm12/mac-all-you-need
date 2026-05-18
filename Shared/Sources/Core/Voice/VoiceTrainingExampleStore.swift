@@ -207,6 +207,16 @@ public final class VoiceTrainingExampleStore: @unchecked Sendable {
         }
     }
 
+    public func allAudioPaths() throws -> [String] {
+        try db.queue.read { conn in
+            let rows = try Row.fetchAll(
+                conn,
+                sql: "SELECT audio_path FROM voice_training_examples WHERE audio_path IS NOT NULL"
+            )
+            return rows.compactMap { $0["audio_path"] }
+        }
+    }
+
     public func clearAll() throws {
         let audioPaths = try db.queue.write { conn -> [String] in
             let rows = try Row.fetchAll(conn, sql: "SELECT audio_path FROM voice_training_examples")
