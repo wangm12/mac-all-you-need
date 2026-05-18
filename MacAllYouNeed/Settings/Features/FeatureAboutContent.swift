@@ -16,6 +16,8 @@ struct FeatureAboutContent: View {
     let descriptor: FeatureDescriptor
     let state: FeatureRuntimeState
 
+    @State private var diskBytes: Int64 = 0
+
     var body: some View {
         let hasDiskSection = !descriptor.assetCaches.isEmpty || !descriptor.assetPacks.isEmpty
         let hasPermissionsSection = !descriptor.requiredPermissions.isEmpty
@@ -37,6 +39,9 @@ struct FeatureAboutContent: View {
                     extensionSection
                 }
             }
+            .task {
+                diskBytes = FeatureCacheManager().totalBytes(for: descriptor)
+            }
         } else {
             Text("No additional information.")
                 .font(.callout)
@@ -49,8 +54,7 @@ struct FeatureAboutContent: View {
 
     private var diskSection: some View {
         MAYNSection(title: "Disk Usage") {
-            let bytes = FeatureCacheManager().totalBytes(for: descriptor)
-            let formatted = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+            let formatted = ByteCountFormatter.string(fromByteCount: diskBytes, countStyle: .file)
             MAYNSettingsRow(title: "Storage") {
                 Text(formatted)
                     .foregroundStyle(.secondary)
