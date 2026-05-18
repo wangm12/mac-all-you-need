@@ -1,5 +1,5 @@
-import XCTest
 @testable import Core
+import XCTest
 
 final class VoiceHistoryRetentionTests: XCTestCase {
     func test_storageKeyRoundTrip_succeeds_for_all_cases() {
