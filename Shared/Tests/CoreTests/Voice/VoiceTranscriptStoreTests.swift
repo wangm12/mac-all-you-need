@@ -129,6 +129,76 @@ final class VoiceTranscriptStoreTests: XCTestCase {
         XCTAssertNotEqual(a.id, b.id)
     }
 
+    func testExpireByAgeDeletesRowsOlderThanWindow() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoiceTranscriptStore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let db = try Database(
+            url: tempDir.appendingPathComponent("clipboard.sqlite"),
+            migrations: ClipboardStore.migrations
+        )
+        let store = VoiceTranscriptStore(database: db)
+
+        let fixedNow = Date(timeIntervalSince1970: 1_000_000)
+        let oldEnd = fixedNow.addingTimeInterval(-2 * 86_400) // 2 days old
+        let newEnd = fixedNow.addingTimeInterval(-3_600)      // 1 hour old
+
+        let old = try store.save(VoiceTranscriptDraft(
+            startedAt: oldEnd.addingTimeInterval(-1),
+            endedAt: oldEnd,
+            rawText: "old",
+            cleanedText: "old",
+            appBundleID: nil,
+            language: .mixed,
+            modelIdentifier: "m",
+            audioPath: "/tmp/old.aesgcm"
+        ))
+        let new = try store.save(VoiceTranscriptDraft(
+            startedAt: newEnd.addingTimeInterval(-1),
+            endedAt: newEnd,
+            rawText: "new",
+            cleanedText: "new",
+            appBundleID: nil,
+            language: .mixed,
+            modelIdentifier: "m",
+            audioPath: nil
+        ))
+
+        let deleted = try store.expireByAge(maxAge: 86_400, now: fixedNow)
+
+        XCTAssertEqual(deleted.map(\.id), [old.id])
+        XCTAssertEqual(deleted.first?.audioPath, "/tmp/old.aesgcm")
+        XCTAssertNotNil(try store.fetch(id: new.id))
+        XCTAssertNil(try store.fetch(id: old.id))
+    }
+
+    func testExpireByAgeReturnsEmptyWhenNothingExpired() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoiceTranscriptStore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let db = try Database(
+            url: tempDir.appendingPathComponent("clipboard.sqlite"),
+            migrations: ClipboardStore.migrations
+        )
+        let store = VoiceTranscriptStore(database: db)
+
+        let now = Date()
+        _ = try store.save(VoiceTranscriptDraft(
+            startedAt: now,
+            endedAt: now,
+            rawText: "x",
+            cleanedText: "x",
+            appBundleID: nil,
+            language: .mixed,
+            modelIdentifier: "m",
+            audioPath: nil
+        ))
+        let deleted = try store.expireByAge(maxAge: 86_400, now: now)
+        XCTAssertTrue(deleted.isEmpty)
+    }
+
     private func draft(rawText: String, startedAt: TimeInterval, endedAt: TimeInterval) -> VoiceTranscriptDraft {
         VoiceTranscriptDraft(
             startedAt: Date(timeIntervalSince1970: startedAt),

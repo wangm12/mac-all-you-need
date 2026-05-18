@@ -80,6 +80,24 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
         }
     }
 
+    @discardableResult
+    public func expireByAge(maxAge: TimeInterval, now: Date = Date()) throws -> [VoiceTranscript] {
+        let cutoff = Self.millis(now.addingTimeInterval(-maxAge))
+        return try db.queue.write { conn in
+            let rows = try Row.fetchAll(conn, sql: """
+                SELECT id, started_at, ended_at, duration_ms, raw_text, cleaned_text,
+                       app_bundle_id, language, model_identifier, audio_path
+                FROM voice_transcripts
+                WHERE ended_at < ?
+            """, arguments: [cutoff])
+            let expired = rows.map(Self.transcript(from:))
+            for transcript in expired {
+                try conn.execute(sql: "DELETE FROM voice_transcripts WHERE id = ?", arguments: [transcript.id])
+            }
+            return expired
+        }
+    }
+
     private static func transcript(from row: Row) -> VoiceTranscript {
         VoiceTranscript(
             id: row["id"],
