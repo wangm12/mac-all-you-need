@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import AVFoundation
 import Core
+import FeatureCore
 import FluidAudio
 import Platform
 import SwiftUI
@@ -243,6 +244,15 @@ private struct MainSidebarSettingsButton: View {
 private struct DashboardMainPage: View {
     let controller: AppController
     let openDestination: (MainAppDestination) -> Void
+    @ObservedObject private var statePublisher: FeatureStatePublisher
+    @State private var pendingFeatureIDs: Set<FeatureID> = []
+    @State private var showingUninstallFor: FeatureDescriptor?
+
+    init(controller: AppController, openDestination: @escaping (MainAppDestination) -> Void) {
+        self.controller = controller
+        self.openDestination = openDestination
+        self.statePublisher = controller.featureStatePublisher
+    }
 
     var body: some View {
         ScrollView {
@@ -256,6 +266,16 @@ private struct DashboardMainPage: View {
         }
         .task {
             await controller.downloaderVM.refresh()
+        }
+        .sheet(item: $showingUninstallFor) { descriptor in
+            UninstallConfirmationSheet(
+                descriptor: descriptor,
+                onCancel: { showingUninstallFor = nil },
+                onConfirm: { sheet in
+                    showingUninstallFor = nil
+                    Task { await performUninstall(descriptor: descriptor, sheetState: sheet) }
+                }
+            )
         }
     }
 
@@ -283,15 +303,23 @@ private struct DashboardMainPage: View {
             spacing: 12
         ) {
             ForEach(dashboardTiles) { tile in
-                MAYNToolCard(
+                FeatureToolCard(
                     title: tile.title,
                     subtitle: tile.detail,
                     symbolName: tile.symbolName,
                     accent: accent(for: tile.destination),
-                    fixedHeight: DashboardRenderingPresentation.toolCardHeight
+                    fixedHeight: DashboardRenderingPresentation.toolCardHeight,
+                    descriptor: descriptor(for: tile),
+                    state: state(for: tile),
+                    isPending: tile.featureID.map { pendingFeatureIDs.contains($0) } ?? false,
+                    onOpen: { openTile(tile) },
+                    onEnable: { Task { await handleAction(.enable, for: tile) } },
+                    onDisable: { Task { await handleAction(.disable, for: tile) } },
+                    onInstall: { Task { await handleAction(.install, for: tile) } },
+                    onCancelDownload: { Task { await handleAction(.cancelDownload, for: tile) } },
+                    onRetryInstall: { Task { await handleAction(.retryInstall, for: tile) } },
+                    onUninstall: { Task { await handleAction(.uninstall, for: tile) } }
                 ) {
-                    openTile(tile)
-                } content: {
                     DashboardToolCardFooter(
                         tile: tile,
                         voiceStatusText: voiceStatusText,
@@ -312,12 +340,73 @@ private struct DashboardMainPage: View {
     }
 
     private func openTile(_ tile: DashboardToolTileItem) {
+        if let featureID = tile.featureID,
+           statePublisher.state(for: featureID).activationState != .enabled {
+            return
+        }
         let route = DashboardToolOpenNavigation.route(for: tile.destination)
         if let tabStorageKey = route.tabStorageKey, let tabRawValue = route.tabRawValue {
             AppGroupSettings.defaults.set(tabRawValue, forKey: tabStorageKey)
         }
         openDestination(route.destination)
     }
+
+    // MARK: Feature helpers
+
+    private func descriptor(for tile: DashboardToolTileItem) -> FeatureDescriptor? {
+        guard let featureID = tile.featureID else { return nil }
+        return controller.runtime.registry.descriptor(for: featureID)
+    }
+
+    private func state(for tile: DashboardToolTileItem) -> FeatureRuntimeState? {
+        guard let featureID = tile.featureID else { return nil }
+        return statePublisher.state(for: featureID)
+    }
+
+    // MARK: Action dispatch
+
+    private enum DashboardFeatureAction {
+        case enable, disable, install, cancelDownload, retryInstall, uninstall
+    }
+
+    private func handleAction(_ action: DashboardFeatureAction, for tile: DashboardToolTileItem) async {
+        guard let targetID = tile.proxiesFeatureID ?? tile.featureID else { return }
+        pendingFeatureIDs.insert(targetID)
+        defer { pendingFeatureIDs.remove(targetID) }
+
+        switch action {
+        case .enable:
+            try? await controller.runtime.applyTransition(.enable, for: targetID)
+        case .disable:
+            try? await controller.runtime.applyTransition(.disable, for: targetID)
+        case .install:
+            try? await controller.packInstallController.install(featureID: targetID)
+            await controller.featureStatePublisher.refresh()
+        case .cancelDownload:
+            await controller.packInstallController.cancel(featureID: targetID)
+        case .retryInstall:
+            try? await controller.packInstallController.install(featureID: targetID)
+            await controller.featureStatePublisher.refresh()
+        case .uninstall:
+            guard let desc = controller.runtime.registry.descriptor(for: targetID) else { return }
+            showingUninstallFor = desc
+        }
+    }
+
+    private func performUninstall(descriptor: FeatureDescriptor, sheetState: UninstallSheetState) async {
+        do {
+            try FeaturesTabView.applyCacheSelections(sheetState, in: descriptor, cacheManager: FeatureCacheManager())
+        } catch {
+            NSLog("DashboardMainPage uninstall: cache deletion failed: \(error)")
+        }
+        try? await controller.runtime.applyTransition(.disable, for: descriptor.id)
+        if descriptor.requiresAsset {
+            try? await controller.packInstallController.uninstall(featureID: descriptor.id)
+        }
+        await controller.featureStatePublisher.refresh()
+    }
+
+    // MARK: Voice status
 
     private var voiceStatusText: String {
         switch controller.voiceCoordinator.state {
@@ -810,7 +899,11 @@ private struct ClipboardMainPage: View {
 
         switch raw {
         case " ":
-            previewClipboardHistoryItem(id: effectiveClipboardHistoryIDs().first)
+            if ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                ClipboardSystemQuickLookCoordinator.shared.dismiss()
+            } else {
+                previewClipboardHistoryItem(id: effectiveClipboardHistoryIDs().first)
+            }
             return .handled
         case Character(UnicodeScalar(NSDownArrowFunctionKey)!):
             moveClipboardHistorySelection(delta: 1)
@@ -834,6 +927,9 @@ private struct ClipboardMainPage: View {
         let nextID = items[nextIndex].id.rawValue
         reader.selectedIDs = [nextID]
         reader.anchorID = nextID
+        if ClipboardSystemQuickLookCoordinator.shared.isVisible {
+            previewClipboardHistoryItem(id: nextID)
+        }
     }
 
     private func effectiveClipboardHistoryIDs() -> [String] {
@@ -888,27 +984,16 @@ private struct ClipboardMainPage: View {
               let body = try? store.body(for: recordID)
         else { return }
 
-        switch body {
-        case let .image(blobID, _, _):
-            if let data = try? controller.clipboardDeps.blobs.read(id: blobID),
-               let image = NSImage(data: data) {
-                PreviewPanel.show(.image(image))
-            }
-        case let .files(urls) where urls.count == 1 && Self.isPreviewableImageURL(urls[0]):
-            if let image = NSImage(contentsOf: urls[0]) {
-                PreviewPanel.show(.image(image))
-            }
-        case let .text(text):
-            PreviewPanel.show(.text(text, monospaced: false))
-        case let .html(html):
-            PreviewPanel.show(.text(plainHTMLString(html), monospaced: false))
-        case let .rtf(data):
-            if let attributed = NSAttributedString(rtf: data, documentAttributes: nil) {
-                PreviewPanel.show(.text(attributed.string, monospaced: false))
-            }
-        case .files:
-            break
-        }
+        let itemTitle = visibleClipboardHistoryItems
+            .first { $0.id.rawValue == id }
+            .map { $0.customLabel ?? $0.preview }?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = itemTitle.flatMap { $0.isEmpty ? nil : $0 } ?? "Clipboard Preview"
+        ClipboardSystemQuickLookCoordinator.shared.show(
+            record: body,
+            title: title,
+            blobs: controller.clipboardDeps.blobs
+        )
     }
 
     private func plainClipboardHistoryText(from body: ClipboardRecord) -> String? {
@@ -934,10 +1019,6 @@ private struct ClipboardMainPage: View {
         return html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
     }
 
-    private static func isPreviewableImageURL(_ url: URL) -> Bool {
-        ["png", "jpg", "jpeg", "gif", "heic", "heif", "webp", "tiff", "tif", "bmp"]
-            .contains(url.pathExtension.lowercased())
-    }
 }
 
 enum MainClipboardPreviewKind: Equatable {
