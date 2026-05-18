@@ -32,8 +32,8 @@ final class VoiceHistorySettingsTests: XCTestCase {
     }
 
     func test_load_reads_individual_keys() {
-        defaults.set("30d", forKey: "voice.history.retention")
-        defaults.set(true, forKey: "voice.history.saveAudio")
+        defaults.set("30d", forKey: VoiceHistorySettings.retentionKey)
+        defaults.set(true, forKey: VoiceHistorySettings.saveAudioKey)
 
         let loaded = VoiceHistorySettings.load(from: defaults)
         XCTAssertEqual(loaded.retention, .days30)
