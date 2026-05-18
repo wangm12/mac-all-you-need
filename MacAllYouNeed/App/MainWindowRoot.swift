@@ -33,12 +33,17 @@ struct MainWindowRoot: View {
                     MainSidebarButton(
                         destination: destination,
                         isSelected: selection.wrappedValue == destination,
+                        isDisabled: isFeatureDisabled(for: destination),
                         badge: MainSidebarBadgePresentation.badgeText(
                             for: destination,
                             records: controller.downloaderVM.rows
                         )
                     ) {
-                        selection.wrappedValue = destination
+                        if isFeatureDisabled(for: destination) {
+                            openMainDestination(.dashboard)
+                        } else {
+                            selection.wrappedValue = destination
+                        }
                     }
                 }
 
@@ -109,7 +114,7 @@ struct MainWindowRoot: View {
                     onDismiss: { showWhatsNew = false },
                     onOpenFeaturesSettings: {
                         AppGroupSettings.defaults.set(
-                            SettingsDestination.features.rawValue,
+                            SettingsDestination.general.rawValue,
                             forKey: DockSettingsNavigation.settingsSelectionKey
                         )
                         selectedRaw = MainAppDestination.settings.rawValue
@@ -152,6 +157,10 @@ struct MainWindowRoot: View {
     }
 
     private func openClipboardRulesInMain() {
+        guard !isFeatureDisabled(for: .clipboard) else {
+            openMainDestination(.dashboard)
+            return
+        }
         AppGroupSettings.defaults.set(ClipboardFunctionTab.rules.rawValue, forKey: ClipboardFunctionTab.storageKey)
         openMainDestination(.clipboard)
     }
@@ -159,6 +168,19 @@ struct MainWindowRoot: View {
     private func openMainDestination(_ destination: MainAppDestination) {
         selectedRaw = destination.rawValue
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: Feature gating helpers
+
+    private func featureID(for destination: MainAppDestination) -> FeatureID? {
+        DashboardToolTilePresentation.dashboardTiles(clipboardCount: 0, downloadsQueueCount: 0)
+            .first { $0.destination == destination }
+            .flatMap { $0.proxiesFeatureID ?? $0.featureID }
+    }
+
+    private func isFeatureDisabled(for destination: MainAppDestination) -> Bool {
+        guard let fid = featureID(for: destination) else { return false }
+        return controller.featureStatePublisher.state(for: fid).activationState != .enabled
     }
 }
 
@@ -169,6 +191,7 @@ enum MainWindowRootPresentation {
 private struct MainSidebarButton: View {
     let destination: MainAppDestination
     let isSelected: Bool
+    let isDisabled: Bool
     let badge: String?
     let action: () -> Void
     @State private var isHovering = false
@@ -176,9 +199,17 @@ private struct MainSidebarButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 9) {
-                Image(systemName: destination.symbolName)
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 16)
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: destination.symbolName)
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 16)
+                    if isDisabled {
+                        Image(systemName: "slash.circle")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .offset(x: 5, y: -5)
+                    }
+                }
                 Text(destination.title)
                     .font(.callout)
                     .lineLimit(1)
@@ -193,7 +224,7 @@ private struct MainSidebarButton: View {
                         .accessibilityLabel("\(badge) downloads in progress")
                 }
             }
-            .foregroundStyle(isSelected ? .primary : .secondary)
+            .foregroundStyle(isSelected && !isDisabled ? .primary : .secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
@@ -204,7 +235,7 @@ private struct MainSidebarButton: View {
     }
 
     private var rowBackground: Color {
-        if isSelected { return Color.primary.opacity(0.14) }
+        if isSelected && !isDisabled { return Color.primary.opacity(0.14) }
         if isHovering { return MAYNTheme.hover }
         return .clear
     }
@@ -397,7 +428,7 @@ private struct DashboardMainPage: View {
 
     private func performUninstall(descriptor: FeatureDescriptor, sheetState: UninstallSheetState) async {
         do {
-            try FeaturesTabView.applyCacheSelections(sheetState, in: descriptor, cacheManager: FeatureCacheManager())
+            try FeatureCacheManager().deleteCaches(sheetState.checkedCacheIDs, in: descriptor)
         } catch {
             NSLog("DashboardMainPage uninstall: cache deletion failed: \(error)")
         }

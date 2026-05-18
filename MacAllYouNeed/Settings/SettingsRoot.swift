@@ -262,8 +262,6 @@ private struct SettingsDetailContent: View {
             GeneralSettingsView(controller: controller)
         case .advanced:
             AdvancedSettingsView(controller: controller)
-        case .features:
-            FeaturesTabView(controller: controller)
         }
     }
 }
