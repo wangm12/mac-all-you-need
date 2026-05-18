@@ -26,6 +26,10 @@ struct FeatureToolCard<Footer: View>: View {
     /// nil  → not feature-managed; behaves like a plain MAYNToolCard.
     let state: FeatureRuntimeState?
 
+    /// The feature descriptor driving this card.
+    /// nil for unmanaged / non-feature tiles; used only for the About popover.
+    let descriptor: FeatureDescriptor?
+
     /// true while an `applyTransition` Task is in flight (but state has not
     /// changed to `.downloading` yet). Shows a small spinner overlaid in the
     /// top-right corner of the card; the status badge remains visible.
@@ -48,6 +52,10 @@ struct FeatureToolCard<Footer: View>: View {
     // MARK: Environment
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    // MARK: Local state
+
+    @State private var showingAbout = false
 
     // MARK: Body
 
@@ -86,6 +94,13 @@ struct FeatureToolCard<Footer: View>: View {
             }
         }
         .contextMenu { contextMenuItems }
+        .popover(isPresented: $showingAbout) {
+            if let descriptor, let state {
+                FeatureAboutContent(descriptor: descriptor, state: state)
+                    .frame(minWidth: 280, maxWidth: 340)
+                    .padding()
+            }
+        }
     }
 
     // MARK: Derived properties
@@ -205,8 +220,10 @@ struct FeatureToolCard<Footer: View>: View {
 
         Divider()
 
-        // About — stubbed; will be wired in Task 2
-        Button("About \(title)…") {}
+        // About — only for feature-managed tiles
+        if descriptor != nil {
+            Button("About \(title)…") { showingAbout = true }
+        }
     }
 
     // MARK: Uninstall visibility
