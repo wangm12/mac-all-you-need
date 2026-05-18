@@ -99,6 +99,7 @@ final class AppController {
     let voicePersonalizationStore: VoicePersonalizationStore
     let voiceTrainingExampleStore: VoiceTrainingExampleStore
     let voiceCoordinator: VoiceCoordinator
+    private let voiceRetentionRunner: VoiceTranscriptRetentionRunner
     let windowControl: WindowControlCoordinator
     private let windowControlAccessibilityTrustMonitor: WindowControlAccessibilityTrustMonitor
 
@@ -153,6 +154,12 @@ final class AppController {
         voicePersonalizationStore = stores.voicePersonalization
         voiceTrainingExampleStore = stores.voiceTrainingExamples
         voiceCoordinator = makeVoiceCoordinator(stores: stores, cleanupKeyStore: cleanupKeyStore)
+        voiceRetentionRunner = VoiceTranscriptRetentionRunner(
+            transcriptStore: stores.voiceTranscripts,
+            trainingExampleStore: stores.voiceTrainingExamples,
+            audioRoot: AppGroup.containerURL().appendingPathComponent("voice-training-audio", isDirectory: true),
+            historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) }
+        )
         let windowControl = WindowControlCoordinator()
         self.windowControl = windowControl
         windowControlAccessibilityTrustMonitor = WindowControlAccessibilityTrustMonitor(
@@ -210,6 +217,7 @@ final class AppController {
 
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()
+        voiceRetentionRunner.start()
         windowControl.start()
         windowControlAccessibilityTrustMonitor.start()
 
