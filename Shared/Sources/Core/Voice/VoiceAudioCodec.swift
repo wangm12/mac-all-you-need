@@ -67,4 +67,53 @@ public enum VoiceAudioCodec {
         }
         throw DecodeError.truncated
     }
+
+    public static func encodeWAV(samples: [Float], sampleRate: Int) -> Data {
+        let int16Samples = samples.map { sample -> Int16 in
+            let clamped = max(-1.0, min(1.0, sample))
+            let scaled = clamped * 32_768.0
+            return Int16(max(Float(Int16.min), min(Float(Int16.max), scaled)))
+        }
+        let dataSize = int16Samples.count * 2
+        let fmtSize = 16
+        let fileSize = 4 + 8 + fmtSize + 8 + dataSize
+
+        var wav = Data(capacity: 8 + fileSize)
+        func u32(_ value: UInt32) {
+            var val = value.littleEndian
+            wav.append(contentsOf: withUnsafeBytes(of: &val) { Array($0) })
+        }
+        func u16(_ value: UInt16) {
+            var val = value.littleEndian
+            wav.append(contentsOf: withUnsafeBytes(of: &val) { Array($0) })
+        }
+        func ascii(_ str: String) { wav.append(contentsOf: str.utf8.prefix(4)) }
+
+        let sampleRateU = UInt32(sampleRate)
+        let bitsPerSample: UInt16 = 16
+        let numChannels: UInt16 = 1
+        let byteRate = sampleRateU * UInt32(numChannels) * UInt32(bitsPerSample) / 8
+        let blockAlign = numChannels * bitsPerSample / 8
+
+        ascii("RIFF")
+        u32(UInt32(fileSize))
+        ascii("WAVE")
+
+        ascii("fmt ")
+        u32(UInt32(fmtSize))
+        u16(UInt16(1))
+        u16(numChannels)
+        u32(sampleRateU)
+        u32(byteRate)
+        u16(blockAlign)
+        u16(bitsPerSample)
+
+        ascii("data")
+        u32(UInt32(dataSize))
+        for sample in int16Samples {
+            var val = sample.littleEndian
+            wav.append(contentsOf: withUnsafeBytes(of: &val) { Array($0) })
+        }
+        return wav
+    }
 }

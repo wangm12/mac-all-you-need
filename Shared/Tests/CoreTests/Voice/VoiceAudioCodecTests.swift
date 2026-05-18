@@ -25,6 +25,17 @@ final class VoiceAudioCodecTests: XCTestCase {
         }
     }
 
+    func testEncodeWAVDecodesBackToSameSamples() throws {
+        let input: [Float] = [0, 0.5, -0.5, 1.0, -1.0]
+        let wav = VoiceAudioCodec.encodeWAV(samples: input, sampleRate: 16_000)
+        let decoded = try VoiceAudioCodec.decodeWAV(wav)
+        XCTAssertEqual(decoded.sampleRate, 16_000)
+        XCTAssertEqual(decoded.samples.count, input.count)
+        for (i, expected) in input.enumerated() {
+            XCTAssertEqual(decoded.samples[i], expected, accuracy: 0.0001)
+        }
+    }
+
     private static func fixtureWAV(sampleRate: Int, int16Samples: [Int16]) -> Data {
         let dataSize = int16Samples.count * 2
         let fmtSize = 16
