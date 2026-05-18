@@ -3,11 +3,11 @@ import FeatureCore
 @testable import MacAllYouNeed
 
 final class FolderPreviewFeatureActivatorTests: XCTestCase {
-    func testActivateRegistersBrowseFolderHotkey() async throws {
+    func testActivateLeavesBrowseFolderHotkeyOwnedByAppRegistry() async throws {
         let activator = FolderPreviewFeatureActivator(testMode: true)
         try await activator.activate()
         let isRegisteredAfterActivate = await activator.isHotkeyRegistered
-        XCTAssertTrue(isRegisteredAfterActivate)
+        XCTAssertFalse(isRegisteredAfterActivate)
         try await activator.deactivate()
         let isRegisteredAfterDeactivate = await activator.isHotkeyRegistered
         XCTAssertFalse(isRegisteredAfterDeactivate)
@@ -18,7 +18,7 @@ final class FolderPreviewFeatureActivatorTests: XCTestCase {
         try await activator.activate()
         try await activator.activate()
         let isRegisteredAfterActivate = await activator.isHotkeyRegistered
-        XCTAssertTrue(isRegisteredAfterActivate)
+        XCTAssertFalse(isRegisteredAfterActivate)
         try await activator.deactivate()
         try await activator.deactivate()
         let isRegisteredAfterDeactivate = await activator.isHotkeyRegistered

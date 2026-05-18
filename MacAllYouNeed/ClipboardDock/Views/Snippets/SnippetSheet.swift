@@ -1,8 +1,19 @@
 import Core
 import SwiftUI
 
+enum SnippetEditorPresentation {
+    static let usesInPanelOverlay = true
+    static let usesNativeWindowSheet = false
+    static let blocksUnderlyingDockContent = true
+    static let scrimOpacity = 0.44
+    static let shadowOpacity = 0.22
+    static let shadowRadius: CGFloat = 24
+    static let shadowY: CGFloat = 8
+}
+
 struct SnippetSheet: View {
     let editing: Snippet?
+    let draft: SnippetDraft?
     /// Other snippets to validate the trigger against. Editing the snippet at
     /// `editing.id` is excluded by id when comparing.
     let existingSnippets: [Snippet]
@@ -17,17 +28,19 @@ struct SnippetSheet: View {
 
     init(
         editing: Snippet?,
+        draft: SnippetDraft? = nil,
         existingSnippets: [Snippet],
         isPresented: Binding<Bool>,
         onSave: @escaping (String, String, String?) async throws -> Void
     ) {
         self.editing = editing
+        self.draft = draft
         self.existingSnippets = existingSnippets
         self.onSave = onSave
         _isPresented = isPresented
-        _name = State(initialValue: editing?.name ?? "")
-        _snippetBody = State(initialValue: editing?.body ?? "")
-        _trigger = State(initialValue: editing?.trigger ?? "")
+        _name = State(initialValue: editing?.name ?? draft?.name ?? "")
+        _snippetBody = State(initialValue: editing?.body ?? draft?.body ?? "")
+        _trigger = State(initialValue: editing?.trigger ?? draft?.trigger ?? "")
     }
 
     var body: some View {
@@ -35,7 +48,7 @@ struct SnippetSheet: View {
             Text(editing == nil ? "New Snippet" : "Edit Snippet")
                 .font(.headline)
 
-            MAYNTextField(placeholder: "Name", text: $name, width: 380)
+            MAYNTextField(placeholder: "Name", text: $name, width: 380, autofocus: true)
 
             TextEditor(text: $snippetBody)
                 .font(.system(.body, design: .monospaced))
@@ -64,6 +77,9 @@ struct SnippetSheet: View {
         }
         .padding(20)
         .frame(width: 420)
+        .onExitCommand {
+            isPresented = false
+        }
     }
 
     private func save() async {

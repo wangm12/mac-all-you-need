@@ -58,7 +58,7 @@ custom_rules:
     message: "Use MAYNTheme tokens. Raw Color(red:green:blue:) bypasses the design system — see design.md §4.1 and §10."
     severity: error
     excluded:
-      # design.md §10.4 — five function-tab brand accent colors
+      # design.md §10.4 — seven function-card brand accent colors
       - "MacAllYouNeed/App/MainWindowRoot.swift"
       # design.md §10.3 — HUD processing background, deliberate floating-HUD choice
       - "MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift"

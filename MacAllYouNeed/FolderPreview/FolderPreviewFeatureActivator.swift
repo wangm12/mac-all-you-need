@@ -1,59 +1,26 @@
 import FeatureCore
-import Foundation
-import Platform
 
 /// Manages the Folder Preview subsystem lifecycle.
 ///
-/// The activatable surface is the Browse Folder global hotkey (⌘⇧F by default).
 /// The Quick Look extension is always loaded by the OS regardless of feature state
-/// (declared via `osExtensionPolicy` in the descriptor).
-///
-/// In `testMode`, registration is simulated with a Bool sentinel so tests can run
-/// without Carbon hotkey infrastructure.
+/// (declared via `osExtensionPolicy` in the descriptor), and the Browse Folder
+/// shortcut is owned by AppController's HotkeyRegistry with the other app hotkeys.
 public actor FolderPreviewFeatureActivator: FeatureActivator {
-    private var hotkey: GlobalHotkey?
-    // Sentinel used only when testMode == true.
-    private var testModeRegistered: Bool = false
-    private let testMode: Bool
+    private var isActive: Bool = false
 
-    /// `true` when the Browse Folder hotkey is registered (real or simulated in testMode).
+    /// Folder Preview does not own the Browse Folder hotkey; AppController's HotkeyRegistry does.
     public var isHotkeyRegistered: Bool {
-        testMode ? testModeRegistered : hotkey != nil
+        false
     }
 
-    public init(testMode: Bool = false) {
-        self.testMode = testMode
-    }
+    public init(testMode: Bool = false) {}
 
     public func activate() async throws {
-        guard !isHotkeyRegistered else { return }
-
-        if testMode {
-            testModeRegistered = true
-            return
-        }
-
-        // Production: register the Browse Folder hotkey.
-        // The callback posts a notification so the @MainActor BrowseFolderWindowController
-        // can respond without being held here.
-        let hk = GlobalHotkey(descriptor: .defaultFolder) {
-            NotificationCenter.default.post(name: .browseFolderRequested, object: nil)
-        }
-        // register() must be called on the main thread (Carbon event system).
-        // Capture hk locally and assign to actor-isolated storage after returning.
-        try await MainActor.run { try hk.register() }
-        hotkey = hk
+        guard !isActive else { return }
+        isActive = true
     }
 
     public func deactivate() async throws {
-        if testMode {
-            testModeRegistered = false
-            return
-        }
-
-        guard let hk = hotkey else { return }
-        hotkey = nil
-        // unregister() must be called on the main thread.
-        await MainActor.run { hk.unregister() }
+        isActive = false
     }
 }

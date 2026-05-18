@@ -1,92 +1,128 @@
-# MacAllYouNeed — UI working notes
+# MacAllYouNeed - UI Working Notes
 
-This file applies when editing code under `MacAllYouNeed/`. The full
-normative spec is [`../design.md`](../design.md) — read it before adding
-any new color, font, spacing, animation, control, or page chrome.
+This file applies when editing code under `MacAllYouNeed/`. The full normative
+spec is [`../design.md`](../design.md) - read it before adding any new color,
+font, spacing, animation, control, page chrome, or feature surface.
 
-## Hard rules (machine-enforced via `.swiftlint.yml`)
+## Current App Surfaces
 
-- No `Color(red:green:blue:)`. Use `MAYNTheme.*`. Four files are
-  grandfathered with `design.md §10` annotations — do not extend the
-  list without updating §10.
+- Menu-bar Command Center: Clipboard / Voice / Downloads / Snippets.
+- Main window sidebar: Dashboard / Clipboard / Voice / Downloads / Folder
+  Preview / Snippets / Window Layouts / Window Grab / Settings.
+- Dashboard: `FeatureToolCard` lifecycle cards for all feature-backed tools.
+- Bottom dock: Clipboard History / Snippets / user pinboards, with drag/drop,
+  transforms, quick look, snippet creation, and in-panel snippet editing.
+- Settings entry: current System group (General, Permissions, Storage,
+  Advanced). Feature/workflow settings live primarily inside main tool pages.
+- Onboarding: feature picker + per-feature setup; voice has a separate 9-step
+  wizard.
+
+## Hard Rules (Machine-Enforced via `.swiftlint.yml`)
+
+- No `Color(red:green:blue:)`. Use `MAYNTheme.*`. Grandfathered files are
+  documented in `design.md §10`; do not extend the list without updating §10.
 - No `.pickerStyle(.segmented)` or `SegmentedPickerStyle()`. Use
-  `FunctionSegmentedTabStrip`. The single grandfathered call site is
-  `Shared/Sources/UI/FolderPreview/FolderPreviewView.swift`; migrate
-  it when you next touch that file.
+  `FunctionSegmentedTabStrip`. The grandfathered shared Folder Preview browser
+  call site is documented in `design.md §11`.
 - No raw `Animation.easeOut(duration:)`, `.easeInOut(duration:)`,
-  `.linear(duration:)`, or `.spring(…)`. Route through
+  `.linear(duration:)`, or `.spring(...)`. Route through
   `MAYNMotion.<kind>Animation(reduceMotion:)` or
   `MAYNMotionBridge.effectiveDuration(_:)` so Reduce Motion is honored.
 
 `swiftlint --strict` in `scripts/ci-build.sh` fails on any of the above.
 
-## Hard rules (review-enforced — not yet linted)
+## Hard Rules (Review-Enforced)
 
-- No raw `TextField(…)` / `SecureField(…)` in product UI unless
-  surrounded by MAYN-styled chrome (the `DockSearchField` /
-  `VoiceDictionarySearchField` pattern is the only accepted exception).
-  Default: use `MAYNTextField` / `MAYNSecureField`.
-- No raw `.font(.system(size: N))` in product code. Use semantic
-  SwiftUI fonts (`.caption`, `.callout`, `.body`, `.title3`, `.title2`)
-  or the size-table entries in `design.md §4.4`.
-- No raw `Divider()` in product surfaces. Use `MAYNDivider`.
-- No inline hotkey recorders on tool pages. Display with `ShortcutChip`
-  / `MAYNHotkeyDisplay`; edit only on the Hotkeys settings page (or the
-  tool's settings page) using `HotkeyRecorder`.
+- No raw `TextField(...)` / `SecureField(...)` in product UI unless surrounded
+  by MAYN-styled search chrome. Default to `MAYNTextField` /
+  `MAYNSecureField`.
+- No raw `.font(.system(size: N))` in product code unless it is in the
+  `design.md §4.4` size table or documented debt/exception. Prefer semantic
+  SwiftUI fonts.
+- No raw `Divider()` in product surfaces. Use `MAYNDivider`, except inside
+  SwiftUI context menus where the platform divider is required.
+- No inline hotkey recorders on top-level tool pages. Display with
+  `ShortcutChip` / `MAYNHotkeyDisplay`; edit in Hotkeys or the tool Settings
+  tab with `HotkeyRecorder`.
 - Every spatial animation must honor `@Environment(\.accessibilityReduceMotion)`
   or `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion`.
+- Disabled sidebar destinations stay visible but inert. Do not remove them from
+  the sidebar when a feature is disabled.
+- Do not add non-actionable "Ready" tags to Dashboard cards. Use warnings,
+  progress, Off, or errors only when the state needs attention.
+- Do not add a Start button to the Voice main page header. The header shows the
+  shortcut chip only; start/stop belongs in the Dictate section or Command
+  Center.
 
-## Where to find the system
+## Where To Find The System
 
-- Tokens + most components: `Settings/MAYNSettingsUI.swift` (despite the
-  name, this is the app-wide design-system file)
+- Tokens + most components: `Settings/MAYNSettingsUI.swift`
 - Function page chrome + tab strip: `App/FunctionPageShell.swift`
-- Hotkey recorder (Settings only): `Settings/HotkeyRecorder.swift`
+- Dashboard lifecycle card wrapper: `App/Dashboard/FeatureToolCard.swift`
+- Hotkey recorder: `Settings/HotkeyRecorder.swift`
 - Per-app clipboard accent palette: `ClipboardDock/Views/Cards/AppIconColor.swift`
+- Snippet cards/editor: `ClipboardDock/Views/Snippets/`
+- Window control pages/settings: `WindowControl/`
 
-## Components you should reach for first
+## Components To Reach For First
 
-| You want… | Use |
+| You want... | Use |
 |---|---|
 | A button | `MAYNButton` (`.primary` / `.secondary` / `.destructive`) |
-| A text input | `MAYNTextField` (or `MAYNSecureField` for keys/passwords) |
+| A text input | `MAYNTextField` or `MAYNSecureField` |
 | A dropdown | `MAYNDropdown` |
-| A 2–5 item tab switch | `FunctionSegmentedTabStrip` (`.header` or `.control` size) |
+| A 2-5 item tab switch | `FunctionSegmentedTabStrip` (`.header` or `.control`) |
 | A settings page | `MAYNSettingsPage` + `MAYNSection` + `MAYNSettingsRow` + `MAYNDivider` |
-| A tool page in the main window | `FunctionPageShell` + `FunctionPageScrollContent` |
-| A status badge | `StatusPill` (`.neutral` / `.success` / `.warning` / `.danger` / `.progress`) |
+| A tool page | `FunctionPageShell` + `FunctionPageScrollContent` |
+| A dashboard feature card | `FeatureToolCard` wrapping `MAYNToolCard` |
+| A status badge | `StatusPill` |
 | A TCC permission row | `PermissionCard` |
 | An instruction with optional drag target | `InstructionStrip` |
 | A confirmation pill | `MAYNToast` |
 | A read-only hotkey | `ShortcutChip` / `MAYNHotkeyDisplay` |
-| A 30pt-height numeric field | `MAYNNumericStepper` |
-| A large interactive home-page card | `MAYNToolCard` |
+| A numeric field | `MAYNNumericStepper` |
 
-If your need isn't in the table, check `design.md §6` before inventing
-a new primitive. New primitives live in `Settings/MAYNSettingsUI.swift`
-and require a one-line entry in §6.
+If the need is not in the table, check `design.md §6` before inventing a new
+primitive. New generic primitives live in `Settings/MAYNSettingsUI.swift` and
+require a `design.md §6` entry.
 
-## Accepted exceptions (do not generalize)
+## Accepted Exceptions (Do Not Generalize)
 
-- `ClipboardDock/Views/DockTopBar/DockListTabs.swift` — custom drag-reorder
-  tab strip; cannot use `FunctionSegmentedTabStrip`. Mirror its visual
-  language (already does).
-- `ClipboardDock/Views/Cards/AppIconColor.swift` + `ClipCardAccentPresentation`
-  — per-app brand RGB tuples; the only place raw RGB is allowed.
-- `Voice/UI/MiniVoiceHUD.swift` — near-black processing background for
-  HUD legibility against arbitrary desktops.
-- `App/MainWindowRoot.swift` — five function-tab indicator colors are
-  brand affordances; do not extend the pattern to chrome.
+- `ClipboardDock/Views/DockTopBar/DockListTabs.swift` - custom drag-reorder tab
+  strip and drop target; mirrors `FunctionSegmentedTabStrip` visuals.
+- `ClipboardDock/Views/Cards/AppIconColor.swift` and `ClipCard` accent
+  presentation - per-app/user pinboard color tuples.
+- `Voice/UI/MiniVoiceHUD.swift` - near-black processing background for HUD
+  legibility over arbitrary desktops.
+- `App/MainWindowRoot.swift` - seven dashboard function accent RGB tuples for
+  feature identity only.
+- `WindowControl/WindowControlMainPage.swift` - `WindowControlFeaturePageShell`
+  avoids nested tabs because Window Layouts and Window Grab are separate sidebar
+  destinations.
+- `WindowControl/WindowSnapOverlayPanel.swift` - fixed black/light-gray OS-style
+  drag overlay.
+- SwiftUI context menus - use platform `Divider()`.
 
-## Before opening a PR (or pushing to main)
+## Current Snippet Behavior
 
-Run the §13 review checklist from `design.md`. The essentials:
+- Expansion modes are `Auto`, `Tab`, and `Off`.
+- Snippet expansion runs from the main app CGEventTap and needs Accessibility.
+- Snippets are sourced from the local `ClipboardDockModel`.
+- Menu rows show body preview and keep the trigger visible.
+- Dragging clipboard cards to the Snippets tab opens a prefilled in-panel
+  `SnippetSheet` draft.
+- Snippet cards intentionally mirror clipboard card background, dimensions,
+  focused border, and unfocused border.
 
-- Every color / padding / height / radius / width / font / animation
-  maps to a `MAYN*` token (or is a documented §10 exception).
+## Before Opening A PR Or Pushing
+
+Run the `design.md §13` review checklist. The essentials:
+
+- Every color / padding / height / radius / width / font / animation maps to a
+  `MAYN*` token or documented exception.
 - Tab switches use `FunctionSegmentedTabStrip`.
-- Text input uses `MAYNTextField` / `MAYNSecureField` (or is a
-  chromed-search-field pattern).
-- Reduce Motion: enable in System Settings → Accessibility → Display,
-  re-run the touched flow, confirm no spatial motion remains.
+- Text input uses `MAYNTextField` / `MAYNSecureField` or the approved search
+  chrome pattern.
+- Reduce Motion: enable it in System Settings -> Accessibility -> Display,
+  re-run the touched flow, and confirm no spatial motion remains.
 - `swiftlint --strict` passes.

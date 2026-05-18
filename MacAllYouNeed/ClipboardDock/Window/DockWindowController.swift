@@ -26,6 +26,15 @@ enum DockTypingSearch {
     }
 }
 
+enum DockLocalKeyEventScope {
+    static func shouldHandle(eventWindow: NSWindow?, dockWindow: NSWindow, keyWindow: NSWindow?) -> Bool {
+        if let eventWindow {
+            return eventWindow === dockWindow
+        }
+        return keyWindow === dockWindow
+    }
+}
+
 enum DockOutsideClickPolicy {
     static func shouldHide(
         panelFrame: NSRect,
@@ -633,6 +642,13 @@ final class DockWindowController {
         stopKeyMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, let window = self.window, window.isVisible else { return event }
+            guard DockLocalKeyEventScope.shouldHandle(
+                eventWindow: event.window,
+                dockWindow: window,
+                keyWindow: NSApp.keyWindow
+            ) else {
+                return event
+            }
 
             if registry.matches(event: event, .focusSearch) {
                 model.requestSearchFocus()

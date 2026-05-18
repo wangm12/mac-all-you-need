@@ -15,6 +15,11 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(VoiceFunctionTab.storedSelection("missing"), .dictate)
     }
 
+    func testVoiceMainPageHeaderShowsShortcutWithoutInlineStartButton() {
+        XCTAssertTrue(VoiceMainPagePresentation.showsHeaderShortcut)
+        XCTAssertNil(VoiceMainPagePresentation.headerActionTitle)
+    }
+
     func testDownloadsTabMapsSettings() {
         XCTAssertEqual(DownloadsFunctionTab.storedSelection("settings"), .settings)
     }
@@ -41,8 +46,74 @@ final class FunctionTabsTests: XCTestCase {
     }
 
     func testSnippetsSettingsDoesNotShowStaticTriggerFormatRow() {
-        XCTAssertEqual(SnippetsSettingsPresentation.visibleRowTitles, ["Accessibility", "Shortcut"])
+        XCTAssertEqual(SnippetsSettingsPresentation.visibleRowTitles, ["Expansion mode", "Accessibility", "Shortcut"])
         XCTAssertFalse(SnippetsSettingsPresentation.visibleRowTitles.contains("Trigger format"))
+    }
+
+    func testSnippetExpansionModeUsesSharedSegmentedTabContract() {
+        XCTAssertEqual(SnippetExpansionMode.allCases.map(\.title), ["Auto", "Tab", "Off"])
+        XCTAssertEqual(SnippetExpansionMode.allCases.map(\.symbolName), [
+            "bolt.fill",
+            "keyboard",
+            "pause.circle"
+        ])
+    }
+
+    func testSnippetsListUsesLocalDockModelSource() {
+        XCTAssertTrue(SnippetsListPresentation.usesLocalDockModelSource)
+    }
+
+    func testSnippetsMenuRowsShowBodyPreviewAndKeepTriggerVisible() {
+        let snippet = Snippet(name: "Email", body: "mingjie.wang@uber.com", trigger: ";email")
+
+        XCTAssertTrue(SnippetsListPresentation.menuRowsShowBodyPreview)
+        XCTAssertTrue(SnippetsListPresentation.menuRowsKeepTriggerVisible)
+        XCTAssertEqual(SnippetsListPresentation.menuBodyPreview(for: snippet), "mingjie.wang@uber.com")
+    }
+
+    func testSnippetsMenuBodyPreviewNormalizesMultilineText() {
+        let snippet = Snippet(name: "Signature", body: "Best,\nMingjie", trigger: ";sig")
+
+        XCTAssertEqual(SnippetsListPresentation.menuBodyPreview(for: snippet), "Best, Mingjie")
+    }
+
+    func testCommandCenterFooterReflectsSelectedTab() {
+        XCTAssertEqual(
+            CommandCenterFooterPresentation.model(for: .clipboard),
+            CommandCenterFooterModel(
+                shortcutText: "⌘⇧V",
+                label: "clipboard dock",
+                openButtonTitle: "Open Clipboard",
+                showsCapturePause: true
+            )
+        )
+        XCTAssertEqual(
+            CommandCenterFooterPresentation.model(for: .voice, voiceShortcut: "⌃⌥Space"),
+            CommandCenterFooterModel(
+                shortcutText: "⌃⌥Space",
+                label: "voice dictation",
+                openButtonTitle: "Open Voice",
+                showsCapturePause: false
+            )
+        )
+        XCTAssertEqual(
+            CommandCenterFooterPresentation.model(for: .downloads),
+            CommandCenterFooterModel(
+                shortcutText: nil,
+                label: "download queue",
+                openButtonTitle: "Open Downloads",
+                showsCapturePause: false
+            )
+        )
+        XCTAssertEqual(
+            CommandCenterFooterPresentation.model(for: .snippets),
+            CommandCenterFooterModel(
+                shortcutText: nil,
+                label: "snippet library",
+                openButtonTitle: "Open Snippets",
+                showsCapturePause: false
+            )
+        )
     }
 
     func testEveryFunctionTabHasStableStorageKey() {
@@ -132,7 +203,7 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(tiles.map(\.metric), ["30", nil, "0", nil, nil, nil, nil])
     }
 
-    func testDashboardWindowLayoutTileSurfacesOffAndAccessibilityStatus() {
+    func testDashboardWindowLayoutTileSurfacesOnlyActionableStatus() {
         var enabledSettings = WindowControlSettings.default
         enabledSettings.enabled = true
 
@@ -157,10 +228,10 @@ final class FunctionTabsTests: XCTestCase {
 
         XCTAssertEqual(offTile?.statusText, "Off")
         XCTAssertEqual(needsAccessibilityTile?.statusText, "Needs Accessibility")
-        XCTAssertEqual(readyTile?.statusText, "Ready")
+        XCTAssertNil(readyTile?.statusText)
     }
 
-    func testDashboardGrabAnywhereTileSurfacesOffAndAccessibilityStatus() {
+    func testDashboardGrabAnywhereTileSurfacesOnlyActionableStatus() {
         var enabledSettings = WindowControlSettings.default
         enabledSettings.enabled = true
         enabledSettings.dragAnywhereEnabled = true
@@ -189,7 +260,15 @@ final class FunctionTabsTests: XCTestCase {
 
         XCTAssertEqual(offTile?.statusText, "Off")
         XCTAssertEqual(needsAccessibilityTile?.statusText, "Needs Accessibility")
-        XCTAssertEqual(readyTile?.statusText, "Ready")
+        XCTAssertNil(readyTile?.statusText)
+    }
+
+    func testDashboardVoiceFooterDoesNotShowIdleReadyStatus() {
+        XCTAssertNil(DashboardVoiceStatusPresentation.footerStatus(for: .idle))
+        XCTAssertEqual(
+            DashboardVoiceStatusPresentation.footerStatus(for: .recording),
+            DashboardVoiceStatusPresentation.Status(text: "Listening", kind: .progress)
+        )
     }
 
     func testDashboardDownloadQueueCountExcludesCompletedAndKeepsFailedRecords() {
@@ -224,6 +303,13 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertNil(MainSidebarBadgePresentation.badgeText(for: .windowLayouts, records: records))
         XCTAssertNil(MainSidebarBadgePresentation.badgeText(for: .grabAnywhere, records: records))
         XCTAssertNil(MainSidebarBadgePresentation.badgeText(for: .downloads, records: [downloadRecord(state: .queued)]))
+    }
+
+    func testSidebarDestinationsKeepDisabledFeaturesVisible() {
+        XCTAssertEqual(
+            MainSidebarDestinationPresentation.renderedDestinations(),
+            MainAppDestination.primarySidebarDestinations
+        )
     }
 
     func testDashboardToolTilesIncludeShortcutDisplays() {
@@ -400,6 +486,18 @@ final class FunctionTabsTests: XCTestCase {
 
     func testMainWindowRootTypeErasesDetailViews() {
         XCTAssertTrue(MainWindowRootPresentation.usesTypeErasedDetailViews)
+    }
+
+    func testMainWindowRootObservesFeatureStatePublisherForSidebarDisabledState() {
+        XCTAssertTrue(MainWindowRootPresentation.observesFeatureStatePublisher)
+    }
+
+    func testMainWindowRootMakesDisabledSidebarItemsNonClickable() {
+        XCTAssertTrue(MainWindowRootPresentation.disabledSidebarItemsAreNonClickable)
+    }
+
+    func testMainWindowRootMakesDisabledSidebarItemsVisuallyInert() {
+        XCTAssertTrue(MainWindowRootPresentation.disabledSidebarItemsIgnoreHover)
     }
 
     func testHotkeyMapStoreExposesPureDefaultMapForViewInitialization() {

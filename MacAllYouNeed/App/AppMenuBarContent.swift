@@ -30,6 +30,8 @@ struct AppMenuBarContent: View {
     }
 
     var body: some View {
+        let footerModel = CommandCenterFooterPresentation.model(for: tab)
+
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -74,23 +76,27 @@ struct AppMenuBarContent: View {
                 case .downloads:
                     downloadsTab
                 case .snippets:
-                    SnippetsListView(xpc: controller.clipboardDeps.xpc)
+                    SnippetsListView(model: controller.clipboardDeps.dockModel)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
             HStack {
-                ShortcutChip(text: "⌘⇧V", height: HotkeyChipPresentation.compactHeight)
-                Text("clipboard dock")
+                if let shortcutText = footerModel.shortcutText {
+                    ShortcutChip(text: shortcutText, height: HotkeyChipPresentation.compactHeight)
+                }
+                Text(footerModel.label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                MAYNButton("Open", height: HotkeyChipPresentation.compactHeight) {
+                MAYNButton(footerModel.openButtonTitle, height: HotkeyChipPresentation.compactHeight) {
                     openSelectedTabInMainWindow()
                 }
-                MAYNButton("Pause 60s", height: HotkeyChipPresentation.compactHeight) {
-                    controller.suspendCaptureFor60Seconds()
+                if footerModel.showsCapturePause {
+                    MAYNButton("Pause 60s", height: HotkeyChipPresentation.compactHeight) {
+                        controller.suspendCaptureFor60Seconds()
+                    }
                 }
                 MAYNButton("Quit", role: .destructive, height: HotkeyChipPresentation.compactHeight) {
                     NSApp.terminate(nil)
@@ -136,6 +142,51 @@ struct AppMenuBarContent: View {
         case .snippets:
             AppGroupSettings.defaults.set(SnippetsFunctionTab.library.rawValue, forKey: SnippetsFunctionTab.storageKey)
             controller.showMainWindow(destination: .snippets)
+        }
+    }
+}
+
+struct CommandCenterFooterModel: Equatable {
+    let shortcutText: String?
+    let label: String
+    let openButtonTitle: String
+    let showsCapturePause: Bool
+}
+
+enum CommandCenterFooterPresentation {
+    static func model(
+        for tab: AppMenuBarContent.Tab,
+        voiceShortcut: String = VoiceActivationSettingsStore.load().shortcut.display
+    ) -> CommandCenterFooterModel {
+        switch tab {
+        case .clipboard:
+            CommandCenterFooterModel(
+                shortcutText: "⌘⇧V",
+                label: "clipboard dock",
+                openButtonTitle: "Open Clipboard",
+                showsCapturePause: true
+            )
+        case .voice:
+            CommandCenterFooterModel(
+                shortcutText: voiceShortcut,
+                label: "voice dictation",
+                openButtonTitle: "Open Voice",
+                showsCapturePause: false
+            )
+        case .downloads:
+            CommandCenterFooterModel(
+                shortcutText: nil,
+                label: "download queue",
+                openButtonTitle: "Open Downloads",
+                showsCapturePause: false
+            )
+        case .snippets:
+            CommandCenterFooterModel(
+                shortcutText: nil,
+                label: "snippet library",
+                openButtonTitle: "Open Snippets",
+                showsCapturePause: false
+            )
         }
     }
 }
@@ -862,11 +913,11 @@ private struct MenuBarImageThumbnail: View {
 }
 
 struct SnippetsListView: View {
-    let xpc: ClipboardXPCClient
-    @State private var snippets: [SnippetXPCDTO] = []
+    @Bindable var model: ClipboardDockModel
+
     var body: some View {
         Group {
-            if snippets.isEmpty {
+            if model.snippetItems.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "text.quote")
                         .font(.system(size: 16, weight: .semibold))
@@ -895,15 +946,19 @@ struct SnippetsListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(snippets) { snippet in
+                        ForEach(model.snippetItems, id: \.id) { snippet in
                             HStack(spacing: 10) {
                                 Image(systemName: "text.quote")
                                     .font(.system(size: 13, weight: .semibold))
                                     .frame(width: 30, height: 30)
                                     .background(Color.primary.opacity(0.08), in: Circle())
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: 3) {
                                     Text(snippet.name)
                                         .font(.system(size: 13, weight: .semibold))
+                                    Text(SnippetsListPresentation.menuBodyPreview(for: snippet))
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.primary.opacity(0.82))
+                                        .lineLimit(2)
                                     if let trigger = snippet.trigger {
                                         Text(trigger)
                                             .font(.system(size: 11, design: .monospaced))
@@ -924,18 +979,6 @@ struct SnippetsListView: View {
                 }
             }
         }
-        .task { await refresh() }
-    }
-
-    private func refresh() async {
-        snippets = await withCheckedContinuation { cont in
-            // Use an error handler so the continuation is always resumed,
-            // even if the XPC connection drops before the callback fires.
-            let proxy = xpc.connection.remoteObjectProxyWithErrorHandler { _ in
-                cont.resume(returning: [])
-            } as? ClipboardXPCProtocol
-            guard let proxy else { cont.resume(returning: []); return }
-            proxy.listSnippets { cont.resume(returning: $0) }
-        }
+        .task { await model.loadSnippets() }
     }
 }

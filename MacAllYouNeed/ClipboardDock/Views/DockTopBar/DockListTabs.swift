@@ -36,7 +36,7 @@ struct DockListTabReorderTarget: Equatable {
     }
 }
 
-enum DockListPinboardTabDropPolicy {
+enum DockListItemTabDropPolicy {
     static func acceptsPerTabDrop(draggedTabID: RecordID?) -> Bool {
         draggedTabID == nil
     }
@@ -52,7 +52,7 @@ enum DockListTabsPresentation {
     static let scrollSizing: DockListTabScrollSizing = .flexibleViewport
     static let usesSingleStripDropCoordinator = true
     static let usesAppKitDropBackstop = true
-    static let usesPerPinboardTabDropTarget = true
+    static let usesPerItemTabDropTarget = true
     static let dropSurfaceActivation: DockListDropSurfaceActivation = .windowDragOrActiveDrag
     static let appKitDropSurfaceFillsTabPill = true
     static let dropTargetPlacement: DockListTabDropTargetPlacement = .stripContent
@@ -253,7 +253,7 @@ struct DockListTabs: View {
         .opacity(isThisTabBeingDragged(selector: selector) ? 0.4 : 1.0)
         .zIndex(isDropping || isConfirmed ? 30 : 0)
         .modifier(
-            DockListPinboardTabDropTarget(
+            DockListItemTabDropTarget(
                 selector: selector,
                 dropTargetSelector: $dropTargetSelector,
                 draggedTabID: $draggedTabID,
@@ -344,6 +344,9 @@ struct DockListTabs: View {
         model.finishDockDrag()
         Task { @MainActor in
             switch selector {
+            case .snippets:
+                await model.switchList(.snippets)
+                await model.beginSnippetDraftFromClipboard(itemIDs: recordIDs)
             case .pinboard(let boardID):
                 await model.addToPinboard(itemIDs: recordIDs, boardID: boardID)
                 await model.loadAvailableLists()
@@ -450,17 +453,17 @@ enum DockListTabDropResolver {
     static func targetSelector(
         at location: CGPoint,
         in frames: [DockListTabDropFrame],
-        requiresPinboard: Bool
+        requiresItemDropTarget: Bool
     ) -> DockListSelector? {
         guard !frames.isEmpty else { return nil }
-        let candidates = requiresPinboard ? frames.filter(\.isPinboard) : frames
+        let candidates = requiresItemDropTarget ? frames.filter(\.acceptsItemDrop) : frames
 
         if let direct = candidates.first(where: { $0.hitRect.contains(location) }) {
             return direct.selector
         }
 
-        if requiresPinboard,
-           frames.contains(where: { !$0.isPinboard && $0.hitRect.contains(location) })
+        if requiresItemDropTarget,
+           frames.contains(where: { !$0.acceptsItemDrop && $0.hitRect.contains(location) })
         {
             return nil
         }
@@ -642,7 +645,7 @@ private struct DockListStripDropDelegate: DropDelegate {
         return DockListTabDropResolver.targetSelector(
             at: info.location,
             in: tabFrames,
-            requiresPinboard: true
+            requiresItemDropTarget: true
         )
     }
 
@@ -651,7 +654,7 @@ private struct DockListStripDropDelegate: DropDelegate {
     }
 }
 
-private struct DockListPinboardTabDropTarget: ViewModifier {
+private struct DockListItemTabDropTarget: ViewModifier {
     let selector: DockListSelector
     @Binding var dropTargetSelector: DockListSelector?
     @Binding var draggedTabID: RecordID?
@@ -662,10 +665,10 @@ private struct DockListPinboardTabDropTarget: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if case .pinboard = selector {
+        if selector.acceptsItemDrop {
             content.onDrop(
                 of: DockDragPayloadTypes.acceptedTypeIdentifiers,
-                delegate: DockListPinboardTabDropDelegate(
+                delegate: DockListItemTabDropDelegate(
                     selector: selector,
                     dropTargetSelector: $dropTargetSelector,
                     draggedTabID: $draggedTabID,
@@ -681,7 +684,7 @@ private struct DockListPinboardTabDropTarget: ViewModifier {
     }
 }
 
-private struct DockListPinboardTabDropDelegate: DropDelegate {
+private struct DockListItemTabDropDelegate: DropDelegate {
     let selector: DockListSelector
     @Binding var dropTargetSelector: DockListSelector?
     @Binding var draggedTabID: RecordID?
@@ -691,12 +694,12 @@ private struct DockListPinboardTabDropDelegate: DropDelegate {
     let runDropConfirmation: (DockListSelector) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
-        DockListPinboardTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID) &&
+        DockListItemTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID) &&
             !info.itemProviders(for: DockDragPayloadTypes.acceptedTypeIdentifiers).isEmpty
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard DockListPinboardTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID) else {
+        guard DockListItemTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID) else {
             return nil
         }
         guard !info.itemProviders(for: DockDragPayloadTypes.acceptedTypeIdentifiers).isEmpty else {
@@ -707,7 +710,7 @@ private struct DockListPinboardTabDropDelegate: DropDelegate {
     }
 
     func dropEntered(info _: DropInfo) {
-        guard DockListPinboardTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID) else { return }
+        guard DockListItemTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID) else { return }
         updateDropTarget()
     }
 
@@ -721,7 +724,7 @@ private struct DockListPinboardTabDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         let providers = info.itemProviders(for: DockDragPayloadTypes.acceptedTypeIdentifiers)
-        guard DockListPinboardTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID),
+        guard DockListItemTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID),
               !providers.isEmpty
         else {
             dropTargetSelector = nil
@@ -744,7 +747,7 @@ private struct DockListPinboardTabDropDelegate: DropDelegate {
     }
 
     private func updateDropTarget() {
-        guard DockListPinboardTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID) else { return }
+        guard DockListItemTabDropPolicy.acceptsPerTabDrop(draggedTabID: draggedTabID) else { return }
         withAnimation(MAYNMotion.tabAnimation(reduceMotion: reduceMotion)) {
             dropTargetSelector = selector
         }
@@ -856,7 +859,7 @@ private struct DockListStripAppKitDropSurface: NSViewRepresentable {
             return DockListTabDropResolver.targetSelector(
                 at: location,
                 in: parent.tabFrames,
-                requiresPinboard: true
+                requiresItemDropTarget: true
             )
         }
 
@@ -924,6 +927,10 @@ private extension DockListTabDropFrame {
         return false
     }
 
+    var acceptsItemDrop: Bool {
+        selector.acceptsItemDrop
+    }
+
     var hitRect: CGRect {
         rect.insetBy(dx: -3, dy: -4)
     }
@@ -932,6 +939,17 @@ private extension DockListTabDropFrame {
         if x < rect.minX { return rect.minX - x }
         if x > rect.maxX { return x - rect.maxX }
         return 0
+    }
+}
+
+private extension DockListSelector {
+    var acceptsItemDrop: Bool {
+        switch self {
+        case .snippets, .pinboard:
+            return true
+        case .history:
+            return false
+        }
     }
 }
 

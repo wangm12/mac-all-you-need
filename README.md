@@ -1,34 +1,70 @@
 # Mac All You Need
 
-A native macOS productivity app combining a Paste-style clipboard manager,
-a FolderPreview-style Quick Look extension with PeekX-inspired analysis,
-voice dictation, snippets, and a yt-dlp-powered universal video downloader.
+Native macOS productivity app that combines local clipboard history, voice
+dictation, video downloads, folder previews, snippets, and window controls in a
+single menu-bar app.
 
 ## Status
 
-Pre-alpha. Core local workflows are implemented, but distribution packaging
-and notarized DMG release work are still deferred.
+Pre-alpha. Core local workflows are implemented and the app can build a local
+Release DMG, but public distribution, Sparkle appcast publishing, GitHub release
+automation, and notarized/stapled official releases are still Plan 7 work.
 
 See `docs/superpowers/specs/` for design specs and `docs/superpowers/plans/`
 for implementation plans.
 
-## Design system
+## Features
 
-UI work in this repo follows a single normative spec: [`design.md`](./design.md).
-It covers the MAYN tokens (`MAYNTheme` colors, `MAYNControlMetrics`,
-`MAYNMotion`), the components catalog, the eight UI surfaces, the
-Reduce-Motion contract, accepted exceptions, and the review checklist.
+- **Clipboard** - encrypted clipboard history, searchable `Command-Shift-V`
+  dock/popup, bottom dock, pinboards, multi-select, transforms, Quick Look,
+  capture rules, paste behavior, and app exclusions.
+- **Voice** - push-to-talk/toggle dictation into any app with local Qwen3-ASR,
+  optional Groq Whisper cloud ASR, optional cleanup, dictionary replacements,
+  transcript history, personalization profiles, voice HUD, and guided setup.
+- **Downloads** - yt-dlp + ffmpeg queue, browser cookie import, metadata,
+  pause/resume, browser-extension dispatch server, clipboard video URL detection,
+  completed-download folder preview, and Dock progress.
+- **Folder Preview** - Quick Look previews for folders and archives, plus a
+  Browse Folder window with Files, Grid, and Analyze views.
+- **Snippets** - reusable text snippets with `;trigger` expansion. Expansion can
+  be Auto, Tab-confirmed, or Off. Drag clipboard items onto the Snippets tab in
+  the dock to create prefilled snippet drafts.
+- **Window Layouts** - global shortcuts for halves, corners, maximize, center,
+  restore, and display movement, plus edge snap and ignored apps.
+- **Window Grab** - modifier-drag windows from visible content areas, sharing
+  Window Layouts settings and diagnostics.
+- **Feature runtime** - Dashboard cards can enable/disable features, install or
+  remove asset packs, show migration results, and keep disabled features visible
+  but inert in navigation.
 
-A subset of the rules is machine-enforced. `swiftlint --strict` (which
-runs in `scripts/ci-build.sh`) fails the build on:
+## App Surfaces
 
-- Raw `Color(red:green:blue:)` outside the documented exceptions
-- `.pickerStyle(.segmented)` (use `FunctionSegmentedTabStrip` instead)
-- `Animation.easeOut(duration:)` / `.easeInOut(duration:)` / `.linear(duration:)`
-  / `.spring(…)` (route through `MAYNMotion` so Reduce Motion is honored)
+- Menu-bar Command Center with Clipboard, Voice, Downloads, and Snippets tabs.
+- Main window with Dashboard plus first-class pages for every tool.
+- Bottom clipboard dock with history, snippets, user pinboards, drag/drop, and
+  keyboard shortcuts.
+- System Settings entry for General, Permissions, Storage, and Advanced.
+- Per-tool settings inside the corresponding main tool pages.
+- Main onboarding feature picker and a separate 9-step voice onboarding wizard.
 
-The custom rules live in `.swiftlint.yml`; each exclusion is annotated with
-the `design.md` section that justifies it.
+## Design System
+
+UI work follows [`design.md`](./design.md). The shared implementation lives
+mostly in `MacAllYouNeed/Settings/MAYNSettingsUI.swift` and
+`MacAllYouNeed/App/FunctionPageShell.swift`.
+
+Important rules:
+
+- Use `MAYNTheme`, `MAYNControlMetrics`, `MAYNMotion`, and
+  `MAYNMotionBridge`.
+- Use `FunctionSegmentedTabStrip` for product-owned segmented controls.
+- Use shared controls (`MAYNButton`, `MAYNTextField`, `MAYNDropdown`,
+  `MAYNSettingsRow`, `StatusPill`, `ShortcutChip`) before adding local chrome.
+- Respect Reduce Motion for every spatial animation.
+- Tool pages display hotkeys; editing lives in Settings/tool settings.
+
+A subset of design rules is enforced by `swiftlint --strict` through custom
+rules in `.swiftlint.yml`.
 
 ## Requirements
 
@@ -40,8 +76,8 @@ the `design.md` section that justifies it.
 brew install libarchive swiftlint swiftformat xcodegen
 ```
 
-- Node.js available at `/opt/homebrew/bin/node`, `/usr/local/bin/node`, or
-  under `~/.nvm/versions/node`
+- Node.js available at `/opt/homebrew/bin/node`, `/usr/local/bin/node`, or under
+  `~/.nvm/versions/node`
 
 ## Build
 
@@ -65,7 +101,7 @@ PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test
 cd ..
 ```
 
-Run the app build:
+Build the Debug app:
 
 ```bash
 xcodebuild -project MacAllYouNeed.xcodeproj \
@@ -75,7 +111,7 @@ xcodebuild -project MacAllYouNeed.xcodeproj \
   build
 ```
 
-Or use the Makefile shortcuts:
+Makefile shortcuts:
 
 ```bash
 make bootstrap   # fetch binaries and regenerate the Xcode project
@@ -84,13 +120,13 @@ make build       # build Debug
 make release     # build Release and create dist/MacAllYouNeed.dmg
 ```
 
-The Debug `.app` is written by Xcode into DerivedData, typically:
+The Debug app is written by Xcode into DerivedData, typically:
 
 ```text
 ~/Library/Developer/Xcode/DerivedData/MacAllYouNeed-*/Build/Products/Debug/MacAllYouNeed.app
 ```
 
-You can also open the project directly:
+Open the project:
 
 ```bash
 open MacAllYouNeed.xcodeproj
@@ -98,7 +134,7 @@ open MacAllYouNeed.xcodeproj
 
 ## Distribution
 
-The official DMG target is:
+The local Release DMG target is:
 
 ```text
 dist/MacAllYouNeed.dmg
@@ -117,11 +153,7 @@ or directly:
 ```
 
 The script builds the Release app into repo-local `build/DerivedData`, stages
-the app plus an `/Applications` symlink, and writes the compressed DMG to:
-
-```text
-dist/MacAllYouNeed.dmg
-```
+the app plus an `/Applications` symlink, and writes a compressed DMG.
 
 For local development, notarization is skipped unless credentials are provided.
 For official release builds, provide either a notary keychain profile:
@@ -145,8 +177,8 @@ To sign the DMG itself, also set:
 DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID1234)" make release
 ```
 
-Release packaging still depends on local Apple signing credentials and
-provisioning being configured correctly in Xcode.
+Release packaging still depends on local Apple signing credentials and Xcode
+provisioning being configured correctly.
 
 ## Cleanup
 
@@ -160,8 +192,8 @@ rm -rf ~/Library/Developer/Xcode/DerivedData/MacAllYouNeed-*
 rm -f default.profraw Shared/default.profraw
 ```
 
-Do not delete `Vendored/binaries/yt-dlp` or `Vendored/binaries/ffmpeg`; the
-app build copies those into the app bundle for downloader runtime support.
+Do not delete `Vendored/binaries/yt-dlp` or `Vendored/binaries/ffmpeg`; the app
+build copies those into the app bundle for downloader runtime support.
 
 After cleanup, verify ignored files before deleting anything else:
 
@@ -175,9 +207,10 @@ The equivalent Makefile target is:
 make clean-cache
 ```
 
-## Codex (Project MCP)
+## Codex Project MCP
 
-Use the repo-local launcher so `XcodeBuildMCP` is enabled only for this project/session:
+Use the repo-local launcher so `XcodeBuildMCP` is enabled only for this project
+session:
 
 ```bash
 ./scripts/codex-project

@@ -1,136 +1,241 @@
-# Mac All You Need — Developer Context
+# AGENTS.md
+
+Behavioral and project-specific guidance for agents working in this repo.
+
+## User Preferences
+
+- Always address the user as **mingjie-father**.
+
+## 1. Think Before Coding
+
+Don't assume. Don't hide confusion. Surface tradeoffs.
+
+Before implementing:
+
+- State assumptions explicitly when they matter.
+- If multiple interpretations exist, present them instead of silently picking.
+- If a simpler approach exists, say so.
+- If something is unclear and cannot be discovered from the repo, ask.
+
+## 2. Simplicity First
+
+Minimum code that solves the problem. Nothing speculative.
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No configurability that was not requested.
+- No unrelated cleanup while editing nearby code.
+- If a change can be smaller and clearer, make it smaller.
+
+## 3. Surgical Changes
+
+Touch only what the task requires.
+
+- Match the existing style and ownership boundaries.
+- Do not refactor adjacent code unless it is required for the requested change.
+- Remove only imports/variables/functions made unused by your changes.
+- Do not revert unrelated dirty-worktree changes.
+
+Every changed line should trace to the user's request.
+
+## 4. Goal-Driven Execution
+
+Transform tasks into verifiable goals:
+
+1. Identify the source of truth in code/docs.
+2. Make the smallest necessary change.
+3. Verify with the narrowest useful command.
+
+For multi-step work, keep a brief plan and update it as work completes.
+
+## 5. Production Confidence Check
+
+Before handing back, ask:
+
+> As a responsible senior staff software engineer, am I confident enough to ship this to production with minimal to no bugs?
+
+If the answer is not yes, identify the gap, fix it or report the exact residual
+risk, then re-check.
+
+---
+
+# Mac All You Need - Developer Context
 
 ## Project
-Native macOS productivity app combining clipboard manager, folder preview (Quick Look), and universal video downloader. Built with Swift 5.9+, SwiftUI, AppKit, GRDB, libarchive.
+
+Native macOS productivity app built with Swift 5.9+, SwiftUI, AppKit, GRDB,
+libarchive, FluidAudio, and yt-dlp/ffmpeg. The app is menu-bar resident but also
+has a Dock/main-window flow.
+
+Current first-class tool surfaces:
+
+- **Clipboard** - encrypted clipboard history, local direct reads, searchable
+  main history, `Command-Shift-V` dock/popup, capture rules, paste behavior,
+  pinboards, multi-select, transforms, Quick Look, and app exclusions.
+- **Voice** - dictation into any app, local Qwen3-ASR, optional Groq Whisper,
+  cleanup, transcript history, dictionary, personalization profiles, post-edit
+  learning, mini HUD, and 9-step setup.
+- **Downloads** - yt-dlp + ffmpeg queue, completed downloads, cookies,
+  metadata, pause/resume, browser-extension dispatch server, Dock progress, and
+  clipboard video URL detection.
+- **Folder Preview** - Quick Look previews for folders/archives and a Browse
+  Folder window with Files / Grid / Analyze modes.
+- **Snippets** - reusable text, `;trigger` expansion, Auto/Tab/Off expansion
+  modes, snippet library views, body previews in menu rows, and drag-from-clipboard
+  creation in the dock.
+- **Window Layouts** - global window arrangement shortcuts, edge snap, restore,
+  double-click layout, ignored apps, and diagnostics.
+- **Window Grab** - modifier-drag windows from visible content, sharing the
+  Window Layouts coordinator and ignored apps.
 
 ## UI Rules
-- **Forced segmented/tab style**: Any product-owned tab switch or segmented choice in Settings, main tool pages, menu surfaces, and onboarding must use the shared `FunctionSegmentedTabStrip` pill style, matching the Settings sub-tab control. Do not introduce raw SwiftUI `Picker(...).pickerStyle(.segmented)` for these controls unless it is a native macOS system form control that is intentionally not part of the app's tab-switch UI.
 
-## Architecture (Plan 6 update)
-- `MacAllYouNeed/App/AppController.swift` — composition root (replaces AppDelegate); owns all subsystems
-- `MacAllYouNeed/App/LocalClipboardReader.swift` — reads clipboard DB directly (no XPC); polls every 1s with deduplication
-- `MacAllYouNeed/Onboarding/` — 6-step first-launch wizard (Accessibility, FDA, Notifications, Sync)
-- `MacAllYouNeed/Settings/` — 7-tab Settings window (General, Clipboard, Downloads, FolderPreview, Sync, Hotkeys, Advanced)
+- The normative UI spec is [`design.md`](./design.md). Read it before adding or
+  changing UI.
+- New SwiftUI/AppKit UI must use the shared MAYN design system in
+  `MacAllYouNeed/Settings/MAYNSettingsUI.swift`.
+- Use `MAYNTheme`, `MAYNControlMetrics`, `MAYNMotion`, and
+  `MAYNMotionBridge` instead of raw colors, spacing, control heights, durations,
+  springs, or `NSAnimationContext` timings.
+- Use shared controls first: `MAYNTextField`, `MAYNSecureField`,
+  `MAYNDropdown`, `FunctionSegmentedTabStrip`, `ShortcutChip`,
+  `MAYNHotkeyDisplay`, `StatusPill`, `MAYNSettingsRow`, `MAYNSection`.
+- Product-owned segmented/tab choices must use `FunctionSegmentedTabStrip`.
+  Do not add raw SwiftUI `Picker(...).pickerStyle(.segmented)`.
+- Function pages display shortcuts only. Shortcut editing belongs in tool
+  settings or Hotkeys settings via `HotkeyRecorder`.
+- Reduce Motion must be respected for every spatial animation, including AppKit
+  panels and Core Animation paths.
+- Dashboard disabled/not-installed feature cards expose lifecycle actions.
+  Main sidebar destinations remain visible when disabled but are dimmed and
+  non-clickable.
+- Do not add redundant "Ready" pills to Dashboard cards when no action is needed.
+- Voice main page header shows the shortcut chip; do not re-add a header Start
+  button.
 
-### Plan 6 Fixes (macOS 26 / XPC / SwiftUI)
-- **AppController is a static let** — SwiftUI App struct can be recreated multiple times; use `private static let controller = try! AppController()` to ensure single initialization
-- **XPC auth**: `SecCodeCopyGuestWithAttributes` + team-ID check fails (Personal Team cert OU ≠ provisioning ID). Use `NSRunningApplication(processIdentifier:).bundleIdentifier` only
-- **XPC continuation leak**: `withCheckedContinuation` leaks if XPC callback never fires (connection drop). Always use `remoteObjectProxyWithErrorHandler` with error handler that calls `cont.resume`
-- **Clipboard display**: Main app reads `ClipboardStore` directly from shared App Group DB (no XPC). Deduplicate records within 0.5s window (one copy action → multiple type records)
-- **Daemon startup race**: Main app retries XPC load with exponential backoff (0.5, 1, 2, 4s)
-- **Daemon crash throttle**: `SMAppService.loginItem.unregister()` then `register()` on each app launch resets the macOS crash throttle
-- **SettingsLink**: Broken in `MenuBarExtra` on macOS 14+. Use `@Environment(\.openSettings)` instead
-- **Snippet expansion**: Moved from daemon to main app — daemon has no Accessibility permission in its own bundle; main app requests it during onboarding
+## Architecture
 
-## Key Decisions & Platform-Specific Fixes
+- `MacAllYouNeed/App/AppController.swift` - composition root; owns subsystems,
+  windows, feature runtime, hotkeys, onboarding, migration, and coordinators.
+- `MacAllYouNeed/App/FeatureRuntime.swift` and `Shared/Sources/FeatureCore/` -
+  modular feature registry, persisted feature state, asset states, enable/
+  disable transitions, and pack install/uninstall.
+- `MacAllYouNeed/App/Descriptors/` - feature descriptors for Clipboard, Voice,
+  Downloader, Folder Preview, Window Layouts, and Window Grab.
+- `MacAllYouNeed/App/LocalClipboardReader.swift` - direct shared DB reader for
+  clipboard display; polls every 1s and deduplicates same-copy records.
+- `MacAllYouNeed/ClipboardDock/` - bottom dock, pinboards, snippets, drag/drop,
+  transforms, search, Quick Look, and shortcut registry.
+- `MacAllYouNeed/Onboarding/` - feature-picker setup flow:
+  Welcome -> Choose Features -> per-feature setup -> Done.
+- `MacAllYouNeed/Voice/UI/Onboarding/` - voice-specific 9-step wizard.
+- `MacAllYouNeed/Settings/` - design system and settings detail views.
+  `SettingsDestination` supports 11 destinations; current user-facing Settings
+  entry opens the System group, while feature/workflow settings live in tool
+  pages and reusable detail views.
+- `MacAllYouNeed/WindowControl/` - shared Window Layouts / Window Grab
+  coordinator, event tap, settings view, diagnostics, and snap overlay.
+- `Resources/Migration/pre-install.sh` and `MacAllYouNeed/Migration/` - modular
+  feature migration and What's New sheet.
 
-### UI System Rules
-- New SwiftUI/AppKit UI must use the shared MAYN design system in `MacAllYouNeed/Settings/MAYNSettingsUI.swift`.
-- Use `MAYNTheme`, `MAYNControlMetrics`, `MAYNMotion`, and `MAYNMotionBridge` instead of raw one-off colors, spacing, control heights, durations, springs, or `NSAnimationContext` timings.
-- Use shared controls (`MAYNTextField`, `MAYNSecureField`, `MAYNMenuPicker`/`MAYNDropdown`, `FunctionSegmentedTabStrip`, `ShortcutChip`/`MAYNHotkeyDisplay`, `StatusPill`) before adding local styles.
-- Function pages may display shortcuts, but shortcut editing belongs in each tool's Settings page. Do not add inline hotkey recorders to top-level tool pages.
-- Reduce Motion must be respected for every spatial animation, including AppKit panels and Core Animation paths.
+## Platform-Specific Rules
 
-### macOS 26 Compatibility
-- **Quick Look extension**: Use `NSViewController + QLPreviewingController.preparePreviewOfFile(at:completionHandler:)` NOT `QLPreviewProvider`/`QLPreviewReply` (hangs on macOS 26)
-- **WKWebView in sandboxed QL extension**: Blocked (can't spawn WebContent process). Use `NSTextView + NSAttributedString(html:)` instead
-- **GlobalHotkey**: Register in `AppDelegate.applicationDidFinishLaunching`, NOT in SwiftUI `onAppear` (MenuBarExtra `onAppear` fires only on first click, not launch) and NOT in `scenePhase == .active` (LSUIElement apps never become active)
-- **MenuBarExtra + ObservableObject**: AppDelegate must conform to `ObservableObject` with `@Published` properties; pass AppDelegate as `@ObservedObject` to menu bar content (not as captured `let` value which snapshots nil)
+### macOS / SwiftUI / XPC
 
-### yt-dlp (PyInstaller bundle)
-- Must pass `--no-check-certificate` (PyInstaller Python can't find macOS system CA)
-- Must pass `--js-runtime node:/path/to/node` for yt-dlp 2026+ (JavaScript extraction required)
-- `SSL_CERT_FILE` env var alone does NOT work
-- Use `lipo -archs` output with `.split(whereSeparator: \.isWhitespace)` not `.split(separator: " ")` (trailing newline causes mismatch)
-- Node.js auto-detected from `~/.nvm`, `/opt/homebrew/bin/node`, `/usr/local/bin/node`
+- Keep `AppController` as a static singleton from the SwiftUI App entry point.
+- XPC auth uses `NSRunningApplication(processIdentifier:).bundleIdentifier`;
+  Personal Team certificate OU and provisioning team ID can differ.
+- XPC calls must use `remoteObjectProxyWithErrorHandler` so continuations resume
+  on connection failure.
+- Clipboard display reads `ClipboardStore` directly from the App Group DB.
+- Do not move snippet expansion to the daemon; it needs the main app's
+  Accessibility permission.
+- Global hotkeys register during app launch, not SwiftUI `onAppear`.
+- Use `@Environment(\.openSettings)` / main-window routing instead of
+  `SettingsLink` from a `MenuBarExtra`.
 
-### yt-dlp Pause/Resume
-- SIGSTOP does NOT work for HLS downloads (ffmpeg subprocess continues)
-- Use SIGTERM + `--continue` flag on resume instead
-- `DownloadQueue.pauseForResume(id:)` terminates without triggering failure callback (uses `pausedIDs` set)
+### Folder Preview
 
-### URL Templates
-- `URL.appendingPathComponent("%(title)s")` strips `%` characters (percent-encoding)
-- Use string concatenation: `outputDir.path + "/%(title)s - %(uploader)s.%(ext)s"` instead
+- Quick Look extension uses
+  `NSViewController + QLPreviewingController.preparePreviewOfFile(at:completionHandler:)`.
+- Do not use WKWebView inside the sandboxed Quick Look extension; use
+  `NSTextView + NSAttributedString(html:)`.
+- Use libarchive via the SwiftPM `systemLibrary` target and Homebrew headers.
 
-### XPC Auth
-- Personal Team: certificate OU (`777BPJR98D`) ≠ provisioning team ID (`2N55H39FC4`)
-- `SecCodeCopyGuestWithAttributes(nil, pid)` fails in production builds (requires `get-task-allow`)
-- Use bundle ID check only: `NSRunningApplication(processIdentifier:).bundleIdentifier`
+### Downloader
 
-### Cookies (Chromium)
-- Chrome 130+ renamed `secure` column to `is_secure` — detect dynamically via `conn.columns(in: "cookies")`
-- Netscape cookie file: first line MUST be `# Netscape HTTP Cookie File` (yt-dlp validates this)
-- `domain_specified` field MUST be `TRUE` for domains starting with `.` (Python http.cookiejar asserts this)
+- yt-dlp jobs must pass `--no-check-certificate`.
+- yt-dlp 2026+ needs `--js-runtime node:/path/to/node`.
+- HLS pause/resume uses SIGTERM + `--continue`, not SIGSTOP.
+- URL templates must be assembled by string concatenation so `%(...)s` tokens
+  survive.
+- Chromium cookie import must handle `is_secure` and write a valid Netscape
+  header.
 
 ### Code Signing
-- `disable-library-validation` entitlement needed for brew libarchive (different Team ID)
-- Apply to both main app AND FolderPreview extension
 
-### libarchive
-- System libarchive IS in dyld shared cache on macOS 26 (no on-disk file at `/usr/lib/libarchive*`)
-- Use `systemLibrary` SwiftPM target with brew headers (installed via `brew install libarchive`)
-- `AE_IFDIR`/`AE_IFREG` are C macros not importable in Swift — use octal literals `0o040000`/`0o100000`
+- `disable-library-validation` entitlement is needed for Homebrew libarchive and
+  applies to the main app and FolderPreview extension.
+- Release DMG creation exists through `make release` /
+  `scripts/package-dmg.sh`; notarization requires local Apple credentials and is
+  still part of Plan 7 distribution work.
 
-### Metadata Fetch
-- Use `Task` (not `Task.detached`) for metadata fetch from `@MainActor` coordinator (avoids Sendable capture issues with non-Sendable `DownloadStore`)
-- `Task.detached` with non-Sendable captures silently fails to update DB
+## Working Feature State
 
-### DownloadRecord Progress Bar
-- HLS streams report per-fragment %, not total file %
-- Use `bytesDownloaded/bytesTotal` for overall fraction
-- Always return `1.0` for `.completed` state (persisted bytes may be stale fragment data)
+- Clipboard capture, encryption, FTS indexing, app exclusions, retention, paste
+  injection, URL detection, and history search.
+- Command Center menu-bar popover with four tabs: Clipboard, Voice, Downloads,
+  Snippets. Footer actions are tab-specific; Pause is Clipboard-only.
+- Bottom dock with Clipboard History, Snippets, and user pinboards; pinboards
+  support card and tab reordering.
+- Snippets are loaded from the local dock model, support body previews, and can
+  be created by dragging clipboard items to the Snippets tab.
+- Voice supports local/cloud ASR, cleanup, dictionary, transcripts,
+  personalization, mini HUD, and setup.
+- Downloads support queue/completed views, metadata, cookies, pause/resume,
+  browser extension dispatch, and package-managed binaries.
+- Folder Preview supports Quick Look folder/archive previews, Browse Folder,
+  hidden-file inclusion, cascade folders, and max entries.
+- Window Layouts and Window Grab are feature-gated, share settings/diagnostics,
+  and update hotkey/event-tap availability when runtime state changes.
+- FeatureRuntime, FeatureRegistry, pack pipeline, migration, What's New, and
+  asset cleanup are implemented.
 
-## What's Working ✅
-- Clipboard capture (400ms poll, AES-GCM encrypted, FTS5 indexed)
-- ⌘⇧V popup with search, arrow navigation, paste injection
-- Menu bar 3-tab popover (Clipboard / Downloads / Snippets) with icon + relative timestamp list
-- Clipboard deduplication (same copy action → multiple records → one display entry)
-- Quick Look folder preview (HTML table) and archive listing (libarchive)
-- ⌘⇧F Browse Folder window with Files/Grid/Analyze views
-- yt-dlp downloader: queue, pause/resume, concurrent fragments, cookies
-- Real-time phase indicators (Connecting → Fetching info → Merging etc.)
-- Video metadata (thumbnail, title, channel, duration) fetched async
-- Browser cookie import (Chrome/Edge/Brave/Arc multi-profile, AES-CBC decryption)
-- Cookie import error banner with "Open Chrome" button when import fails
-- DispatchServer (localhost:18765) for browser extension integration
-- DockProgressController (badge %) during active downloads
-- Settings window (7 tabs) with persistent AppGroupSettings backing
-- Onboarding wizard (6 steps) with TCC auto-advance and window-close on Done
-- Hotkey rebinding (HotkeyRecorder + HotkeyRegistry with conflict detection)
-- URLDetector: video URL badge on clipboard items → one-click enqueue to downloader
-- "Preview folder" button on completed downloads → opens Browse Folder window
-- Snippet `;trigger` expansion via CGEventTap (runs in main app with Accessibility)
-- Excluded apps list wired from Settings → daemon ExclusionRules
-- Download output template wired from Settings → DownloadCoordinator
-- FolderPreview maxEntries + includeHidden wired from Settings → FolderEnumerator
+## Deferred / Not Fully Wired
 
-## What's Not Working / Deferred ❌
-- Quick Look extension XPC to main app (sandboxed extension restrictions)
-- Safari binary cookies parsing (binarycookies format — deferred)
-- yt-dlp updater (deferred to Plan 7)
-- Format picker dialog for downloads (deferred)
-- Xcode/GitHub Actions CI requiring `brew install libarchive` (PKG_CONFIG_PATH needed)
-- Plan 2 Sync Engine (deferred indefinitely)
+- Quick Look extension XPC to the main app is deferred.
+- Safari binary cookies parsing is deferred.
+- Downloader update UI exists, but the full online updater path is deferred.
+- Format picker dialog for downloads is deferred.
+- Sync Engine remains skipped indefinitely.
+- Public Sparkle appcast, GitHub Actions release, notarized/stapled official
+  distribution, and paid Developer ID signing remain Plan 7 work.
 
 ## Build Requirements
+
 - Xcode 26+, macOS 14+ target
 - `brew install libarchive swiftlint swiftformat xcodegen`
-- `node` (any version, used for yt-dlp JS extraction)
-- Run `scripts/fetch-binaries.sh` to download yt-dlp + ffmpeg before first build
-- `xcodegen generate` after any `project.yml` changes
-- `PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test` for Shared package
+- Node.js available under `~/.nvm`, `/opt/homebrew/bin/node`, or
+  `/usr/local/bin/node`
+- Run `scripts/fetch-binaries.sh` before the first build
+- Run `xcodegen generate` after `project.yml` changes
+- Use `PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig"` for Shared
+  package tests
 
 ## Testing
-- `cd Shared && PKG_CONFIG_PATH=... swift test` — 109+ tests
-- `./scripts/ci-build.sh` — full build + lint + tests
+
+- `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test`
+- `xcodebuild test -project MacAllYouNeed.xcodeproj -scheme MacAllYouNeed -destination 'platform=macOS,arch=arm64'`
+- `./scripts/ci-build.sh`
 
 ## Plans Status
-- Plan 0 ✅ Foundation (Xcode project, targets, App Group)
-- Plan 1 ✅ Storage & Encryption (GRDB, AES-GCM, Argon2id, FTS5)
-- Plan 2 ⏳ Sync Engine (skipped indefinitely)
-- Plan 3 ✅ Clipboard Subsystem (daemon, XPC, popup, hotkey)
-- Plan 4 ✅ FolderPreview (Quick Look HTML, libarchive, Browse window)
-- Plan 5 ✅ Downloader (yt-dlp, metadata, cookies, queue)
-- Plan 6 ✅ UI Shell (AppController, settings, onboarding, hotkey rebinding, integrations)
-- Plan 7 ⏳ Distribution (Sparkle 2, notarized DMG, GitHub Actions — requires paid Developer ID cert)
+
+- Plan 0 Foundation - complete
+- Plan 1 Storage & Encryption - complete
+- Plan 2 Sync Engine - skipped indefinitely
+- Plan 3 Clipboard Subsystem - complete
+- Plan 4 Folder Preview - complete
+- Plan 5 Downloader - complete, updater path deferred
+- Plan 6 UI Shell / onboarding / settings / integrations - complete
+- Plan 7 Distribution - deferred until Developer ID / notarization automation
+- Plan 8 Modular Features - complete in app; public delivery awaits Plan 7

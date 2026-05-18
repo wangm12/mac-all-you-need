@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import SwiftUI
 
 struct DockRootView: View {
@@ -8,6 +9,7 @@ struct DockRootView: View {
     let dismiss: () -> Void
     let onPaste: (Int, EventModifiers) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var snippetEditorMode: DockSnippetEditorMode?
 
     /// Height permanently reserved below the tab bar for the multi-select
     /// action bar (44pt bar + 1pt divider). Allocating it always — instead
@@ -31,7 +33,7 @@ struct DockRootView: View {
 
             Group {
                 if model.activeList == .snippets {
-                    DockSnippetsListView(model: model)
+                    DockSnippetsListView(model: model, editorMode: $snippetEditorMode)
                 } else {
                     ClipCarousel(
                         model: model,
@@ -85,6 +87,15 @@ struct DockRootView: View {
                     .animation(MAYNMotion.animation(.toastIn, reduceMotion: reduceMotion), value: model.showCheatsheet)
             }
         }
+        .overlay {
+            snippetEditorOverlay
+                .animation(MAYNMotion.animation(.toastIn, reduceMotion: reduceMotion), value: snippetEditorMode?.id)
+        }
+        .onChange(of: model.activeList.animationID) { _, _ in
+            if model.activeList != .snippets {
+                dismissSnippetEditor()
+            }
+        }
     }
 
     private var contentTransition: AnyTransition {
@@ -95,6 +106,87 @@ struct DockRootView: View {
             insertion: .move(edge: .trailing).combined(with: .opacity),
             removal: .move(edge: .leading).combined(with: .opacity)
         )
+    }
+
+    @ViewBuilder
+    private var snippetEditorOverlay: some View {
+        if let mode = snippetEditorMode {
+            ZStack {
+                Color.black.opacity(SnippetEditorPresentation.scrimOpacity)
+                    .contentShape(Rectangle())
+                    .onTapGesture {}
+
+                snippetEditor(for: mode)
+                    .background(
+                        MAYNTheme.panel,
+                        in: RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
+                            .stroke(MAYNTheme.strongBorder, lineWidth: 1)
+                    )
+                    .shadow(
+                        color: Color.black.opacity(SnippetEditorPresentation.shadowOpacity),
+                        radius: SnippetEditorPresentation.shadowRadius,
+                        y: SnippetEditorPresentation.shadowY
+                    )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity)
+            .zIndex(100)
+        }
+    }
+
+    @ViewBuilder
+    private func snippetEditor(for mode: DockSnippetEditorMode) -> some View {
+        switch mode {
+        case .new:
+            SnippetSheet(
+                editing: nil,
+                existingSnippets: model.snippetItems,
+                isPresented: snippetEditorPresentedBinding,
+                onSave: { name, body, trigger in
+                    try await model.createSnippet(name: name, body: body, trigger: trigger)
+                }
+            )
+
+        case let .draft(draft):
+            SnippetSheet(
+                editing: nil,
+                draft: draft,
+                existingSnippets: model.snippetItems,
+                isPresented: snippetEditorPresentedBinding,
+                onSave: { name, body, trigger in
+                    try await model.createSnippet(name: name, body: body, trigger: trigger)
+                }
+            )
+
+        case let .edit(id):
+            SnippetSheet(
+                editing: model.snippetItems.first(where: { $0.id == id }),
+                existingSnippets: model.snippetItems,
+                isPresented: snippetEditorPresentedBinding,
+                onSave: { name, body, trigger in
+                    try await model.updateSnippet(id: id, name: name, body: body, trigger: trigger)
+                }
+            )
+        }
+    }
+
+    private var snippetEditorPresentedBinding: Binding<Bool> {
+        Binding(
+            get: { snippetEditorMode != nil },
+            set: { visible in
+                if !visible {
+                    dismissSnippetEditor()
+                }
+            }
+        )
+    }
+
+    private func dismissSnippetEditor() {
+        snippetEditorMode = nil
+        model.clearPendingSnippetDraft()
     }
 }
 

@@ -102,14 +102,14 @@ final class DockItemTests: XCTestCase {
         XCTAssertTrue(DockListTabsPresentation.tabDropSurfaceAvoidsNestedButton)
         XCTAssertTrue(DockListTabsPresentation.usesSingleStripDropCoordinator)
         XCTAssertTrue(DockListTabsPresentation.usesAppKitDropBackstop)
-        XCTAssertTrue(DockListTabsPresentation.usesPerPinboardTabDropTarget)
+        XCTAssertTrue(DockListTabsPresentation.usesPerItemTabDropTarget)
         XCTAssertEqual(DockListTabsPresentation.dropSurfaceActivation, .windowDragOrActiveDrag)
         XCTAssertTrue(DockListTabsPresentation.appKitDropSurfaceFillsTabPill)
         XCTAssertEqual(DockListTabsPresentation.dropTargetPlacement, .stripContent)
         XCTAssertEqual(DockListTabsPresentation.scrollSizing, .flexibleViewport)
         XCTAssertEqual(DockListTabsPresentation.dropTargetLiftStyle, .liftedTab)
-        XCTAssertFalse(DockListPinboardTabDropPolicy.acceptsPerTabDrop(draggedTabID: RecordID.generate()))
-        XCTAssertTrue(DockListPinboardTabDropPolicy.acceptsPerTabDrop(draggedTabID: nil))
+        XCTAssertFalse(DockListItemTabDropPolicy.acceptsPerTabDrop(draggedTabID: RecordID.generate()))
+        XCTAssertTrue(DockListItemTabDropPolicy.acceptsPerTabDrop(draggedTabID: nil))
         XCTAssertEqual(
             DockListTabsPresentation.pillTabLabels(pinboardNames: [PinnedPinboard.displayName, "Projects"]),
             ["Clipboard History", "Snippets", PinnedPinboard.displayName, "Projects"]
@@ -125,6 +125,22 @@ final class DockItemTests: XCTestCase {
         XCTAssertTrue(DockCardReorderPresentation.acceptsUTF8PlainTextPayloads)
         XCTAssertEqual(DockCardReorderPresentation.dragPreviewStyle, .compactIcon)
         XCTAssertEqual(DockCardReorderPresentation.trailingDropTargetWidth, 56)
+    }
+
+    func testSnippetCardsUseClipboardCardShell() {
+        XCTAssertEqual(SnippetCardPresentation.width, DockCardShellPresentation.width)
+        XCTAssertEqual(SnippetCardPresentation.height, DockCardShellPresentation.height)
+        XCTAssertEqual(SnippetCardPresentation.cornerRadius, DockCardShellPresentation.cornerRadius)
+        XCTAssertEqual(SnippetCardPresentation.focusedBorderWidth, DockCardShellPresentation.focusedBorderWidth)
+        XCTAssertEqual(SnippetCardPresentation.unfocusedBorderWidth, 1)
+        XCTAssertTrue(SnippetCardPresentation.usesClipboardCardBackground)
+        XCTAssertTrue(SnippetCardPresentation.usesPersistentUnfocusedBorder)
+    }
+
+    func testSnippetEditorUsesInPanelOverlayToAvoidMovingDockPanel() {
+        XCTAssertTrue(SnippetEditorPresentation.usesInPanelOverlay)
+        XCTAssertFalse(SnippetEditorPresentation.usesNativeWindowSheet)
+        XCTAssertTrue(SnippetEditorPresentation.blocksUnderlyingDockContent)
     }
 
     func testDockCardDropResolverSupportsBeforeAfterAndTrailingAppend() {
@@ -216,19 +232,33 @@ final class DockItemTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            DockListTabDropResolver.targetSelector(at: CGPoint(x: 250, y: 15), in: frames, requiresPinboard: true),
+            DockListTabDropResolver.targetSelector(at: CGPoint(x: 250, y: 15), in: frames, requiresItemDropTarget: true),
             .pinboard(pinned)
         )
         XCTAssertEqual(
-            DockListTabDropResolver.targetSelector(at: CGPoint(x: 350, y: 15), in: frames, requiresPinboard: true),
+            DockListTabDropResolver.targetSelector(at: CGPoint(x: 350, y: 15), in: frames, requiresItemDropTarget: true),
             .pinboard(projects)
         )
         XCTAssertNil(
-            DockListTabDropResolver.targetSelector(at: CGPoint(x: 60, y: 15), in: frames, requiresPinboard: true)
+            DockListTabDropResolver.targetSelector(at: CGPoint(x: 60, y: 15), in: frames, requiresItemDropTarget: true)
         )
         XCTAssertEqual(
-            DockListTabDropResolver.targetSelector(at: CGPoint(x: 250, y: 39), in: frames, requiresPinboard: true),
+            DockListTabDropResolver.targetSelector(at: CGPoint(x: 250, y: 39), in: frames, requiresItemDropTarget: true),
             .pinboard(pinned)
+        )
+    }
+
+    func testDockListDropResolverTargetsSnippetsForItemDrag() throws {
+        let pinned = try XCTUnwrap(RecordID(rawValue: "01HY7J6Q000000000000000001"))
+        let frames = [
+            DockListTabDropFrame(selector: .history, rect: CGRect(x: 0, y: 0, width: 120, height: 30)),
+            DockListTabDropFrame(selector: .snippets, rect: CGRect(x: 126, y: 0, width: 88, height: 30)),
+            DockListTabDropFrame(selector: .pinboard(pinned), rect: CGRect(x: 220, y: 0, width: 78, height: 30))
+        ]
+
+        XCTAssertEqual(
+            DockListTabDropResolver.targetSelector(at: CGPoint(x: 160, y: 15), in: frames, requiresItemDropTarget: true),
+            .snippets
         )
     }
 

@@ -1,29 +1,32 @@
 import Core
 import SwiftUI
 
-struct DockSnippetsListView: View {
-    @Bindable var model: ClipboardDockModel
-    @State private var sheetMode: SheetMode?
+enum DockSnippetEditorMode: Identifiable {
+    case new
+    case draft(SnippetDraft)
+    case edit(RecordID)
 
-    enum SheetMode: Identifiable {
-        case new
-        case edit(RecordID)
-
-        var id: String {
-            switch self {
-            case .new:
-                return "new"
-            case let .edit(id):
-                return id.rawValue
-            }
+    var id: String {
+        switch self {
+        case .new:
+            return "new"
+        case let .draft(draft):
+            return "draft-\(draft.id.uuidString)"
+        case let .edit(id):
+            return id.rawValue
         }
     }
+}
+
+struct DockSnippetsListView: View {
+    @Bindable var model: ClipboardDockModel
+    @Binding var editorMode: DockSnippetEditorMode?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 12) {
                 Button {
-                    sheetMode = .new
+                    editorMode = .new
                 } label: {
                     VStack {
                         Image(systemName: "plus.circle.fill")
@@ -32,9 +35,7 @@ struct DockSnippetsListView: View {
                             .font(.callout)
                     }
                     .foregroundStyle(.secondary)
-                    .frame(width: 220, height: 240)
-                    .background(Color.secondary.opacity(0.08))
-                    .cornerRadius(MAYNControlMetrics.cardRadius)
+                    .modifier(SnippetCardShell(isFocused: false, alignment: .center))
                 }
                 .buttonStyle(.plain)
 
@@ -49,7 +50,7 @@ struct DockSnippetsListView: View {
                             }
                         },
                         onEdit: {
-                            sheetMode = .edit(snippet.id)
+                            editorMode = .edit(snippet.id)
                         },
                         onDuplicate: {
                             Task {
@@ -68,40 +69,15 @@ struct DockSnippetsListView: View {
         }
         .task {
             await model.loadSnippets()
+            presentPendingSnippetDraft()
         }
-        .sheet(item: $sheetMode) { mode in
-            switch mode {
-            case .new:
-                SnippetSheet(
-                    editing: nil,
-                    existingSnippets: model.snippetItems,
-                    isPresented: bindingForSheet,
-                    onSave: { name, body, trigger in
-                        try await model.createSnippet(name: name, body: body, trigger: trigger)
-                    }
-                )
-
-            case let .edit(id):
-                SnippetSheet(
-                    editing: model.snippetItems.first(where: { $0.id == id }),
-                    existingSnippets: model.snippetItems,
-                    isPresented: bindingForSheet,
-                    onSave: { name, body, trigger in
-                        try await model.updateSnippet(id: id, name: name, body: body, trigger: trigger)
-                    }
-                )
-            }
+        .onChange(of: model.pendingSnippetDraft?.id) { _, _ in
+            presentPendingSnippetDraft()
         }
     }
 
-    private var bindingForSheet: Binding<Bool> {
-        Binding(
-            get: { sheetMode != nil },
-            set: { visible in
-                if !visible {
-                    sheetMode = nil
-                }
-            }
-        )
+    private func presentPendingSnippetDraft() {
+        guard let draft = model.pendingSnippetDraft else { return }
+        editorMode = .draft(draft)
     }
 }

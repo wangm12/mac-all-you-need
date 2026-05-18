@@ -65,6 +65,13 @@ enum DockCardReorderPresentation {
     static let dropCoordinateSpace = "DockCardDropCoordinateSpace"
 }
 
+enum DockCardShellPresentation {
+    static let width: CGFloat = 220
+    static let height: CGFloat = 240
+    static let cornerRadius: CGFloat = MAYNControlMetrics.cardRadius
+    static let focusedBorderWidth: CGFloat = 2
+}
+
 enum DockCardDragStatePolicy {
     static func shouldClearLocalDrag(
         draggedCardID: DockItem.ID?,
@@ -149,14 +156,17 @@ struct CardSlot: View {
             favicons: favicons,
             cardBackground: cardBackground
         )
-        .frame(width: 220, height: 240)
+        .frame(width: DockCardShellPresentation.width, height: DockCardShellPresentation.height)
         // Selection border. Any selected card gets the neutral stroke — single
         // or multi-select look identical, matching Paste-style UX. Focus
         // (arrow-key target) shares the indicator since the focused card is
         // always the most-recently single-selected one.
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isHighlighted ? MAYNTheme.focusRing : .clear, lineWidth: 2)
+            RoundedRectangle(cornerRadius: DockCardShellPresentation.cornerRadius, style: .continuous)
+                .stroke(
+                    isHighlighted ? MAYNTheme.focusRing : .clear,
+                    lineWidth: DockCardShellPresentation.focusedBorderWidth
+                )
         )
         .overlay(alignment: .bottomLeading) {
             if index < 9 {

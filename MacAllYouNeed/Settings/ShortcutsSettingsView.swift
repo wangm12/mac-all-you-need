@@ -1,14 +1,36 @@
+import Core
 import SwiftUI
 
 struct ShortcutsSettingsView: View {
     @Bindable var registry: ShortcutRegistry
+    @AppStorage(SnippetExpansionSettings.modeKey, store: AppGroupSettings.defaults) private var expansionModeRaw = SnippetExpansionSettings.defaultMode.rawValue
     @State private var pendingError: String?
+
+    private var expansionMode: SnippetExpansionMode {
+        SnippetExpansionMode(rawValue: expansionModeRaw) ?? SnippetExpansionSettings.defaultMode
+    }
 
     var body: some View {
         MAYNSettingsPage(
-            title: "Shortcuts",
-            subtitle: "Customize keyboard shortcuts used inside the clipboard dock."
+            title: "Snippets",
+            subtitle: "Configure expansion behavior and shortcuts used inside the clipboard dock."
         ) {
+            MAYNSection(title: "Expansion") {
+                MAYNSettingsRow(
+                    title: SnippetsSettingsPresentation.expansionModeRowTitle,
+                    subtitle: SnippetsSettingsPresentation.expansionModeSubtitle(for: expansionMode)
+                ) {
+                    FunctionSegmentedTabStrip(
+                        tabs: Array(SnippetExpansionMode.allCases),
+                        selection: expansionMode,
+                        fillsAvailableWidth: false,
+                        size: .control
+                    ) { mode in
+                        expansionModeRaw = mode.rawValue
+                    }
+                }
+            }
+
             MAYNSection(title: "In-dock shortcuts") {
                 ForEach(Array(ShortcutAction.allCases.enumerated()), id: \.element.id) { offset, action in
                     MAYNSettingsRow(

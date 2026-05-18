@@ -505,6 +505,7 @@ struct MAYNTextField: View {
     var width: CGFloat = MAYNControlMetrics.textFieldWidth
     var alignment: TextAlignment = .leading
     var font: Font = .callout
+    var autofocus = false
     @FocusState private var isFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
@@ -523,6 +524,12 @@ struct MAYNTextField: View {
             )
             .focused($isFocused)
             .onHover { isHovering = $0 }
+            .onAppear {
+                guard autofocus else { return }
+                DispatchQueue.main.async {
+                    isFocused = true
+                }
+            }
             .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
             .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: isFocused)
     }

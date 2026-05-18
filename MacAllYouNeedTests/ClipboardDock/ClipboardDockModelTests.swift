@@ -438,6 +438,51 @@ final class ClipboardDockModelTests: XCTestCase {
         XCTAssertEqual(updated, "quer")
     }
 
+    func testDockLocalKeyScopeIgnoresSheetWindowEvents() {
+        let dockWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        let sheetWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 140),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            sheetWindow.close()
+            dockWindow.close()
+        }
+
+        XCTAssertFalse(
+            DockLocalKeyEventScope.shouldHandle(
+                eventWindow: sheetWindow,
+                dockWindow: dockWindow,
+                keyWindow: sheetWindow
+            )
+        )
+    }
+
+    func testDockLocalKeyScopeHandlesDockWindowEvents() {
+        let dockWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        defer { dockWindow.close() }
+
+        XCTAssertTrue(
+            DockLocalKeyEventScope.shouldHandle(
+                eventWindow: dockWindow,
+                dockWindow: dockWindow,
+                keyWindow: dockWindow
+            )
+        )
+    }
+
     func testFocusedIndexResetsToZeroAfterRefresh() async {
         let mock = MockClient()
         mock.listResults = [

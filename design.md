@@ -8,7 +8,7 @@ If something here conflicts with a screenshot, the document wins. If something h
 
 ## 1. Purpose
 
-One visual language across the menu-bar popover, main window, settings, onboarding wizards, the floating voice HUD, the clipboard dock, and the folder browser. No new ad-hoc colors, fonts, spacings, animations, or controls when a system primitive already exists.
+One visual language across the menu-bar Command Center, dashboard, main tool pages, settings, onboarding wizards, the floating voice HUD, the clipboard dock, the folder browser, and the window-control surfaces. No new ad-hoc colors, fonts, spacings, animations, or controls when a system primitive already exists.
 
 The system is calm, native, neutral. Color is for state (success/warning/danger/progress) and for accenting the app icon of a clipboard item — never for decoration.
 
@@ -34,9 +34,11 @@ Read these files before touching UI:
 |---|---|
 | Tokens + most components | `MacAllYouNeed/Settings/MAYNSettingsUI.swift` |
 | Function page chrome + tab strip | `MacAllYouNeed/App/FunctionPageShell.swift` |
+| Dashboard feature card wrapper | `MacAllYouNeed/App/Dashboard/FeatureToolCard.swift` |
 | Hotkey recorder (Settings only) | `MacAllYouNeed/Settings/HotkeyRecorder.swift` |
 | Window backdrop helper | `MacAllYouNeed/Settings/SettingsWindowConfig.swift` |
 | Clipboard card accent palette | `MacAllYouNeed/ClipboardDock/Views/Cards/AppIconColor.swift` |
+| Window control pages | `MacAllYouNeed/WindowControl/WindowControlMainPage.swift` |
 
 When a new generic primitive is needed, it lives in `MAYNSettingsUI.swift` (despite the name, this is the design-system file for the whole app). The name is historical; do not move it without coordinated edits.
 
@@ -251,8 +253,10 @@ All located in `MacAllYouNeed/Settings/MAYNSettingsUI.swift` unless noted.
 
 ### 6.8 Cards
 - `MAYNToolCard` — the large interactive home-page card with icon tile, title, subtitle, content slot, optional `action`. Use on dashboards and tool entry points.
+- `FeatureToolCard` (`MacAllYouNeed/App/Dashboard/FeatureToolCard.swift`) — the dashboard wrapper around `MAYNToolCard` that adds feature lifecycle state, install/enable actions, and asset status. Disabled / not-installed cards are dimmed and expose actions instead of navigating.
 - `PermissionCard` — purpose-built for TCC permission rows (granted/needed/denied/optional). Use only on the Permissions settings page and in onboarding.
 - Clipboard `ClipCard` and its variants — domain-specific to the dock; see §10.2 for accepted styling deviations.
+- `SnippetCard` (`MacAllYouNeed/ClipboardDock/Views/Snippets/SnippetCard.swift`) — snippet-library card that intentionally mirrors clipboard card dimensions, background, focused border, and persistent unfocused border.
 
 ### 6.9 Instruction surfaces
 - `InstructionStrip` — short instruction with optional drag-target tile and optional action button. Used in onboarding and in error banners that need a CTA.
@@ -279,25 +283,37 @@ This is the map. When working on any surface, conform to this structure.
 ### 7.1 Menu-bar popover
 - File: `MacAllYouNeed/App/AppMenuBarContent.swift`
 - 500×600 `NSPopover` content.
-- Layout: header (status + quick toggles) → `FunctionSegmentedTabStrip` (4 tabs: Clipboard / Voice / Downloads / Snippets) → tab content (scroll list of icon + title + relative time + action) → footer (hotkey hint + Open/Pause/Quit).
+- Layout: header (Command Center + Settings button) → `FunctionSegmentedTabStrip` (4 tabs: Clipboard / Voice / Downloads / Snippets) → tab content → footer.
+- Footer is tab-specific: shortcut hint + label + Open button for the active tab + Quit. "Pause 60s" appears only on the Clipboard tab.
+- Snippet rows show the snippet body preview as the primary readable text and keep the trigger visible as metadata.
 - All four tabs must use `FunctionSegmentedTabStrip`.
 
 ### 7.2 Main window
 - File: `MacAllYouNeed/App/MainWindowRoot.swift`
-- `NavigationSplitView` with a vertical sidebar (Dashboard / Clipboard / Voice / Downloads / Folder Preview / Snippets / Settings) and a detail pane.
+- `NavigationSplitView` with a vertical sidebar (Dashboard / Clipboard / Voice / Downloads / Folder Preview / Snippets / Window Layouts / Window Grab / Settings) and a detail pane.
+- Disabled feature destinations remain visible in the sidebar, but are dimmed, show the slash indicator, ignore hover, and are non-clickable.
+- Dashboard uses `FeatureToolCard` for Clipboard, Voice, Downloads, Folder Preview, Snippets, Window Layouts, and Window Grab. Cards show lifecycle status/actions; do not add non-actionable "Ready" pills.
 - Each tool page in the detail pane uses `FunctionPageShell` + `FunctionPageScrollContent`.
+- Current tool tabs:
+  - Clipboard: History / Rules / Settings
+  - Voice: Dictate / Models / History / Dictionary / Personalization / Settings
+  - Downloads: Queue / Completed / Settings
+  - Folder Preview: Settings
+  - Snippets: Library / Settings
+- Window Layouts and Window Grab are separate first-class destinations. They use `WindowControlFeaturePageShell`; see §10.5 for the no-nested-tabs exception.
 - Sidebar badges (e.g. download count) use `StatusPill` or a small numeric badge — no inline NSColor.
 
 ### 7.3 Settings window
 - Files: `MacAllYouNeed/Settings/SettingsRoot.swift`, `SettingsDestination.swift`
-- `MAYNSettingsShell` with a grouped sidebar (`Product` / `Workflow` / `System`) and a detail pane.
+- `MAYNSettingsShell` with the current user-facing System group (`General` / `Permissions` / `Storage` / `Advanced`) and a detail pane.
 - Each settings page uses `MAYNSettingsPage` + `MAYNSection` + `MAYNSettingsRow` + `MAYNDivider`.
-- 11 destinations: Clipboard, Voice, Downloads, Folder Preview, Snippets, Hotkeys, Search, Permissions, Storage, General, Advanced.
-- Hotkey editing belongs here — use `HotkeyRecorder` inside the Hotkeys page (and per-tool inside that tool's settings page if relevant).
+- `SettingsDestination` still owns 11 detail views for route compatibility and reuse: Clipboard, Voice, Downloads, Folder Preview, Snippets, Hotkeys, Search, Permissions, Storage, General, Advanced.
+- Feature/workflow settings are surfaced inside the corresponding main tool pages first; when a route opens a disabled feature's settings, wrap it with `FeatureSettingsContainer` so users see the disabled-feature banner.
+- Hotkey editing belongs in Hotkeys or the tool's Settings tab — use `HotkeyRecorder`.
 
 ### 7.4 Onboarding wizards
-- Main: `MacAllYouNeed/Onboarding/OnboardingWizardView.swift` — 6 steps (Welcome, Accessibility, Full Disk, Notifications, Sync, Done). Panel 760×520.
-- Voice: `MacAllYouNeed/Voice/UI/Onboarding/VoiceOnboardingWizardView.swift` — 9 steps. Panel 860×640.
+- Main: `MacAllYouNeed/Onboarding/OnboardingWizardView.swift` — Welcome → Choose Features → per-feature setup loop → Done. Panel 760×520.
+- Voice: `MacAllYouNeed/Voice/UI/Onboarding/VoiceOnboardingWizardView.swift` — 9 steps (Welcome, Microphone, Accessibility, Speech model, AI cleanup, Shortcut, Languages, Try it, Done). Panel 860×640.
 - Use `SetupWizardShell` for step chrome. Permission steps use `PermissionCard` + `InstructionStrip`. Choice steps use `FunctionSegmentedTabStrip`.
 
 ### 7.5 Voice HUD
@@ -309,13 +325,15 @@ This is the map. When working on any surface, conform to this structure.
 ### 7.6 Clipboard dock
 - File: `MacAllYouNeed/ClipboardDock/Views/DockRootView.swift`
 - `BottomDockWindow` (custom AppKit) anchored to bottom-of-screen, 12pt top corners.
-- Layout: `DockTopBar` (52pt) → `Divider` → `MultiSelectBar` slot (45pt) → carousel of `ClipCard`s (220×240) → overlays (TransformMenu, QuickLook, Cheatsheet).
+- Layout: `DockTopBar` (52pt) → `Divider` → `MultiSelectBar` slot (45pt) → carousel of `ClipCard`s or the Snippets library (220×240 card metrics) → overlays (TransformMenu, QuickLook, Cheatsheet, Snippet editor).
 - Tabs in the top bar use `DockListTabs` — see §10.1 for why this is the only accepted exception to the "no custom tab strip" rule.
+- The built-in Snippets tab accepts clipboard-card drags. A successful drop switches to Snippets and opens a prefilled in-panel `SnippetSheet` draft. The editor is an overlay inside the dock panel, not a native sheet that lifts the entire panel.
+- Snippet cards copy the clipboard card shell: opaque control background, 8pt card radius, focus ring when focused, and a persistent subtle border when unfocused.
 
 ### 7.7 Browse folder window
 - Files: `MacAllYouNeed/FolderPreview/BrowseFolderWindowController.swift`, `Shared/Sources/UI/FolderPreview/FolderPreviewView.swift`
 - Standard `NSWindow`, 900×600, titled, resizable.
-- Header: back button + folder icon + breadcrumb + item count/size + `FunctionSegmentedTabStrip` (Files / Grid / Analyze).
+- Header: back button + folder icon + breadcrumb + item count/size + mode switch (Files / Grid / Analyze). New work should migrate this switch to `FunctionSegmentedTabStrip`; the current shared view still has the grandfathered raw segmented `Picker` documented in §11.
 - Content swaps with `MAYNMotion.tab` transition.
 
 ### 7.8 Quick Look extension
@@ -323,18 +341,25 @@ This is the map. When working on any surface, conform to this structure.
 - Returns an HTML table for folders, a libarchive entry list for archives.
 - Constrained to `NSTextView + NSAttributedString(html:)` — WKWebView is blocked in the sandboxed extension on macOS 26. Do not try to use SwiftUI here.
 
+### 7.9 Window control
+- Files: `MacAllYouNeed/WindowControl/WindowControlMainPage.swift`, `WindowControlSettingsView.swift`, `WindowControlCoordinator.swift`
+- Window Layouts and Window Grab are separate main-window destinations, not nested tabs inside one page.
+- Shared settings sections: layout shortcuts, edge snap, window grab modifier, double-click layout, shared ignored apps, and diagnostics.
+- Event-tap and overlay UI must use the MAYN tokens where possible; see §10.6 for the fixed black snap overlay exception.
+
 ---
 
 ## 8. Forced rules (must / must-not)
 
 **Must:**
-- Use `MAYNTheme.*` for every fill, stroke, and overlay outside the four documented exceptions in §10.
+- Use `MAYNTheme.*` for every fill, stroke, and overlay outside the documented exceptions in §10.
 - Use `MAYNControlMetrics.*` for every padding, height, radius, and width that maps to a token.
 - Use `MAYNMotion.*` / `MAYNMotionBridge.*` for every animation duration and timing function.
 - Use the components in §6 instead of restyling a SwiftUI primitive.
 - Use `FunctionPageShell` for tool pages and `MAYNSettingsPage` for settings pages.
 - Respect Reduce Motion on every spatial animation (including AppKit and Core Animation).
 - Show hotkeys on tool pages with `ShortcutChip` / `MAYNHotkeyDisplay`; edit hotkeys only in Settings using `HotkeyRecorder`.
+- Keep disabled features visible in navigation and dashboards, but make disabled sidebar rows inert. Route users through enable/install actions on dashboard cards or disabled-feature settings banners.
 
 **Must not:**
 - `Picker(...).pickerStyle(.segmented)` for product-owned tab switches. Use `FunctionSegmentedTabStrip`.
@@ -343,6 +368,7 @@ This is the map. When working on any surface, conform to this structure.
 - Raw `Animation.easeOut(duration: …)`, `.spring(…)`, or `NSAnimationContext` with literal durations. Always go through `MAYNMotion` / `MAYNMotionBridge`.
 - Custom `Divider()` styling — use `MAYNDivider`.
 - Inline hotkey recorders on top-level tool pages.
+- Redundant "Ready" pills when the absence of a warning/progress state already communicates readiness.
 - Native macOS form `Picker` (segmented or otherwise) on product surfaces. Exception: a `Picker` with `.menu` style nested inside a SwiftUI `Form` that is part of a system flow not owned by the app (e.g. SwiftUI's built-in `PhotosPicker`).
 
 ---
@@ -379,10 +405,22 @@ These deviations exist for documented reasons. Do not generalize them.
 - File: `MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift:310`
 - The processing state uses a near-black RGB to read against any window underneath. This is a deliberate visual choice for the floating HUD. If we ever expose a "system match" mode, replace it with `MAYNTheme.elevated` over a `.regularMaterial` background.
 
-### 10.4 Main window function tab indicator colors
-- File: `MacAllYouNeed/App/MainWindowRoot.swift:282-290`
-- Five RGB tuples used as iconography accent for the five primary functions (Clipboard, Voice, Downloads, Folder Preview, Snippets). These are product-brand affordances, not chrome.
+### 10.4 Main window function indicator colors
+- File: `MacAllYouNeed/App/MainWindowRoot.swift`
+- Seven RGB tuples used as iconography accents for the seven feature cards (Clipboard, Voice, Downloads, Folder Preview, Snippets, Window Layouts, Window Grab). These are product affordances, not chrome.
 - Allowed because they identify the function. Do not extend to settings rows, cards, or status indicators.
+
+### 10.5 Window control page shell
+- File: `MacAllYouNeed/WindowControl/WindowControlMainPage.swift`
+- `WindowControlFeaturePageShell` intentionally mirrors `FunctionPageShell` title/subtitle/status spacing but omits a tab strip. Window Layouts and Window Grab are separate sidebar destinations by product decision, so adding nested tabs would be a regression.
+- Do not copy this shell elsewhere. If a future window-control page gains multiple tabs, migrate it to `FunctionPageShell`.
+
+### 10.6 Window snap overlay
+- File: `MacAllYouNeed/WindowControl/WindowSnapOverlayPanel.swift`
+- Uses fixed black fill and light-gray stroke so the translucent snap target reads over arbitrary app content during a drag. This is an OS overlay affordance, not app chrome.
+
+### 10.7 Context menu separators
+- SwiftUI context menus must use the platform `Divider()` primitive. `MAYNDivider` renders as a rectangle view and is not appropriate inside a menu.
 
 ---
 
@@ -393,6 +431,7 @@ These pre-date this document. Touch them when you're already in the file; do not
 | File | Issue | Fix |
 |---|---|---|
 | `MacAllYouNeed/App/MainWindowRoot.swift:1074` | `ClipboardHistorySearchBar` uses a bare `TextField` inside a toolbar row. Acceptable today because there is no surrounding pill chrome (a `MAYNTextField` would add an unwanted border). If we later promote search to a chromed pill, swap to a future `MAYNSearchField` primitive. | Defer until a unified search-field primitive exists |
+| `Shared/Sources/UI/FolderPreview/FolderPreviewView.swift` | Browse Folder still uses a raw segmented `Picker` for Files / Grid / Analyze. It is grandfathered by `.swiftlint.yml`. | Migrate to `FunctionSegmentedTabStrip` next time this shared view is touched |
 | Many files (see §11.1) | Raw `.font(.system(size: N))` for N in {10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 22, 24, 26, 28} | Replace with semantic font (`.caption`, `.callout`, `.body`, `.title3`, `.title2`) where possible; if the size is genuinely unique to that surface (page title, large icon glyph), leave it but document at point of use |
 | Many files | Raw `.padding(18)`, `.padding(20)`, `.padding(22)`, `.padding(24)` in sheets and onboarding cards | Funnel sheets through a `MAYNSheetContainer` (to be added) with a single content padding token |
 

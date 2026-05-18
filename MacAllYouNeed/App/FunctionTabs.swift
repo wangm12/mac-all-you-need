@@ -109,6 +109,11 @@ enum VoiceFunctionTab: String, FunctionTabDestination {
     }
 }
 
+enum VoiceMainPagePresentation {
+    static let showsHeaderShortcut = true
+    static let headerActionTitle: String? = nil
+}
+
 enum DownloadsFunctionTab: String, FunctionTabDestination {
     case queue
     case completed
@@ -182,9 +187,52 @@ enum SnippetsFunctionTab: String, FunctionTabDestination {
 }
 
 enum SnippetsSettingsPresentation {
+    static let expansionModeRowTitle = "Expansion mode"
     static let accessibilityRowTitle = "Accessibility"
     static let shortcutRowTitle = "Shortcut"
-    static let visibleRowTitles = [accessibilityRowTitle, shortcutRowTitle]
+    static let visibleRowTitles = [expansionModeRowTitle, accessibilityRowTitle, shortcutRowTitle]
+
+    static func expansionModeSubtitle(for mode: SnippetExpansionMode) -> String {
+        switch mode {
+        case .autoExpand:
+            "Expand as soon as a trigger is followed by whitespace."
+        case .confirmWithTab:
+            "Type the trigger, then press Tab to expand it."
+        case .disabled:
+            "Keep typed triggers literal; paste snippets from the app instead."
+        }
+    }
+}
+
+enum SnippetsListPresentation {
+    static let usesLocalDockModelSource = true
+    static let menuRowsShowBodyPreview = true
+    static let menuRowsKeepTriggerVisible = true
+
+    static func menuBodyPreview(for snippet: Snippet) -> String {
+        snippet.body
+            .split(whereSeparator: \.isNewline)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension SnippetExpansionMode: SegmentedTabDestination {
+    var title: String {
+        switch self {
+        case .autoExpand: "Auto"
+        case .confirmWithTab: "Tab"
+        case .disabled: "Off"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .autoExpand: "bolt.fill"
+        case .confirmWithTab: "keyboard"
+        case .disabled: "pause.circle"
+        }
+    }
 }
 
 enum WindowControlPagePresentation {
@@ -319,32 +367,54 @@ enum DashboardToolTilePresentation {
         ]
     }
 
-    private static func windowLayoutsStatusText(settings: WindowControlSettings, axTrusted: Bool) -> String {
+    private static func windowLayoutsStatusText(settings: WindowControlSettings, axTrusted: Bool) -> String? {
         guard settings.enabled else {
             return "Off"
         }
-        return axTrusted ? "Ready" : "Needs Accessibility"
+        return axTrusted ? nil : "Needs Accessibility"
     }
 
-    private static func windowLayoutsStatusKind(settings: WindowControlSettings, axTrusted: Bool) -> StatusPill.Kind {
+    private static func windowLayoutsStatusKind(settings: WindowControlSettings, axTrusted: Bool) -> StatusPill.Kind? {
         guard settings.enabled else {
             return .neutral
         }
-        return axTrusted ? .success : .warning
+        return axTrusted ? nil : .warning
     }
 
-    private static func grabAnywhereStatusText(settings: WindowControlSettings, axTrusted: Bool) -> String {
+    private static func grabAnywhereStatusText(settings: WindowControlSettings, axTrusted: Bool) -> String? {
         guard settings.enabled, settings.dragAnywhereEnabled else {
             return "Off"
         }
-        return axTrusted ? "Ready" : "Needs Accessibility"
+        return axTrusted ? nil : "Needs Accessibility"
     }
 
-    private static func grabAnywhereStatusKind(settings: WindowControlSettings, axTrusted: Bool) -> StatusPill.Kind {
+    private static func grabAnywhereStatusKind(settings: WindowControlSettings, axTrusted: Bool) -> StatusPill.Kind? {
         guard settings.enabled, settings.dragAnywhereEnabled else {
             return .neutral
         }
-        return axTrusted ? .success : .warning
+        return axTrusted ? nil : .warning
+    }
+}
+
+enum DashboardVoiceStatusPresentation {
+    struct Status: Equatable {
+        let text: String
+        let kind: StatusPill.Kind
+    }
+
+    static func footerStatus(for state: VoiceCoordinator.State) -> Status? {
+        switch state {
+        case .idle:
+            nil
+        case .recording:
+            Status(text: "Listening", kind: .progress)
+        case .transcribing:
+            Status(text: "Transcribing", kind: .progress)
+        case .pasting:
+            Status(text: "Pasting", kind: .progress)
+        case .error:
+            Status(text: "Error", kind: .warning)
+        }
     }
 }
 
@@ -371,6 +441,28 @@ enum MainSidebarBadgePresentation {
 
     static func inProgressDownloadCount(in records: [DownloadRecord]) -> Int {
         records.filter { $0.state == .running }.count
+    }
+}
+
+enum MainSidebarDestinationPresentation {
+    static let destinationFeatureIDs: [MainAppDestination: FeatureID] = [
+        .clipboard: .clipboard,
+        .voice: .voice,
+        .downloads: .downloader,
+        .folderPreview: .folderPreview,
+        .snippets: .clipboard,
+        .windowLayouts: .windowLayouts,
+        .grabAnywhere: .windowGrab,
+    ]
+
+    static func featureID(for destination: MainAppDestination) -> FeatureID? {
+        destinationFeatureIDs[destination]
+    }
+
+    static func renderedDestinations(
+        from destinations: [MainAppDestination] = MainAppDestination.primarySidebarDestinations
+    ) -> [MainAppDestination] {
+        destinations
     }
 }
 

@@ -5,6 +5,20 @@ import Observation
 import Platform
 import SwiftUI
 
+struct SnippetDraft: Identifiable, Equatable {
+    let id: UUID
+    let name: String
+    let body: String
+    let trigger: String?
+
+    init(id: UUID = UUID(), name: String, body: String, trigger: String? = nil) {
+        self.id = id
+        self.name = name
+        self.body = body
+        self.trigger = trigger
+    }
+}
+
 @MainActor
 @Observable
 final class ClipboardDockModel {
@@ -28,6 +42,7 @@ final class ClipboardDockModel {
 
     var items: [DockItem] = []
     var snippetItems: [Snippet] = []
+    var pendingSnippetDraft: SnippetDraft?
     var search: String = ""
     var searchFocusRequestID: Int = 0
     var focusedIndex: Int = 0
@@ -702,9 +717,51 @@ final class ClipboardDockModel {
         _ = await xpc.pasteText(text: snippet.body, plainText: plainText, saveAsNew: true)
     }
 
+    @discardableResult
+    func beginSnippetDraftFromClipboard(itemIDs: [String]) async -> Bool {
+        var seen = Set<String>()
+        var bodies: [String] = []
+        for itemID in itemIDs {
+            guard seen.insert(itemID).inserted else { continue }
+            if let body = await snippetBody(forClipboardItemID: itemID) {
+                bodies.append(body)
+            }
+        }
+        guard !bodies.isEmpty else {
+            triggerFeedback("Snippet needs text", symbol: "exclamationmark.triangle.fill")
+            return false
+        }
+
+        pendingSnippetDraft = SnippetDraft(
+            name: "Clipboard snippet",
+            body: bodies.joined(separator: "\n")
+        )
+        return true
+    }
+
+    func clearPendingSnippetDraft() {
+        pendingSnippetDraft = nil
+    }
+
     private func nextRefreshSequence() -> UInt64 {
         refreshSequence += 1
         return refreshSequence
+    }
+
+    private func snippetBody(forClipboardItemID itemID: String) async -> String? {
+        if let rid = RecordID(rawValue: itemID),
+           let clip,
+           let record = try? clip.body(for: rid),
+           let body = Self.plainString(from: record),
+           !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return body
+        }
+
+        guard let body = await xpc.bodyText(forID: itemID),
+              !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return body
     }
 
     private func performRefresh(

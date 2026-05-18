@@ -126,4 +126,36 @@ final class SnippetsModelTests: XCTestCase {
         XCTAssertTrue(mock.pasteTextArgs?.plain == true)
         XCTAssertTrue(mock.pasteTextArgs?.save == true)
     }
+
+    func testBeginSnippetDraftFromClipboardTextPrefillsDraftWithoutSaving() async throws {
+        let key = SymmetricKey(size: .bits256)
+        let clipboardDB = try Database(
+            url: dir.appendingPathComponent("clipboard.sqlite"),
+            migrations: ClipboardStore.migrations
+        )
+        let clip = try ClipboardStore(
+            database: clipboardDB,
+            deviceKey: key,
+            deviceID: DeviceID(rawValue: "00000000-0000-0000-0000-000000000000")!
+        )
+        let localModel = ClipboardDockModel(
+            xpc: mock,
+            appIcons: AppIconResolver(),
+            imageLoader: ImageBlobLoader(xpc: mock, clip: clip),
+            fileLoader: FileURLLoader(xpc: mock, clip: clip),
+            fileThumbnailLoader: FileThumbnailLoader(),
+            pinboards: pinboards,
+            snippets: snippets,
+            clip: clip
+        )
+        let meta = try clip.append(.text("Best,\nMingjie"))
+
+        let didBegin = await localModel.beginSnippetDraftFromClipboard(itemIDs: [meta.id.rawValue])
+
+        XCTAssertTrue(didBegin)
+        XCTAssertEqual(localModel.pendingSnippetDraft?.name, "Clipboard snippet")
+        XCTAssertEqual(localModel.pendingSnippetDraft?.body, "Best,\nMingjie")
+        XCTAssertNil(localModel.pendingSnippetDraft?.trigger)
+        XCTAssertTrue((try? snippets.list())?.isEmpty == true)
+    }
 }

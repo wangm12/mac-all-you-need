@@ -11,11 +11,17 @@ private typealias HotkeyDescriptor = Platform.HotkeyDescriptor
 
 struct MainWindowRoot: View {
     let controller: AppController
+    @ObservedObject private var statePublisher: FeatureStatePublisher
     @AppStorage(MainAppDestination.storageKey, store: AppGroupSettings.defaults)
     private var selectedRaw = MainAppDestination.dashboard.rawValue
     @State private var pendingOrphans: [OrphanCacheScanner.Orphan] = []
     @State private var showWhatsNew = false
     @State private var whatsNewReport: MigrationReport?
+
+    init(controller: AppController) {
+        self.controller = controller
+        self._statePublisher = ObservedObject(wrappedValue: controller.featureStatePublisher)
+    }
 
     private var selection: Binding<MainAppDestination> {
         Binding {
@@ -31,7 +37,7 @@ struct MainWindowRoot: View {
                 Color.clear
                     .frame(height: 34)
 
-                ForEach(MainAppDestination.primarySidebarDestinations) { destination in
+                ForEach(MainSidebarDestinationPresentation.renderedDestinations()) { destination in
                     let isDisabled = isFeatureDisabled(for: destination)
                     MainSidebarButton(
                         destination: destination,
@@ -42,11 +48,7 @@ struct MainWindowRoot: View {
                             records: controller.downloaderVM.rows
                         )
                     ) {
-                        if isDisabled {
-                            openMainDestination(.dashboard)
-                        } else {
-                            selection.wrappedValue = destination
-                        }
+                        selection.wrappedValue = destination
                     }
                 }
 
@@ -175,30 +177,17 @@ struct MainWindowRoot: View {
 
     // MARK: Feature gating helpers
 
-    // Static mapping avoids calling dashboardTiles() (which triggers AXIsProcessTrusted()
-    // and JSONDecoder deserialization) on every sidebar render.
-    private static let destinationFeatureIDs: [MainAppDestination: FeatureID] = [
-        .clipboard: .clipboard,
-        .voice: .voice,
-        .downloads: .downloader,
-        .folderPreview: .folderPreview,
-        .snippets: .clipboard,        // Snippets proxies to Clipboard feature
-        .windowLayouts: .windowLayouts,
-        .grabAnywhere: .windowGrab,
-    ]
-
-    private func featureID(for destination: MainAppDestination) -> FeatureID? {
-        MainWindowRoot.destinationFeatureIDs[destination]
-    }
-
     private func isFeatureDisabled(for destination: MainAppDestination) -> Bool {
-        guard let fid = featureID(for: destination) else { return false }
-        return controller.featureStatePublisher.state(for: fid).activationState != .enabled
+        guard let fid = MainSidebarDestinationPresentation.featureID(for: destination) else { return false }
+        return statePublisher.state(for: fid).activationState != .enabled
     }
 }
 
 enum MainWindowRootPresentation {
     static let usesTypeErasedDetailViews = true
+    static let observesFeatureStatePublisher = true
+    static let disabledSidebarItemsAreNonClickable = true
+    static let disabledSidebarItemsIgnoreHover = true
 }
 
 private struct MainSidebarButton: View {
@@ -244,10 +233,12 @@ private struct MainSidebarButton: View {
             .background(rowBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(isDisabled)
         .onHover { isHovering = $0 }
     }
 
     private var rowBackground: Color {
+        if isDisabled { return .clear }
         if isSelected && !isDisabled { return Color.primary.opacity(0.14) }
         if isHovering { return MAYNTheme.hover }
         return .clear
@@ -377,8 +368,7 @@ private struct DashboardMainPage: View {
                 ) {
                     DashboardToolCardFooter(
                         tile: tile,
-                        voiceStatusText: voiceStatusText,
-                        voiceStatusKind: voiceStatusKind
+                        voiceStatus: voiceStatus
                     )
                 }
             }
@@ -465,22 +455,8 @@ private struct DashboardMainPage: View {
 
     // MARK: Voice status
 
-    private var voiceStatusText: String {
-        switch controller.voiceCoordinator.state {
-        case .idle: "Ready"
-        case .recording: "Listening"
-        case .transcribing: "Transcribing"
-        case .pasting: "Pasting"
-        case .error: "Error"
-        }
-    }
-
-    private var voiceStatusKind: StatusPill.Kind {
-        switch controller.voiceCoordinator.state {
-        case .idle: .success
-        case .recording, .transcribing, .pasting: .progress
-        case .error: .warning
-        }
+    private var voiceStatus: DashboardVoiceStatusPresentation.Status? {
+        DashboardVoiceStatusPresentation.footerStatus(for: controller.voiceCoordinator.state)
     }
 
     private func accent(for destination: MainAppDestination) -> Color {
@@ -518,8 +494,7 @@ enum DashboardRenderingPresentation {
 
 private struct DashboardToolCardFooter: View {
     let tile: DashboardToolTileItem
-    let voiceStatusText: String
-    let voiceStatusKind: StatusPill.Kind
+    let voiceStatus: DashboardVoiceStatusPresentation.Status?
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -528,8 +503,8 @@ private struct DashboardToolCardFooter: View {
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.primary)
-            } else if tile.destination == .voice {
-                StatusPill(text: voiceStatusText, kind: voiceStatusKind)
+            } else if tile.destination == .voice, let voiceStatus {
+                StatusPill(text: voiceStatus.text, kind: voiceStatus.kind)
             } else if let statusText = tile.statusText, let statusKind = tile.statusKind {
                 StatusPill(text: statusText, kind: statusKind)
             }
@@ -1676,12 +1651,7 @@ private struct VoiceMainPage: View {
             subtitle: "Dictation, transcript history, dictionary, app profiles, and voice settings.",
             selection: selectedTab,
             toolbar: {
-                MainHeaderToolbar(
-                    buttonTitle: controller.voiceCoordinator.state == .recording ? "Stop & Paste" : "Start",
-                    buttonDisabled: !canToggleVoice
-                ) {
-                    toggleVoice()
-                } shortcutControl: {
+                if VoiceMainPagePresentation.showsHeaderShortcut {
                     MainHeaderShortcutDisplay(
                         text: MainToolHeaderShortcutModel.display(
                             for: .voice,
@@ -2810,32 +2780,28 @@ private struct FolderPreviewMainPage: View {
     @AppStorage("folderPreviewIncludeHidden", store: AppGroupSettings.defaults) private var includeHidden = false
     @AppStorage(FolderPreviewSettings.cascadeKey, store: AppGroupSettings.defaults) private var cascade = FolderPreviewSettings.defaultCascadeEnabled
     @AppStorage("folderPreviewMaxEntries", store: AppGroupSettings.defaults) private var maxEntries = 50_000
+    @AppStorage(FolderPreviewFunctionTab.storageKey, store: AppGroupSettings.defaults) private var selectedTabRaw = FolderPreviewFunctionTab.settings.rawValue
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                folderSettingsSection
-            }
-            .frame(maxWidth: 760, alignment: .leading)
-            .padding(.horizontal, 32)
-            .padding(.vertical, 28)
+    private var selectedTab: Binding<FolderPreviewFunctionTab> {
+        Binding {
+            FolderPreviewFunctionTab.storedSelection(selectedTabRaw)
+        } set: { tab in
+            selectedTabRaw = tab.rawValue
         }
-        .background(MAYNTheme.window)
     }
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Folder Preview")
-                    .font(.system(size: 26, weight: .semibold))
-                Text("Configure the Finder Space preview for folders and archives.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+    var body: some View {
+        FunctionPageShell(
+            title: "Folder Preview",
+            subtitle: "Configure the Finder Space preview for folders and archives.",
+            selection: selectedTab,
+            toolbar: {
+                StatusPill(text: "Quick Look", kind: .neutral)
             }
-            Spacer(minLength: 0)
-            StatusPill(text: "Quick Look", kind: .neutral)
+        ) {
+            FunctionPageScrollContent {
+                folderSettingsSection
+            }
         }
     }
 
@@ -2878,6 +2844,7 @@ private struct FolderPreviewMainPage: View {
 private struct SnippetsMainPage: View {
     let controller: AppController
     @AppStorage(SnippetsFunctionTab.storageKey, store: AppGroupSettings.defaults) private var selectedTabRaw = SnippetsFunctionTab.library.rawValue
+    @AppStorage(SnippetExpansionSettings.modeKey, store: AppGroupSettings.defaults) private var expansionModeRaw = SnippetExpansionSettings.defaultMode.rawValue
     @State private var hotkeyMap = HotkeyMapStore.defaultMap
     @State private var hotkeyRegistrationErrors: [HotkeyAction: String] = [:]
 
@@ -2887,6 +2854,10 @@ private struct SnippetsMainPage: View {
         } set: { tab in
             selectedTabRaw = tab.rawValue
         }
+    }
+
+    private var expansionMode: SnippetExpansionMode {
+        SnippetExpansionMode(rawValue: expansionModeRaw) ?? SnippetExpansionSettings.defaultMode
     }
 
     var body: some View {
@@ -2906,7 +2877,7 @@ private struct SnippetsMainPage: View {
         ) {
             switch SnippetsFunctionTab.storedSelection(selectedTabRaw) {
             case .library:
-                SnippetsListView(xpc: controller.clipboardDeps.xpc)
+                SnippetsListView(model: controller.clipboardDeps.dockModel)
             case .settings:
                 FunctionPageScrollContent {
                     snippetsSettingsSection
@@ -2920,6 +2891,20 @@ private struct SnippetsMainPage: View {
 
     private var snippetsSettingsSection: some View {
         MAYNSection(title: "Expansion") {
+            MAYNSettingsRow(
+                title: SnippetsSettingsPresentation.expansionModeRowTitle,
+                subtitle: SnippetsSettingsPresentation.expansionModeSubtitle(for: expansionMode)
+            ) {
+                FunctionSegmentedTabStrip(
+                    tabs: Array(SnippetExpansionMode.allCases),
+                    selection: expansionMode,
+                    fillsAvailableWidth: false,
+                    size: .control
+                ) { mode in
+                    expansionModeRaw = mode.rawValue
+                }
+            }
+            MAYNDivider()
             MAYNSettingsRow(
                 title: SnippetsSettingsPresentation.accessibilityRowTitle,
                 subtitle: "Snippet expansion uses the main app Accessibility permission to type into the focused app."
