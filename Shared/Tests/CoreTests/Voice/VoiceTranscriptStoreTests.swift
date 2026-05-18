@@ -73,6 +73,62 @@ final class VoiceTranscriptStoreTests: XCTestCase {
         XCTAssertNil(try store.fetch(id: third.id))
     }
 
+    func testSaveWithExistingIDPreservesID() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoiceTranscriptStore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let db = try Database(
+            url: tempDir.appendingPathComponent("clipboard.sqlite"),
+            migrations: ClipboardStore.migrations
+        )
+        let store = VoiceTranscriptStore(database: db)
+
+        let saved = try store.save(
+            VoiceTranscriptDraft(
+                startedAt: Date(timeIntervalSince1970: 1),
+                endedAt: Date(timeIntervalSince1970: 2),
+                rawText: "hi",
+                cleanedText: "Hi",
+                appBundleID: nil,
+                language: .mixed,
+                modelIdentifier: "test",
+                audioPath: nil
+            ),
+            existingID: "fixed-uuid"
+        )
+        XCTAssertEqual(saved.id, "fixed-uuid")
+
+        let refetched = try store.fetch(id: "fixed-uuid")
+        XCTAssertEqual(refetched?.id, "fixed-uuid")
+    }
+
+    func testSaveWithoutExistingIDGeneratesNewID() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoiceTranscriptStore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let db = try Database(
+            url: tempDir.appendingPathComponent("clipboard.sqlite"),
+            migrations: ClipboardStore.migrations
+        )
+        let store = VoiceTranscriptStore(database: db)
+
+        let draftA = VoiceTranscriptDraft(
+            startedAt: Date(),
+            endedAt: Date(),
+            rawText: "",
+            cleanedText: "",
+            appBundleID: nil,
+            language: .mixed,
+            modelIdentifier: "x",
+            audioPath: nil
+        )
+        let a = try store.save(draftA)
+        let b = try store.save(draftA)
+        XCTAssertNotEqual(a.id, b.id)
+    }
+
     private func draft(rawText: String, startedAt: TimeInterval, endedAt: TimeInterval) -> VoiceTranscriptDraft {
         VoiceTranscriptDraft(
             startedAt: Date(timeIntervalSince1970: startedAt),

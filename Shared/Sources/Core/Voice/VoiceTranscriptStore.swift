@@ -9,8 +9,8 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
     }
 
     @discardableResult
-    public func save(_ draft: VoiceTranscriptDraft) throws -> VoiceTranscript {
-        let id = UUID().uuidString
+    public func save(_ draft: VoiceTranscriptDraft, existingID: String? = nil) throws -> VoiceTranscript {
+        let id = existingID ?? UUID().uuidString
         let durationMs = max(0, Int((draft.endedAt.timeIntervalSince(draft.startedAt) * 1000).rounded()))
         try db.queue.write { conn in
             try conn.execute(sql: """
