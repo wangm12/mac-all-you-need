@@ -2,34 +2,122 @@
 import XCTest
 
 final class MiniVoiceHUDTests: XCTestCase {
-    func testHUDUsesCompactTypelessStyleLayout() {
-        XCTAssertLessThanOrEqual(MiniVoiceHUDLayout.panelSize.width, 172)
-        XCTAssertLessThanOrEqual(MiniVoiceHUDLayout.panelSize.height, 78)
-        XCTAssertLessThanOrEqual(MiniVoiceHUDLayout.controlWidth, 132)
+    func testV7UniversalPillSize() {
+        XCTAssertEqual(MiniVoiceHUDLayout.pillWidth, 144)
+        XCTAssertEqual(MiniVoiceHUDLayout.pillHeight, 32)
+        XCTAssertEqual(MiniVoiceHUDLayout.iconSize, 14)
+        XCTAssertEqual(MiniVoiceHUDLayout.leftSlotCenter, 20)
+        XCTAssertEqual(MiniVoiceHUDLayout.rightSlotCenter, 124)
     }
 
-    func testTipNeverAppearsInCompactVoiceHUD() {
-        XCTAssertNil(MiniVoiceHUDPresentationState(state: .idlePreview).tipTitle)
-        XCTAssertNil(MiniVoiceHUDPresentationState(state: .recording(level: 0.4)).tipTitle)
-        XCTAssertNil(MiniVoiceHUDPresentationState(state: .transcribing).tipTitle)
-        XCTAssertNil(MiniVoiceHUDPresentationState(state: .pasted).tipTitle)
-        XCTAssertNil(MiniVoiceHUDPresentationState(state: .noSpeech("empty")).tipTitle)
-        XCTAssertNil(MiniVoiceHUDPresentationState(state: .error("failed")).tipTitle)
+    func testAllStatesShareUniversalPillSize() {
+        let expected = CGSize(width: 144, height: 32)
+        for state in [
+            MiniVoiceHUD.State.recording(level: 0.4),
+            .transcribing,
+            .thinking,
+            .pasted,
+            .copied,
+            .cancelled,
+            .noSpeech("x"),
+            .error("y"),
+            .idlePreview
+        ] {
+            XCTAssertEqual(MiniVoiceHUDLayout.size(for: state), expected,
+                           "state \(state) must use universal v7 pill size")
+        }
     }
 
-    func testTranscribingUsesThinkingProgressPresentation() {
-        let presentation = MiniVoiceHUDPresentationState(state: .transcribing)
+    func testRecordingMapsToListeningWithWaveformAndStopAction() {
+        let pill = MiniVoiceHUDPill(state: .recording(level: 0.4))
 
-        XCTAssertEqual(presentation.processingTitle, "Thinking")
-        XCTAssertTrue(presentation.showsProgress)
+        XCTAssertEqual(pill.label, "Listening")
+        XCTAssertEqual(pill.leading, .waveformBars)
+        XCTAssertTrue(pill.isStoppable)
+        XCTAssertFalse(pill.isTerminal)
     }
 
-    func testPanelUsesDistinctPillSizesForRecordingAndTranscribing() {
-        let recordingSize = MiniVoiceHUDLayout.size(for: .recording(level: 0.4))
-        let transcribingSize = MiniVoiceHUDLayout.size(for: .transcribing)
+    func testTranscribingPillUsesAISparkleAndIsStoppable() {
+        let pill = MiniVoiceHUDPill(state: .transcribing)
 
-        XCTAssertEqual(recordingSize, CGSize(width: MiniVoiceHUDLayout.controlWidth, height: MiniVoiceHUDLayout.controlHeight))
-        XCTAssertEqual(transcribingSize, CGSize(width: MiniVoiceHUDLayout.processingWidth, height: MiniVoiceHUDLayout.processingHeight))
+        XCTAssertEqual(pill.label, "Transcribing")
+        XCTAssertEqual(pill.leading, .aiSparkle)
+        XCTAssertTrue(pill.isStoppable)
+        XCTAssertFalse(pill.isTerminal)
+    }
+
+    func testThinkingPillUsesDotSpinnerAndIsStoppable() {
+        let pill = MiniVoiceHUDPill(state: .thinking)
+
+        XCTAssertEqual(pill.label, "Thinking")
+        XCTAssertEqual(pill.leading, .dotSpinner)
+        XCTAssertTrue(pill.isStoppable)
+        XCTAssertFalse(pill.isTerminal)
+    }
+
+    func testPastedMapsToAppliedCheckPill() {
+        let pill = MiniVoiceHUDPill(state: .pasted)
+
+        XCTAssertEqual(pill.label, "Applied")
+        XCTAssertEqual(pill.leading, .checkInCircle)
+        XCTAssertFalse(pill.isStoppable)
+        XCTAssertTrue(pill.isTerminal)
+    }
+
+    func testCopiedMapsToCopiedCheckPill() {
+        let pill = MiniVoiceHUDPill(state: .copied)
+
+        XCTAssertEqual(pill.label, "Copied")
+        XCTAssertEqual(pill.leading, .checkInCircle)
+        XCTAssertFalse(pill.isStoppable)
+        XCTAssertTrue(pill.isTerminal)
+    }
+
+    func testNoSpeechPillUsesWarningTriangle() {
+        let pill = MiniVoiceHUDPill(state: .noSpeech("anything"))
+
+        XCTAssertEqual(pill.label, "No speech")
+        XCTAssertEqual(pill.leading, .warningTriangle)
+        XCTAssertFalse(pill.isStoppable)
+        XCTAssertTrue(pill.isTerminal)
+    }
+
+    func testErrorPillMapsToFailedWithWarningTriangle() {
+        let pill = MiniVoiceHUDPill(state: .error("some api blew up"))
+
+        XCTAssertEqual(pill.label, "Failed")
+        XCTAssertEqual(pill.leading, .warningTriangle)
+        XCTAssertFalse(pill.isStoppable)
+        XCTAssertTrue(pill.isTerminal)
+    }
+
+    func testNoUsableAudioErrorMessageDemotesToNoSpeechPill() {
+        let pill = MiniVoiceHUDPill(state: .error("No usable audio captured"))
+
+        XCTAssertEqual(pill.label, "No speech")
+        XCTAssertEqual(pill.leading, .warningTriangle)
+    }
+
+    func testTranscriptWasEmptyErrorMessageDemotesToNoSpeechPill() {
+        let pill = MiniVoiceHUDPill(state: .error("Transcript was empty"))
+
+        XCTAssertEqual(pill.label, "No speech")
+        XCTAssertEqual(pill.leading, .warningTriangle)
+    }
+
+    func testCancelledPillUsesXInCircleAndOffersUndo() {
+        let pill = MiniVoiceHUDPill(state: .cancelled)
+
+        XCTAssertEqual(pill.label, "Cancelled")
+        XCTAssertEqual(pill.leading, .xInCircle)
+        XCTAssertFalse(pill.isStoppable)
+        XCTAssertFalse(pill.isTerminal)
+        XCTAssertTrue(pill.isUndoable)
+    }
+
+    func testCancelledStateSharesUniversalPillSize() {
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .cancelled),
+                       CGSize(width: 144, height: 32))
     }
 
     @MainActor
@@ -42,32 +130,5 @@ final class MiniVoiceHUDTests: XCTestCase {
 
         XCTAssertTrue(hud.testingContentView === firstContentView)
         hud.dismiss()
-    }
-
-    func testRecordingActionsEnableCancelAndStop() {
-        let actions = MiniVoiceHUDActionState(state: .recording(level: 0.4))
-
-        XCTAssertTrue(actions.cancelEnabled)
-        XCTAssertTrue(actions.primaryEnabled)
-        XCTAssertEqual(actions.primarySymbol, "stop.fill")
-        XCTAssertEqual(actions.primaryAccessibilityLabel, "Stop and transcribe")
-    }
-
-    func testTranscribingActionsEnableCancelOnly() {
-        let actions = MiniVoiceHUDActionState(state: .transcribing)
-
-        XCTAssertTrue(actions.cancelEnabled)
-        XCTAssertFalse(actions.primaryEnabled)
-        XCTAssertEqual(actions.primarySymbol, "hourglass")
-        XCTAssertEqual(actions.primaryAccessibilityLabel, "Transcribing")
-    }
-
-    func testPastedActionsEnableCheckDismissOnly() {
-        let actions = MiniVoiceHUDActionState(state: .pasted)
-
-        XCTAssertFalse(actions.cancelEnabled)
-        XCTAssertTrue(actions.primaryEnabled)
-        XCTAssertEqual(actions.primarySymbol, "checkmark")
-        XCTAssertEqual(actions.primaryAccessibilityLabel, "Dismiss")
     }
 }

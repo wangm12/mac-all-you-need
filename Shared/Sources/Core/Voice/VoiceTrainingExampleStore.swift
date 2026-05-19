@@ -59,7 +59,7 @@ public struct VoiceTrainingExample: Identifiable, Equatable, Sendable {
 public final class VoiceTrainingExampleStore: @unchecked Sendable {
     private let db: Database
     private let key: SymmetricKey
-    private let audioRoot: URL
+    public let audioRoot: URL
     private let now: () -> Date
 
     public init(
@@ -120,6 +120,12 @@ public final class VoiceTrainingExampleStore: @unchecked Sendable {
         let url = audioRoot.appendingPathComponent("\(id).wav.aesgcm", isDirectory: false)
         try envelope.combined.write(to: url, options: .atomic)
         return url.path
+    }
+
+    public func loadEncryptedAudio(path: String) throws -> Data {
+        let url = URL(fileURLWithPath: path)
+        let encrypted = try Data(contentsOf: url)
+        return try Cipher.open(Envelope(combined: encrypted), with: key)
     }
 
     public func updateFinalText(
@@ -198,6 +204,16 @@ public final class VoiceTrainingExampleStore: @unchecked Sendable {
     public func count() throws -> Int {
         try db.queue.read { conn in
             try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM voice_training_examples") ?? 0
+        }
+    }
+
+    public func allAudioPaths() throws -> [String] {
+        try db.queue.read { conn in
+            let rows = try Row.fetchAll(
+                conn,
+                sql: "SELECT audio_path FROM voice_training_examples WHERE audio_path IS NOT NULL"
+            )
+            return rows.compactMap { $0["audio_path"] }
         }
     }
 

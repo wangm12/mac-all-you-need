@@ -22,6 +22,7 @@ final class VoiceCoordinator {
     private let personalizationStore: VoicePersonalizationStore?
     private let trainingExampleStore: VoiceTrainingExampleStore?
     private let personalizationSettings: () -> VoicePersonalizationSettings
+    private let historySettings: () -> VoiceHistorySettings
     private let cleanupKeyStore: VoiceCleanupKeyStore
     private let learningMonitor: VoicePostEditLearningMonitor
     private let summarizer: VoicePersonalizationSummarizer?
@@ -33,6 +34,36 @@ final class VoiceCoordinator {
     private var cleanupSettings: VoiceCleanupSettings
     private var operationGeneration = 0
     private var activationMonitoringSuspended = false
+
+    /// Captured audio for the in-flight transcription. Held while .transcribing
+    /// is active so that a mid-stream cancel can offer Undo (re-run the same
+    /// audio without making the user re-dictate).
+    private var inflightCaptured: CapturedAudio?
+    /// ASR result for the in-flight cleanup phase. Set after ASR completes so
+    /// that Undo during LLM cleanup can skip ASR and re-run only cleanup.
+    private var inflightASRResult: VoiceTranscriptionResult?
+    private var inflightAppBundleID: String?
+
+    /// Snapshot kept after cancel so the user can tap Undo to replay it.
+    /// Cleared when Undo runs, the HUD is dismissed, or the window expires.
+    private var pendingUndo: UndoContext?
+    private var undoExpirationTask: Task<Void, Never>?
+    private static let undoWindowSeconds: TimeInterval = 5
+
+    private struct UndoContext {
+        let captured: CapturedAudio
+        let asrResult: VoiceTranscriptionResult?
+        let appBundleID: String?
+        let cancelledAt: Date
+    }
+
+    /// Global Esc-key monitors. Installed on start() so that Esc aborts the
+    /// active dictation while another app holds focus (the HUD is a
+    /// non-activating panel, so our app rarely gets key events directly).
+    /// Requires the Accessibility permission the app already requests for
+    /// snippet expansion.
+    private var escGlobalMonitor: Any?
+    private var escLocalMonitor: Any?
 
     private(set) var state: State = .idle
     private(set) var lastTranscript: VoiceCleanupResult?
@@ -47,7 +78,8 @@ final class VoiceCoordinator {
         cleanupSettings: VoiceCleanupSettings = VoiceCleanupSettingsStore.load(),
         cleanupKeyStore: VoiceCleanupKeyStore = VoiceCleanupKeyStore(keychain: SystemKeychain()),
         learningMonitor: VoicePostEditLearningMonitor? = nil,
-        summarizer: VoicePersonalizationSummarizer? = nil
+        summarizer: VoicePersonalizationSummarizer? = nil,
+        historySettings: @escaping () -> VoiceHistorySettings = { .init() }
     ) {
         self.transcripts = transcripts
         self.dictionary = dictionary
@@ -59,6 +91,7 @@ final class VoiceCoordinator {
         self.cleanupKeyStore = cleanupKeyStore
         self.learningMonitor = learningMonitor ?? VoicePostEditLearningMonitor()
         self.summarizer = summarizer
+        self.historySettings = historySettings
         activation.onPress = { [weak self] in Task { @MainActor in await self?.handleActivationPress() } }
         activation.onRelease = { [weak self] in Task { @MainActor in await self?.handleActivationRelease() } }
     }
@@ -70,6 +103,12 @@ final class VoiceCoordinator {
         } catch {
             log.error("Voice activation failed: \(error.localizedDescription, privacy: .public)")
         }
+        // Pre-download and load the configured ASR model in background so the
+        // first dictation doesn't block on a multi-minute network download.
+        if let qwen = engine as? Qwen3Engine {
+            Task.detached { await qwen.warmup() }
+        }
+        installEscKeyMonitor()
     }
 
     func applyActivationSettings(_ settings: VoiceActivationSettings) throws {
@@ -98,7 +137,10 @@ final class VoiceCoordinator {
     func applyASRProvider(_ providerKind: VoiceASRProviderKind, keychain: KeychainBackend) {
         switch providerKind {
         case .local:
-            engine = Qwen3Engine()
+            let qwen = Qwen3Engine()
+            engine = qwen
+            // Kick off download/load in background so first dictation is instant.
+            Task.detached { await qwen.warmup() }
         case .groq:
             let keyStore = GroqASRKeyStore(keychain: keychain)
             engine = GroqASREngine(
@@ -124,10 +166,20 @@ final class VoiceCoordinator {
         // Cancel any in-flight post-edit monitor from the previous dictation.
         monitorTask?.cancel()
         monitorTask = nil
+        // If a Cancelled+Undo pill is still up from a previous session, clear
+        // it now so we never accumulate a stale undo context behind a fresh
+        // recording (Gap D in the interaction audit).
+        if pendingUndo != nil {
+            expirePendingUndo()
+        }
 
-        guard state == .idle else { return }
+        guard state == .idle else {
+            log.warning("startRecording called but state is \(String(describing: self.state), privacy: .public)")
+            return
+        }
         lastTranscript = nil
         guard await audio.requestPermission() else {
+            log.error("startRecording: microphone permission denied")
             fail("Microphone permission denied")
             return
         }
@@ -135,28 +187,53 @@ final class VoiceCoordinator {
             try audio.start()
             operationGeneration += 1
             state = .recording
-            hud.show(.recording(level: 0), onCancel: makeCancelAction(), onPrimary: makeStopAction())
+            log.info("recording started — generation: \(self.operationGeneration, privacy: .public)")
+            hud.show(.recording(level: 0), onCancel: makeCancelAction(), onPrimary: makeCancelAction())
             startLevelUpdates()
         } catch {
+            log.error("audio start failed: \(error.localizedDescription, privacy: .public)")
             fail(error.localizedDescription)
         }
     }
 
     func stopRecordingAndPaste() async {
         guard state == .recording else { return }
-        let generation = operationGeneration
         levelTask?.cancel()
         levelTask = nil
 
         guard let captured = audio.stop(), captured.samples.count > 800 else {
+            log.error("stopRecordingAndPaste: insufficient audio captured (need >800 samples)")
             fail("No usable audio captured")
             return
         }
 
+        log.info("stopRecordingAndPaste — samples: \(captured.samples.count, privacy: .public) sampleRate: \(captured.sampleRate, privacy: .public) peak: \(captured.peakLevel, privacy: .public)")
+        await processCapturedAudio(captured: captured, presetASRResult: nil, presetAppBundleID: nil)
+    }
+
+    private func processCapturedAudio(
+        captured: CapturedAudio,
+        presetASRResult: VoiceTranscriptionResult?,
+        presetAppBundleID: String?
+    ) async {
+        operationGeneration += 1
+        let generation = operationGeneration
         state = .transcribing
-        hud.show(.transcribing, onCancel: makeCancelAction())
+
+        let appBundleID = presetAppBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        inflightCaptured = captured
+        inflightAppBundleID = appBundleID
+        inflightASRResult = presetASRResult
+
+        // If we already have an ASR result (undo re-entry), skip straight to the
+        // .thinking HUD pill because ASR is already done.
+        if presetASRResult == nil {
+            hud.show(.transcribing, onCancel: makeCancelAction(), onPrimary: makeCancelAction())
+        } else {
+            hud.show(.thinking, onCancel: makeCancelAction(), onPrimary: makeCancelAction())
+        }
         do {
-            let appBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            log.info("ASR start — app: \(appBundleID ?? "nil", privacy: .public) presetASR: \(presetASRResult != nil, privacy: .public)")
 
             // Load personalization context for this app (style hints only).
             let (appCtx, globalCtx) = loadContexts(bundleID: appBundleID)
@@ -164,12 +241,25 @@ final class VoiceCoordinator {
                 ? nil
                 : (appCtx ?? globalCtx)
 
-            let result = try await engine.transcribe(
-                samples: captured.samples,
-                sampleRate: captured.sampleRate,
-                options: .default
-            )
-            guard isCurrentOperation(generation), state == .transcribing else { return }
+            let result: VoiceTranscriptionResult
+            if let preset = presetASRResult {
+                result = preset
+            } else {
+                let asrStart = Date()
+                result = try await engine.transcribe(
+                    samples: captured.samples,
+                    sampleRate: captured.sampleRate,
+                    options: .default
+                )
+                let asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
+                log.info("ASR done — \(asrMs, privacy: .public)ms model: \(result.modelIdentifier, privacy: .public) lang: \(result.language.rawValue, privacy: .public) text: \(result.text.prefix(80), privacy: .public)")
+                guard isCurrentOperation(generation), state == .transcribing else {
+                    clearInflightContext()
+                    return
+                }
+                // Capture result so a cancel during cleanup can replay only the cleanup pass.
+                inflightASRResult = result
+            }
             let dictionaryEntries = (try? dictionary?.list()) ?? []
 
             // Build personalization-enriched cleanup request via the testable builder.
@@ -184,11 +274,21 @@ final class VoiceCoordinator {
                 recentExamples: recentExamples
             )
 
+            hud.show(.thinking, onCancel: makeCancelAction(), onPrimary: makeCancelAction())
             let cleanup = makeCleanupPipeline()
+            log.info("LLM cleanup start — text length: \(result.text.count, privacy: .public) chars")
+            let cleanupStart = Date()
             let cleanupResult = await cleanup.clean(cleanupRequest)
-            guard isCurrentOperation(generation), state == .transcribing else { return }
+            let cleanupMs = Int(Date().timeIntervalSince(cleanupStart) * 1000)
+            log.info("LLM cleanup done — \(cleanupMs, privacy: .public)ms usedLLM: \(cleanupResult.usedLLM, privacy: .public) provider: \(cleanupResult.providerIdentifier ?? "none", privacy: .public) text: \(cleanupResult.cleanedText.prefix(80), privacy: .public)")
+            guard isCurrentOperation(generation), state == .transcribing else {
+                clearInflightContext()
+                return
+            }
             let text = cleanupResult.cleanedText
             guard !text.isEmpty else {
+                log.error("processCapturedAudio: cleaned text was empty")
+                clearInflightContext()
                 fail("Transcript was empty")
                 return
             }
@@ -199,19 +299,30 @@ final class VoiceCoordinator {
 
             state = .pasting
             let pasteResult = await CursorPaster.paste(text)
+            log.info("paste — didPost: \(pasteResult.didPostPasteEvent, privacy: .public) chars: \(text.count, privacy: .public)")
+            let transcriptID = UUID().uuidString
+            let audioPath = persistAudio(captured: captured, transcriptID: transcriptID)
             let savedTranscript = try saveTranscript(
-                captured: captured, result: result, cleanedText: text, appBundleID: appBundleID
+                transcriptID: transcriptID,
+                captured: captured,
+                result: result,
+                cleanedText: text,
+                appBundleID: appBundleID,
+                audioPath: audioPath
             )
+            log.info("transcript saved — id: \(savedTranscript.id, privacy: .public) audioPath: \(audioPath ?? "nil", privacy: .public)")
             saveTrainingExample(
                 captured: captured,
                 result: result,
                 cleanedText: text,
                 transcriptID: savedTranscript.id,
-                appBundleID: appBundleID
+                appBundleID: appBundleID,
+                audioPath: audioPath
             )
+            NotificationCenter.default.post(name: .voiceTranscriptAppended, object: savedTranscript.id)
 
             hud.show(
-                pasteResult.didPostPasteEvent ? .pasted : .error("Text copied. Press Command-V to paste."),
+                pasteResult.didPostPasteEvent ? .pasted : .copied,
                 onPrimary: makeDismissAction()
             )
 
@@ -224,33 +335,121 @@ final class VoiceCoordinator {
                 snapshot: axSnapshot
             )
 
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: .milliseconds(1200))
             guard isCurrentOperation(generation) else { return }
             state = .idle
+            clearInflightContext()
             hud.dismiss()
         } catch {
             guard isCurrentOperation(generation) else { return }
+            clearInflightContext()
             fail(error.localizedDescription)
         }
     }
 
+    /// Re-runs the transcribe + cleanup + paste flow against the audio that was
+    /// in flight when the user last cancelled. If the cancel happened after
+    /// ASR completed, this skips ASR and replays just the cleanup pass.
+    func undoLastCancel() async {
+        guard let undo = pendingUndo else { return }
+        pendingUndo = nil
+        cancelUndoExpiration()
+        log.info("undoLastCancel — replay (asrPreset: \(undo.asrResult != nil, privacy: .public) age: \(Int(Date().timeIntervalSince(undo.cancelledAt) * 1000), privacy: .public)ms)")
+        await processCapturedAudio(
+            captured: undo.captured,
+            presetASRResult: undo.asrResult,
+            presetAppBundleID: undo.appBundleID
+        )
+    }
+
+    private func clearInflightContext() {
+        inflightCaptured = nil
+        inflightASRResult = nil
+        inflightAppBundleID = nil
+    }
+
+    private func scheduleUndoExpiration() {
+        cancelUndoExpiration()
+        undoExpirationTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.undoWindowSeconds))
+            await MainActor.run {
+                self?.expirePendingUndo()
+            }
+        }
+    }
+
+    private func cancelUndoExpiration() {
+        undoExpirationTask?.cancel()
+        undoExpirationTask = nil
+    }
+
+    private func expirePendingUndo() {
+        guard pendingUndo != nil else { return }
+        log.info("undo window expired — dismissing cancelled pill")
+        pendingUndo = nil
+        cancelUndoExpiration()
+        hud.dismiss()
+    }
+
     func cancelCurrentOperation() {
         guard state == .recording || state == .transcribing else { return }
+        let wasRecording = state == .recording
+        let savedTranscribingCaptured = inflightCaptured
+        let savedASRResult = inflightASRResult
+        let savedAppBundleID = inflightAppBundleID
+
         operationGeneration += 1
         levelTask?.cancel()
         levelTask = nil
         monitorTask?.cancel()
         monitorTask = nil
-        _ = audio.stop()
+        // During .recording the mic is still open; stop() returns the audio we
+        // captured so far so a recording-time cancel can also offer Undo.
+        // During .transcribing the mic was already stopped — stop() returns nil
+        // and we fall back to inflightCaptured (set inside processCapturedAudio).
+        let stoppedAudio = audio.stop()
         state = .idle
-        hud.dismiss()
+        clearInflightContext()
+
+        let undoCaptured: CapturedAudio?
+        let undoAppBundleID: String?
+        let undoASRResult: VoiceTranscriptionResult?
+        if wasRecording {
+            undoCaptured = (stoppedAudio?.samples.count ?? 0) > 800 ? stoppedAudio : nil
+            undoAppBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            undoASRResult = nil
+        } else {
+            undoCaptured = savedTranscribingCaptured
+            undoAppBundleID = savedAppBundleID
+            undoASRResult = savedASRResult
+        }
+
+        if let captured = undoCaptured {
+            log.info("cancelCurrentOperation — offering undo (wasRecording: \(wasRecording, privacy: .public) asrPreset: \(undoASRResult != nil, privacy: .public))")
+            pendingUndo = UndoContext(
+                captured: captured,
+                asrResult: undoASRResult,
+                appBundleID: undoAppBundleID,
+                cancelledAt: Date()
+            )
+            hud.show(.cancelled,
+                     onCancel: makeDismissUndoAction(),
+                     onPrimary: makeUndoAction())
+            scheduleUndoExpiration()
+        } else {
+            log.info("cancelCurrentOperation — no usable audio, dismissing without undo")
+            hud.dismiss()
+        }
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func saveTranscript(
+        transcriptID: String,
         captured: CapturedAudio,
         result: VoiceTranscriptionResult,
         cleanedText: String,
-        appBundleID: String?
+        appBundleID: String?,
+        audioPath: String?
     ) throws -> VoiceTranscript {
         try transcripts.save(VoiceTranscriptDraft(
             startedAt: captured.startedAt,
@@ -260,8 +459,8 @@ final class VoiceCoordinator {
             appBundleID: appBundleID,
             language: result.language,
             modelIdentifier: result.modelIdentifier,
-            audioPath: nil
-        ))
+            audioPath: audioPath
+        ), existingID: transcriptID)
     }
 
     private func loadContexts(bundleID: String?) -> (app: VoicePersonalizationContext?, global: VoicePersonalizationContext?) {
@@ -413,26 +612,17 @@ final class VoiceCoordinator {
         }
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func saveTrainingExample(
         captured: CapturedAudio,
         result: VoiceTranscriptionResult,
         cleanedText: String,
         transcriptID: String,
-        appBundleID: String?
+        appBundleID: String?,
+        audioPath: String?
     ) {
         guard personalizationSettings().saveTrainingExamplesEnabled,
               let trainingExampleStore else { return }
-
-        let sampleRate = max(1, Int(captured.sampleRate.rounded()))
-        let wavData = GroqASREngine.encodeWAV(samples: captured.samples, sampleRate: sampleRate)
-        let audioPath: String?
-        do {
-            audioPath = try trainingExampleStore.saveEncryptedAudio(wavData, id: transcriptID)
-        } catch {
-            audioPath = nil
-            log.error("Voice training audio save failed: \(error.localizedDescription, privacy: .public)")
-        }
-
         do {
             try trainingExampleStore.save(.init(
                 transcriptID: transcriptID,
@@ -448,6 +638,23 @@ final class VoiceCoordinator {
             ))
         } catch {
             log.error("Voice training example save failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Internal for testing — call before building VoiceTranscriptDraft so audioPath is set on save.
+    @discardableResult
+    func persistAudio(captured: CapturedAudio, transcriptID: String) -> String? {
+        let shouldSave = personalizationSettings().saveTrainingExamplesEnabled
+            || historySettings().saveAudio
+        guard shouldSave, let trainingExampleStore else { return nil }
+
+        let sampleRate = max(1, Int(captured.sampleRate.rounded()))
+        let wavData = VoiceAudioCodec.encodeWAV(samples: captured.samples, sampleRate: sampleRate)
+        do {
+            return try trainingExampleStore.saveEncryptedAudio(wavData, id: transcriptID)
+        } catch {
+            log.error("Voice audio persist failed: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
@@ -489,7 +696,7 @@ final class VoiceCoordinator {
         levelTask?.cancel()
         levelTask = Task { @MainActor in
             while !Task.isCancelled, state == .recording {
-                hud.show(.recording(level: audio.peakLevel), onCancel: makeCancelAction(), onPrimary: makeStopAction())
+                hud.show(.recording(level: audio.peakLevel), onCancel: makeCancelAction(), onPrimary: makeCancelAction())
                 try? await Task.sleep(for: .milliseconds(VoiceLevelSampling.intervalMilliseconds))
             }
         }
@@ -519,21 +726,163 @@ final class VoiceCoordinator {
         { [weak self] in Task { @MainActor in self?.cancelCurrentOperation() } }
     }
 
-    private func makeStopAction() -> () -> Void {
-        { [weak self] in Task { @MainActor in await self?.stopRecordingAndPaste() } }
-    }
-
     private func makeDismissAction() -> () -> Void {
         { [weak self] in
             Task { @MainActor in
-                self?.operationGeneration += 1
-                self?.state = .idle
-                self?.hud.dismiss()
+                self?.performDismiss()
             }
+        }
+    }
+
+    private func performDismiss() {
+        operationGeneration += 1
+        state = .idle
+        hud.dismiss()
+    }
+
+    private func makeUndoAction() -> () -> Void {
+        { [weak self] in
+            Task { @MainActor in
+                await self?.undoLastCancel()
+            }
+        }
+    }
+
+    private func makeDismissUndoAction() -> () -> Void {
+        { [weak self] in
+            Task { @MainActor in
+                self?.expirePendingUndo()
+            }
+        }
+    }
+
+    private func installEscKeyMonitor() {
+        if escGlobalMonitor != nil || escLocalMonitor != nil { return }
+        let handler: @Sendable (NSEvent) -> Void = { [weak self] event in
+            let keyCode = event.keyCode
+            // Esc, Return, or numpad Enter — every other key is ignored.
+            guard keyCode == 0x35 || keyCode == 0x24 || keyCode == 0x4C else { return }
+            Task { @MainActor in
+                guard let self else { return }
+                switch keyCode {
+                case 0x35: self.handleEscKey()
+                case 0x24, 0x4C: self.handleEnterKey()
+                default: break
+                }
+            }
+        }
+        // Global: events while another app has focus (the common case — the HUD
+        // is a non-activating panel so our app rarely is the active app).
+        escGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            handler(event)
+        }
+        // Local: events while our app does happen to be active. Return the
+        // event so other handlers still see it — we react, we don't swallow.
+        escLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            handler(event)
+            return event
+        }
+    }
+
+    private func handleEscKey() {
+        if state == .recording || state == .transcribing {
+            log.info("esc — cancelling current operation (state: \(String(describing: self.state), privacy: .public))")
+            cancelCurrentOperation()
+        } else if pendingUndo != nil {
+            log.info("esc — dismissing undo offer")
+            expirePendingUndo()
+        } else if hud.isVisible {
+            log.info("esc — dismissing visible HUD")
+            performDismiss()
+        }
+        // else: no HUD up and nothing to cancel — ignore Esc so we don't
+        // interfere with other apps' Esc handlers.
+    }
+
+    private func handleEnterKey() {
+        // Only fires when the Cancelled+Undo pill is on screen. Acts as a
+        // keyboard shortcut for the on-screen Undo button.
+        guard pendingUndo != nil else { return }
+        log.info("enter — triggering undo")
+        Task { @MainActor in
+            await self.undoLastCancel()
         }
     }
 }
 
 enum VoiceLevelSampling {
     static let intervalMilliseconds = 25
+}
+
+extension Notification.Name {
+    static let voiceTranscriptAppended = Notification.Name("com.macallyouneed.voiceTranscriptAppended")
+}
+
+enum VoiceRetryError: Error, Equatable {
+    case transcriptNotFound
+    case noAudio
+    case audioReadFailed
+    case audioDecodeFailed
+}
+
+extension VoiceCoordinator {
+    func retryTranscript(id: String) async throws -> VoiceTranscript {
+        guard let original = try transcripts.fetch(id: id) else {
+            throw VoiceRetryError.transcriptNotFound
+        }
+        guard let audioPath = original.audioPath else {
+            throw VoiceRetryError.noAudio
+        }
+        guard let trainingExampleStore else {
+            throw VoiceRetryError.audioReadFailed
+        }
+
+        let wavData: Data
+        do {
+            wavData = try trainingExampleStore.loadEncryptedAudio(path: audioPath)
+        } catch {
+            throw VoiceRetryError.audioReadFailed
+        }
+        let decoded: VoiceAudioCodec.DecodedAudio
+        do {
+            decoded = try VoiceAudioCodec.decodeWAV(wavData)
+        } catch {
+            throw VoiceRetryError.audioDecodeFailed
+        }
+
+        let asrResult = try await engine.transcribe(
+            samples: decoded.samples,
+            sampleRate: Double(decoded.sampleRate),
+            options: .default
+        )
+        let dictionaryEntries = (try? dictionary?.list()) ?? []
+        let (appCtx, globalCtx) = loadContexts(bundleID: original.appBundleID)
+        let recentExamples = loadRecentExamples(context: appCtx ?? globalCtx)
+        let cleanupRequest = Self.buildCleanupRequest(
+            rawText: asrResult.text,
+            appBundleID: original.appBundleID,
+            language: asrResult.language,
+            dictionaryEntries: dictionaryEntries,
+            appContext: appCtx,
+            globalContext: globalCtx,
+            recentExamples: recentExamples
+        )
+        let cleanedResult = await makeCleanupPipeline().clean(cleanupRequest)
+        let cleanedText = cleanedResult.cleanedText
+
+        let saved = try transcripts.save(
+            VoiceTranscriptDraft(
+                startedAt: original.startedAt,
+                endedAt: original.endedAt,
+                rawText: asrResult.text,
+                cleanedText: cleanedText,
+                appBundleID: original.appBundleID,
+                language: asrResult.language,
+                modelIdentifier: asrResult.modelIdentifier,
+                audioPath: audioPath
+            )
+        )
+        NotificationCenter.default.post(name: .voiceTranscriptAppended, object: saved.id)
+        return saved
+    }
 }

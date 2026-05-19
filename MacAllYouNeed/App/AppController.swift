@@ -99,6 +99,7 @@ final class AppController {
     let voicePersonalizationStore: VoicePersonalizationStore
     let voiceTrainingExampleStore: VoiceTrainingExampleStore
     let voiceCoordinator: VoiceCoordinator
+    let voiceRetentionRunner: VoiceTranscriptRetentionRunner
     let windowControl: WindowControlCoordinator
     private let windowControlAccessibilityTrustMonitor: WindowControlAccessibilityTrustMonitor
 
@@ -153,6 +154,12 @@ final class AppController {
         voicePersonalizationStore = stores.voicePersonalization
         voiceTrainingExampleStore = stores.voiceTrainingExamples
         voiceCoordinator = makeVoiceCoordinator(stores: stores, cleanupKeyStore: cleanupKeyStore)
+        voiceRetentionRunner = VoiceTranscriptRetentionRunner(
+            transcriptStore: stores.voiceTranscripts,
+            trainingExampleStore: stores.voiceTrainingExamples,
+            audioRoot: AppGroup.containerURL().appendingPathComponent("voice-training-audio", isDirectory: true),
+            historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) }
+        )
         let windowControl = WindowControlCoordinator()
         self.windowControl = windowControl
         windowControlAccessibilityTrustMonitor = WindowControlAccessibilityTrustMonitor(
@@ -210,6 +217,7 @@ final class AppController {
 
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()
+        voiceRetentionRunner.start()
         windowControl.start()
         windowControlAccessibilityTrustMonitor.start()
 
@@ -646,13 +654,22 @@ private func makeVoiceCoordinator(
     )
 
     let asrSettings = VoiceASRSettingsStore.load()
-    let engine: any VoiceTranscriptionEngine = switch asrSettings.providerKind {
+    let groqKeyStore = GroqASRKeyStore(keychain: keychain)
+    // Fall back to local if Groq is selected but no API key is configured,
+    // so the coordinator starts in a usable state instead of failing on first use.
+    let resolvedProviderKind: VoiceASRProviderKind
+    if asrSettings.providerKind == .groq, (try? groqKeyStore.apiKey()) == nil {
+        resolvedProviderKind = .local
+    } else {
+        resolvedProviderKind = asrSettings.providerKind
+    }
+    let engine: any VoiceTranscriptionEngine = switch resolvedProviderKind {
     case .local:
         Qwen3Engine()
     case .groq:
         GroqASREngine(
             settings: { GroqASRSettingsStore.load() },
-            keyStore: GroqASRKeyStore(keychain: keychain)
+            keyStore: groqKeyStore
         )
     }
 
@@ -664,7 +681,8 @@ private func makeVoiceCoordinator(
         personalizationSettings: { VoicePersonalizationSettingsStore.load() },
         engine: engine,
         cleanupKeyStore: cleanupKeyStore,
-        summarizer: summarizer
+        summarizer: summarizer,
+        historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) }
     )
 }
 

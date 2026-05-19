@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/Vendored/binaries"
 mkdir -p "$DEST"
 
-YTDLP_VERSION="2025.01.26"
+YTDLP_VERSION="2026.03.17"
 
 echo "==> Downloading yt-dlp ${YTDLP_VERSION}…"
 curl -L -o "$DEST/yt-dlp" "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp_macos"

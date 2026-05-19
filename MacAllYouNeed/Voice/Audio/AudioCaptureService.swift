@@ -4,6 +4,7 @@ import Core
 import CoreAudio
 import Foundation
 import Observation
+import OSLog
 
 enum VoiceAudioSettings {
     static let microphoneIDKey = "voice.audio.microphoneID"
@@ -108,6 +109,7 @@ final class AudioCaptureService {
     private var startedAt: Date?
     private var captureID = UUID()
     private(set) var peakLevel: Float = 0
+    private let log = Logger(subsystem: "com.macallyouneed.voice", category: "audio")
 
     func requestPermission() async -> Bool {
         await AVCaptureDevice.requestAccess(for: .audio)
@@ -121,10 +123,14 @@ final class AudioCaptureService {
         let captureID = UUID()
         self.captureID = captureID
 
+        let preferredID = VoiceAudioSettings.preferredMicrophoneID()
+        log.info("audio start — preferred mic: \(preferredID, privacy: .public)")
+
         let engine = AVAudioEngine()
         let input = engine.inputNode
         try applyPreferredInputDevice(to: input)
         let format = input.outputFormat(forBus: 0)
+        log.info("audio format — sampleRate: \(format.sampleRate, privacy: .public) channels: \(format.channelCount, privacy: .public)")
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             let mono = Self.floatMonoSamples(from: buffer)
             let peak = mono.map(abs).max() ?? 0
@@ -137,10 +143,14 @@ final class AudioCaptureService {
         engine.prepare()
         try engine.start()
         self.engine = engine
+        log.info("audio engine started")
     }
 
     func stop() -> CapturedAudio? {
-        guard let engine, let startedAt else { return nil }
+        guard let engine, let startedAt else {
+            // Called defensively (e.g. from fail()) after already stopped — no-op.
+            return nil
+        }
         let endedAt = Date()
         let sampleRate = engine.inputNode.outputFormat(forBus: 0).sampleRate
         engine.inputNode.removeTap(onBus: 0)
@@ -149,6 +159,8 @@ final class AudioCaptureService {
         self.engine = nil
         self.startedAt = nil
         captureID = UUID()
+        let durationSec = String(format: "%.2f", endedAt.timeIntervalSince(startedAt))
+        log.info("audio stop — samples: \(snapshot.samples.count, privacy: .public) sampleRate: \(sampleRate, privacy: .public) peak: \(snapshot.peak, privacy: .public) duration: \(durationSec, privacy: .public)s")
         return CapturedAudio(
             samples: snapshot.samples,
             sampleRate: sampleRate,
@@ -213,8 +225,12 @@ final class AudioCaptureService {
         guard preferredID != VoiceAudioSettings.systemMicrophoneID,
               let deviceID = CoreAudioInputDeviceResolver.deviceID(forUID: preferredID),
               let audioUnit = input.audioUnit
-        else { return }
+        else {
+            log.info("mic selection — using system default (preferredID: \(preferredID, privacy: .public))")
+            return
+        }
 
+        log.info("mic selection — applying deviceID: \(deviceID, privacy: .public) for uid: \(preferredID, privacy: .public)")
         var selectedDeviceID = deviceID
         let status = AudioUnitSetProperty(
             audioUnit,
@@ -225,8 +241,10 @@ final class AudioCaptureService {
             UInt32(MemoryLayout<AudioDeviceID>.size)
         )
         guard status == noErr else {
+            log.error("mic selection failed — deviceID: \(deviceID, privacy: .public) status: \(status, privacy: .public)")
             throw AudioCaptureServiceError.microphoneSelectionFailed(status)
         }
+        log.info("mic selection succeeded — deviceID: \(deviceID, privacy: .public)")
     }
 }
 

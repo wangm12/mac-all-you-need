@@ -216,6 +216,18 @@ final class VoiceTrainingExampleStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: audioPath))
     }
 
+    func testLoadEncryptedAudioRoundtripsWAVBytes() throws {
+        let original = Data([0x52, 0x49, 0x46, 0x46, 0x01, 0x02, 0x03, 0x04])
+        let path = try store.saveEncryptedAudio(original, id: "abc")
+
+        let loaded = try store.loadEncryptedAudio(path: path)
+        XCTAssertEqual(loaded, original)
+    }
+
+    func testAudioRootMatchesConstructor() {
+        XCTAssertEqual(store.audioRoot, tempDir.appendingPathComponent("audio", isDirectory: true))
+    }
+
     private func saveTranscript() throws -> VoiceTranscript {
         try transcripts.save(.init(
             startedAt: Date(timeIntervalSince1970: 1),

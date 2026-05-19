@@ -53,7 +53,7 @@ struct VoicePersonalizationPage: View {
             ) {
                 MAYNSettingsRow(
                     title: "Save training examples",
-                    subtitle: "Stores encrypted audio, raw text, cleaned text, and final edited text on this Mac."
+                    subtitle: "Stores encrypted audio and text on this Mac. Also enables Retry and Download in Voice History."
                 ) {
                     Toggle("", isOn: $settings.saveTrainingExamplesEnabled)
                         .labelsHidden()

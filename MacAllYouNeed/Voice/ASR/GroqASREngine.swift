@@ -161,61 +161,7 @@ actor GroqASREngine: VoiceTranscriptionEngine {
 
     /// Encodes Float32 PCM samples as a standard 16-bit mono RIFF WAV file.
     static func encodeWAV(samples: [Float], sampleRate: Int) -> Data {
-        let int16Samples = samples.map { sample -> Int16 in
-            let clamped = max(-1.0, min(1.0, sample))
-            // Scale by 32768 so -1.0 → Int16.min; clamp positive to Int16.max.
-            let scaled = clamped * 32768.0
-            return Int16(max(Float(Int16.min), min(Float(Int16.max), scaled)))
-        }
-
-        let dataSize = int16Samples.count * 2 // 2 bytes per Int16 sample
-        let fmtSize = 16
-        let fileSize = 4 + 8 + fmtSize + 8 + dataSize // "WAVE" + fmt chunk + data chunk
-
-        var wav = Data(capacity: 8 + fileSize)
-
-        func write(_ value: UInt32) {
-            var v = value.littleEndian
-            wav.append(contentsOf: withUnsafeBytes(of: &v) { Array($0) })
-        }
-        func write(_ value: UInt16) {
-            var v = value.littleEndian
-            wav.append(contentsOf: withUnsafeBytes(of: &v) { Array($0) })
-        }
-        func writeASCII(_ s: String) {
-            wav.append(contentsOf: s.utf8.prefix(4))
-        }
-
-        let sampleRateU = UInt32(sampleRate)
-        let bitsPerSample: UInt16 = 16
-        let numChannels: UInt16 = 1
-        let byteRate = sampleRateU * UInt32(numChannels) * UInt32(bitsPerSample) / 8
-        let blockAlign = numChannels * bitsPerSample / 8
-
-        // RIFF header
-        writeASCII("RIFF")
-        write(UInt32(fileSize))
-        writeASCII("WAVE")
-
-        // fmt chunk
-        writeASCII("fmt ")
-        write(UInt32(fmtSize))
-        write(UInt16(1)) // PCM
-        write(numChannels)
-        write(sampleRateU)
-        write(byteRate)
-        write(blockAlign)
-        write(bitsPerSample)
-
-        // data chunk
-        writeASCII("data")
-        write(UInt32(dataSize))
-        for sample in int16Samples {
-            var s = sample.littleEndian
-            wav.append(contentsOf: withUnsafeBytes(of: &s) { Array($0) })
-        }
-
-        return wav
+        VoiceAudioCodec.encodeWAV(samples: samples, sampleRate: sampleRate)
     }
 }
 
