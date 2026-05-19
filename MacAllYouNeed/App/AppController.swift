@@ -654,13 +654,22 @@ private func makeVoiceCoordinator(
     )
 
     let asrSettings = VoiceASRSettingsStore.load()
-    let engine: any VoiceTranscriptionEngine = switch asrSettings.providerKind {
+    let groqKeyStore = GroqASRKeyStore(keychain: keychain)
+    // Fall back to local if Groq is selected but no API key is configured,
+    // so the coordinator starts in a usable state instead of failing on first use.
+    let resolvedProviderKind: VoiceASRProviderKind
+    if asrSettings.providerKind == .groq, (try? groqKeyStore.apiKey()) == nil {
+        resolvedProviderKind = .local
+    } else {
+        resolvedProviderKind = asrSettings.providerKind
+    }
+    let engine: any VoiceTranscriptionEngine = switch resolvedProviderKind {
     case .local:
         Qwen3Engine()
     case .groq:
         GroqASREngine(
             settings: { GroqASRSettingsStore.load() },
-            keyStore: GroqASRKeyStore(keychain: keychain)
+            keyStore: groqKeyStore
         )
     }
 

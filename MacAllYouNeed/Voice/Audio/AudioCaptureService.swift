@@ -148,7 +148,7 @@ final class AudioCaptureService {
 
     func stop() -> CapturedAudio? {
         guard let engine, let startedAt else {
-            log.error("audio stop called but engine/startedAt nil")
+            // Called defensively (e.g. from fail()) after already stopped — no-op.
             return nil
         }
         let endedAt = Date()
