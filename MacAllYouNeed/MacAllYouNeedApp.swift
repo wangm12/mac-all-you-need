@@ -99,6 +99,24 @@ final class MacAllYouNeedApplicationDelegate: NSObject, NSApplicationDelegate {
         )
         appMenu.addItem(quitItem)
 
+        // File menu — gives Cmd+W a target. LSUIElement=YES keeps the app alive
+        // when the main window closes, so Cmd+W just hides the window.
+        let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        mainMenu.addItem(fileMenuItem)
+
+        let fileMenu = NSMenu(title: "File")
+        fileMenuItem.submenu = fileMenu
+
+        let closeWindowItem = NSMenuItem(
+            title: "Close Window",
+            action: #selector(NSWindow.performClose(_:)),
+            keyEquivalent: "w"
+        )
+        // target = nil routes through the first responder chain so the active
+        // window receives performClose: regardless of which window is key.
+        closeWindowItem.target = nil
+        fileMenu.addItem(closeWindowItem)
+
         let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         mainMenu.addItem(editMenuItem)
 
