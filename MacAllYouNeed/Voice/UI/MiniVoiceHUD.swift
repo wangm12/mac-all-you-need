@@ -14,6 +14,11 @@ final class MiniVoiceHUD {
 
     private var panel: NSPanel?
     private var hostingView: FirstMouseHostingView<MiniVoiceHUDView>?
+    /// Locked at session start (first show from hidden) and cleared on dismiss
+    /// so the HUD stays on one screen for an entire recording → transcribing →
+    /// pasting cycle instead of jumping to whichever screen has the active key
+    /// window during state transitions.
+    private var targetScreen: NSScreen?
 
     #if DEBUG
     var testingContentView: NSView? {
@@ -46,6 +51,10 @@ final class MiniVoiceHUD {
         if previousSize != nextSize {
             panel.setContentSize(nextSize)
         }
+        if !wasVisible {
+            // New session — lock to the screen the user is currently on.
+            targetScreen = Self.screenContainingMouseCursor()
+        }
         if !wasVisible || previousSize != nextSize {
             position(panel)
         }
@@ -75,6 +84,7 @@ final class MiniVoiceHUD {
         guard duration > 0 else {
             panel.orderOut(nil)
             panel.alphaValue = 1
+            targetScreen = nil
             return
         }
 
@@ -86,6 +96,7 @@ final class MiniVoiceHUD {
             panel.orderOut(nil)
             panel.alphaValue = 1
         }
+        targetScreen = nil
     }
 
     private func makePanel() -> NSPanel {
@@ -103,12 +114,22 @@ final class MiniVoiceHUD {
     }
 
     private func position(_ panel: NSPanel) {
-        let screen = NSScreen.main ?? NSScreen.screens.first
+        let screen = targetScreen
+            ?? Self.screenContainingMouseCursor()
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
         guard let frame = screen?.visibleFrame else { return }
         panel.setFrameOrigin(NSPoint(
             x: frame.midX - panel.frame.width / 2,
             y: frame.minY + 96
         ))
+    }
+
+    private static func screenContainingMouseCursor() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first(where: { $0.frame.contains(mouse) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
     }
 }
 
