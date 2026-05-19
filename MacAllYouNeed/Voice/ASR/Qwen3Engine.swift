@@ -1,6 +1,9 @@
 import Core
 import FluidAudio
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "com.macallyouneed.voice", category: "asr")
 
 enum Qwen3EngineError: LocalizedError {
     case unsupportedOS
@@ -74,10 +77,31 @@ actor Qwen3Engine: VoiceTranscriptionEngine {
     @available(macOS 15, *)
     private func qwenManager(for modelID: VoiceASRModelID) async throws -> Qwen3AsrManager {
         if let existing = managers[modelID] as? Qwen3AsrManager { return existing }
+        log.info("ASR model load start — variant: \(String(describing: modelID.variant), privacy: .public)")
+        let downloadStart = Date()
         let cacheDir = try await Qwen3AsrModels.download(variant: modelID.variant)
+        let downloadMs = Int(Date().timeIntervalSince(downloadStart) * 1000)
+        log.info("ASR model downloaded/found — \(downloadMs, privacy: .public)ms cacheDir: \(cacheDir.path, privacy: .public)")
         let next = Qwen3AsrManager()
         try await next.loadModels(from: cacheDir)
+        log.info("ASR model loaded and ready — variant: \(String(describing: modelID.variant), privacy: .public)")
         managers[modelID] = next
         return next
+    }
+
+    /// Pre-downloads and loads the configured model in the background.
+    /// Call from VoiceCoordinator.start() so the model is warm before first use.
+    func warmup() async {
+        guard #available(macOS 15, *) else { return }
+        let settings = VoiceASRSettingsStore.load()
+        let modelID = settings.modelID
+        guard managers[modelID] == nil else { return }  // already loaded
+        log.info("ASR warmup starting for model: \(modelID.rawValue, privacy: .public)")
+        do {
+            _ = try await qwenManager(for: modelID)
+            log.info("ASR warmup complete — model ready")
+        } catch {
+            log.error("ASR warmup failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

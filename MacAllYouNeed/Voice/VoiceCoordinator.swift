@@ -73,6 +73,11 @@ final class VoiceCoordinator {
         } catch {
             log.error("Voice activation failed: \(error.localizedDescription, privacy: .public)")
         }
+        // Pre-download and load the configured ASR model in background so the
+        // first dictation doesn't block on a multi-minute network download.
+        if let qwen = engine as? Qwen3Engine {
+            Task.detached { await qwen.warmup() }
+        }
     }
 
     func applyActivationSettings(_ settings: VoiceActivationSettings) throws {
@@ -101,7 +106,10 @@ final class VoiceCoordinator {
     func applyASRProvider(_ providerKind: VoiceASRProviderKind, keychain: KeychainBackend) {
         switch providerKind {
         case .local:
-            engine = Qwen3Engine()
+            let qwen = Qwen3Engine()
+            engine = qwen
+            // Kick off download/load in background so first dictation is instant.
+            Task.detached { await qwen.warmup() }
         case .groq:
             let keyStore = GroqASRKeyStore(keychain: keychain)
             engine = GroqASREngine(
