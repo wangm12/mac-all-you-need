@@ -1,5 +1,8 @@
 import Core
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "com.macallyouneed.voice", category: "cleanup")
 
 struct VoiceCleanupRequest: Equatable {
     let rawText: String
@@ -139,7 +142,9 @@ struct VoiceCleanupPipeline {
 
     func clean(_ request: VoiceCleanupRequest) async -> VoiceCleanupResult {
         let localText = VoiceLocalTextCleaner.clean(request.rawText)
-        guard let provider, Self.speechUnitCount(in: localText) >= 3 else {
+        let speechUnits = Self.speechUnitCount(in: localText)
+        guard let provider, speechUnits >= 3 else {
+            log.info("cleanup: local only — no provider or speechUnits \(speechUnits, privacy: .public) < 3")
             return VoiceCleanupResult(
                 rawText: request.rawText,
                 cleanedText: applyDictionary(to: localText, entries: request.dictionaryEntries),
@@ -161,11 +166,14 @@ struct VoiceCleanupPipeline {
         )
 
         do {
+            log.info("cleanup: LLM call — provider: \(provider.providerIdentifier, privacy: .public) timeout: \(timeout, privacy: .public)")
             let llmText = try await cleanWithTimeout(provider: provider, request: llmRequest)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !llmText.isEmpty else {
+                log.warning("cleanup: LLM returned empty, falling back to local")
                 return fallback(request: request, localText: localText, providerIdentifier: provider.providerIdentifier)
             }
+            log.info("cleanup: LLM ok — output: \(llmText.prefix(60), privacy: .public)")
             return VoiceCleanupResult(
                 rawText: request.rawText,
                 cleanedText: applyDictionary(to: llmText, entries: request.dictionaryEntries),
@@ -173,6 +181,7 @@ struct VoiceCleanupPipeline {
                 providerIdentifier: provider.providerIdentifier
             )
         } catch {
+            log.error("cleanup: LLM failed (\(error.localizedDescription, privacy: .public)), falling back to local")
             return fallback(request: request, localText: localText, providerIdentifier: provider.providerIdentifier)
         }
     }

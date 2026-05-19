@@ -128,9 +128,13 @@ final class VoiceCoordinator {
         monitorTask?.cancel()
         monitorTask = nil
 
-        guard state == .idle else { return }
+        guard state == .idle else {
+            log.warning("startRecording called but state is \(String(describing: self.state), privacy: .public)")
+            return
+        }
         lastTranscript = nil
         guard await audio.requestPermission() else {
+            log.error("startRecording: microphone permission denied")
             fail("Microphone permission denied")
             return
         }
@@ -138,9 +142,11 @@ final class VoiceCoordinator {
             try audio.start()
             operationGeneration += 1
             state = .recording
+            log.info("recording started — generation: \(self.operationGeneration, privacy: .public)")
             hud.show(.recording(level: 0), onCancel: makeCancelAction(), onPrimary: makeStopAction())
             startLevelUpdates()
         } catch {
+            log.error("audio start failed: \(error.localizedDescription, privacy: .public)")
             fail(error.localizedDescription)
         }
     }
@@ -152,14 +158,18 @@ final class VoiceCoordinator {
         levelTask = nil
 
         guard let captured = audio.stop(), captured.samples.count > 800 else {
+            log.error("stopRecordingAndPaste: insufficient audio captured (need >800 samples)")
             fail("No usable audio captured")
             return
         }
 
+        log.info("stopRecordingAndPaste — samples: \(captured.samples.count, privacy: .public) sampleRate: \(captured.sampleRate, privacy: .public) peak: \(captured.peakLevel, privacy: .public)")
         state = .transcribing
         hud.show(.transcribing, onCancel: makeCancelAction())
         do {
             let appBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            log.info("ASR start — app: \(appBundleID ?? "nil", privacy: .public)")
+            let asrStart = Date()
 
             // Load personalization context for this app (style hints only).
             let (appCtx, globalCtx) = loadContexts(bundleID: appBundleID)
@@ -172,6 +182,8 @@ final class VoiceCoordinator {
                 sampleRate: captured.sampleRate,
                 options: .default
             )
+            let asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
+            log.info("ASR done — \(asrMs, privacy: .public)ms model: \(result.modelIdentifier, privacy: .public) lang: \(result.language.rawValue, privacy: .public) text: \(result.text.prefix(80), privacy: .public)")
             guard isCurrentOperation(generation), state == .transcribing else { return }
             let dictionaryEntries = (try? dictionary?.list()) ?? []
 
@@ -188,10 +200,15 @@ final class VoiceCoordinator {
             )
 
             let cleanup = makeCleanupPipeline()
+            log.info("LLM cleanup start — text length: \(result.text.count, privacy: .public) chars")
+            let cleanupStart = Date()
             let cleanupResult = await cleanup.clean(cleanupRequest)
+            let cleanupMs = Int(Date().timeIntervalSince(cleanupStart) * 1000)
+            log.info("LLM cleanup done — \(cleanupMs, privacy: .public)ms usedLLM: \(cleanupResult.usedLLM, privacy: .public) provider: \(cleanupResult.providerIdentifier ?? "none", privacy: .public) text: \(cleanupResult.cleanedText.prefix(80), privacy: .public)")
             guard isCurrentOperation(generation), state == .transcribing else { return }
             let text = cleanupResult.cleanedText
             guard !text.isEmpty else {
+                log.error("stopRecordingAndPaste: cleaned text was empty")
                 fail("Transcript was empty")
                 return
             }
@@ -202,6 +219,7 @@ final class VoiceCoordinator {
 
             state = .pasting
             let pasteResult = await CursorPaster.paste(text)
+            log.info("paste — didPost: \(pasteResult.didPostPasteEvent, privacy: .public) chars: \(text.count, privacy: .public)")
             let transcriptID = UUID().uuidString
             let audioPath = persistAudio(captured: captured, transcriptID: transcriptID)
             let savedTranscript = try saveTranscript(
@@ -212,6 +230,7 @@ final class VoiceCoordinator {
                 appBundleID: appBundleID,
                 audioPath: audioPath
             )
+            log.info("transcript saved — id: \(savedTranscript.id, privacy: .public) audioPath: \(audioPath ?? "nil", privacy: .public)")
             saveTrainingExample(
                 captured: captured,
                 result: result,
