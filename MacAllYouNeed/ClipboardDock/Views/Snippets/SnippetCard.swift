@@ -13,9 +13,21 @@ enum SnippetCardPresentation {
     static let usesPersistentUnfocusedBorder = true
 }
 
+enum SnippetCardClickAction: Equatable {
+    case focus
+    case paste(plainText: Bool)
+}
+
+enum SnippetCardClickPolicy {
+    static func action(modifiers: NSEvent.ModifierFlags) -> SnippetCardClickAction {
+        modifiers.contains(.option) ? .paste(plainText: true) : .focus
+    }
+}
+
 struct SnippetCard: View {
     let snippet: Snippet
     let isFocused: Bool
+    let onFocus: () -> Void
     let onPaste: (Bool) -> Void
     let onCopy: () -> Void
     let onEdit: () -> Void
@@ -49,7 +61,14 @@ struct SnippetCard: View {
         }
         .padding(SnippetCardPresentation.contentPadding)
         .modifier(SnippetCardShell(isFocused: isFocused, alignment: .topLeading))
-        .gesture(snippetTapGesture)
+        .onTapGesture {
+            handleClick()
+        }
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                onCopy()
+            }
+        )
         .contextMenu {
             Button("Edit…", action: onEdit)
             Button("Duplicate", action: onDuplicate)
@@ -58,17 +77,14 @@ struct SnippetCard: View {
         }
     }
 
-    private var snippetTapGesture: some Gesture {
-        TapGesture(count: 2)
-            .exclusively(before: TapGesture())
-            .onEnded { value in
-                switch value {
-                case .first:
-                    onCopy()
-                case .second:
-                    onPaste(NSEvent.modifierFlags.contains(.option))
-                }
-            }
+    private func handleClick() {
+        let modifiers = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        switch SnippetCardClickPolicy.action(modifiers: modifiers) {
+        case .focus:
+            onFocus()
+        case let .paste(plainText):
+            onPaste(plainText)
+        }
     }
 }
 

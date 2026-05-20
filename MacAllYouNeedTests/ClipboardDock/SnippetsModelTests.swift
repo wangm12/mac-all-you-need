@@ -128,6 +128,53 @@ final class SnippetsModelTests: XCTestCase {
         XCTAssertTrue(mock.pasteTextArgs?.save == true)
     }
 
+    func testSnippetFocusNavigationUsesSnippetItems() async throws {
+        _ = try snippets.create(name: "first", body: "1")
+        _ = try snippets.create(name: "second", body: "2")
+        await model.switchList(.snippets)
+
+        XCTAssertEqual(model.focusedIndex, 0)
+
+        model.focusForward()
+        XCTAssertEqual(model.focusedIndex, 1)
+
+        model.focusForward()
+        XCTAssertEqual(model.focusedIndex, 1)
+
+        model.focusBackward()
+        XCTAssertEqual(model.focusedIndex, 0)
+    }
+
+    func testPasteFocusedSnippetRoutesPasteText() async throws {
+        _ = try snippets.create(name: "first", body: "1")
+        _ = try snippets.create(name: "second", body: "2")
+        await model.switchList(.snippets)
+
+        model.focusForward()
+        await model.pasteFocusedSnippet(plainText: true)
+
+        XCTAssertEqual(mock.pasteTextArgs?.text, "1")
+        XCTAssertTrue(mock.pasteTextArgs?.plain == true)
+        XCTAssertTrue(mock.pasteTextArgs?.save == true)
+    }
+
+    func testCopyFocusedSnippetWritesBodyToPasteboard() async throws {
+        _ = try snippets.create(name: "first", body: "1")
+        _ = try snippets.create(name: "second", body: "2")
+        await model.switchList(.snippets)
+        model.focusForward()
+        NSPasteboard.general.clearContents()
+
+        model.copyFocusedSnippet()
+
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "1")
+    }
+
+    func testSnippetCardClickPolicyFocusesByDefaultAndPastesWithOption() {
+        XCTAssertEqual(SnippetCardClickPolicy.action(modifiers: NSEvent.ModifierFlags()), .focus)
+        XCTAssertEqual(SnippetCardClickPolicy.action(modifiers: .option), .paste(plainText: true))
+    }
+
     func testCopySnippetWritesBodyToPasteboard() async throws {
         let snippet = try snippets.create(name: "pw", body: "licentious0907aA!")
         await model.loadSnippets()

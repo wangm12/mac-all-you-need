@@ -720,7 +720,13 @@ final class DockWindowController {
             }
 
             if registry.matches(event: event, .paste) {
-                if !model.selection.isEmpty {
+                if model.activeList == .snippets {
+                    Task { @MainActor in
+                        self.hide()
+                        try? await Task.sleep(nanoseconds: 80_000_000)
+                        await self.model.pasteFocusedSnippet(plainText: false)
+                    }
+                } else if !model.selection.isEmpty {
                     Task { @MainActor in
                         await self.model.pasteSelectionInOrder(delimiter: "\n", plainText: false)
                     }
@@ -731,7 +737,13 @@ final class DockWindowController {
             }
 
             if registry.matches(event: event, .pastePlain) {
-                if !model.selection.isEmpty {
+                if model.activeList == .snippets {
+                    Task { @MainActor in
+                        self.hide()
+                        try? await Task.sleep(nanoseconds: 80_000_000)
+                        await self.model.pasteFocusedSnippet(plainText: true)
+                    }
+                } else if !model.selection.isEmpty {
                     Task { @MainActor in
                         await self.model.pasteSelectionInOrder(delimiter: "\n", plainText: true)
                     }
@@ -798,8 +810,14 @@ final class DockWindowController {
             // ⌘C → mirror the bar's Copy button. Operates on the
             // multi-selection if any, otherwise the focused card.
             if keyMods == .command, event.charactersIgnoringModifiers == "c" {
-                Task { @MainActor in
-                    await self.model.copyEffectiveTargets(plainText: false)
+                if model.activeList == .snippets {
+                    model.copyFocusedSnippet()
+                    CopyHUD.show("Copied")
+                    hide()
+                } else {
+                    Task { @MainActor in
+                        await self.model.copyEffectiveTargets(plainText: false)
+                    }
                 }
                 return nil
             }

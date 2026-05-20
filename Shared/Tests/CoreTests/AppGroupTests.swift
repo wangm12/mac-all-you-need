@@ -29,12 +29,31 @@ final class AppGroupTests: XCTestCase {
         XCTAssertEqual(url, tmp)
     }
 
-    func testSettingsUseStandardDefaultsWhenContainerIsOverriddenByEnvironment() {
+    func testSettingsUseIsolatedSuiteWhenContainerIsOverriddenByEnvironment() {
+        let key = "appGroupOverride-\(UUID().uuidString)"
         let defaults = AppGroupSettings.defaults(for: [
             AppGroup.containerOverrideEnvironmentKey: "/tmp/mayn-env-test"
         ])
 
-        XCTAssertTrue(defaults === UserDefaults.standard)
+        defaults.set("isolated", forKey: key)
+
+        XCTAssertFalse(defaults === UserDefaults.standard)
+        XCTAssertNil(UserDefaults.standard.string(forKey: key))
+        XCTAssertEqual(defaults.string(forKey: key), "isolated")
+    }
+
+    func testSettingsSuiteCanBeOverriddenForAuditMode() {
+        let suiteName = "UIAuditDefaults-\(UUID().uuidString)"
+        let defaults = AppGroupSettings.defaults(for: [
+            AppGroupSettings.defaultsSuiteOverrideEnvironmentKey: suiteName
+        ])
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("audit", forKey: "source")
+
+        XCTAssertFalse(defaults === UserDefaults.standard)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: "source"), nil)
+        XCTAssertEqual(UserDefaults(suiteName: suiteName)?.string(forKey: "source"), "audit")
     }
 
     func testContainerURLIsAlwaysValid() {

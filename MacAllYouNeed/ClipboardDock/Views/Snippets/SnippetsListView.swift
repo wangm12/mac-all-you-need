@@ -43,9 +43,17 @@ struct DockSnippetsListView: View {
                     SnippetCard(
                         snippet: snippet,
                         isFocused: index == model.focusedIndex,
+                        onFocus: {
+                            model.focusedIndex = index
+                            model.selection.removeAll()
+                        },
                         onPaste: { plainText in
                             model.focusedIndex = index
                             Task {
+                                NotificationCenter.default.post(
+                                    name: .dockHideRequested, object: nil
+                                )
+                                try? await Task.sleep(nanoseconds: 80_000_000)
                                 await model.pasteSnippet(id: snippet.id, plainText: plainText)
                             }
                         },
@@ -76,7 +84,6 @@ struct DockSnippetsListView: View {
             .padding(.horizontal, 16)
         }
         .task {
-            await model.loadSnippets()
             presentPendingSnippetDraft()
         }
         .onChange(of: model.pendingSnippetDraft?.id) { _, _ in

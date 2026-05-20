@@ -51,6 +51,25 @@ enum DownloadJobRowActionPresentation {
     }
 }
 
+struct DownloadFolderOpenTarget: Equatable {
+    let folderURL: URL
+
+    static func completedRecord(_ record: DownloadRecord) -> DownloadFolderOpenTarget {
+        DownloadFolderOpenTarget(
+            folderURL: URL(fileURLWithPath: record.destinationPath).deletingLastPathComponent()
+        )
+    }
+
+    static func defaultDownloadFolder(downloadDir: String) -> DownloadFolderOpenTarget {
+        DownloadFolderOpenTarget(
+            folderURL: URL(
+                fileURLWithPath: DownloadDestinationPresentation.effectivePath(downloadDir: downloadDir),
+                isDirectory: true
+            )
+        )
+    }
+}
+
 enum DownloadJobRowHoverPresentation {
     static let missingErrorHelpText = "No captured yt-dlp error is available for this failed download. Retry the row to capture fresh stderr details."
 
@@ -483,14 +502,16 @@ struct DownloadsListView: View {
     }
 
     private func openFolder(for record: DownloadRecord) {
-        let directory = URL(fileURLWithPath: record.destinationPath).deletingLastPathComponent()
-        NotificationCenter.default.post(name: .browseFolderRequested, object: directory)
+        openFinderFolder(DownloadFolderOpenTarget.completedRecord(record).folderURL)
     }
 
     private func openDefaultDownloadFolder() {
         let downloadDir = AppGroupSettings.defaults.string(forKey: "downloadDirectory") ?? ""
-        let path = DownloadDestinationPresentation.effectivePath(downloadDir: downloadDir)
-        NotificationCenter.default.post(name: .browseFolderRequested, object: URL(fileURLWithPath: path))
+        openFinderFolder(DownloadFolderOpenTarget.defaultDownloadFolder(downloadDir: downloadDir).folderURL)
+    }
+
+    private func openFinderFolder(_ folderURL: URL) {
+        NSWorkspace.shared.open(folderURL)
     }
 
     // MARK: - Key handling

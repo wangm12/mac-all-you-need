@@ -115,6 +115,19 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertTrue(DownloadJobRowActionPresentation.isRetryable(failed.state))
     }
 
+    func testCompletedDownloadFolderActionsResolveFinderFolderURLs() {
+        let completed = downloadPresentationRecord(state: .completed)
+
+        XCTAssertEqual(
+            DownloadFolderOpenTarget.completedRecord(completed).folderURL.path,
+            "/Users/mingjie.wang/Downloads/MacAllYouNeed"
+        )
+        XCTAssertEqual(
+            DownloadFolderOpenTarget.defaultDownloadFolder(downloadDir: "/Users/mingjie.wang/Movies").folderURL.path,
+            "/Users/mingjie.wang/Movies"
+        )
+    }
+
     func testFailedDownloadRowExposesRowLevelHoverHelpEvenWithoutCapturedError() {
         let capturedError = DownloadJobRowModel(
             record: downloadPresentationRecord(

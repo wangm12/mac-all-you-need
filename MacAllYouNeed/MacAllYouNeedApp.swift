@@ -20,11 +20,29 @@ enum MacAllYouNeedMain {
 final class MacAllYouNeedApplicationDelegate: NSObject, NSApplicationDelegate {
     var handleReopen: (() -> Void)?
     private var controller: AppController?
+    #if DEBUG
+    private var auditController: UIAuditAppController?
+    #endif
     private var statusItemController: AppStatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard !MAYNIsRunningUnderXCTest() else { return }
         installMainMenu()
+
+        #if DEBUG
+        if UIAuditLaunchMode.isEnabled() {
+            do {
+                let auditController = try UIAuditAppController.make()
+                self.auditController = auditController
+                auditController.show()
+            } catch {
+                presentStartupFailure(error)
+                NSApp.terminate(nil)
+            }
+            return
+        }
+        #endif
+
+        guard !MAYNIsRunningUnderXCTest() else { return }
         AppChromeVisibilitySettings.applyStoredDockIconVisibility()
 
         do {
@@ -45,6 +63,12 @@ final class MacAllYouNeedApplicationDelegate: NSObject, NSApplicationDelegate {
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
+        #if DEBUG
+        if let auditController {
+            auditController.show()
+            return true
+        }
+        #endif
         routeStartupSurface()
         return true
     }

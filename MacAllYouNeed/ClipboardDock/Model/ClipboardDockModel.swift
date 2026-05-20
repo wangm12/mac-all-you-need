@@ -503,6 +503,12 @@ final class ClipboardDockModel {
     }
 
     func focusForward() {
+        if activeList == .snippets {
+            guard !snippetItems.isEmpty else { return }
+            focusedIndex = min(snippetItems.count - 1, focusedIndex + 1)
+            selection.removeAll()
+            return
+        }
         guard !items.isEmpty else { return }
         let next = min(items.count - 1, focusedIndex + 1)
         // Replace selection with the newly-focused card so the highlight
@@ -513,6 +519,12 @@ final class ClipboardDockModel {
     }
 
     func focusBackward() {
+        if activeList == .snippets {
+            guard !snippetItems.isEmpty else { return }
+            focusedIndex = max(0, focusedIndex - 1)
+            selection.removeAll()
+            return
+        }
         guard !items.isEmpty else { return }
         let prev = max(0, focusedIndex - 1)
         selectOnly(itemID: items[prev].id)
@@ -709,7 +721,14 @@ final class ClipboardDockModel {
     }
 
     func loadSnippets() async {
-        snippetItems = (try? snippets.list()) ?? []
+        let store = snippets
+        let loaded = await Task.detached(priority: .userInitiated) {
+            (try? store.list()) ?? []
+        }.value
+        snippetItems = loaded
+        if activeList == .snippets {
+            focusedIndex = loaded.isEmpty ? 0 : min(focusedIndex, loaded.count - 1)
+        }
     }
 
     func createSnippet(name: String, body: String, trigger: String?) async throws {
@@ -742,11 +761,25 @@ final class ClipboardDockModel {
         _ = await xpc.pasteText(text: snippet.body, plainText: plainText, saveAsNew: true)
     }
 
+    func pasteFocusedSnippet(plainText: Bool) async {
+        guard activeList == .snippets,
+              snippetItems.indices.contains(focusedIndex)
+        else { return }
+        await pasteSnippet(id: snippetItems[focusedIndex].id, plainText: plainText)
+    }
+
     func copySnippet(id: RecordID) {
         guard let snippet = snippetItems.first(where: { $0.id == id }) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(snippet.body, forType: .string)
         Self.markAsLocalWrite(.general)
+    }
+
+    func copyFocusedSnippet() {
+        guard activeList == .snippets,
+              snippetItems.indices.contains(focusedIndex)
+        else { return }
+        copySnippet(id: snippetItems[focusedIndex].id)
     }
 
     @discardableResult
