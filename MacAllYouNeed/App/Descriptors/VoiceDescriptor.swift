@@ -9,7 +9,7 @@ enum VoiceDescriptor {
             displayName: "Voice Dictation",
             icon: "mic",
             summary: "Push-to-talk voice dictation (cloud or local ASR).",
-            detailDescription: "Hold a hotkey, speak, release — text is pasted at the cursor. Supports Groq Whisper (cloud) and Qwen3 (local).",
+            detailDescription: "Hold a hotkey, speak, release — text is pasted at the cursor. Supports BYOK cloud ASR plus Qwen3 and Parakeet local ASR.",
             requiredPermissions: [.microphone, .accessibility],
             assetCaches: assetCaches(),
             hotkeys: [HotkeyDescriptor(identifier: "voice.pushToTalk", displayName: "Voice push-to-talk")],
@@ -21,7 +21,7 @@ enum VoiceDescriptor {
         )
     }
 
-    /// The two Qwen3-ASR variants the Voice provider lazily downloads.
+    /// Local ASR model caches downloaded from explicit Voice model-management surfaces.
     /// `directoryURL` delegates to FluidAudio so the cache layout stays a
     /// provider concern; we only borrow it for size reporting and uninstall.
     /// On macOS < 15, FluidAudio's Qwen3 is unavailable; the closure returns
@@ -50,6 +50,15 @@ enum VoiceDescriptor {
                     return Qwen3AsrModels.defaultCacheDirectory(variant: .f32)
                 },
                 estimatedBytes: 1_750_000_000,
+                category: .modelWeights
+            ),
+            AssetCacheDescriptor(
+                id: "voice.parakeet.v3",
+                displayName: "Parakeet TDT 0.6B v3 (~850 MB)",
+                directoryURL: {
+                    AsrModels.defaultCacheDirectory(for: .v3)
+                },
+                estimatedBytes: 850_000_000,
                 category: .modelWeights
             ),
         ]

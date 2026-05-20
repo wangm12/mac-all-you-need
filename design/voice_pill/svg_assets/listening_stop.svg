@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="32" viewBox="0 0 144 32">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <rect x="9.40" y="13.80" width="1.8" height="4.40" rx="0.9" fill="#ffffff"/>
+<rect x="13.50" y="11.90" width="1.8" height="8.20" rx="0.9" fill="#ffffff"/>
+<rect x="17.60" y="10.00" width="1.8" height="12.00" rx="0.9" fill="#ffffff"/>
+<rect x="21.70" y="12.30" width="1.8" height="7.40" rx="0.9" fill="#ffffff"/>
+<rect x="25.80" y="10.90" width="1.8" height="10.20" rx="0.9" fill="#ffffff"/>
+<rect x="29.90" y="13.10" width="1.8" height="5.80" rx="0.9" fill="#ffffff"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Listening</text>
+</svg>

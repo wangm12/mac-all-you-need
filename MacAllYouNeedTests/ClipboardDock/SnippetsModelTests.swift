@@ -1,4 +1,5 @@
 @testable import MacAllYouNeed
+import AppKit
 import Core
 import CryptoKit
 import XCTest
@@ -125,6 +126,16 @@ final class SnippetsModelTests: XCTestCase {
         XCTAssertEqual(mock.pasteTextArgs?.text, "Best,\nM")
         XCTAssertTrue(mock.pasteTextArgs?.plain == true)
         XCTAssertTrue(mock.pasteTextArgs?.save == true)
+    }
+
+    func testCopySnippetWritesBodyToPasteboard() async throws {
+        let snippet = try snippets.create(name: "pw", body: "licentious0907aA!")
+        await model.loadSnippets()
+        NSPasteboard.general.clearContents()
+
+        model.copySnippet(id: snippet.id)
+
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "licentious0907aA!")
     }
 
     func testBeginSnippetDraftFromClipboardTextPrefillsDraftWithoutSaving() async throws {

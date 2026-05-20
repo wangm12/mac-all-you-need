@@ -524,6 +524,16 @@ enum DashboardToolOpenNavigation {
     }
 }
 
+enum VoiceModelsNavigation {
+    static func route() -> DashboardToolSettingsRoute {
+        DashboardToolSettingsRoute(
+            destination: .voice,
+            tabStorageKey: VoiceFunctionTab.storageKey,
+            tabRawValue: VoiceFunctionTab.models.rawValue
+        )
+    }
+}
+
 enum MainHotkeyPresentation {
     static func display(
         for action: HotkeyAction,

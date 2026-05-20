@@ -99,6 +99,31 @@ final class ClipboardDockModel {
         availableLists = (try? pinboards.list()) ?? []
     }
 
+    func deletePinboard(id: RecordID) async {
+        let board = (try? pinboards.list())?.first { $0.id == id }
+        do {
+            try pinboards.delete(id: id)
+        } catch {
+            return
+        }
+
+        if let board, PinnedPinboard.isDefaultPinned(board) {
+            PinnedPinboard.markDeleted()
+        }
+
+        if activeList == .pinboard(id) {
+            activeList = .history
+            search = ""
+            focusedIndex = 0
+            selection.removeAll()
+            selectionAnchorIndex = nil
+            items = []
+            await refresh()
+        }
+
+        await loadAvailableLists()
+    }
+
     func switchList(_ selector: DockListSelector) async {
         activeList = selector
         search = ""
@@ -160,7 +185,7 @@ final class ClipboardDockModel {
 
     func togglePin(itemID: String) async {
         guard let recordID = RecordID(rawValue: itemID),
-              let pinnedID = try? PinnedPinboard.findOrCreate(in: pinboards).id
+              let pinnedID = try? PinnedPinboard.findOrCreateForPinning(in: pinboards).id
         else { return }
 
         // Atomic read-modify-write so concurrent toggles do not lose updates.
@@ -715,6 +740,13 @@ final class ClipboardDockModel {
     func pasteSnippet(id: RecordID, plainText: Bool) async {
         guard let snippet = snippetItems.first(where: { $0.id == id }) else { return }
         _ = await xpc.pasteText(text: snippet.body, plainText: plainText, saveAsNew: true)
+    }
+
+    func copySnippet(id: RecordID) {
+        guard let snippet = snippetItems.first(where: { $0.id == id }) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(snippet.body, forType: .string)
+        Self.markAsLocalWrite(.general)
     }
 
     @discardableResult

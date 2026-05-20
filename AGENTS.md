@@ -74,7 +74,8 @@ Current first-class tool surfaces:
   pinboards, multi-select, transforms, Quick Look, and app exclusions.
 - **Voice** - dictation into any app, local Qwen3-ASR, optional Groq Whisper,
   cleanup, transcript history, dictionary, personalization profiles, post-edit
-  learning, mini HUD, and 9-step setup.
+  learning, 9-step setup, and a v8 mini HUD with voice-reactive Listening,
+  AI sparkle Transcribing, dot-spinner Thinking, and 5-second Cancelled + Undo.
 - **Downloads** - yt-dlp + ffmpeg queue, completed downloads, cookies,
   metadata, pause/resume, browser-extension dispatch server, Dock progress, and
   clipboard video URL detection.
@@ -115,8 +116,28 @@ Current first-class tool surfaces:
 
 ## Architecture
 
+The build produces one `MacAllYouNeed.app` bundling three Xcode targets:
+
+- `MacAllYouNeed/` - main app; composition root, all SwiftUI/AppKit surfaces.
+- `ClipboardDaemon/` - headless `LSUIElement + LSBackgroundOnly` helper
+  registered as a Login Item via SMAppService; embedded at
+  `Contents/Library/LoginItems/ClipboardDaemon.app`. Captures the pasteboard
+  while the main app is closed and writes to the shared App Group DB; talks to
+  the main app over XPC for daemon-only commands.
+- `FolderPreview/` - macOS Quick Look extension (`app-extension` target);
+  embedded at `Contents/PlugIns/FolderPreview.appex`. Required to be a
+  separate sandboxed bundle by macOS; cannot be merged into the main app.
+- `Shared/` - SwiftPM package (`Core`, `Platform`, `UI`, vendored
+  `FluidAudio`) consumed by all three targets.
+- `MacAllYouNeedTests/` - XCTest target for the main app.
+
+Main-app source layout:
+
 - `MacAllYouNeed/App/AppController.swift` - composition root; owns subsystems,
   windows, feature runtime, hotkeys, onboarding, migration, and coordinators.
+- `MacAllYouNeed/MacAllYouNeedApp.swift` - `@main` entry, NSApplicationDelegate,
+  and `installMainMenu()` (App / File / Edit menus, including File > Close
+  Window with Cmd+W and Quit Mac All You Need with Cmd+Q).
 - `MacAllYouNeed/App/FeatureRuntime.swift` and `Shared/Sources/FeatureCore/` -
   modular feature registry, persisted feature state, asset states, enable/
   disable transitions, and pack install/uninstall.
@@ -129,6 +150,14 @@ Current first-class tool surfaces:
 - `MacAllYouNeed/Onboarding/` - feature-picker setup flow:
   Welcome -> Choose Features -> per-feature setup -> Done.
 - `MacAllYouNeed/Voice/UI/Onboarding/` - voice-specific 9-step wizard.
+- `MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift` - v8 floating pill (universal
+  144x32, three slots: left status / center label / right action). Eight
+  pill states: Listening, Transcribing, Thinking, Applied, Copied, Cancelled,
+  No speech, Failed.
+- `MacAllYouNeed/Voice/VoiceCoordinator.swift` - dictation state machine,
+  shared `processCapturedAudio(captured:presetASRResult:)` for live and undo
+  replay paths, inflight + pendingUndo bookkeeping, global NSEvent monitor for
+  Esc / Return / numpad-Enter dispatch.
 - `MacAllYouNeed/Settings/` - design system and settings detail views.
   `SettingsDestination` supports 11 destinations; current user-facing Settings
   entry opens the System group, while feature/workflow settings live in tool
@@ -139,6 +168,33 @@ Current first-class tool surfaces:
   feature migration and What's New sheet.
 
 ## Platform-Specific Rules
+
+### Voice HUD (v8)
+
+- One universal 144x32 pill with three slots: left status icon, centered label,
+  right action. No state ever resizes the pill.
+- Listening uses a voice-reactive waveform driven by `audio.peakLevel`.
+  Transcribing uses an AI sparkle icon (subtle 1200ms pulse, no waveform).
+  Thinking uses a rotating 8-dot spinner. Terminal states use check / X /
+  warning-triangle icons.
+- Stop button always cancels. The hotkey (PTT release or toggle second-press)
+  is the only commit path.
+- Cancelling during Listening / Transcribing / Thinking always offers Undo for
+  5 seconds. `processCapturedAudio(captured:presetASRResult:)` is shared
+  between the live entry and the undo replay; if ASR completed before the
+  cancel, the replay skips ASR.
+- Esc cancels stoppable states / dismisses the undo offer / dismisses any
+  visible terminal pill; ignored otherwise. Return and numpad Enter trigger
+  Undo, but only while the Cancelled pill is on screen.
+
+### Main menu and window shortcuts
+
+- `installMainMenu()` in `MacAllYouNeedApp.swift` installs App / File / Edit
+  menus. File > Close Window (Cmd+W) calls `performClose:` on the first
+  responder; App > Quit (Cmd+Q) calls `NSApplication.terminate(_:)`.
+- `LSUIElement = YES`: Cmd+W hides the main window but the app remains alive
+  in the menu bar. Quit is the only way to terminate.
+- `window.isReleasedWhenClosed = false` so reopening reuses the NSWindow.
 
 ### macOS / SwiftUI / XPC
 
@@ -191,7 +247,10 @@ Current first-class tool surfaces:
 - Snippets are loaded from the local dock model, support body previews, and can
   be created by dragging clipboard items to the Snippets tab.
 - Voice supports local/cloud ASR, cleanup, dictionary, transcripts,
-  personalization, mini HUD, and setup.
+  personalization, setup, and a v8 mini HUD with voice-reactive Listening,
+  AI sparkle Transcribing, dot-spinner Thinking, and 5-second Cancelled + Undo
+  on every mid-stream cancel (stop button, Esc, or pill-body tap; Return /
+  numpad Enter retries from the cached audio).
 - Downloads support queue/completed views, metadata, cookies, pause/resume,
   browser extension dispatch, and package-managed binaries.
 - Folder Preview supports Quick Look folder/archive previews, Browse Folder,

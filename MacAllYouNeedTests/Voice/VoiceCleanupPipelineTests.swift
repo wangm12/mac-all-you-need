@@ -91,6 +91,26 @@ final class VoiceCleanupPipelineTests: XCTestCase {
         XCTAssertEqual(result.cleanedText, "请找江涛 review 这个 service。")
         XCTAssertTrue(result.usedLLM)
     }
+
+    func testFallsBackWithDeadlineMetadataWhenProviderTimesOut() async {
+        let pipeline = VoiceCleanupPipeline(
+            provider: SlowVoiceLLMProvider(),
+            timeout: .milliseconds(10)
+        )
+
+        let result = await pipeline.clean(VoiceCleanupRequest(
+            rawText: "我今天要 deploy 这个 service，然后通知 product owner。",
+            appBundleID: "com.apple.TextEdit",
+            language: .mixed
+        ))
+
+        XCTAssertEqual(result.cleanedText, "我今天要 deploy 这个 service，然后通知 product owner。")
+        XCTAssertFalse(result.usedLLM)
+        XCTAssertEqual(result.providerIdentifier, "slow")
+        XCTAssertEqual(result.fallbackReason, .deadlineExceeded)
+        XCTAssertTrue(result.deadlineExceeded)
+        XCTAssertGreaterThanOrEqual(result.cleanupMs, 0)
+    }
 }
 
 private actor SpyVoiceLLMProvider: VoiceLLMProvider {
@@ -105,6 +125,15 @@ private actor SpyVoiceLLMProvider: VoiceLLMProvider {
     func clean(_ request: VoiceLLMRequest) async throws -> String {
         requests.append(request)
         return output
+    }
+}
+
+private struct SlowVoiceLLMProvider: VoiceLLMProvider {
+    let providerIdentifier = "slow"
+
+    func clean(_: VoiceLLMRequest) async throws -> String {
+        try await Task.sleep(for: .milliseconds(200))
+        return "late output"
     }
 }
 

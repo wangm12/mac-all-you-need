@@ -1,5 +1,7 @@
+import AppKit
 import Core
 import Foundation
+import Platform
 import SwiftUI
 
 @MainActor
@@ -127,6 +129,21 @@ final class DownloaderViewModel {
 
     func dismissCookieWarning() { cookieWarning = nil }
 
+    static func clipboardVideoURL() -> String? {
+        guard let text = NSPasteboard.general.string(forType: .string),
+              let url = URLDetector.videoBearingURL(in: text)
+        else { return nil }
+        return url.absoluteString
+    }
+
+    func enqueueClipboardURL() async {
+        guard let url = Self.clipboardVideoURL() else {
+            CopyHUD.show("No video URL", symbol: "exclamationmark.triangle.fill")
+            return
+        }
+        await add(url: url)
+    }
+
     func refresh() async {
         let ids = (try? coordinator.store.list()) ?? []
         rows = ids.compactMap { try? coordinator.store.fetch(id: $0) }
@@ -147,6 +164,17 @@ final class DownloaderViewModel {
         await coordinator.reenqueue(record: record)
         await refresh()
         CopyHUD.show("Retrying", symbol: "arrow.clockwise.circle.fill")
+    }
+
+    func retryFailed(in records: [DownloadRecord]) async {
+        let failedRecords = records.filter { $0.state == .failed }
+        guard !failedRecords.isEmpty else { return }
+        for record in failedRecords {
+            await coordinator.reenqueue(record: record)
+        }
+        await refresh()
+        let message = failedRecords.count == 1 ? "Retrying" : "Retrying \(failedRecords.count)"
+        CopyHUD.show(message, symbol: "arrow.clockwise.circle.fill")
     }
 
     func cancel(id: RecordID) async {

@@ -1,0 +1,127 @@
+/* Processing Pill System v8: fixed size, voice-reactive listening, AI transcribing icon */
+:root {
+  --pill-width: 144px;
+  --pill-height: 32px;
+  --pill-radius: 999px;
+  --pill-black: #050505;
+  --pill-white: #ffffff;
+  --pill-border: #363636;
+  --pill-border-hover: #606060;
+
+  --pill-left-slot-center: 20px;
+  --pill-right-slot-center: 124px;
+  --pill-label-left: 34px;
+  --pill-label-right: 34px;
+  --pill-icon-size: 14px;
+  --pill-font-size: 11px;
+  --pill-font-weight: 600;
+  --pill-line-height: 14px;
+
+  --pill-enter: 140ms;
+  --pill-crossfade: 120ms;
+  --pill-press: 80ms;
+  --pill-spinner-loop: 1100ms;
+  --pill-ai-loop: 1200ms;
+  --pill-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.processing-pill {
+  position: relative;
+  inline-size: var(--pill-width);
+  block-size: var(--pill-height);
+  min-inline-size: var(--pill-width);
+  max-inline-size: var(--pill-width);
+  min-block-size: var(--pill-height);
+  max-block-size: var(--pill-height);
+  border: 1px solid var(--pill-border);
+  border-radius: var(--pill-radius);
+  background: var(--pill-black);
+  color: var(--pill-white);
+  overflow: hidden;
+  user-select: none;
+  font: var(--pill-font-weight) var(--pill-font-size) / var(--pill-line-height) system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.processing-pill__status-icon,
+.processing-pill__stop-action {
+  position: absolute;
+  top: 50%;
+  inline-size: var(--pill-icon-size);
+  block-size: var(--pill-icon-size);
+  transform: translateY(-50%);
+}
+
+.processing-pill__status-icon {
+  left: calc(var(--pill-left-slot-center) - var(--pill-icon-size) / 2);
+  pointer-events: none;
+}
+
+.processing-pill__stop-action {
+  left: calc(var(--pill-right-slot-center) - var(--pill-icon-size) / 2);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.processing-pill__label {
+  position: absolute;
+  inset-block: 0;
+  left: var(--pill-label-left);
+  right: var(--pill-label-right);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+  pointer-events: none;
+}
+
+.processing-pill[data-state='listening'] .processing-pill__voice-wave-bar {
+  /* JS should update --voice-amp on the pill or per bar. */
+  transform: scaleY(var(--voice-amp, 0.25));
+  transform-origin: center;
+  transition: transform 45ms linear;
+}
+
+.processing-pill[data-state='transcribing'] .processing-pill__ai-icon {
+  animation: pill-ai-pulse var(--pill-ai-loop) var(--pill-ease) infinite;
+  transform-origin: center;
+}
+
+.processing-pill[data-state='stopping'] .processing-pill__spinner {
+  animation: pill-spin var(--pill-spinner-loop) linear infinite;
+  transform-origin: center;
+}
+
+.processing-pill[data-state='stopping'] .processing-pill__stop-action {
+  opacity: 0.62;
+  pointer-events: none;
+}
+
+.processing-pill[data-stoppable='true']:hover,
+.processing-pill[data-stoppable='true']:focus-within {
+  border-color: var(--pill-border-hover);
+}
+
+.processing-pill__stop-action:active {
+  transform: translateY(-50%) scale(0.92);
+  transition: transform var(--pill-press) var(--pill-ease);
+}
+
+@keyframes pill-ai-pulse {
+  0%, 100% { opacity: 0.72; transform: translateY(-50%) scale(0.96); }
+  50% { opacity: 1; transform: translateY(-50%) scale(1); }
+}
+
+@keyframes pill-spin {
+  to { transform: translateY(-50%) rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .processing-pill,
+  .processing-pill * {
+    animation: none !important;
+    transition-duration: 80ms !important;
+  }
+}

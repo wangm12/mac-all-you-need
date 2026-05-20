@@ -17,6 +17,7 @@ struct SnippetCard: View {
     let snippet: Snippet
     let isFocused: Bool
     let onPaste: (Bool) -> Void
+    let onCopy: () -> Void
     let onEdit: () -> Void
     let onDuplicate: () -> Void
     let onDelete: () -> Void
@@ -48,15 +49,26 @@ struct SnippetCard: View {
         }
         .padding(SnippetCardPresentation.contentPadding)
         .modifier(SnippetCardShell(isFocused: isFocused, alignment: .topLeading))
-        .onTapGesture {
-            onPaste(NSEvent.modifierFlags.contains(.option))
-        }
+        .gesture(snippetTapGesture)
         .contextMenu {
             Button("Edit…", action: onEdit)
             Button("Duplicate", action: onDuplicate)
             Divider()
             Button("Delete", role: .destructive, action: onDelete)
         }
+    }
+
+    private var snippetTapGesture: some Gesture {
+        TapGesture(count: 2)
+            .exclusively(before: TapGesture())
+            .onEnded { value in
+                switch value {
+                case .first:
+                    onCopy()
+                case .second:
+                    onPaste(NSEvent.modifierFlags.contains(.option))
+                }
+            }
     }
 }
 

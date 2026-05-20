@@ -11,8 +11,10 @@ seven first-class tool surfaces:
   multi-select transforms.
 - **Voice** - push-to-talk or toggle dictation into any app, local Qwen3-ASR via
   FluidAudio, optional Groq Whisper cloud ASR, optional LLM cleanup, transcript
-  history, dictionary replacements, personalization profiles, and post-edit
-  learning.
+  history, dictionary replacements, personalization profiles, post-edit
+  learning, and a v8 mini HUD (voice-reactive Listening waveform, AI sparkle
+  Transcribing, dot-spinner Thinking, check/X/triangle terminals) with stop
+  button = cancel and a 5-second Cancelled + Undo affordance.
 - **Downloads** - yt-dlp + ffmpeg downloader with queue/completed views, browser
   cookie import, pause/resume, browser-extension dispatch server, auto video URL
   detection from clipboard, metadata thumbnails, and Dock progress.
@@ -66,8 +68,28 @@ Hard UI rules:
 
 ## Architecture
 
+The build produces one `MacAllYouNeed.app` that embeds two sibling targets:
+
+- `MacAllYouNeed/` - main app bundle and composition root.
+- `ClipboardDaemon/` - headless `LSUIElement + LSBackgroundOnly` helper.
+  Registered as a Login Item via SMAppService and embedded at
+  `Contents/Library/LoginItems/ClipboardDaemon.app`. Owns 24/7 pasteboard
+  capture so clips are recorded even when the main app is quit. Talks to the
+  main app over XPC for daemon-only commands; clipboard reads from the UI go
+  straight to the shared App Group DB.
+- `FolderPreview/` - macOS Quick Look `app-extension` target. Embedded at
+  `Contents/PlugIns/FolderPreview.appex`. macOS loads it in its own sandboxed
+  process; the main app cannot provide Quick Look previews directly.
+- `Shared/` - SwiftPM package consumed by all three targets (`Core`,
+  `Platform`, `UI`, plus the vendored `FluidAudio` checkout).
+
+Main-app source layout:
+
 - `MacAllYouNeed/App/AppController.swift` - composition root; owns runtime
   services, windows, hotkeys, feature runtime, migrations, and coordinators.
+- `MacAllYouNeed/MacAllYouNeedApp.swift` - `@main` entry, application delegate,
+  and `installMainMenu()` (App / File / Edit menus, including File > Close
+  Window with Cmd+W and Quit Mac All You Need with Cmd+Q).
 - `MacAllYouNeed/App/FeatureRuntime.swift` plus `Shared/Sources/FeatureCore/` -
   registry, persisted feature state, enable/disable transitions, asset state,
   and install/uninstall coordination.
@@ -82,6 +104,13 @@ Hard UI rules:
 - `MacAllYouNeed/Voice/UI/Onboarding/` - 9-step voice setup:
   Welcome, Microphone, Accessibility, Speech model, AI cleanup, Shortcut,
   Languages, Try it, Done.
+- `MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift` - v8 floating pill (universal
+  144x32, three slots: left status icon at x=20, centered label, right action
+  at x=124). State machine: Listening / Transcribing / Thinking / Applied /
+  Copied / Cancelled / No speech / Failed.
+- `MacAllYouNeed/Voice/VoiceCoordinator.swift` - dictation state machine,
+  ASR/cleanup pipeline (`processCapturedAudio`), inflight + pendingUndo
+  bookkeeping, global NSEvent monitor for Esc/Return/numpad-Enter dispatch.
 - `MacAllYouNeed/Settings/` - shared design system and settings detail views.
   `SettingsDestination` defines 11 detail destinations; the current Settings
   entry opens the System group (General, Permissions, Storage, Advanced), while
@@ -93,6 +122,46 @@ Hard UI rules:
   feature migration and What's New sheet for pre-modular upgrades.
 
 ## Platform Decisions And Fixes
+
+### Voice HUD (v8)
+
+- Universal 144x32 pill, three slots: status icon (left, x=20), centered label
+  (x=72), action button (right, x=124). The pill does not resize between
+  states.
+- Listening: voice-reactive waveform driven by `audio.peakLevel`; bars react to
+  amplitude with a per-bar phase stagger. Transcribing: AI sparkle icon with
+  subtle 1200ms pulse (no more waveform — transcribing is system work, not live
+  audio). Thinking: 8-dot spinner rotating in 1100ms.
+- Terminal pills: Applied / Copied use check-in-circle; Cancelled uses
+  X-in-circle and exposes a right-slot Undo button; No speech / Failed use a
+  warning triangle.
+- Stop button always cancels — it never advances to transcribe. The hotkey
+  (PTT release in `.hold`, second press in `.toggle`) is the only commit path.
+- Cancelling during Listening / Transcribing / Thinking always offers Undo for
+  5 seconds. `processCapturedAudio(captured:presetASRResult:)` is shared
+  between the live entry (`stopRecordingAndPaste`) and the undo replay
+  (`undoLastCancel`); if ASR completed before the cancel, the replay skips ASR.
+- Keyboard model — global + local `NSEvent.keyDown` monitor installed by
+  `VoiceCoordinator.installEscKeyMonitor`:
+  - Esc: stoppable -> cancel; undoable -> dismiss undo; visible terminal pill
+    -> dismiss; otherwise ignored (don't interfere with other apps' Esc).
+  - Return / numpad Enter: undo, but only while the Cancelled pill is up. Keeps
+    us from intercepting newlines in the user's editor.
+- Cursor-screen lock (`targetScreen`) captured on first show; HUD stays on one
+  screen for the whole Listening -> Transcribing -> Thinking -> Cancelled /
+  Applied lifecycle.
+
+### Main menu and window shortcuts
+
+- `installMainMenu()` in `MacAllYouNeedApp.swift` builds the NSApp main menu:
+  App (About / Settings... / Quit, Cmd+Q), File (Close Window, Cmd+W via
+  `performClose:` on the first responder), Edit (Undo / Redo / Cut / Copy /
+  Paste / Delete / Select All).
+- `LSUIElement = YES`; closing the main window via Cmd+W or the red traffic
+  light hides the window but does not quit. The app remains in the menu bar
+  until the user picks Quit (Cmd+Q).
+- `window.isReleasedWhenClosed = false`, so re-opening the main window via
+  `MainWindowController.show()` reuses the same `NSWindow` instance.
 
 ### macOS / SwiftUI / XPC
 
@@ -158,7 +227,10 @@ Hard UI rules:
 - Dragging clipboard cards onto the Snippets tab creates a prefilled snippet
   draft in the in-panel snippet editor.
 - Voice dictation flow, microphone/Accessibility setup, local/cloud ASR
-  selection, transcript history, dictionary, personalization, and mini HUD.
+  selection, transcript history, dictionary, personalization, and v8 mini HUD
+  with voice-reactive Listening waveform, AI sparkle Transcribing, dot-spinner
+  Thinking, and 5-second Cancelled + Undo on every mid-stream cancel (stop
+  button, Esc, or pill-body tap; Return / numpad Enter re-runs the undo).
 - Downloader queue/completed views, cookies, metadata, pause/resume, browser
   extension dispatch, and clipboard video URL badge / enqueue flow.
 - Folder Preview Quick Look extension, archive listing, Browse Folder window,

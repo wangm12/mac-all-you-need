@@ -29,6 +29,7 @@ struct AnthropicVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvider {
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": model,
             "max_tokens": 1024,
+            "temperature": 0,
             "system": VoicePromptBuilder.systemPrompt(context: request.promptContext),
             "messages": [
                 [
@@ -51,6 +52,7 @@ struct AnthropicVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvider {
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": model,
             "max_tokens": 512,
+            "temperature": 0,
             "system": systemPrompt,
             "messages": [["role": "user", "content": userText]]
         ])

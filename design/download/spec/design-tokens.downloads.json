@@ -1,0 +1,81 @@
+{
+  "source": "design.md",
+  "colors": {
+    "light": {
+      "window": "#ECECEC",
+      "panel": "#FFFFFF",
+      "elevated": "#FFFFFF",
+      "elevatedHover": "#F4F4F4",
+      "elevatedPressed": "#ECECEC",
+      "hover": "#F4F4F4",
+      "selected": "#E8E8E8",
+      "divider": "#DADADA",
+      "subtleBorder": "#E2E2E2",
+      "strongBorder": "#CACACA",
+      "focusRing": "#4B4B4D",
+      "tabSelectedFill": "#DEDEDF",
+      "tabSelectedBorder": "#C7C7C9",
+      "tabSelectedShadow": "rgba(0,0,0,0.06)",
+      "success": "#28CD41",
+      "warning": "#FF9500",
+      "danger": "#FF3B30",
+      "progress": "#007AFF",
+      "downloadAccent": "#05946B"
+    },
+    "dark": {
+      "window": "#323232",
+      "panel": "#1E1E1E",
+      "elevated": "#1E1E1E",
+      "elevatedHover": "#292929",
+      "elevatedPressed": "#303030",
+      "hover": "#2A2A2A",
+      "selected": "#353535",
+      "divider": "#4B4B4B",
+      "subtleBorder": "#3B3B3B",
+      "strongBorder": "#555555",
+      "focusRing": "#DADADA",
+      "tabSelectedFill": "#454545",
+      "tabSelectedBorder": "#5B5B5B",
+      "tabSelectedShadow": "rgba(0,0,0,0.20)",
+      "success": "#32D74B",
+      "warning": "#FF9F0A",
+      "danger": "#FF453A",
+      "progress": "#0A84FF",
+      "downloadAccent": "#05946B"
+    },
+    "text": {
+      "primary": "Color.primary / NSColor.labelColor",
+      "secondary": "Color.secondary / NSColor.secondaryLabelColor"
+    }
+  },
+  "metrics": {
+    "controlHeight": 30,
+    "controlRadius": 7,
+    "cardRadius": 8,
+    "panelRadius": 8,
+    "rowMinHeight": 46,
+    "rowHorizontalPadding": 14,
+    "rowVerticalPadding": 9,
+    "rowControlSpacing": 16,
+    "trailingLaneMinWidth": 220,
+    "functionContentMaxWidth": 760
+  },
+  "downloadSpecific": {
+    "downloadJobRowHeight": 100,
+    "downloadJobRowExpandedErrorHeight": 156,
+    "thumbnail": {
+      "width": 82,
+      "height": 48,
+      "radius": 8
+    },
+    "progressBarHeight": 3,
+    "rowActions": [
+      "pause",
+      "resume",
+      "cancel",
+      "retry",
+      "revealInFinder",
+      "delete"
+    ]
+  }
+}

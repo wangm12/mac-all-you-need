@@ -20,7 +20,8 @@ for implementation plans.
   capture rules, paste behavior, and app exclusions.
 - **Voice** - push-to-talk/toggle dictation into any app with local Qwen3-ASR,
   optional Groq Whisper cloud ASR, optional cleanup, dictionary replacements,
-  transcript history, personalization profiles, voice HUD, and guided setup.
+  transcript history, personalization profiles, a v8 mini HUD with voice-reactive
+  waveform and 5-second Cancel + Undo, and guided setup.
 - **Downloads** - yt-dlp + ffmpeg queue, browser cookie import, metadata,
   pause/resume, browser-extension dispatch server, clipboard video URL detection,
   completed-download folder preview, and Dock progress.
@@ -36,6 +37,23 @@ for implementation plans.
 - **Feature runtime** - Dashboard cards can enable/disable features, install or
   remove asset packs, show migration results, and keep disabled features visible
   but inert in navigation.
+
+## Project Layout
+
+The app ships as three Xcode targets bundled into one `.app`:
+
+- `MacAllYouNeed/` - main app, all SwiftUI/AppKit surfaces. Composition root is
+  `MacAllYouNeed/App/AppController.swift`.
+- `ClipboardDaemon/` - headless background helper registered as a Login Item via
+  SMAppService. Embedded at `Contents/Library/LoginItems/ClipboardDaemon.app`.
+  Watches the system pasteboard 24/7 (including when the main app is closed) and
+  writes new clips to the shared App Group SQLite. Talks to the main app over XPC.
+- `FolderPreview/` - macOS Quick Look extension (`.appex`). Embedded at
+  `Contents/PlugIns/FolderPreview.appex`. macOS requires Quick Look providers to
+  be a separate sandboxed target; this is not optional.
+- `Shared/` - SwiftPM package (`Core`, `Platform`, `UI`, vendored `FluidAudio`)
+  consumed by all three targets.
+- `MacAllYouNeedTests/` - XCTest target for the main app.
 
 ## App Surfaces
 

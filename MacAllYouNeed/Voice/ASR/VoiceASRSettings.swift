@@ -32,11 +32,21 @@ enum VoiceASRLanguageHint: String, CaseIterable, Codable, Equatable, Identifiabl
             .english
         }
     }
+
+    var parakeetLanguage: Language? {
+        switch self {
+        case .automatic, .chinese:
+            nil
+        case .english:
+            .english
+        }
+    }
 }
 
 enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
     case qwen3ASR06BF32 = "qwen3-asr-0.6b-f32"
     case qwen3ASR06BInt8 = "qwen3-asr-0.6b-int8"
+    case parakeetTDT06BV3 = "parakeet-tdt-0.6b-v3"
 
     var id: String {
         rawValue
@@ -62,6 +72,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "Qwen3-ASR 0.6B f32"
         case .qwen3ASR06BInt8:
             "Qwen3-ASR 0.6B int8"
+        case .parakeetTDT06BV3:
+            "Parakeet TDT 0.6B v3"
         }
     }
 
@@ -71,6 +83,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "Default mixed Chinese/English model. Best current quality/latency balance in this app."
         case .qwen3ASR06BInt8:
             "Lower-memory Qwen3-ASR build. Good for keeping dictation resident while other tools run."
+        case .parakeetTDT06BV3:
+            "Fast local Parakeet model for English and European-language dictation."
         }
     }
 
@@ -80,6 +94,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "Strong mixed Chinese/English recognition, fast on Apple Silicon, already benchmarked locally."
         case .qwen3ASR06BInt8:
             "Smaller resident memory footprint with the same Qwen3-ASR language coverage."
+        case .parakeetTDT06BV3:
+            "Very fast local batch transcription for English and supported European languages."
         }
     }
 
@@ -89,6 +105,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "Largest current download and memory use; still only one model family."
         case .qwen3ASR06BInt8:
             "May trade some throughput for memory savings; needs the same macOS 15 CoreML path."
+        case .parakeetTDT06BV3:
+            "Does not cover Chinese; keep Qwen3 selected for mixed Chinese/English dictation."
         }
     }
 
@@ -98,20 +116,47 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "~1.75 GB"
         case .qwen3ASR06BInt8:
             "~900 MB"
+        case .parakeetTDT06BV3:
+            "~850 MB"
         }
     }
 
-    var variant: Qwen3AsrVariant {
+    var runtime: VoiceModelRuntime {
+        switch self {
+        case .qwen3ASR06BF32, .qwen3ASR06BInt8:
+            .qwenCoreML
+        case .parakeetTDT06BV3:
+            .parakeetCoreML
+        }
+    }
+
+    var qwen3Variant: Qwen3AsrVariant? {
         switch self {
         case .qwen3ASR06BF32:
             .f32
         case .qwen3ASR06BInt8:
             .int8
+        case .parakeetTDT06BV3:
+            nil
+        }
+    }
+
+    var parakeetVersion: AsrModelVersion? {
+        switch self {
+        case .parakeetTDT06BV3:
+            .v3
+        case .qwen3ASR06BF32, .qwen3ASR06BInt8:
+            nil
         }
     }
 
     var requiresOSLabel: String {
-        "macOS 15+"
+        switch self {
+        case .qwen3ASR06BF32, .qwen3ASR06BInt8:
+            "macOS 15+"
+        case .parakeetTDT06BV3:
+            "Apple Silicon"
+        }
     }
 }
 
@@ -172,7 +217,7 @@ struct VoiceASRModelRowPresentation: Equatable {
             return VoiceASRModelRowPresentation(
                 statusText: "Needs API key",
                 statusKind: .warning,
-                actionTitle: nil
+                actionTitle: "Configure"
             )
         }
 
@@ -205,11 +250,11 @@ enum VoiceASRModelSelectionState {
 
     static func isCloudModelSelected(
         providerKind: VoiceASRProviderKind,
-        selectedModelID: GroqASRModelID,
-        modelID: GroqASRModelID,
+        selectedModelID: VoiceCloudASRModelID,
+        modelID: VoiceCloudASRModelID,
         hasUsableAPIKey: Bool = true
     ) -> Bool {
-        hasUsableAPIKey && providerKind == .groq && selectedModelID == modelID
+        hasUsableAPIKey && providerKind == modelID.providerKind && selectedModelID == modelID
     }
 
     static func providerKindAfterSelectingLocalModel() -> VoiceASRProviderKind {
@@ -220,8 +265,8 @@ enum VoiceASRModelSelectionState {
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    static func providerKindAfterSelectingCloudModel() -> VoiceASRProviderKind {
-        .groq
+    static func providerKindAfterSelectingCloudModel(_ modelID: VoiceCloudASRModelID) -> VoiceASRProviderKind {
+        modelID.providerKind
     }
 }
 
@@ -232,7 +277,7 @@ enum VoiceASRProviderControlsPresentation {
         switch providerKind {
         case .local:
             nil
-        case .groq:
+        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
             "Test connection"
         }
     }
@@ -244,8 +289,22 @@ struct VoiceCloudASRSetupStatusPresentation: Equatable {
 }
 
 enum VoiceCloudASRSetupDrawerPresentation {
-    static let title = "API setup"
-    static let subtitle = "Language, API key, and connection test."
+    static func title(for providerKind: VoiceASRProviderKind) -> String {
+        switch providerKind {
+        case .local:
+            "Local ASR setup"
+        case .groq:
+            "Groq ASR setup"
+        case .elevenLabs:
+            "ElevenLabs Scribe ASR setup"
+        case .openAITranscribe:
+            "OpenAI Transcribe ASR setup"
+        case .deepgram:
+            "Deepgram Nova ASR setup"
+        }
+    }
+
+    static let subtitle = "API key and connection test."
 
     static func status(
         apiKey: String,
@@ -351,7 +410,7 @@ struct VoiceASRSettings: Codable, Equatable {
 
 enum VoiceASRProviderApplyPlan {
     enum Step: Equatable {
-        case saveGroqSettings
+        case saveCloudSettings
         case applyASRSettings
     }
 
@@ -359,8 +418,8 @@ enum VoiceASRProviderApplyPlan {
         switch providerKind {
         case .local:
             [.applyASRSettings]
-        case .groq:
-            [.saveGroqSettings, .applyASRSettings]
+        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+            [.saveCloudSettings, .applyASRSettings]
         }
     }
 
@@ -368,9 +427,9 @@ enum VoiceASRProviderApplyPlan {
         switch providerKind {
         case .local:
             nil
-        case .groq:
+        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
             apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? "Groq API key is required."
+                ? "\(providerKind.apiKeyLabel) is required."
                 : nil
         }
     }

@@ -30,6 +30,8 @@ final class VoiceLLMProviderTests: XCTestCase {
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
             let body = try XCTUnwrap(Self.jsonBody(from: request))
             XCTAssertEqual(body["model"] as? String, "gpt-test")
+            XCTAssertEqual(body["temperature"] as? Int, 0)
+            XCTAssertEqual(body["max_tokens"] as? Int, 512)
             let messages = try XCTUnwrap(body["messages"] as? [[String: String]])
             XCTAssertEqual(messages.first?["role"], "system")
             XCTAssertEqual(messages.last?["role"], "user")

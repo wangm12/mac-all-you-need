@@ -7,11 +7,14 @@ private let log = Logger(subsystem: "com.macallyouneed.voice", category: "asr")
 
 enum Qwen3EngineError: LocalizedError {
     case unsupportedOS
+    case modelNotInstalled(VoiceASRModelID)
 
     var errorDescription: String? {
         switch self {
         case .unsupportedOS:
             "Qwen3-ASR requires macOS 15 or later."
+        case let .modelNotInstalled(modelID):
+            "\(modelID.title) is not installed. Download it from Voice Models before using Local ASR."
         }
     }
 }
@@ -76,21 +79,55 @@ actor Qwen3Engine: VoiceTranscriptionEngine {
 
     @available(macOS 15, *)
     private func qwenManager(for modelID: VoiceASRModelID) async throws -> Qwen3AsrManager {
+        guard modelID.qwen3Variant != nil else {
+            throw VoiceLocalASREngineError.unsupportedModel(modelID)
+        }
         if let existing = managers[modelID] as? Qwen3AsrManager { return existing }
-        log.info("ASR model load start — variant: \(String(describing: modelID.variant), privacy: .public)")
-        let downloadStart = Date()
-        let cacheDir = try await Qwen3AsrModels.download(variant: modelID.variant)
-        let downloadMs = Int(Date().timeIntervalSince(downloadStart) * 1000)
-        log.info("ASR model downloaded/found — \(downloadMs, privacy: .public)ms cacheDir: \(cacheDir.path, privacy: .public)")
+        guard let manager = try await loadIfInstalled(modelID: modelID) else {
+            throw Qwen3EngineError.modelNotInstalled(modelID)
+        }
+        return manager
+    }
+
+    @available(macOS 15, *)
+    func loadIfInstalled(modelID: VoiceASRModelID? = nil) async throws -> Qwen3AsrManager? {
+        let modelID = modelID ?? VoiceASRSettingsStore.load().modelID
+        guard let variant = modelID.qwen3Variant else {
+            throw VoiceLocalASREngineError.unsupportedModel(modelID)
+        }
+        if let existing = managers[modelID] as? Qwen3AsrManager { return existing }
+        let cacheDir = VoiceModelManager.localASRCacheDirectory(for: modelID)
+        guard Qwen3AsrModels.modelsExist(at: cacheDir) else {
+            log.info("ASR warmup skipped — model not installed: \(modelID.rawValue, privacy: .public)")
+            return nil
+        }
+        log.info("ASR model load start — variant: \(String(describing: variant), privacy: .public)")
         let next = Qwen3AsrManager()
         try await next.loadModels(from: cacheDir)
-        log.info("ASR model loaded and ready — variant: \(String(describing: modelID.variant), privacy: .public)")
+        log.info("ASR model loaded and ready — variant: \(String(describing: variant), privacy: .public)")
         managers[modelID] = next
         return next
     }
 
-    /// Pre-downloads and loads the configured model in the background.
-    /// Call from VoiceCoordinator.start() so the model is warm before first use.
+    @available(macOS 15, *)
+    func downloadAndLoad(
+        modelID: VoiceASRModelID,
+        progressHandler: DownloadUtils.ProgressHandler? = nil
+    ) async throws {
+        guard let variant = modelID.qwen3Variant else {
+            throw VoiceLocalASREngineError.unsupportedModel(modelID)
+        }
+        let cacheDir = try await Qwen3AsrModels.download(
+            variant: variant,
+            progressHandler: progressHandler
+        )
+        let next = Qwen3AsrManager()
+        try await next.loadModels(from: cacheDir)
+        managers[modelID] = next
+    }
+
+    /// Loads the configured model in the background only when it is already installed.
+    /// Downloads are explicit user actions from setup/model-management surfaces.
     func warmup() async {
         guard #available(macOS 15, *) else { return }
         let settings = VoiceASRSettingsStore.load()
@@ -98,8 +135,9 @@ actor Qwen3Engine: VoiceTranscriptionEngine {
         guard managers[modelID] == nil else { return }  // already loaded
         log.info("ASR warmup starting for model: \(modelID.rawValue, privacy: .public)")
         do {
-            _ = try await qwenManager(for: modelID)
-            log.info("ASR warmup complete — model ready")
+            if try await loadIfInstalled(modelID: modelID) != nil {
+                log.info("ASR warmup complete — model ready")
+            }
         } catch {
             log.error("ASR warmup failed: \(error.localizedDescription, privacy: .public)")
         }

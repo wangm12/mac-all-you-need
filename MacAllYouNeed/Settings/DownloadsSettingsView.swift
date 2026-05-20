@@ -85,6 +85,18 @@ enum DownloadFilenameTemplatePreset: String, CaseIterable, Identifiable {
     }
 }
 
+enum DownloadsSettingsPresentation {
+    static let interruptedRecoveryTitle = "Retry interrupted downloads on launch"
+    static let interruptedRecoverySubtitle = "Move interrupted items to Failed so they can be retried explicitly."
+    static let interruptedRecoveryStatusText = "Automatic"
+    static let filenameExampleActionTitle = "Copy"
+    static let cookieProfileTitle = "Cookie profiles"
+    static let cookieProfileSubtitle = "Chrome, Edge, Brave, and Chromium profiles are imported before download starts."
+    static let cookieProfileStatusText = "Ready"
+    static let bundledAssetsTitle = "Bundled downloader assets"
+    static let bundledAssetsSubtitle = "yt-dlp, ffmpeg, manifest, architecture, and SHA-256 verification."
+}
+
 struct DownloadsSettingsView: View {
     let controller: AppController
     @AppStorage("downloadConcurrency", store: AppGroupSettings.defaults) private var concurrency = 3
@@ -96,30 +108,76 @@ struct DownloadsSettingsView: View {
             title: "Downloads",
             subtitle: "Control downloader concurrency, file naming, and where completed media is stored."
         ) {
-            MAYNSection(title: "Queue") {
-                MAYNSettingsRow(
-                    title: "Concurrent downloads",
-                    subtitle: "Choose how many videos can download at the same time, from 1 to 10."
-                ) {
-                    DownloadConcurrencyDropdown(value: $concurrency)
-                }
-            }
-
-            DownloadOutputSettingsSection(template: $template, downloadDir: $downloadDir)
-
-            MAYNSection(title: "Downloader") {
-                MAYNSettingsRow(
-                    title: "Update check",
-                    subtitle: "Ask the downloader updater to check bundled yt-dlp support files."
-                ) {
-                    MAYNButton("Check for update") {
-                        NotificationCenter.default.post(name: .downloaderUpdateRequested, object: nil)
-                    }
-                }
-            }
+            DownloadsSettingsContent(
+                concurrency: $concurrency,
+                template: $template,
+                downloadDir: $downloadDir
+            )
         }
         .onChange(of: concurrency) { _, n in
             Task { await controller.downloader.queue.setMaxConcurrent(n) }
+        }
+    }
+}
+
+struct DownloadsSettingsContent: View {
+    @Binding var concurrency: Int
+    @Binding var template: String
+    @Binding var downloadDir: String
+
+    var body: some View {
+        DownloadQueueSettingsSection(concurrency: $concurrency)
+        DownloadOutputSettingsSection(template: $template, downloadDir: $downloadDir)
+        DownloadDownloaderSettingsSection()
+    }
+}
+
+private struct DownloadQueueSettingsSection: View {
+    @Binding var concurrency: Int
+
+    var body: some View {
+        MAYNSection(title: "Queue") {
+            MAYNSettingsRow(
+                title: "Concurrent downloads",
+                subtitle: "Choose how many videos can download at the same time, from 1 to 10."
+            ) {
+                DownloadConcurrencyDropdown(value: $concurrency)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: DownloadsSettingsPresentation.interruptedRecoveryTitle,
+                subtitle: DownloadsSettingsPresentation.interruptedRecoverySubtitle
+            ) {
+                StatusPill(
+                    text: DownloadsSettingsPresentation.interruptedRecoveryStatusText,
+                    kind: .neutral
+                )
+            }
+        }
+    }
+}
+
+private struct DownloadDownloaderSettingsSection: View {
+    var body: some View {
+        MAYNSection(title: "Downloader") {
+            MAYNSettingsRow(
+                title: DownloadsSettingsPresentation.cookieProfileTitle,
+                subtitle: DownloadsSettingsPresentation.cookieProfileSubtitle
+            ) {
+                StatusPill(
+                    text: DownloadsSettingsPresentation.cookieProfileStatusText,
+                    kind: .success
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: DownloadsSettingsPresentation.bundledAssetsTitle,
+                subtitle: DownloadsSettingsPresentation.bundledAssetsSubtitle
+            ) {
+                MAYNButton("Check") {
+                    NotificationCenter.default.post(name: .downloaderUpdateRequested, object: nil)
+                }
+            }
         }
     }
 }
@@ -201,12 +259,20 @@ private struct DownloadFilenameTemplateSection: View {
                 title: "Example file name",
                 subtitle: selectedPreset.subtitle
             ) {
-                Text(exampleFileName)
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(.secondary)
-                    .frame(width: MAYNControlMetrics.textFieldWidth, alignment: .trailing)
+                HStack(spacing: 8) {
+                    Text(exampleFileName)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+                        .frame(width: MAYNControlMetrics.textFieldWidth, alignment: .trailing)
+                    MAYNButton(
+                        DownloadsSettingsPresentation.filenameExampleActionTitle,
+                        height: HotkeyChipPresentation.compactHeight
+                    ) {
+                        copyExample()
+                    }
+                }
             }
 
             if selectedPreset == .custom {
@@ -255,6 +321,12 @@ private struct DownloadFilenameTemplateSection: View {
         selectedPreset == .custom
             ? DownloadFilenameTemplatePreset.example(for: template)
             : selectedPreset.example
+    }
+
+    private func copyExample() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(exampleFileName, forType: .string)
+        CopyHUD.show("Copied", symbol: "doc.on.doc.fill")
     }
 }
 

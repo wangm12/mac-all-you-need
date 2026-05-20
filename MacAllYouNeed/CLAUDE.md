@@ -92,8 +92,12 @@ require a `design.md §6` entry.
   strip and drop target; mirrors `FunctionSegmentedTabStrip` visuals.
 - `ClipboardDock/Views/Cards/AppIconColor.swift` and `ClipCard` accent
   presentation - per-app/user pinboard color tuples.
-- `Voice/UI/MiniVoiceHUD.swift` - near-black processing background for HUD
-  legibility over arbitrary desktops.
+- `Voice/UI/MiniVoiceHUD.swift` - v8 voice pill (universal 144x32, three slots:
+  left status icon, centered label, right action). Near-black background, white
+  ink, `#363636` border. Documented raw-RGB exception for HUD legibility over
+  arbitrary desktops. Stop button always cancels; Cancelled pill exposes a 5s
+  Undo. See `VoiceCoordinator` for the keyboard model (Esc, Return / numpad
+  Enter) and `processCapturedAudio` for the shared live + undo replay path.
 - `App/MainWindowRoot.swift` - seven dashboard function accent RGB tuples for
   feature identity only.
 - `WindowControl/WindowControlMainPage.swift` - `WindowControlFeaturePageShell`

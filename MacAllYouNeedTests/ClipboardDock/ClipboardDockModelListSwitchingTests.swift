@@ -68,6 +68,7 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
 
     override func setUp() async throws {
         AppGroupSettings.defaults.set(false, forKey: "search.fuzzy")
+        AppGroupSettings.defaults.removeObject(forKey: PinnedPinboard.deletedDefaultKey)
         dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("PMod-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -97,6 +98,7 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
 
     override func tearDown() async throws {
         AppGroupSettings.defaults.removeObject(forKey: "search.fuzzy")
+        AppGroupSettings.defaults.removeObject(forKey: PinnedPinboard.deletedDefaultKey)
         try? FileManager.default.removeItem(at: dir)
     }
 
@@ -154,6 +156,20 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
         await model.loadAvailableLists()
 
         XCTAssertEqual(model.availableLists.map(\.name), [PinnedPinboard.displayName, "Useful"])
+    }
+
+    func testDeletingPinnedPinboardDoesNotRecreateItOnReload() async throws {
+        let pinned = try PinnedPinboard.findOrCreate(in: pinboards)
+        await model.loadAvailableLists()
+        XCTAssertTrue(model.availableLists.contains { $0.id == pinned.id })
+
+        model.activeList = .pinboard(pinned.id)
+        await model.deletePinboard(id: pinned.id)
+        await model.loadAvailableLists()
+
+        XCTAssertEqual(model.activeList, .history)
+        XCTAssertFalse(try pinboards.list().contains { $0.name == PinnedPinboard.displayName })
+        XCTAssertFalse(model.availableLists.contains { $0.name == PinnedPinboard.displayName })
     }
 
     func testSnippetsListLoadsWhenActiveListIsSnippets() async throws {

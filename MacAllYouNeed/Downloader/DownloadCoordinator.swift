@@ -61,8 +61,8 @@ final class DownloadCoordinator {
                         try? storeRef.updateState(id: id, to: .completed)
                         Self.postStateChanged(id: id, state: .completed)
                         CopyHUD.show("Download finished", symbol: "checkmark.circle.fill")
-                    case .failure:
-                        try? storeRef.updateState(id: id, to: .failed)
+                    case .failure(let error):
+                        recordDownloadFailure(store: storeRef, id: id, error: error)
                         Self.postStateChanged(id: id, state: .failed)
                     }
                 }
@@ -303,6 +303,27 @@ public extension Notification.Name {
     static let downloadDestinationPath = Notification.Name("downloadDestinationPath")
     static let cookieWarning = Notification.Name("cookieWarning")
     static let downloaderUpdateRequested = Notification.Name("downloaderUpdateRequested")
+}
+
+/// Mark the record as failed, persisting the yt-dlp error message when one is
+/// attached. User-initiated cancellations get the bare state update so we don't
+/// surface a misleading `Cocoa error 3072` string in the UI.
+@MainActor
+private func recordDownloadFailure(store: DownloadStore, id: RecordID, error: Error) {
+    let nsError = error as NSError
+    let isUserCancelled = nsError.domain == NSCocoaErrorDomain
+        && nsError.code == CocoaError.userCancelled.rawValue
+    let reason = nsError.userInfo[NSLocalizedDescriptionKey] as? String
+    if !isUserCancelled, let reason, !reason.isEmpty,
+       var record = try? store.fetch(id: id)
+    {
+        record.lastError = reason
+        record.state = .failed
+        record.modified = Date()
+        try? store.update(record)
+    } else {
+        try? store.updateState(id: id, to: .failed)
+    }
 }
 
 enum DownloadMetadataFallback {

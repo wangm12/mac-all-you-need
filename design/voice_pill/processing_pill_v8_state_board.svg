@@ -1,0 +1,316 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1240" viewBox="0 0 1600 1240">
+<rect width="1600" height="1240" fill="#000"/>
+<text x="52" y="88" font-family="Inter, system-ui, sans-serif" font-size="46" font-weight="700" fill="#fff">Processing Pills v8</text>
+<text x="52" y="120" font-family="Inter, system-ui, sans-serif" font-size="15" fill="#a8a8a8">Voice-reactive listening waveform. AI icon for transcribing. Stop stays on the right. Same 144 x 32px size.</text>
+<line x1="52" y1="145" x2="1548" y2="145" stroke="#242424"/>
+<text x="52" y="176" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" fill="#fff">UNIVERSAL SIZE</text>
+<rect x="52" y="190" width="470" height="198" rx="18" fill="#070707" stroke="#242424"/>
+<g transform="translate(122,232)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <path d="M 20 9.2 V 22.8 M 13.2 16 H 26.8 M 16.4 12.4 L 23.6 19.6 M 23.6 12.4 L 16.4 19.6" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+<path d="M 22.8 13.9 L 25.6 11.9 M 17.2 18.1 L 14.4 20.1" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.55"/>
+<circle cx="27.2" cy="10.7" r="1.35" fill="#ffffff"/><circle cx="12.8" cy="21.3" r="1.15" fill="#ffffff" opacity="0.78"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Transcribing</text>
+</g>
+<text x="80" y="330" font-family="Inter, system-ui, sans-serif" font-size="15" fill="#a8a8a8">All pills remain 144 x 32px. No trailing dots. No resize.</text>
+<text x="552" y="176" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" fill="#fff">LISTENING</text>
+<rect x="552" y="190" width="470" height="198" rx="18" fill="#070707" stroke="#242424"/>
+<g transform="translate(606,232)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <rect x="9.40" y="13.80" width="1.8" height="4.40" rx="0.9" fill="#ffffff"/>
+<rect x="13.50" y="11.90" width="1.8" height="8.20" rx="0.9" fill="#ffffff"/>
+<rect x="17.60" y="10.00" width="1.8" height="12.00" rx="0.9" fill="#ffffff"/>
+<rect x="21.70" y="12.30" width="1.8" height="7.40" rx="0.9" fill="#ffffff"/>
+<rect x="25.80" y="10.90" width="1.8" height="10.20" rx="0.9" fill="#ffffff"/>
+<rect x="29.90" y="13.10" width="1.8" height="5.80" rx="0.9" fill="#ffffff"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Listening</text>
+</g>
+<g transform="translate(606,278)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <rect x="9.40" y="13.80" width="1.8" height="4.40" rx="0.9" fill="#ffffff"/>
+<rect x="13.50" y="11.90" width="1.8" height="8.20" rx="0.9" fill="#ffffff"/>
+<rect x="17.60" y="10.00" width="1.8" height="12.00" rx="0.9" fill="#ffffff"/>
+<rect x="21.70" y="12.30" width="1.8" height="7.40" rx="0.9" fill="#ffffff"/>
+<rect x="25.80" y="10.90" width="1.8" height="10.20" rx="0.9" fill="#ffffff"/>
+<rect x="29.90" y="13.10" width="1.8" height="5.80" rx="0.9" fill="#ffffff"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Listening</text>
+</g>
+<text x="780" y="251" font-family="Inter, system-ui, sans-serif" font-size="15" fill="#fff">Quiet input: small bars</text>
+<text x="780" y="297" font-family="Inter, system-ui, sans-serif" font-size="15" fill="#fff">Voice detected: bars bounce</text>
+<text x="580" y="330" font-family="Inter, system-ui, sans-serif" font-size="15" fill="#a8a8a8">Waveform follows live mic amplitude.</text>
+<text x="1052" y="176" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" fill="#fff">TRANSCRIBING</text>
+<rect x="1052" y="190" width="496" height="198" rx="18" fill="#070707" stroke="#242424"/>
+<g transform="translate(1106,232)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <path d="M 20 9.2 V 22.8 M 13.2 16 H 26.8 M 16.4 12.4 L 23.6 19.6 M 23.6 12.4 L 16.4 19.6" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+<path d="M 22.8 13.9 L 25.6 11.9 M 17.2 18.1 L 14.4 20.1" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.55"/>
+<circle cx="27.2" cy="10.7" r="1.35" fill="#ffffff"/><circle cx="12.8" cy="21.3" r="1.15" fill="#ffffff" opacity="0.78"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Transcribing</text>
+</g>
+<g transform="translate(1106,278)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="25.00" cy="16.00" r="1.1" fill="#ffffff" opacity="0.20"/>
+<circle cx="23.54" cy="19.54" r="1.1" fill="#ffffff" opacity="0.31"/>
+<circle cx="20.00" cy="21.00" r="1.1" fill="#ffffff" opacity="0.43"/>
+<circle cx="16.46" cy="19.54" r="1.1" fill="#ffffff" opacity="0.54"/>
+<circle cx="15.00" cy="16.00" r="1.1" fill="#ffffff" opacity="0.66"/>
+<circle cx="16.46" cy="12.46" r="1.1" fill="#ffffff" opacity="0.77"/>
+<circle cx="20.00" cy="11.00" r="1.1" fill="#ffffff" opacity="0.89"/>
+<circle cx="23.54" cy="12.46" r="1.1" fill="#ffffff" opacity="1.00"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="0.62"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="0.62"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Stopping</text>
+</g>
+<text x="1280" y="251" font-family="Inter, system-ui, sans-serif" font-size="15" fill="#fff">AI icon replaces waveform</text>
+<text x="1280" y="297" font-family="Inter, system-ui, sans-serif" font-size="15" fill="#fff">Spinner + disabled stop</text>
+<text x="1080" y="330" font-family="Inter, system-ui, sans-serif" font-size="15" fill="#a8a8a8">Transcribing is system work, not live audio display.</text>
+<text x="52" y="470" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" fill="#fff">STATE SET</text>
+<text x="52" y="498" font-family="Inter, system-ui, sans-serif" font-size="15" fill="#a8a8a8">Every state uses the same capsule size and centered text.</text>
+<text x="52" y="544" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff">CAPTURE</text>
+<g transform="translate(52,578)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <rect x="9.40" y="13.80" width="1.8" height="4.40" rx="0.9" fill="#ffffff"/>
+<rect x="13.50" y="11.90" width="1.8" height="8.20" rx="0.9" fill="#ffffff"/>
+<rect x="17.60" y="10.00" width="1.8" height="12.00" rx="0.9" fill="#ffffff"/>
+<rect x="21.70" y="12.30" width="1.8" height="7.40" rx="0.9" fill="#ffffff"/>
+<rect x="25.80" y="10.90" width="1.8" height="10.20" rx="0.9" fill="#ffffff"/>
+<rect x="29.90" y="13.10" width="1.8" height="5.80" rx="0.9" fill="#ffffff"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Listening</text>
+</g>
+<g transform="translate(52,624)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <rect x="9.40" y="13.80" width="1.8" height="4.40" rx="0.9" fill="#ffffff"/>
+<rect x="13.50" y="11.90" width="1.8" height="8.20" rx="0.9" fill="#ffffff"/>
+<rect x="17.60" y="10.00" width="1.8" height="12.00" rx="0.9" fill="#ffffff"/>
+<rect x="21.70" y="12.30" width="1.8" height="7.40" rx="0.9" fill="#ffffff"/>
+<rect x="25.80" y="10.90" width="1.8" height="10.20" rx="0.9" fill="#ffffff"/>
+<rect x="29.90" y="13.10" width="1.8" height="5.80" rx="0.9" fill="#ffffff"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Dictating</text>
+</g>
+<text x="297" y="544" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff">AI / PROCESSING</text>
+<g transform="translate(297,578)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <path d="M 20 9.2 V 22.8 M 13.2 16 H 26.8 M 16.4 12.4 L 23.6 19.6 M 23.6 12.4 L 16.4 19.6" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+<path d="M 22.8 13.9 L 25.6 11.9 M 17.2 18.1 L 14.4 20.1" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.55"/>
+<circle cx="27.2" cy="10.7" r="1.35" fill="#ffffff"/><circle cx="12.8" cy="21.3" r="1.15" fill="#ffffff" opacity="0.78"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Transcribing</text>
+</g>
+<g transform="translate(297,624)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="25.00" cy="16.00" r="1.1" fill="#ffffff" opacity="0.20"/>
+<circle cx="23.54" cy="19.54" r="1.1" fill="#ffffff" opacity="0.31"/>
+<circle cx="20.00" cy="21.00" r="1.1" fill="#ffffff" opacity="0.43"/>
+<circle cx="16.46" cy="19.54" r="1.1" fill="#ffffff" opacity="0.54"/>
+<circle cx="15.00" cy="16.00" r="1.1" fill="#ffffff" opacity="0.66"/>
+<circle cx="16.46" cy="12.46" r="1.1" fill="#ffffff" opacity="0.77"/>
+<circle cx="20.00" cy="11.00" r="1.1" fill="#ffffff" opacity="0.89"/>
+<circle cx="23.54" cy="12.46" r="1.1" fill="#ffffff" opacity="1.00"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Thinking</text>
+</g>
+<g transform="translate(297,670)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <rect x="13.00" y="13.50" width="1.8" height="5" rx="0.9" fill="#ffffff"/>
+<rect x="17.80" y="11.50" width="1.8" height="9" rx="0.9" fill="#ffffff"/>
+<rect x="22.60" y="9.50" width="1.8" height="13" rx="0.9" fill="#ffffff"/>
+<rect x="27.40" y="12.50" width="1.8" height="7" rx="0.9" fill="#ffffff"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Analyzing</text>
+</g>
+<g transform="translate(297,716)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="19.6" cy="15.6" r="5.4" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<line x1="23.7" y1="19.7" x2="28" y2="24" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Searching</text>
+</g>
+<g transform="translate(297,762)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <line x1="14" y1="22" x2="25.5" y2="10.5" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+<line x1="23" y1="8.5" x2="27.4" y2="12.8" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Writing</text>
+</g>
+<text x="542" y="544" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff">STOP FLOW</text>
+<g transform="translate(542,578)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="25.00" cy="16.00" r="1.1" fill="#ffffff" opacity="0.20"/>
+<circle cx="23.54" cy="19.54" r="1.1" fill="#ffffff" opacity="0.31"/>
+<circle cx="20.00" cy="21.00" r="1.1" fill="#ffffff" opacity="0.43"/>
+<circle cx="16.46" cy="19.54" r="1.1" fill="#ffffff" opacity="0.54"/>
+<circle cx="15.00" cy="16.00" r="1.1" fill="#ffffff" opacity="0.66"/>
+<circle cx="16.46" cy="12.46" r="1.1" fill="#ffffff" opacity="0.77"/>
+<circle cx="20.00" cy="11.00" r="1.1" fill="#ffffff" opacity="0.89"/>
+<circle cx="23.54" cy="12.46" r="1.1" fill="#ffffff" opacity="1.00"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="0.62"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="0.62"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Stopping</text>
+</g>
+<g transform="translate(542,624)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="20" cy="16" r="6.8" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 15.8 16 L 19 19.4 L 25.3 11.6" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Stopped</text>
+</g>
+<g transform="translate(542,670)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <rect x="15" y="9" width="10" height="14" rx="1.4" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 17.5 14.5 H 22.7 M 17.5 18.8 H 21.8" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Partial</text>
+</g>
+<text x="787" y="544" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff">SUCCESS</text>
+<g transform="translate(787,578)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="20" cy="16" r="6.8" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 15.8 16 L 19 19.4 L 25.3 11.6" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Applied</text>
+</g>
+<g transform="translate(787,624)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="20" cy="16" r="6.8" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 15.8 16 L 19 19.4 L 25.3 11.6" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Copied</text>
+</g>
+<g transform="translate(787,670)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="20" cy="16" r="6.8" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 15.8 16 L 19 19.4 L 25.3 11.6" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Saved</text>
+</g>
+<text x="1032" y="544" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff">ISSUES</text>
+<g transform="translate(1032,578)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <path d="M 20 8.3 L 12.7 22.5 L 27.3 22.5 Z" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linejoin="round"/>
+<path d="M 20 13.5 V 18" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/><circle cx="20" cy="20.9" r="0.9" fill="#ffffff"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Offline</text>
+</g>
+<g transform="translate(1032,624)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <path d="M 20 8.3 L 12.7 22.5 L 27.3 22.5 Z" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linejoin="round"/>
+<path d="M 20 13.5 V 18" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/><circle cx="20" cy="20.9" r="0.9" fill="#ffffff"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Failed</text>
+</g>
+<g transform="translate(1032,670)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <rect x="14.3" y="15" width="11.4" height="7.8" rx="1.5" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 15.8 15 V 11.6 A 4.2 4.2 0 0 1 24.2 11.6 V 15" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Permission</text>
+</g>
+<g transform="translate(1032,716)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="20" cy="16" r="6.8" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 20 14.8 V 20.2" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/><circle cx="20" cy="11" r="0.9" fill="#ffffff"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Too long</text>
+</g>
+<text x="1277" y="544" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#fff">RECOVERY</text>
+<g transform="translate(1277,578)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <path d="M 25.8 11.5 A 6.7 6.7 0 1 0 24.3 21.7" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+<path d="M 25.5 10.8 L 28.7 12.7 L 25.8 16" fill="#ffffff"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Retrying</text>
+</g>
+<g transform="translate(1277,624)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="20" cy="16" r="6.8" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 20 16 V 11.5 M 20 16 L 23.5 18.6" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Queued</text>
+</g>
+<g transform="translate(1277,670)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <path d="M 20 9 V 23 M 13 16 H 27 M 15.8 11.8 L 24.2 20.2 M 24.2 11.8 L 15.8 20.2" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Ready</text>
+</g>
+<line x1="52" y1="811" x2="1548" y2="811" stroke="#242424"/>
+<text x="52" y="846" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" fill="#fff">STOP MID-TRANSCRIBING</text>
+<circle cx="66" cy="914" r="14" fill="none" stroke="#6e6e6e"/><text x="66" y="918" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#a8a8a8">1</text>
+<g transform="translate(94,898)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <path d="M 20 9.2 V 22.8 M 13.2 16 H 26.8 M 16.4 12.4 L 23.6 19.6 M 23.6 12.4 L 16.4 19.6" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+<path d="M 22.8 13.9 L 25.6 11.9 M 17.2 18.1 L 14.4 20.1" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.55"/>
+<circle cx="27.2" cy="10.7" r="1.35" fill="#ffffff"/><circle cx="12.8" cy="21.3" r="1.15" fill="#ffffff" opacity="0.78"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="1"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="1"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Transcribing</text>
+</g>
+<text x="94" y="974" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">AI icon pulses. Right stop is clickable.</text>
+<circle cx="358" cy="914" r="14" fill="none" stroke="#6e6e6e"/><text x="358" y="918" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#a8a8a8">2</text>
+<g transform="translate(386,898)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="25.00" cy="16.00" r="1.1" fill="#ffffff" opacity="0.20"/>
+<circle cx="23.54" cy="19.54" r="1.1" fill="#ffffff" opacity="0.31"/>
+<circle cx="20.00" cy="21.00" r="1.1" fill="#ffffff" opacity="0.43"/>
+<circle cx="16.46" cy="19.54" r="1.1" fill="#ffffff" opacity="0.54"/>
+<circle cx="15.00" cy="16.00" r="1.1" fill="#ffffff" opacity="0.66"/>
+<circle cx="16.46" cy="12.46" r="1.1" fill="#ffffff" opacity="0.77"/>
+<circle cx="20.00" cy="11.00" r="1.1" fill="#ffffff" opacity="0.89"/>
+<circle cx="23.54" cy="12.46" r="1.1" fill="#ffffff" opacity="1.00"/>
+  <circle cx="124" cy="16" r="6.7" fill="none" stroke="#ffffff" stroke-width="1.55" opacity="0.62"/>
+<rect x="120.55" y="12.55" width="6.9" height="6.9" rx="0.9" fill="#ffffff" opacity="0.62"/>
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Stopping</text>
+</g>
+<text x="386" y="974" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">Immediate state change. Stop becomes disabled.</text>
+<circle cx="650" cy="914" r="14" fill="none" stroke="#6e6e6e"/><text x="650" y="918" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#a8a8a8">3a</text>
+<g transform="translate(678,898)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="20" cy="16" r="6.8" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 15.8 16 L 19 19.4 L 25.3 11.6" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Stopped</text>
+</g>
+<text x="678" y="974" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">Use when nothing should be inserted.</text>
+<circle cx="942" cy="914" r="14" fill="none" stroke="#6e6e6e"/><text x="942" y="918" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#a8a8a8">3b</text>
+<g transform="translate(970,898)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <rect x="15" y="9" width="10" height="14" rx="1.4" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 17.5 14.5 H 22.7 M 17.5 18.8 H 21.8" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Partial</text>
+</g>
+<text x="970" y="974" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">Use when usable partial transcript remains.</text>
+<circle cx="1234" cy="914" r="14" fill="none" stroke="#6e6e6e"/><text x="1234" y="918" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#a8a8a8">3c</text>
+<g transform="translate(1262,898)">
+  <rect x="0.5" y="0.5" width="143" height="31" rx="15.5" fill="#050505" stroke="#363636"/>
+  <circle cx="20" cy="16" r="6.8" fill="none" stroke="#ffffff" stroke-width="1.55"/>
+<path d="M 15.8 16 L 19 19.4 L 25.3 11.6" fill="none" stroke="#ffffff" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <text x="72" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Applied</text>
+</g>
+<text x="1262" y="974" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">Use when final text was inserted.</text>
+<text x="52" y="1088" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" fill="#fff">ANIMATION RULES</text>
+<text x="52" y="1135" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">Listening waveform is data-driven from mic amplitude.</text>
+<text x="702" y="1135" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">Transcribing uses the AI icon, not the waveform.</text>
+<text x="52" y="1169" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">Right stop is clickable only while stoppable.</text>
+<text x="702" y="1169" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">Stopping uses left spinner + muted right stop.</text>
+<text x="52" y="1203" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#a8a8a8">No textual ellipsis and no trailing non-clickable dots.</text>
+</svg>

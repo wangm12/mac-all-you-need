@@ -13,6 +13,56 @@ enum DownloadStatePresentation {
         case .failed: "Failed"
         }
     }
+
+    static func pillKind(for state: DownloadState) -> StatusPill.Kind {
+        switch state {
+        case .completed: .success
+        case .failed: .danger
+        case .paused: .warning
+        case .running: .progress
+        case .queued: .neutral
+        }
+    }
+}
+
+enum DownloadJobRowActionPresentation {
+    static func primaryActionTitle(for state: DownloadState) -> String {
+        switch state {
+        case .running: "Pause"
+        case .paused: "Resume"
+        case .queued: "Cancel"
+        case .completed: "Open Folder"
+        case .failed: "Retry"
+        }
+    }
+
+    static func primaryActionSymbol(for state: DownloadState) -> String {
+        switch state {
+        case .running: "pause.fill"
+        case .paused: "play.fill"
+        case .queued: "xmark"
+        case .completed: "folder"
+        case .failed: "arrow.counterclockwise"
+        }
+    }
+
+    static func isRetryable(_ state: DownloadState) -> Bool {
+        state == .failed
+    }
+}
+
+enum DownloadJobRowHoverPresentation {
+    static let missingErrorHelpText = "No captured yt-dlp error is available for this failed download. Retry the row to capture fresh stderr details."
+
+    static func rowHelpText(for model: DownloadJobRowModel) -> String? {
+        guard model.state == .failed else { return nil }
+        let trimmed = model.errorTooltip?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? missingErrorHelpText : trimmed
+    }
+
+    static func inlineErrorLineLimit(isHovering: Bool) -> Int? {
+        isHovering ? nil : 1
+    }
 }
 
 enum DownloadsListFilter {
@@ -35,75 +85,274 @@ enum DownloadsListFilter {
             state == .completed
         }
     }
+}
 
-    var emptyTitle: String {
-        switch self {
-        case .all:
-            "No downloads yet"
-        case .activeQueue:
-            "No queued downloads"
+struct DownloadsEmptyStateModel: Equatable {
+    let title: String
+    let subtitle: String
+    let secondaryActionTitle: String?
+    let primaryActionTitle: String?
+}
+
+enum DownloadsEmptyStatePresentation {
+    static func model(for filter: DownloadsListFilter) -> DownloadsEmptyStateModel {
+        switch filter {
+        case .all, .activeQueue:
+            DownloadsEmptyStateModel(
+                title: "No downloads queued",
+                subtitle: "Add a URL, paste with ⌘V, or send a link from the browser extension.",
+                secondaryActionTitle: "Paste URL",
+                primaryActionTitle: "Add URL"
+            )
         case .completed:
-            "No completed downloads"
+            DownloadsEmptyStateModel(
+                title: "No completed downloads",
+                subtitle: "Finished media will appear here with quick access to its folder.",
+                secondaryActionTitle: nil,
+                primaryActionTitle: nil
+            )
         }
+    }
+}
+
+enum DownloadsQueuePresentation {
+    static func visibleRows(_ rows: [DownloadRecord], filter: DownloadsListFilter) -> [DownloadRecord] {
+        rows.filter { filter.includes($0.state) }
+    }
+
+    static func showsFailedBanner(rows: [DownloadRecord], filter: DownloadsListFilter) -> Bool {
+        guard filter != .completed else { return false }
+        return visibleRows(rows, filter: filter).contains { $0.state == .failed }
+    }
+
+    static func headerActionTitle(rows: [DownloadRecord], filter: DownloadsListFilter) -> String? {
+        switch filter {
+        case .activeQueue, .all:
+            showsFailedBanner(rows: rows, filter: filter) ? "Retry Failed" : nil
+        case .completed:
+            visibleRows(rows, filter: filter).isEmpty ? nil : "Open Folder"
+        }
+    }
+}
+
+struct DownloadJobRowModel: Identifiable {
+    let id: RecordID
+    let sourceURL: String
+    let title: String
+    let subtitle: String
+    let thumbnailURL: URL?
+    let state: DownloadState
+    let statusText: String
+    let phase: String
+    let progress: Double
+    let speedText: String?
+    let etaText: String?
+    let inlineError: String?
+    let errorTooltip: String?
+    let destinationPath: String?
+
+    var statusPillKind: StatusPill.Kind {
+        DownloadStatePresentation.pillKind(for: state)
+    }
+
+    init(record: DownloadRecord, progress: DownloadProgress?, statusText: String?) {
+        id = record.id
+        sourceURL = record.url
+        title = record.videoTitle ?? record.title
+        subtitle = Self.subtitle(for: record)
+        thumbnailURL = record.thumbnailURL.flatMap(URL.init(string:))
+        state = record.state
+        let isMerging = Self.isMerging(statusText)
+        self.statusText = DownloadStatePresentation.badgeText(for: record.state, isMerging: isMerging)
+        phase = Self.phase(for: record, statusText: statusText, isMerging: isMerging)
+        self.progress = Self.progressFraction(for: record, progress: progress)
+        speedText = Self.speedText(for: progress)
+        etaText = Self.etaText(for: progress, state: record.state)
+        inlineError = Self.inlineError(for: record)
+        errorTooltip = Self.inlineError(for: record)
+        destinationPath = record.destinationPath
+    }
+
+    private static func isMerging(_ statusText: String?) -> Bool {
+        let phase = statusText?.lowercased() ?? ""
+        return phase.contains("merg") || phase.contains("remux")
+    }
+
+    private static func subtitle(for record: DownloadRecord) -> String {
+        let parts: [String] = [record.channelName, record.durationSeconds.map(formatDuration)]
+            .compactMap { $0 }
+        guard !parts.isEmpty else { return record.url }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func phase(for record: DownloadRecord, statusText: String?, isMerging _: Bool) -> String {
+        switch record.state {
+        case .running:
+            let trimmed = statusText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? "Downloading" : trimmed
+        case .paused:
+            return "Paused; resume continues from partial file"
+        case .queued:
+            return "Waiting for an available slot"
+        case .completed:
+            return "Completed"
+        case .failed:
+            return "Failed during extractor step"
+        }
+    }
+
+    private static func progressFraction(for record: DownloadRecord, progress: DownloadProgress?) -> Double {
+        if record.state == .completed { return 1 }
+        if let progress {
+            if let downloaded = progress.downloadedBytes, let total = progress.totalBytes, total > 0 {
+                return clamped(Double(downloaded) / Double(total))
+            }
+            return clamped(progress.fraction)
+        }
+        if let total = record.bytesTotal, total > 0 {
+            return clamped(Double(record.bytesDownloaded) / Double(total))
+        }
+        return 0
+    }
+
+    private static func speedText(for progress: DownloadProgress?) -> String? {
+        guard let speed = progress?.speedBytesPerSec, speed > 0 else { return nil }
+        return "\(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/s"
+    }
+
+    private static func etaText(for progress: DownloadProgress?, state: DownloadState) -> String? {
+        guard state == .running, let eta = progress?.etaSeconds, eta > 0 else { return nil }
+        return String(format: "ETA %d:%02d", eta / 60, eta % 60)
+    }
+
+    private static func inlineError(for record: DownloadRecord) -> String? {
+        guard record.state == .failed else { return nil }
+        let trimmed = record.lastError?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func formatDuration(_ seconds: Int) -> String {
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        let remainingSeconds = seconds % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
+            : String(format: "%d:%02d", minutes, remainingSeconds)
+    }
+
+    private static func clamped(_ value: Double) -> Double {
+        min(1, max(0, value))
+    }
+}
+
+enum DownloadsListSurface {
+    case main
+    case commandCenter
+}
+
+struct DownloadAddURLSheet: View {
+    @Binding var urlString: String
+    let onCancel: () -> Void
+    let onDownload: (String) -> Void
+
+    private var trimmedURL: String {
+        urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Add download URL")
+                    .font(.title3.weight(.semibold))
+                Text("Paste a video or audio URL. Metadata is fetched before the download starts.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            MAYNTextField(
+                placeholder: "https://www.youtube.com/watch?v=...",
+                text: $urlString,
+                width: MAYNControlMetrics.wideTextFieldWidth,
+                autofocus: true
+            )
+
+            HStack(spacing: 8) {
+                StatusPill(text: "Ready", kind: .neutral)
+                Text("Metadata will appear immediately after enqueue.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Spacer()
+                MAYNButton("Cancel", action: onCancel)
+                MAYNButton("Download", role: .primary) {
+                    onDownload(trimmedURL)
+                }
+                .disabled(trimmedURL.isEmpty)
+                .keyboardShortcut(.return)
+            }
+        }
+        .padding(24)
+        .frame(width: 430)
+        .background(MAYNTheme.window)
     }
 }
 
 struct DownloadsListView: View {
     @Bindable var vm: DownloaderViewModel
     var filter: DownloadsListFilter = .all
-    @State private var showAdd = false
-    @State private var addURL = ""
+    var surface: DownloadsListSurface = .main
+    var onPasteURL: (() -> Void)?
+    var onAddURL: (() -> Void)?
     @FocusState private var listFocused: Bool
     @State private var keyMonitor: Any? = nil
 
     var body: some View {
         VStack(spacing: 0) {
-            headerBar
-
-            if let warning = vm.cookieWarning {
-                cookieWarningBanner(warning)
+            if surface == .main {
+                listHeader
+                MAYNDivider()
+                if let warning = vm.cookieWarning {
+                    cookieWarningBanner(warning)
+                    MAYNDivider()
+                }
+                if DownloadsQueuePresentation.showsFailedBanner(rows: vm.rows, filter: filter) {
+                    failedBanner
+                    MAYNDivider()
+                }
             }
-
-            if showAdd {
-                addURLBar
-            }
-
-            Divider()
 
             if visibleRows.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.system(size: 28, weight: .regular))
-                        .foregroundStyle(DownloadSurfaceTheme.muted)
-                    Text(filter.emptyTitle)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(DownloadSurfaceTheme.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                DownloadsEmptyStateView(
+                    model: DownloadsEmptyStatePresentation.model(for: filter),
+                    onPasteURL: pasteURL,
+                    onAddURL: addURL
+                )
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(visibleRows, id: \.id) { record in
-                            DownloadCardView(
-                                record: record,
-                                progress: vm.liveProgress[record.id.rawValue],
-                                statusText: vm.liveStatus[record.id.rawValue],
+                            DownloadJobRow(
+                                model: DownloadJobRowModel(
+                                    record: record,
+                                    progress: vm.liveProgress[record.id.rawValue],
+                                    statusText: vm.liveStatus[record.id.rawValue]
+                                ),
                                 isSelected: vm.selectedIDs.contains(record.id.rawValue),
+                                isCompact: surface == .commandCenter,
                                 onTap: { handleTap(id: record.id.rawValue) },
-                                onPause: { Task { await vm.pause(id: record.id) } },
-                                onResume: { Task { await vm.resume(id: record.id) } },
-                                onRetry: { Task { await vm.retry(record: record) } },
-                                onCancel: { Task { await vm.cancel(id: record.id) } },
+                                onPrimaryAction: { performPrimaryAction(for: record) },
                                 onDelete: { Task { await vm.delete(ids: [record.id]) } }
                             )
                         }
                     }
-                    .padding(.vertical, 4)
                 }
-                .background(DownloadSurfaceTheme.background)
             }
         }
-        .background(DownloadSurfaceTheme.background)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(surface == .main ? Color.clear : MAYNTheme.window)
         .focusable()
         .focusEffectDisabled()
         .focused($listFocused)
@@ -112,92 +361,136 @@ struct DownloadsListView: View {
             installKeyMonitor()
         }
         .onDisappear {
-            if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
+            if let monitor = keyMonitor {
+                NSEvent.removeMonitor(monitor)
+                keyMonitor = nil
+            }
             vm.selectedIDs = []
             vm.anchorID = nil
         }
         .task { await vm.refresh() }
-        .onReceive(NotificationCenter.default.publisher(for: .addDownloadRequested)) { _ in
-            showAdd = true
-            if let clip = NSPasteboard.general.string(forType: .string), clip.hasPrefix("http") {
-                addURL = clip
-            } else {
-                addURL = ""
-            }
-        }
-    }
-
-    private var headerBar: some View {
-        HStack(spacing: 10) {
-            Text("Downloads")
-                .font(.system(size: 13, weight: .semibold))
-            if !visibleRows.isEmpty {
-                Text("\(visibleRows.count)")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(DownloadSurfaceTheme.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(DownloadSurfaceTheme.fill, in: Capsule())
-                    .overlay(Capsule().stroke(DownloadSurfaceTheme.border, lineWidth: 1))
-            }
-            Spacer()
-            Button {
-                showAdd.toggle()
-                if showAdd {
-                    if let clip = NSPasteboard.general.string(forType: .string),
-                       clip.hasPrefix("http") { addURL = clip } else { addURL = "" }
-                }
-            } label: {
-                Image(systemName: showAdd ? "xmark.circle.fill" : "plus")
-                    .frame(width: 22, height: 22)
-            }
-            .buttonStyle(.borderless)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(DownloadSurfaceTheme.header)
     }
 
     private var visibleRows: [DownloadRecord] {
-        vm.rows.filter { filter.includes($0.state) }
+        DownloadsQueuePresentation.visibleRows(vm.rows, filter: filter)
     }
 
-    @ViewBuilder
+    private var listHeader: some View {
+        HStack(spacing: 10) {
+            Text("Downloads")
+                .font(.callout.weight(.semibold))
+            if !visibleRows.isEmpty {
+                Text("\(visibleRows.count)")
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .frame(height: 24)
+                    .background(MAYNTheme.elevated, in: Capsule())
+                    .overlay(Capsule().stroke(MAYNTheme.subtleBorder, lineWidth: 1))
+            }
+            Spacer()
+            if let actionTitle = DownloadsQueuePresentation.headerActionTitle(rows: vm.rows, filter: filter) {
+                MAYNButton(actionTitle, height: MAYNControlMetrics.controlHeight) {
+                    performHeaderAction()
+                }
+            }
+        }
+        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+        .padding(.vertical, 11)
+    }
+
+    private var failedBanner: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(MAYNTheme.danger)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("A download failed")
+                    .font(.callout.weight(.semibold))
+                Text("Failed rows show captured yt-dlp errors inline when available. Hover a failed row for details.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 12)
+            MAYNButton("Retry all") {
+                Task { await vm.retryFailed(in: visibleRows) }
+            }
+        }
+        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+        .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
+        .background(MAYNTheme.danger.opacity(0.08))
+    }
+
     private func cookieWarningBanner(_ warning: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(DownloadSurfaceTheme.warning)
-            Text(warning).font(.caption).foregroundStyle(DownloadSurfaceTheme.secondary)
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(MAYNTheme.warning)
+            Text(warning)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Spacer()
             MAYNButton("Open Chrome", height: HotkeyChipPresentation.compactHeight) {
                 NSWorkspace.shared.open(URL(string: "https://www.youtube.com")!)
             }
             Button { vm.dismissCookieWarning() } label: {
-                Image(systemName: "xmark").font(.caption2)
-            }.buttonStyle(.plain).foregroundStyle(.secondary)
+                Image(systemName: "xmark")
+                    .font(.caption2)
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(DownloadSurfaceTheme.warning.opacity(0.10))
-        Divider()
+        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+        .padding(.vertical, 7)
+        .background(MAYNTheme.warning.opacity(0.08))
     }
 
-    @ViewBuilder
-    private var addURLBar: some View {
-        HStack(spacing: 8) {
-            MAYNTextField(placeholder: "Paste URL…", text: $addURL, width: 360)
-            MAYNButton("Download", role: .primary) {
-                let url = addURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !url.isEmpty else { return }
-                showAdd = false; addURL = ""
-                Task { await vm.add(url: url) }
-            }
-            .disabled(addURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .keyboardShortcut(.return)
+    private func pasteURL() {
+        if let onPasteURL {
+            onPasteURL()
+        } else {
+            Task { await vm.enqueueClipboardURL() }
         }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 8)
-        .background(DownloadSurfaceTheme.header)
-        Divider()
+    }
+
+    private func addURL() {
+        onAddURL?()
+    }
+
+    private func performHeaderAction() {
+        switch filter {
+        case .all, .activeQueue:
+            Task { await vm.retryFailed(in: visibleRows) }
+        case .completed:
+            openDefaultDownloadFolder()
+        }
+    }
+
+    private func performPrimaryAction(for record: DownloadRecord) {
+        switch record.state {
+        case .running:
+            Task { await vm.pause(id: record.id) }
+        case .paused:
+            Task { await vm.resume(id: record.id) }
+        case .queued:
+            Task { await vm.cancel(id: record.id) }
+        case .completed:
+            openFolder(for: record)
+        case .failed:
+            Task { await vm.retry(record: record) }
+        }
+    }
+
+    private func openFolder(for record: DownloadRecord) {
+        let directory = URL(fileURLWithPath: record.destinationPath).deletingLastPathComponent()
+        NotificationCenter.default.post(name: .browseFolderRequested, object: directory)
+    }
+
+    private func openDefaultDownloadFolder() {
+        let downloadDir = AppGroupSettings.defaults.string(forKey: "downloadDirectory") ?? ""
+        let path = DownloadDestinationPresentation.effectivePath(downloadDir: downloadDir)
+        NotificationCenter.default.post(name: .browseFolderRequested, object: URL(fileURLWithPath: path))
     }
 
     // MARK: - Key handling
@@ -207,46 +500,40 @@ struct DownloadsListView: View {
         claimKeyWindow()
         let vm = vm
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            let cmd = mods.contains(.command)
-            let char = event.charactersIgnoringModifiers ?? ""
-            // Backspace on Mac sends keyCode 51 / "\u{7F}". Forward-Delete sends 117 / "\u{F728}".
-            // Some keyboards/layouts may differ — check both keyCodes and character codes.
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let isCommand = modifiers.contains(.command)
+            let character = event.charactersIgnoringModifiers ?? ""
             let isDeleteKey = event.keyCode == 51 || event.keyCode == 117
-                || char == "\u{7F}" || char == "\u{F728}"
+                || character == "\u{7F}" || character == "\u{F728}"
 
             if MAYNTextEditingShortcutPolicy.shouldYieldToFocusedTextInput(
                 isTextEditingFirstResponder: MAYNTextEditingShortcutPolicy.isTextEditingFirstResponder(
                     in: event.window ?? NSApp.keyWindow
                 ),
-                keyEquivalent: char,
+                keyEquivalent: character,
                 modifiers: event.modifierFlags
             ) {
                 return event
             }
 
-            if cmd, isDeleteKey { // Cmd+⌫ or Cmd+⌦: delete selected
+            if isCommand, isDeleteKey {
                 guard !vm.selectedIDs.isEmpty else { return event }
-                let ids = self.visibleRows.filter { vm.selectedIDs.contains($0.id.rawValue) }.map(\.id)
+                let ids = visibleRows.filter { vm.selectedIDs.contains($0.id.rawValue) }.map(\.id)
                 vm.selectedIDs = []
                 vm.anchorID = nil
                 Task { @MainActor in await vm.delete(ids: ids) }
                 return nil
             }
-            if cmd, char == "a" { // Cmd+A: select all
-                vm.selectedIDs = Set(self.visibleRows.map(\.id.rawValue))
-                vm.anchorID = self.visibleRows.first?.id.rawValue
+            if isCommand, character == "a" {
+                vm.selectedIDs = Set(visibleRows.map(\.id.rawValue))
+                vm.anchorID = visibleRows.first?.id.rawValue
                 return nil
             }
-            if cmd, char == "v" { // Cmd+V: paste URL
-                if let s = NSPasteboard.general.string(forType: .string)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines), s.hasPrefix("http")
-                {
-                    Task { @MainActor in await vm.add(url: s) }
-                    return nil
-                }
+            if isCommand, character == "v" {
+                pasteURL()
+                return nil
             }
-            if event.keyCode == 53, !vm.selectedIDs.isEmpty { // Escape: clear selection
+            if event.keyCode == 53, !vm.selectedIDs.isEmpty {
                 vm.selectedIDs = []
                 vm.anchorID = nil
                 return nil
@@ -255,10 +542,8 @@ struct DownloadsListView: View {
         }
     }
 
-    /// Make our MenuBarExtra panel the key window AND activate the app so key
-    /// events route to our local NSEvent monitor. Cmd+Backspace specifically
-    /// gets intercepted by macOS's text editing system unless the app is active.
     private func claimKeyWindow() {
+        guard surface == .commandCenter else { return }
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.async {
             for window in NSApp.windows {
@@ -275,12 +560,12 @@ struct DownloadsListView: View {
 
     private func handleTap(id: String) {
         listFocused = true
-        claimKeyWindow() // re-claim after click so key events route to us, not the previous app
+        claimKeyWindow()
         let flags = NSApp.currentEvent?.modifierFlags ?? []
-        let isCmd = flags.contains(.command)
+        let isCommand = flags.contains(.command)
         let isShift = flags.contains(.shift)
 
-        if isCmd {
+        if isCommand {
             if vm.selectedIDs.contains(id) {
                 vm.selectedIDs.remove(id)
             } else {
@@ -292,8 +577,9 @@ struct DownloadsListView: View {
             if let start = ids.firstIndex(of: anchor),
                let end = ids.firstIndex(of: id)
             {
-                let lo = min(start, end), hi = max(start, end)
-                vm.selectedIDs = Set(ids[lo ... hi])
+                let lowerBound = min(start, end)
+                let upperBound = max(start, end)
+                vm.selectedIDs = Set(ids[lowerBound ... upperBound])
             }
         } else {
             if vm.selectedIDs == [id] {
@@ -307,257 +593,275 @@ struct DownloadsListView: View {
     }
 }
 
-private enum DownloadSurfaceTheme {
-    static let background = Color(nsColor: .windowBackgroundColor)
-    static let header = Color(nsColor: .controlBackgroundColor)
-    static let rowHover = Color.primary.opacity(0.045)
-    static let rowSelected = Color.primary.opacity(0.08)
-    static let fill = Color.primary.opacity(0.055)
-    static let border = Color.primary.opacity(0.10)
-    static let strongBorder = Color.primary.opacity(0.20)
-    static let secondary = Color.secondary
-    static let muted = Color.secondary.opacity(0.65)
-    static let progress = Color.primary.opacity(0.72)
-    static let completed = Color.green.opacity(0.72)
-    static let warning = Color.orange.opacity(0.78)
-    static let danger = Color.red.opacity(0.78)
+private struct DownloadsEmptyStateView: View {
+    let model: DownloadsEmptyStateModel
+    let onPasteURL: () -> Void
+    let onAddURL: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(.secondary)
+            VStack(spacing: 4) {
+                Text(model.title)
+                    .font(.callout.weight(.semibold))
+                Text(model.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if model.secondaryActionTitle != nil || model.primaryActionTitle != nil {
+                HStack(spacing: 8) {
+                    if let secondaryTitle = model.secondaryActionTitle {
+                        MAYNButton(secondaryTitle, action: onPasteURL)
+                    }
+                    if let primaryTitle = model.primaryActionTitle {
+                        MAYNButton(primaryTitle, role: .primary, action: onAddURL)
+                    }
+                }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 }
 
-struct DownloadCardView: View {
-    let record: DownloadRecord
-    let progress: DownloadProgress?
-    let statusText: String?
+struct DownloadJobRow: View {
+    let model: DownloadJobRowModel
     let isSelected: Bool
+    var isCompact = false
     let onTap: () -> Void
-    let onPause: () -> Void
-    let onResume: () -> Void
-    let onRetry: () -> Void
-    let onCancel: () -> Void
+    let onPrimaryAction: () -> Void
     let onDelete: () -> Void
-
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
-    private var overallFraction: Double {
-        if record.state == .completed { return 1.0 }
-        if let p = progress {
-            if let dl = p.downloadedBytes, let total = p.totalBytes, total > 0 {
-                return min(1, Double(dl) / Double(total))
-            }
-            return min(1, p.fraction)
-        }
-        if let total = record.bytesTotal, total > 0 {
-            return min(1, Double(record.bytesDownloaded) / Double(total))
-        }
-        return 0
-    }
-
-    private var isMerging: Bool {
-        let phase = statusText?.lowercased() ?? ""
-        return phase.contains("merg") || phase.contains("remux")
-    }
-
-    private var barColor: Color {
-        switch record.state {
-        case .failed: DownloadSurfaceTheme.danger
-        case .completed: DownloadSurfaceTheme.completed
-        case .paused: DownloadSurfaceTheme.warning
-        default: isMerging ? DownloadSurfaceTheme.warning : DownloadSurfaceTheme.progress
-        }
+    private var thumbnailSize: CGSize {
+        isCompact ? CGSize(width: 56, height: 34) : CGSize(width: 82, height: 48)
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: isCompact ? 9 : 14) {
             thumbnailView
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    stateBadge
-                    Text(record.videoTitle ?? record.url)
+            VStack(alignment: .leading, spacing: isCompact ? 4 : 6) {
+                titleLine
+                if !model.subtitle.isEmpty {
+                    Text(model.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .font(.system(size: 13, weight: .medium))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 4)
-                    actionButtons
                 }
-
-                metadataLine
-
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Rectangle().fill(DownloadSurfaceTheme.fill)
-                        Rectangle().fill(barColor)
-                            .frame(width: max(0, geo.size.width * overallFraction))
-                    }
-                }
-                .frame(height: 2)
-
-                captionLine
+                progressBar
+                captionView
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(cardBackground)
+        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+        .padding(.vertical, isCompact ? 8 : 12)
+        .background(rowBackground)
+        .overlay(MAYNDivider(), alignment: .bottom)
         .overlay(
-            Rectangle()
-                .fill(DownloadSurfaceTheme.border)
-                .frame(height: 1),
-            alignment: .bottom
-        )
-        .overlay(
-            Rectangle()
-                .stroke(isSelected ? DownloadSurfaceTheme.strongBorder : Color.clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
+                .stroke(isSelected ? MAYNTheme.focusRing : Color.clear, lineWidth: 1)
         )
         .contentShape(Rectangle())
+        .downloadRowHelp(DownloadJobRowHoverPresentation.rowHelpText(for: model))
         .onTapGesture { onTap() }
         .onHover { isHovering = $0 }
+        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: model.progress)
     }
 
-    private var cardBackground: some ShapeStyle {
-        if isSelected { return AnyShapeStyle(DownloadSurfaceTheme.rowSelected) }
-        if isHovering { return AnyShapeStyle(DownloadSurfaceTheme.rowHover) }
-        return AnyShapeStyle(Color.clear)
+    private var titleLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            StatusPill(text: model.statusText.uppercased(), kind: model.statusPillKind)
+            Text(model.title)
+                .font(isCompact ? .caption.weight(.semibold) : .callout.weight(.semibold))
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            if !isCompact {
+                actionButtons
+            }
+        }
     }
 
     private var thumbnailView: some View {
         Group {
-            if let thumbStr = record.thumbnailURL, let thumbURL = URL(string: thumbStr) {
-                AsyncImage(url: thumbURL) { img in
-                    img.resizable().aspectRatio(contentMode: .fill)
+            if let thumbnailURL = model.thumbnailURL {
+                AsyncImage(url: thumbnailURL) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
                 } placeholder: {
-                    DownloadSurfaceTheme.fill
+                    thumbnailPlaceholder(symbol: "photo")
                 }
-            } else if record.state == .queued || record.state == .running,
-                      URLDetector.videoBearingURL(in: record.url) != nil
-            {
-                ZStack {
-                    DownloadSurfaceTheme.fill
-                    ProgressView().scaleEffect(0.6)
-                }
-            } else if URLDetector.videoBearingURL(in: record.url) == nil {
-                ZStack {
-                    DownloadSurfaceTheme.fill
-                    Image(systemName: "link.circle.fill")
-                        .foregroundStyle(DownloadSurfaceTheme.secondary).font(.title3)
-                }
+            } else if URLDetector.videoBearingURL(in: model.sourceURL) == nil {
+                thumbnailPlaceholder(symbol: "link.circle")
             } else {
-                ZStack {
-                    DownloadSurfaceTheme.fill
-                    Image(systemName: "video.slash")
-                        .foregroundStyle(.tertiary).font(.title3)
-                }
+                thumbnailPlaceholder(symbol: "play.rectangle")
             }
         }
-        .frame(width: 64, height: 40)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .frame(width: thumbnailSize.width, height: thumbnailSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(DownloadSurfaceTheme.border, lineWidth: 1)
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
+                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
         )
     }
 
-    private var actionButtons: some View {
-        HStack(spacing: 0) {
-            switch record.state {
-            case .running: cardButton("pause.fill", role: .secondary, action: onPause)
-            case .paused: cardButton("play.fill", role: .warning, action: onResume)
-            case .queued: cardButton("xmark", role: .secondary, action: onCancel)
-            case .completed:
-                cardButton("folder", role: .secondary) {
-                    let dir = URL(fileURLWithPath: record.destinationPath).deletingLastPathComponent()
-                    NotificationCenter.default.post(name: .browseFolderRequested, object: dir)
-                }
-            case .failed: cardButton("arrow.counterclockwise", role: .destructive, action: onRetry)
-            }
-            cardButton("trash", role: .destructive, action: onDelete)
-        }
-    }
-
-    private enum ButtonRole { case secondary, warning, destructive }
-
-    private func cardButton(_ symbol: String, role: ButtonRole, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func thumbnailPlaceholder(symbol: String) -> some View {
+        ZStack {
+            MAYNTheme.elevated
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(buttonColor(for: role))
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-    }
-
-    private func buttonColor(for role: ButtonRole) -> Color {
-        switch role {
-        case .secondary: DownloadSurfaceTheme.secondary
-        case .warning: DownloadSurfaceTheme.warning
-        case .destructive: DownloadSurfaceTheme.danger
+                .font(.title3)
+                .foregroundStyle(.secondary)
         }
     }
 
-    private var stateBadge: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(barColor)
-                .frame(width: 5, height: 5)
-            Text(stateBadgeText)
-                .font(.system(size: 10, weight: .semibold))
-                .textCase(.uppercase)
+    private var progressBar: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(MAYNTheme.divider)
+                Capsule()
+                    .fill(progressColor)
+                    .frame(width: max(2, geometry.size.width * model.progress))
+            }
         }
-        .foregroundStyle(record.state == .failed ? DownloadSurfaceTheme.danger : DownloadSurfaceTheme.secondary)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(barColor.opacity(0.10), in: Capsule())
-        .overlay(Capsule().stroke(barColor.opacity(0.24), lineWidth: 1))
+        .frame(height: isCompact ? 2 : 3)
     }
 
-    private var stateBadgeText: String {
-        DownloadStatePresentation.badgeText(for: record.state, isMerging: isMerging)
+    private var captionView: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Text(model.phase)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .downloadRowHelp(DownloadJobRowHoverPresentation.rowHelpText(for: model))
+                if let speedText = model.speedText {
+                    Text("· \(speedText)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if let etaText = model.etaText, !isCompact {
+                    Text(etaText)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+
+            if let inlineError = model.inlineError {
+                Text(inlineError)
+                    .font(.caption)
+                    .foregroundStyle(MAYNTheme.danger)
+                    .lineLimit(DownloadJobRowHoverPresentation.inlineErrorLineLimit(isHovering: isHovering))
+                    .truncationMode(.tail)
+                    .help(DownloadJobRowHoverPresentation.rowHelpText(for: model) ?? inlineError)
+            }
+        }
     }
+
+    private var actionButtons: some View {
+        HStack(spacing: 6) {
+            DownloadIconButton(
+                symbolName: DownloadJobRowActionPresentation.primaryActionSymbol(for: model.state),
+                role: model.state == .failed ? .destructive : .secondary,
+                accessibilityLabel: DownloadJobRowActionPresentation.primaryActionTitle(for: model.state),
+                action: onPrimaryAction
+            )
+            DownloadIconButton(
+                symbolName: "trash",
+                role: .destructive,
+                accessibilityLabel: "Delete",
+                action: onDelete
+            )
+        }
+    }
+
+    private var rowBackground: Color {
+        if isSelected { return MAYNTheme.selected }
+        if isHovering { return MAYNTheme.hover }
+        return Color.clear
+    }
+
+    private var progressColor: Color {
+        switch model.state {
+        case .completed: MAYNTheme.success
+        case .failed: MAYNTheme.danger
+        case .paused: MAYNTheme.warning
+        case .running: MAYNTheme.progress
+        case .queued: .secondary
+        }
+    }
+}
+
+private struct DownloadRowHelpModifier: ViewModifier {
+    let helpText: String?
 
     @ViewBuilder
-    private var metadataLine: some View {
-        let parts: [String] = [record.channelName, record.durationSeconds.map { formatDuration($0) }]
-            .compactMap { $0 }
-        if !parts.isEmpty {
-            Text(parts.joined(separator: " · "))
-                .font(.system(size: 11))
-                .foregroundStyle(DownloadSurfaceTheme.secondary)
+    func body(content: Content) -> some View {
+        if let helpText {
+            content.help(helpText)
+        } else {
+            content
         }
     }
+}
 
-    private var captionLine: some View {
-        HStack {
-            Text(stateLabel)
-                .font(.system(size: 11))
-                .foregroundStyle(record.state == .failed ? DownloadSurfaceTheme.danger : DownloadSurfaceTheme.secondary)
-            if let speed = progress?.speedBytesPerSec, speed > 0 {
-                Text("· \(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/s")
-                    .font(.system(size: 11)).foregroundStyle(DownloadSurfaceTheme.secondary)
-            }
-            Spacer()
-            if let eta = progress?.etaSeconds, eta > 0, record.state == .running {
-                Text(formatETA(eta))
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-            }
+private extension View {
+    func downloadRowHelp(_ helpText: String?) -> some View {
+        modifier(DownloadRowHelpModifier(helpText: helpText))
+    }
+}
+
+private struct DownloadIconButton: View {
+    enum Role {
+        case secondary
+        case destructive
+    }
+
+    let symbolName: String
+    var role: Role = .secondary
+    let accessibilityLabel: String
+    let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+    @State private var isPressed = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbolName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(foreground)
+                .frame(width: MAYNControlMetrics.controlHeight, height: MAYNControlMetrics.controlHeight)
+                .background(background, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .scaleEffect(isPressed && !reduceMotion ? 0.985 : 1)
+        .onHover { isHovering = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
+        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
+        .animation(MAYNMotion.fastAnimation(reduceMotion: reduceMotion), value: isPressed)
     }
 
-    private var stateLabel: String {
-        switch record.state {
-        case .running: statusText ?? "Downloading"
-        case .paused: "Paused"
-        case .queued: "Queued"
-        case .completed: "Completed"
-        case .failed: "Failed"
-        }
+    private var foreground: Color {
+        role == .destructive ? MAYNTheme.danger : .secondary
     }
 
-    private func formatDuration(_ s: Int) -> String {
-        let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
-    }
-
-    private func formatETA(_ s: Int) -> String {
-        String(format: "ETA %d:%02d", s / 60, s % 60)
+    private var background: Color {
+        if isPressed { return MAYNTheme.elevatedPressed }
+        if isHovering { return MAYNTheme.elevatedHover }
+        return Color.clear
     }
 }

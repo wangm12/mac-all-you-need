@@ -49,6 +49,14 @@ struct DockSnippetsListView: View {
                                 await model.pasteSnippet(id: snippet.id, plainText: plainText)
                             }
                         },
+                        onCopy: {
+                            model.focusedIndex = index
+                            model.copySnippet(id: snippet.id)
+                            CopyHUD.show("Copied")
+                            NotificationCenter.default.post(
+                                name: .dockHideRequested, object: nil
+                            )
+                        },
                         onEdit: {
                             editorMode = .edit(snippet.id)
                         },

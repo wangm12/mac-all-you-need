@@ -7,6 +7,23 @@ final class VoiceCleanupSettingsTests: XCTestCase {
         XCTAssertEqual(VoiceCleanupSettings.default.isEnabled, false)
         XCTAssertEqual(VoiceCleanupSettings.default.provider, .anthropic)
         XCTAssertGreaterThan(VoiceCleanupSettings.default.timeoutSeconds, 0)
+        XCTAssertEqual(VoiceCleanupSettings.default.latencyPolicy, .balanced2s)
+    }
+
+    func testDecodesLegacySettingsWithBalancedLatencyPolicy() throws {
+        let data = Data("""
+        {
+          "isEnabled": true,
+          "provider": "openAICompatible",
+          "model": "gpt-test",
+          "baseURLString": "https://llm.example/v1",
+          "timeoutSeconds": 7
+        }
+        """.utf8)
+
+        let settings = try JSONDecoder().decode(VoiceCleanupSettings.self, from: data)
+
+        XCTAssertEqual(settings.latencyPolicy, .balanced2s)
     }
 
     func testSavesAndLoadsSettingsWithoutAPIKey() throws {
@@ -18,7 +35,8 @@ final class VoiceCleanupSettingsTests: XCTestCase {
             provider: .openAICompatible,
             model: "gpt-test",
             baseURLString: "https://llm.example/v1",
-            timeoutSeconds: 3
+            timeoutSeconds: 3,
+            latencyPolicy: .qualityFirst
         )
 
         VoiceCleanupSettingsStore.save(settings, to: defaults)

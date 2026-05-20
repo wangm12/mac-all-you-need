@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum FunctionPageShellPresentation {
+    static func showsTabStrip(tabCount: Int) -> Bool {
+        tabCount > 1
+    }
+}
+
 struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: View>: View {
     let title: String
     let subtitle: String
@@ -44,11 +50,13 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
             .padding(.top, 28)
             .padding(.bottom, 14)
 
-            FunctionSegmentedTabStrip(tabs: tabs, selection: selection) { tab in
-                selectTab(tab)
+            if FunctionPageShellPresentation.showsTabStrip(tabCount: tabs.count) {
+                FunctionSegmentedTabStrip(tabs: tabs, selection: selection) { tab in
+                    selectTab(tab)
+                }
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 14)
             }
-                .padding(.horizontal, 32)
-                .padding(.bottom, 14)
 
             Divider()
                 .overlay(MAYNTheme.divider)

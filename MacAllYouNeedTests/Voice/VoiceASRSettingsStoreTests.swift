@@ -42,6 +42,7 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
         XCTAssertEqual(loaded, saved)
         XCTAssertEqual(loaded.modelID, .qwen3ASR06BInt8)
         XCTAssertEqual(loaded.languageHint.qwen3Language, .english)
+        XCTAssertEqual(loaded.languageHint.parakeetLanguage, .english)
     }
 
     func testUpdatingLanguageHintPreservesProviderKind() {
@@ -75,7 +76,7 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
     func testGroqProviderApplyPlanSavesGroqConfigBeforeSwitchingProvider() {
         XCTAssertEqual(
             VoiceASRProviderApplyPlan.steps(for: .groq),
-            [.saveGroqSettings, .applyASRSettings]
+            [.saveCloudSettings, .applyASRSettings]
         )
     }
 
@@ -200,8 +201,17 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
         let settings = VoiceASRSettings(modelID: .qwen3ASR06BF32, languageHint: .automatic)
 
         XCTAssertEqual(
-            settings.resolvedModelID(preferredModelIdentifier: "parakeet-tdt-v3"),
+            settings.resolvedModelID(preferredModelIdentifier: "unknown-local-asr"),
             .qwen3ASR06BF32
+        )
+    }
+
+    func testResolvesParakeetProfileModelOverride() {
+        let settings = VoiceASRSettings(modelID: .qwen3ASR06BF32, languageHint: .automatic)
+
+        XCTAssertEqual(
+            settings.resolvedModelID(preferredModelIdentifier: VoiceASRModelID.parakeetTDT06BV3.rawValue),
+            .parakeetTDT06BV3
         )
     }
 
@@ -245,6 +255,7 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
         XCTAssertEqual(VoiceASRModelTitlePresentation.title(for: .qwen3ASR06BF32), "Qwen3-ASR 0.6B f32")
         XCTAssertEqual(VoiceASRModelTitlePresentation.sizeLabel(for: .qwen3ASR06BF32), "~1.75 GB")
         XCTAssertEqual(VoiceASRModelTitlePresentation.sizeLabel(for: .qwen3ASR06BInt8), "~900 MB")
+        XCTAssertEqual(VoiceASRModelTitlePresentation.sizeLabel(for: .parakeetTDT06BV3), "~850 MB")
     }
 
     func testSelectedCloudModelPresentationUsesStatusWithoutAction() {
@@ -271,15 +282,26 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
 
         XCTAssertEqual(presentation.statusText, "Needs API key")
         XCTAssertEqual(presentation.statusKind, .warning)
-        XCTAssertNil(presentation.actionTitle)
+        XCTAssertEqual(presentation.actionTitle, "Configure")
+    }
+
+    func testCloudASRSetupDrawerTitleNamesCurrentProvider() {
+        XCTAssertEqual(
+            VoiceCloudASRSetupDrawerPresentation.title(for: .groq),
+            "Groq ASR setup"
+        )
+        XCTAssertEqual(
+            VoiceCloudASRSetupDrawerPresentation.title(for: .openAITranscribe),
+            "OpenAI Transcribe ASR setup"
+        )
     }
 
     func testCloudModelSelectionRequiresUsableAPIKey() {
         XCTAssertFalse(
             VoiceASRModelSelectionState.isCloudModelSelected(
                 providerKind: .groq,
-                selectedModelID: .whisperLargeV3Turbo,
-                modelID: .whisperLargeV3Turbo,
+                selectedModelID: .groqWhisperLargeV3Turbo,
+                modelID: .groqWhisperLargeV3Turbo,
                 hasUsableAPIKey: false
             )
         )
@@ -311,15 +333,15 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
         XCTAssertTrue(
             VoiceASRModelSelectionState.isCloudModelSelected(
                 providerKind: .groq,
-                selectedModelID: .whisperLargeV3Turbo,
-                modelID: .whisperLargeV3Turbo
+                selectedModelID: .groqWhisperLargeV3Turbo,
+                modelID: .groqWhisperLargeV3Turbo
             )
         )
         XCTAssertFalse(
             VoiceASRModelSelectionState.isCloudModelSelected(
                 providerKind: .local,
-                selectedModelID: .whisperLargeV3Turbo,
-                modelID: .whisperLargeV3Turbo
+                selectedModelID: .groqWhisperLargeV3Turbo,
+                modelID: .groqWhisperLargeV3Turbo
             )
         )
     }
@@ -333,7 +355,7 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
 
     func testSelectingCloudModelSwitchesProviderToGroq() {
         XCTAssertEqual(
-            VoiceASRModelSelectionState.providerKindAfterSelectingCloudModel(),
+            VoiceASRModelSelectionState.providerKindAfterSelectingCloudModel(.groqWhisperLargeV3Turbo),
             .groq
         )
     }

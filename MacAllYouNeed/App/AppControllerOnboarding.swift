@@ -1,3 +1,5 @@
+import Core
+
 extension AppController {
     func showStartupSurface() {
         let surface = MainStartupSurfaceRouter.surface(
@@ -16,6 +18,14 @@ extension AppController {
 
     func showMainWindow(destination: MainAppDestination? = nil) {
         mainWindow.show(destination: destination)
+    }
+
+    func showVoiceModels() {
+        let route = VoiceModelsNavigation.route()
+        if let tabStorageKey = route.tabStorageKey, let tabRawValue = route.tabRawValue {
+            AppGroupSettings.defaults.set(tabRawValue, forKey: tabStorageKey)
+        }
+        showMainWindow(destination: route.destination)
     }
 
     func showMainWindowIfReady() {

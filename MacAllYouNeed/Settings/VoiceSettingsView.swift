@@ -12,11 +12,12 @@ struct VoiceSettingsView: View {
     @State private var selectedASRModelID: VoiceASRModelID
     @State private var languageHint: VoiceASRLanguageHint
     @State private var asrProviderKind: VoiceASRProviderKind
-    @State private var groqModelID: GroqASRModelID
-    @State private var groqLanguageHint: VoiceASRLanguageHint
-    @State private var groqAPIKey: String
-    @State private var groqStatusMessage: String?
-    @State private var isTestingGroq = false
+    @State private var cloudModelID: VoiceCloudASRModelID
+    @State private var cloudLanguageHint: VoiceASRLanguageHint
+    @State private var cloudAPIKeys: [VoiceASRProviderKind: String]
+    @State private var cloudSetupProviderKind: VoiceASRProviderKind
+    @State private var cloudStatusMessage: String?
+    @State private var isTestingCloud = false
     @State private var dictionaryEntries: [VoiceDictionaryEntry]
     @State private var cleanupEnabled: Bool
     @State private var cleanupProvider: VoiceCleanupProviderKind
@@ -24,6 +25,7 @@ struct VoiceSettingsView: View {
     @State private var cleanupBaseURLString: String
     @State private var cleanupAPIKey: String
     @State private var cleanupTimeoutSeconds: Int
+    @State private var cleanupLatencyPolicy: VoiceCleanupLatencyPolicy
     @State private var cleanupStatusMessage: String?
     @State private var onboardingProgress: VoiceOnboardingProgress
     @State private var errorMessage: String?
@@ -44,16 +46,26 @@ struct VoiceSettingsView: View {
         self.controller = controller
         let activationSettings = VoiceActivationSettingsStore.load()
         let asrSettings = VoiceASRSettingsStore.load()
-        let groqSettings = GroqASRSettingsStore.load()
+        let cloudSettings = VoiceCloudASRSettingsStore.load()
         let cleanupSettings = controller.voiceCleanupSettings()
         _shortcut = State(initialValue: activationSettings.shortcut)
         _mode = State(initialValue: activationSettings.mode)
         _selectedASRModelID = State(initialValue: asrSettings.modelID)
         _languageHint = State(initialValue: asrSettings.languageHint)
         _asrProviderKind = State(initialValue: asrSettings.providerKind)
-        _groqModelID = State(initialValue: groqSettings.modelID)
-        _groqLanguageHint = State(initialValue: groqSettings.languageHint)
-        _groqAPIKey = State(initialValue: controller.groqASRAPIKey())
+        _cloudModelID = State(
+            initialValue: asrSettings.providerKind.isCloud
+                ? cloudSettings.modelID(for: asrSettings.providerKind)
+                : cloudSettings.modelID
+        )
+        _cloudLanguageHint = State(initialValue: cloudSettings.languageHint)
+        let cloudKeys = Dictionary(
+            uniqueKeysWithValues: VoiceASRProviderKind.allCases
+                .filter(\.isCloud)
+                .map { ($0, controller.cloudASRAPIKey(for: $0)) }
+        )
+        _cloudAPIKeys = State(initialValue: cloudKeys)
+        _cloudSetupProviderKind = State(initialValue: asrSettings.providerKind.isCloud ? asrSettings.providerKind : cloudSettings.modelID.providerKind)
         _dictionaryEntries = State(initialValue: controller.listVoiceDictionaryEntries())
         _cleanupEnabled = State(initialValue: cleanupSettings.isEnabled)
         _cleanupProvider = State(initialValue: cleanupSettings.provider)
@@ -61,6 +73,7 @@ struct VoiceSettingsView: View {
         _cleanupBaseURLString = State(initialValue: cleanupSettings.baseURLString)
         _cleanupAPIKey = State(initialValue: controller.voiceCleanupAPIKey(for: cleanupSettings.provider))
         _cleanupTimeoutSeconds = State(initialValue: cleanupSettings.timeoutSeconds)
+        _cleanupLatencyPolicy = State(initialValue: cleanupSettings.latencyPolicy)
         _onboardingProgress = State(initialValue: VoiceOnboardingProgressStore.load())
     }
 
@@ -86,11 +99,12 @@ struct VoiceSettingsView: View {
         .onChange(of: asrProviderKind) { _, providerKind in
             applyASRProviderSelection(providerKind)
         }
-        .onChange(of: groqModelID) { _, _ in
-            applyGroqDropdownSettings()
+        .onChange(of: cloudModelID) { _, newModelID in
+            cloudSetupProviderKind = newModelID.providerKind
+            applyCloudDropdownSettings()
         }
-        .onChange(of: groqLanguageHint) { _, _ in
-            applyGroqDropdownSettings()
+        .onChange(of: cloudLanguageHint) { _, _ in
+            applyCloudDropdownSettings()
         }
         .onAppear {
             onboardingProgress = VoiceOnboardingProgressStore.load()
@@ -202,41 +216,21 @@ struct VoiceSettingsView: View {
                 }
             }
 
-            cloudASRModelsSection
-
-            MAYNSection(
-                title: "Local ASR models",
-                subtitle: "Choose the on-device ASR model. Selecting a local model switches recognition to Local."
-            ) {
-                ForEach(Array(VoiceASRModelID.allCases.enumerated()), id: \.element.id) { index, modelID in
-                    if index > 0 { MAYNDivider() }
-                    VoiceSettingsModelRow(
-                        modelID: modelID,
-                        isSelected: VoiceASRModelSelectionState.isLocalModelSelected(
-                            providerKind: asrProviderKind,
-                            selectedModelID: selectedASRModelID,
-                            modelID: modelID
-                        ),
-                        isDownloaded: isDownloaded(modelID),
-                        isDownloading: downloadingModelID == modelID,
-                        statusMessage: modelDownloadStatus[modelID],
-                        downloadFraction: modelDownloadFractions[modelID],
-                        action: { selectModel(modelID) }
-                    )
-                }
-            }
-
-            MAYNSection(title: "Language") {
+            MAYNSection(title: "Models") {
                 MAYNSettingsRow(
-                    title: "Dictation language",
-                    subtitle: "Choose how dictation biases recognition. Auto-detect is best for mixed Chinese and English; switch to one language only when results drift."
+                    title: "Recognition model",
+                    subtitle: recognitionModelSummary
                 ) {
-                    MAYNDropdown(
-                        selection: $languageHint,
-                        options: Array(VoiceASRLanguageHint.allCases),
-                        title: VoiceLanguageModePresentation.title,
-                        width: MAYNControlMetrics.widePickerWidth
-                    )
+                    MAYNButton("Open Models") {
+                        controller.showVoiceModels()
+                    }
+                }
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: "Cleanup model",
+                    subtitle: cleanupModelSummary
+                ) {
+                    StatusPill(text: cleanupEnabled ? cleanupProvider.label : "Off", kind: .neutral)
                 }
             }
 
@@ -267,60 +261,6 @@ struct VoiceSettingsView: View {
                 ) {
                     Toggle("", isOn: $muteWhenDictating)
                         .labelsHidden()
-                }
-            }
-
-            MAYNSection(title: "Cleanup") {
-                MAYNSettingsRow(
-                    title: "AI cleanup",
-                    subtitle: "Send recognized text through the configured cleanup provider before paste."
-                ) {
-                    Toggle("", isOn: $cleanupEnabled)
-                        .labelsHidden()
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "Provider") {
-                    MAYNDropdown(
-                        selection: $cleanupProvider,
-                        options: Array(VoiceCleanupProviderKind.allCases),
-                        title: { $0.label }
-                    )
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "Model") {
-                    MAYNTextField(text: $cleanupModel)
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "Base URL") {
-                    MAYNTextField(text: $cleanupBaseURLString)
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "API key") {
-                    MAYNSecureField(text: $cleanupAPIKey)
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "Timeout") {
-                    MAYNNumericStepper(
-                        text: "\(cleanupTimeoutSeconds)s",
-                        value: $cleanupTimeoutSeconds,
-                        range: 1 ... 30,
-                        presets: [3, 5, 7, 10, 15, 30],
-                        suffix: "s"
-                    )
-                }
-                MAYNDivider()
-                MAYNSettingsRow(title: "Cleanup actions") {
-                    HStack(spacing: 8) {
-                        MAYNButton("Test") { testCleanupSettings() }
-                        MAYNButton("Apply", role: .primary) { applyCleanupSettings() }
-                    }
-                }
-
-                if let cleanupStatusMessage {
-                    MAYNDivider()
-                    MAYNSettingsRow(title: "Cleanup status") {
-                        StatusPill(text: cleanupStatusMessage, kind: .neutral)
-                    }
                 }
             }
 
@@ -377,37 +317,6 @@ struct VoiceSettingsView: View {
         }
     }
 
-    private var cloudASRModelsSection: some View {
-        MAYNSection(
-            title: "Cloud ASR models",
-            subtitle: "Choose a Groq Whisper model. Selecting a cloud model switches recognition to Groq."
-        ) {
-            VoiceCloudASRSetupDrawer(
-                isExpanded: $isCloudAPISetupExpanded,
-                languageHint: $groqLanguageHint,
-                apiKey: $groqAPIKey,
-                isTestingGroq: isTestingGroq,
-                statusMessage: groqStatusMessage,
-                testConnection: testGroqConnection
-            )
-            MAYNDivider()
-            ForEach(Array(GroqASRModelID.allCases.enumerated()), id: \.element.id) { index, modelID in
-                if index > 0 { MAYNDivider() }
-                VoiceCloudASRModelRow(
-                    modelID: modelID,
-                    isSelected: VoiceASRModelSelectionState.isCloudModelSelected(
-                        providerKind: asrProviderKind,
-                        selectedModelID: groqModelID,
-                        modelID: modelID,
-                        hasUsableAPIKey: hasUsableGroqAPIKey
-                    ),
-                    hasUsableAPIKey: hasUsableGroqAPIKey,
-                    action: { selectCloudModel(modelID) }
-                )
-            }
-        }
-    }
-
     private var activationShortcutBinding: Binding<HotkeyDescriptor> {
         Binding(
             get: { shortcut },
@@ -460,56 +369,62 @@ struct VoiceSettingsView: View {
         switch providerKind {
         case .local:
             controller.applyVoiceASRSettings(providerASRSettingsDraft)
-            groqStatusMessage = nil
+            cloudStatusMessage = nil
             errorMessage = nil
-        case .groq:
-            guard hasUsableGroqAPIKey else {
-                groqStatusMessage = "Add an API key before dictating with Groq."
+        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+            cloudSetupProviderKind = providerKind
+            cloudModelID = cloudASRSettingsDraft.modelID(for: providerKind)
+            guard hasUsableCloudAPIKey(for: providerKind) else {
+                isCloudAPISetupExpanded = true
+                cloudStatusMessage = "Add \(providerKind.apiKeyLabel) before dictating with \(providerKind.label)."
                 return
             }
-            controller.applyGroqASRSettings(groqASRSettingsDraft)
+            controller.applyCloudASRSettings(cloudASRSettingsDraft)
             controller.applyVoiceASRSettings(providerASRSettingsDraft)
-            applyGroqProviderSettings(successMessage: "Groq selected.")
+            applyCloudProviderSettings(successMessage: "\(providerKind.label) selected.")
         }
     }
 
-    private func applyGroqDropdownSettings() {
-        controller.applyGroqASRSettings(groqASRSettingsDraft)
-        if asrProviderKind == .groq {
-            applyASRProviderSelection(.groq)
+    private func applyCloudDropdownSettings() {
+        controller.applyCloudASRSettings(cloudASRSettingsDraft)
+        if asrProviderKind == cloudModelID.providerKind {
+            applyASRProviderSelection(cloudModelID.providerKind)
         }
     }
 
-    private func applyGroqProviderSettings(successMessage: String) {
+    private func applyCloudProviderSettings(successMessage: String) {
         do {
             try controller.applyVoiceASRProviderSettings(
                 asrSettings: providerASRSettingsDraft,
-                groqSettings: groqASRSettingsDraft,
-                groqAPIKey: groqAPIKey
+                cloudSettings: cloudASRSettingsDraft,
+                cloudAPIKey: cloudAPIKeys[cloudSetupProviderKind] ?? ""
             )
-            groqStatusMessage = successMessage
+            cloudStatusMessage = successMessage
             errorMessage = nil
         } catch {
             let message = error.localizedDescription
-            groqStatusMessage = message
+            cloudStatusMessage = message
             errorMessage = message
         }
     }
 
-    private func testGroqConnection() {
-        isTestingGroq = true
-        groqStatusMessage = "Connecting..."
-        let groqSettings = groqASRSettingsDraft
-        let key = groqAPIKey
+    private func testCloudConnection() {
+        isTestingCloud = true
+        cloudStatusMessage = "Connecting..."
+        let settings = cloudASRSettingsDraft.updating(modelID: cloudASRSettingsDraft.modelID(for: cloudSetupProviderKind))
+        let providerKind = cloudSetupProviderKind
+        let key = cloudAPIKeys[providerKind] ?? ""
         Task {
-            let result = await controller.testGroqASRSettings(groqSettings, apiKey: key)
+            let result = await controller.testCloudASRSettings(settings, providerKind: providerKind, apiKey: key)
             await MainActor.run {
                 if result.localizedCaseInsensitiveContains("succeeded") {
-                    applyGroqProviderSettings(successMessage: "Connection succeeded. Future dictations will use Groq.")
+                    cloudModelID = settings.modelID
+                    asrProviderKind = providerKind
+                    applyCloudProviderSettings(successMessage: "Connection succeeded. Future dictations will use \(providerKind.label).")
                 } else {
-                    groqStatusMessage = result
+                    cloudStatusMessage = result
                 }
-                isTestingGroq = false
+                isTestingCloud = false
             }
         }
     }
@@ -529,15 +444,16 @@ struct VoiceSettingsView: View {
         }
     }
 
-    private func selectCloudModel(_ modelID: GroqASRModelID) {
-        guard hasUsableGroqAPIKey else {
+    private func selectCloudModel(_ modelID: VoiceCloudASRModelID) {
+        cloudSetupProviderKind = modelID.providerKind
+        guard hasUsableCloudAPIKey(for: modelID.providerKind) else {
             isCloudAPISetupExpanded = true
-            groqStatusMessage = "Add an API key before selecting a cloud model."
+            cloudStatusMessage = "Add \(modelID.providerKind.apiKeyLabel) before selecting this cloud model."
             return
         }
 
-        groqModelID = modelID
-        let providerKind = VoiceASRModelSelectionState.providerKindAfterSelectingCloudModel()
+        cloudModelID = modelID
+        let providerKind = VoiceASRModelSelectionState.providerKindAfterSelectingCloudModel(modelID)
         asrProviderKind = providerKind
         applyASRProviderSelection(providerKind)
     }
@@ -558,18 +474,14 @@ struct VoiceSettingsView: View {
 
     private func downloadModel(_ modelID: VoiceASRModelID, selectWhenReady: Bool = false) {
         guard downloadingModelID == nil else { return }
-        guard #available(macOS 15, *) else {
-            modelDownloadStatus[modelID] = "Requires macOS 15 or later."
-            return
-        }
 
         downloadingModelID = modelID
         modelDownloadFractions[modelID] = 0
         modelDownloadStatus[modelID] = "Preparing download..."
         Task {
             do {
-                try await Qwen3AsrModels.download(
-                    variant: modelID.variant,
+                try await VoiceModelManager.downloadLocalASRModel(
+                    modelID,
                     progressHandler: { progress in
                         Task { @MainActor in
                             modelDownloadStatus[modelID] = VoiceSettingsModelDownloadPresenter.describe(progress)
@@ -595,11 +507,30 @@ struct VoiceSettingsView: View {
         }
     }
 
+    private func showModelInFinder(_ modelID: VoiceASRModelID) {
+        VoiceModelManager.showLocalASRModelInFinder(modelID)
+    }
+
+    private func deleteModel(_ modelID: VoiceASRModelID) {
+        do {
+            try VoiceModelManager.deleteLocalASRModel(modelID)
+            let installed = VoiceModelManager.installedLocalASRModelIDs()
+            if let fallback = VoiceModelManager.fallbackLocalASRModel(
+                afterDeleting: modelID,
+                selectedModelID: selectedASRModelID,
+                installedModelIDsAfterDelete: installed
+            ), fallback != selectedASRModelID {
+                useModel(fallback)
+                modelDownloadStatus[fallback] = "Selected because the previous model was deleted."
+            }
+            modelDownloadStatus[modelID] = "Deleted."
+        } catch {
+            modelDownloadStatus[modelID] = error.localizedDescription
+        }
+    }
+
     private func isDownloaded(_ modelID: VoiceASRModelID) -> Bool {
-        guard #available(macOS 15, *) else { return false }
-        return Qwen3AsrModels.modelsExist(
-            at: Qwen3AsrModels.defaultCacheDirectory(variant: modelID.variant)
-        )
+        VoiceModelManager.isLocalASRModelInstalled(modelID)
     }
 
     private var canToggleVoice: Bool {
@@ -642,13 +573,31 @@ struct VoiceSettingsView: View {
         return text.isEmpty ? "Last transcript is empty." : text
     }
 
+    private var recognitionModelSummary: String {
+        switch asrProviderKind {
+        case .local:
+            selectedASRModelID.title
+        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+            cloudModelID.title
+        }
+    }
+
+    private var cleanupModelSummary: String {
+        guard cleanupEnabled else {
+            return "AI cleanup is off; local cleanup and dictionary still apply."
+        }
+        let model = cleanupModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return model.isEmpty ? cleanupProvider.label : "\(cleanupProvider.label) · \(model)"
+    }
+
     private var cleanupSettingsDraft: VoiceCleanupSettings {
         VoiceCleanupSettings(
             isEnabled: cleanupEnabled,
             provider: cleanupProvider,
             model: cleanupModel,
             baseURLString: cleanupBaseURLString,
-            timeoutSeconds: cleanupTimeoutSeconds
+            timeoutSeconds: cleanupTimeoutSeconds,
+            latencyPolicy: cleanupLatencyPolicy
         )
     }
 
@@ -668,12 +617,19 @@ struct VoiceSettingsView: View {
         )
     }
 
-    private var groqASRSettingsDraft: GroqASRSettings {
-        GroqASRSettings(modelID: groqModelID, languageHint: groqLanguageHint)
+    private var cloudASRSettingsDraft: VoiceCloudASRSettings {
+        VoiceCloudASRSettings(modelID: cloudModelID, languageHint: cloudLanguageHint)
     }
 
-    private var hasUsableGroqAPIKey: Bool {
-        VoiceASRModelSelectionState.canSelectCloudModel(apiKey: groqAPIKey)
+    private var cloudAPIKeyBinding: Binding<String> {
+        Binding(
+            get: { cloudAPIKeys[cloudSetupProviderKind] ?? "" },
+            set: { cloudAPIKeys[cloudSetupProviderKind] = $0 }
+        )
+    }
+
+    private func hasUsableCloudAPIKey(for providerKind: VoiceASRProviderKind) -> Bool {
+        VoiceASRModelSelectionState.canSelectCloudModel(apiKey: cloudAPIKeys[providerKind] ?? "")
     }
 
     private func refreshMicrophoneOptions() {
@@ -710,7 +666,7 @@ enum VoiceLanguageModePresentation {
 }
 
 struct VoiceCloudASRModelRow: View {
-    let modelID: GroqASRModelID
+    let modelID: VoiceCloudASRModelID
     let isSelected: Bool
     let hasUsableAPIKey: Bool
     let action: () -> Void
@@ -743,12 +699,11 @@ struct VoiceCloudASRModelRow: View {
         .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
         .frame(minHeight: 78)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering && hasUsableAPIKey ? MAYNTheme.hover : Color.clear)
-        .opacity(hasUsableAPIKey ? 1 : 0.58)
+        .background(isHovering ? MAYNTheme.hover : Color.clear)
         .contentShape(Rectangle())
         .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
-        .onHover { isHovering = hasUsableAPIKey && $0 }
-        .accessibilityValue(hasUsableAPIKey ? "" : "Disabled, API key required")
+        .onHover { isHovering = presentation.actionTitle != nil && $0 }
+        .accessibilityValue(hasUsableAPIKey ? "" : "API key required")
     }
 
     private var presentation: VoiceASRModelRowPresentation {
@@ -761,9 +716,9 @@ struct VoiceCloudASRModelRow: View {
 
 struct VoiceCloudASRSetupDrawer: View {
     @Binding var isExpanded: Bool
-    @Binding var languageHint: VoiceASRLanguageHint
+    let providerKind: VoiceASRProviderKind
     @Binding var apiKey: String
-    let isTestingGroq: Bool
+    let isTesting: Bool
     let statusMessage: String?
     let testConnection: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -788,7 +743,7 @@ struct VoiceCloudASRSetupDrawer: View {
         } label: {
             HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(VoiceCloudASRSetupDrawerPresentation.title)
+                    Text(VoiceCloudASRSetupDrawerPresentation.title(for: providerKind))
                         .font(.callout)
                     Text(VoiceCloudASRSetupDrawerPresentation.subtitle)
                         .font(.caption)
@@ -816,39 +771,31 @@ struct VoiceCloudASRSetupDrawer: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .accessibilityLabel(VoiceCloudASRSetupDrawerPresentation.title)
+        .accessibilityLabel(VoiceCloudASRSetupDrawerPresentation.title(for: providerKind))
         .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
     }
 
     private var drawerContent: some View {
         VStack(spacing: 0) {
             MAYNDivider()
-            MAYNSettingsRow(title: "Language") {
-                MAYNDropdown(
-                    selection: $languageHint,
-                    options: VoiceASRLanguageHint.allCases,
-                    title: { $0.label }
-                )
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "API key") {
+            MAYNSettingsRow(title: providerKind.apiKeyLabel) {
                 MAYNSecureField(
-                    placeholder: "gsk_...",
+                    placeholder: providerKind.apiKeyPlaceholder,
                     text: $apiKey,
                     width: MAYNControlMetrics.wideTextFieldWidth
                 )
             }
-            if let actionTitle = VoiceASRProviderControlsPresentation.connectionActionTitle(for: .groq) {
+            if let actionTitle = VoiceASRProviderControlsPresentation.connectionActionTitle(for: providerKind) {
                 MAYNDivider()
                 MAYNSettingsRow(
                     title: "Connection",
                     subtitle: "Test after adding or changing the API key."
                 ) {
                     VStack(alignment: .trailing, spacing: 6) {
-                        MAYNButton(isTestingGroq ? "Testing..." : actionTitle) {
+                        MAYNButton(isTesting ? "Testing..." : actionTitle) {
                             testConnection()
                         }
-                        .disabled(isTestingGroq)
+                        .disabled(isTesting)
 
                         if let statusMessage {
                             Text(statusMessage)
@@ -865,69 +812,8 @@ struct VoiceCloudASRSetupDrawer: View {
     private var setupStatus: VoiceCloudASRSetupStatusPresentation {
         VoiceCloudASRSetupDrawerPresentation.status(
             apiKey: apiKey,
-            isTesting: isTestingGroq,
+            isTesting: isTesting,
             statusMessage: statusMessage
-        )
-    }
-}
-
-private struct VoiceSettingsModelRow: View {
-    let modelID: VoiceASRModelID
-    let isSelected: Bool
-    let isDownloaded: Bool
-    let isDownloading: Bool
-    let statusMessage: String?
-    let downloadFraction: Double?
-    let action: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
-            VStack(alignment: .leading, spacing: 3) {
-                VoiceASRModelTitleLine(modelID: modelID)
-                Text(modelID.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .trailing, spacing: 8) {
-                if let statusText = presentation.statusText {
-                    StatusPill(text: statusText, kind: presentation.statusKind.statusPillKind)
-                }
-                if let downloadFraction {
-                    ProgressView(value: downloadFraction)
-                        .frame(width: 170)
-                }
-                if let actionTitle = presentation.actionTitle {
-                    MAYNButton(actionTitle, action: action)
-                }
-                if let statusMessage {
-                    Text(statusMessage)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(minWidth: MAYNControlMetrics.trailingLaneMinWidth, alignment: .trailing)
-        }
-        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
-        .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
-        .frame(minHeight: downloadFraction == nil ? 96 : 114)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering ? MAYNTheme.hover : Color.clear)
-        .contentShape(Rectangle())
-        .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
-        .onHover { isHovering = $0 }
-    }
-
-    private var presentation: VoiceASRModelRowPresentation {
-        VoiceASRModelRowPresentation.model(
-            isSelected: isSelected,
-            isDownloaded: isDownloaded,
-            isDownloading: isDownloading
         )
     }
 }

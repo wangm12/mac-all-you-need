@@ -28,7 +28,7 @@ enum VoiceCleanupProviderKind: String, CaseIterable, Codable, Equatable, Identif
         case .openAICompatible:
             "gpt-5-nano"
         case .ollama:
-            "qwen2.5:7b-instruct"
+            "qwen2.5:3b-instruct"
         }
     }
 
@@ -53,20 +53,82 @@ enum VoiceCleanupProviderKind: String, CaseIterable, Codable, Equatable, Identif
     }
 }
 
+enum VoiceCleanupLatencyPolicy: String, CaseIterable, Codable, Equatable, Identifiable {
+    case balanced2s
+    case qualityFirst
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .balanced2s:
+            "Balanced 2s"
+        case .qualityFirst:
+            "Quality First"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .balanced2s:
+            "Keeps release-to-paste responsive by falling back locally when the cleanup budget is gone."
+        case .qualityFirst:
+            "Allows the full configured timeout before falling back."
+        }
+    }
+}
+
 struct VoiceCleanupSettings: Codable, Equatable {
     var isEnabled: Bool
     var provider: VoiceCleanupProviderKind
     var model: String
     var baseURLString: String
     var timeoutSeconds: Int
+    var latencyPolicy: VoiceCleanupLatencyPolicy
 
     static let `default` = VoiceCleanupSettings(
         isEnabled: false,
         provider: .anthropic,
         model: VoiceCleanupProviderKind.anthropic.defaultModel,
         baseURLString: VoiceCleanupProviderKind.anthropic.defaultBaseURLString,
-        timeoutSeconds: 7
+        timeoutSeconds: 7,
+        latencyPolicy: .balanced2s
     )
+
+    init(
+        isEnabled: Bool,
+        provider: VoiceCleanupProviderKind,
+        model: String,
+        baseURLString: String,
+        timeoutSeconds: Int,
+        latencyPolicy: VoiceCleanupLatencyPolicy = .balanced2s
+    ) {
+        self.isEnabled = isEnabled
+        self.provider = provider
+        self.model = model
+        self.baseURLString = baseURLString
+        self.timeoutSeconds = timeoutSeconds
+        self.latencyPolicy = latencyPolicy
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case provider
+        case model
+        case baseURLString
+        case timeoutSeconds
+        case latencyPolicy
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? Self.default.isEnabled
+        provider = try container.decodeIfPresent(VoiceCleanupProviderKind.self, forKey: .provider) ?? Self.default.provider
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? provider.defaultModel
+        baseURLString = try container.decodeIfPresent(String.self, forKey: .baseURLString) ?? provider.defaultBaseURLString
+        timeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? Self.default.timeoutSeconds
+        latencyPolicy = try container.decodeIfPresent(VoiceCleanupLatencyPolicy.self, forKey: .latencyPolicy) ?? .balanced2s
+    }
 
     var effectiveModel: String {
         let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -98,6 +160,28 @@ enum VoiceCleanupSettingsStore {
     static func save(_ settings: VoiceCleanupSettings, to defaults: UserDefaults = AppGroupSettings.defaults) {
         guard let data = try? JSONEncoder().encode(settings) else { return }
         defaults.set(data, forKey: key)
+    }
+}
+
+enum VoiceCleanupLatencyBudget {
+    static let balancedTargetSeconds: TimeInterval = 2.0
+    static let minimumRemoteBudgetSeconds: TimeInterval = 0.25
+
+    static func remoteTimeout(
+        policy: VoiceCleanupLatencyPolicy,
+        elapsedBeforeCleanupSeconds: TimeInterval,
+        configuredTimeoutSeconds: Int
+    ) -> Duration? {
+        let configured = max(1, configuredTimeoutSeconds)
+        switch policy {
+        case .qualityFirst:
+            return .seconds(Int64(configured))
+        case .balanced2s:
+            let remaining = balancedTargetSeconds - elapsedBeforeCleanupSeconds
+            guard remaining >= minimumRemoteBudgetSeconds else { return nil }
+            let bounded = min(Double(configured), remaining)
+            return .milliseconds(Int64((bounded * 1000).rounded(.down)))
+        }
     }
 }
 

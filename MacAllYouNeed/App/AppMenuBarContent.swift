@@ -8,6 +8,8 @@ import SwiftUI
 struct AppMenuBarContent: View {
     let controller: AppController
     @State private var tab: Tab = .clipboard
+    @State private var showingDownloadURLSheet = false
+    @State private var downloadURL = ""
 
     enum Tab: String, CaseIterable, Hashable, SegmentedTabDestination {
         case clipboard = "Clipboard"
@@ -121,11 +123,40 @@ struct AppMenuBarContent: View {
             PreviewPanel.dismiss()
             ClipboardSystemQuickLookCoordinator.shared.dismiss()
         }
+        .sheet(isPresented: $showingDownloadURLSheet) {
+            DownloadAddURLSheet(
+                urlString: $downloadURL,
+                onCancel: { showingDownloadURLSheet = false },
+                onDownload: submitDownloadURL
+            )
+        }
     }
 
     @ViewBuilder
     private var downloadsTab: some View {
-        DownloadsListView(vm: controller.downloaderVM)
+        DownloadsListView(
+            vm: controller.downloaderVM,
+            surface: .commandCenter,
+            onPasteURL: enqueueClipboardDownloadURL,
+            onAddURL: { presentDownloadURLSheet(prefill: DownloaderViewModel.clipboardVideoURL()) }
+        )
+    }
+
+    private func presentDownloadURLSheet(prefill: String?) {
+        downloadURL = prefill ?? ""
+        showingDownloadURLSheet = true
+    }
+
+    private func submitDownloadURL(_ url: String) {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        showingDownloadURLSheet = false
+        downloadURL = ""
+        Task { await controller.downloaderVM.add(url: trimmed) }
+    }
+
+    private func enqueueClipboardDownloadURL() {
+        Task { await controller.downloaderVM.enqueueClipboardURL() }
     }
 
     private func openSelectedTabInMainWindow() {

@@ -74,7 +74,7 @@ final class VoiceCoordinator {
         personalizationStore: VoicePersonalizationStore? = nil,
         trainingExampleStore: VoiceTrainingExampleStore? = nil,
         personalizationSettings: @escaping () -> VoicePersonalizationSettings = { .default },
-        engine: any VoiceTranscriptionEngine = Qwen3Engine(),
+        engine: any VoiceTranscriptionEngine = VoiceLocalASREngine(),
         cleanupSettings: VoiceCleanupSettings = VoiceCleanupSettingsStore.load(),
         cleanupKeyStore: VoiceCleanupKeyStore = VoiceCleanupKeyStore(keychain: SystemKeychain()),
         learningMonitor: VoicePostEditLearningMonitor? = nil,
@@ -103,9 +103,11 @@ final class VoiceCoordinator {
         } catch {
             log.error("Voice activation failed: \(error.localizedDescription, privacy: .public)")
         }
-        // Pre-download and load the configured ASR model in background so the
-        // first dictation doesn't block on a multi-minute network download.
-        if let qwen = engine as? Qwen3Engine {
+        // Load the configured ASR model only if it is already installed.
+        // Downloads are explicit user actions from Voice setup/model management.
+        if let local = engine as? VoiceLocalASREngine {
+            Task.detached { await local.warmup() }
+        } else if let qwen = engine as? Qwen3Engine {
             Task.detached { await qwen.warmup() }
         }
         installEscKeyMonitor()
@@ -137,14 +139,21 @@ final class VoiceCoordinator {
     func applyASRProvider(_ providerKind: VoiceASRProviderKind, keychain: KeychainBackend) {
         switch providerKind {
         case .local:
-            let qwen = Qwen3Engine()
-            engine = qwen
-            // Kick off download/load in background so first dictation is instant.
-            Task.detached { await qwen.warmup() }
+            let local = VoiceLocalASREngine()
+            engine = local
+            // Only warm an already-installed model. Never download from provider switching.
+            Task.detached { await local.warmup() }
         case .groq:
             let keyStore = GroqASRKeyStore(keychain: keychain)
             engine = GroqASREngine(
                 settings: { GroqASRSettingsStore.load() },
+                keyStore: keyStore
+            )
+        case .elevenLabs, .openAITranscribe, .deepgram:
+            let keyStore = VoiceCloudASRKeyStore(keychain: keychain)
+            engine = VoiceCloudASREngine(
+                providerKind: providerKind,
+                settings: { VoiceCloudASRSettingsStore.load() },
                 keyStore: keyStore
             )
         }
@@ -218,6 +227,7 @@ final class VoiceCoordinator {
     ) async {
         operationGeneration += 1
         let generation = operationGeneration
+        let operationStartedAt = Date()
         state = .transcribing
 
         let appBundleID = presetAppBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
@@ -242,6 +252,7 @@ final class VoiceCoordinator {
                 : (appCtx ?? globalCtx)
 
             let result: VoiceTranscriptionResult
+            var asrMs: Int?
             if let preset = presetASRResult {
                 result = preset
             } else {
@@ -251,8 +262,8 @@ final class VoiceCoordinator {
                     sampleRate: captured.sampleRate,
                     options: .default
                 )
-                let asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
-                log.info("ASR done — \(asrMs, privacy: .public)ms model: \(result.modelIdentifier, privacy: .public) lang: \(result.language.rawValue, privacy: .public) text: \(result.text.prefix(80), privacy: .public)")
+                asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
+                log.info("ASR done — \(asrMs ?? 0, privacy: .public)ms model: \(result.modelIdentifier, privacy: .public) lang: \(result.language.rawValue, privacy: .public) chars: \(result.text.count, privacy: .public)")
                 guard isCurrentOperation(generation), state == .transcribing else {
                     clearInflightContext()
                     return
@@ -275,12 +286,20 @@ final class VoiceCoordinator {
             )
 
             hud.show(.thinking, onCancel: makeCancelAction(), onPrimary: makeCancelAction())
-            let cleanup = makeCleanupPipeline()
+            let cleanup = makeCleanupPipeline(
+                elapsedBeforeCleanupSeconds: Date().timeIntervalSince(operationStartedAt)
+            )
             log.info("LLM cleanup start — text length: \(result.text.count, privacy: .public) chars")
             let cleanupStart = Date()
-            let cleanupResult = await cleanup.clean(cleanupRequest)
+            let rawCleanupResult = await cleanup.clean(cleanupRequest)
             let cleanupMs = Int(Date().timeIntervalSince(cleanupStart) * 1000)
-            log.info("LLM cleanup done — \(cleanupMs, privacy: .public)ms usedLLM: \(cleanupResult.usedLLM, privacy: .public) provider: \(cleanupResult.providerIdentifier ?? "none", privacy: .public) text: \(cleanupResult.cleanedText.prefix(80), privacy: .public)")
+            let totalMs = Int(Date().timeIntervalSince(operationStartedAt) * 1000)
+            let cleanupResult = rawCleanupResult.withTimings(
+                asrMs: asrMs,
+                cleanupMs: cleanupMs,
+                totalMs: totalMs
+            )
+            log.info("LLM cleanup done — \(cleanupMs, privacy: .public)ms total: \(totalMs, privacy: .public)ms usedLLM: \(cleanupResult.usedLLM, privacy: .public) provider: \(cleanupResult.providerIdentifier ?? "none", privacy: .public) chars: \(cleanupResult.cleanedText.count, privacy: .public) fallback: \(cleanupResult.fallbackReason?.rawValue ?? "none", privacy: .public)")
             guard isCurrentOperation(generation), state == .transcribing else {
                 clearInflightContext()
                 return
@@ -663,15 +682,29 @@ final class VoiceCoordinator {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func makeCleanupPipeline() -> VoiceCleanupPipeline {
+    private func makeCleanupPipeline(elapsedBeforeCleanupSeconds: TimeInterval) -> VoiceCleanupPipeline {
         do {
             let provider = try VoiceCleanupProviderFactory.makeProvider(
                 settings: cleanupSettings,
                 keyStore: cleanupKeyStore
             )
+            guard let provider else {
+                return VoiceCleanupPipeline()
+            }
+            guard let timeout = VoiceCleanupLatencyBudget.remoteTimeout(
+                policy: cleanupSettings.latencyPolicy,
+                elapsedBeforeCleanupSeconds: elapsedBeforeCleanupSeconds,
+                configuredTimeoutSeconds: cleanupSettings.normalizedTimeoutSeconds
+            ) else {
+                return VoiceCleanupPipeline(
+                    provider: nil,
+                    forcedFallbackReason: .deadlineExceeded,
+                    forcedDeadlineExceeded: true
+                )
+            }
             return VoiceCleanupPipeline(
                 provider: provider,
-                timeout: .seconds(Int64(cleanupSettings.normalizedTimeoutSeconds))
+                timeout: timeout
             )
         } catch {
             log.error("Voice cleanup provider setup failed: \(error.localizedDescription, privacy: .public)")
@@ -827,6 +860,7 @@ enum VoiceRetryError: Error, Equatable {
 
 extension VoiceCoordinator {
     func retryTranscript(id: String) async throws -> VoiceTranscript {
+        let retryStartedAt = Date()
         guard let original = try transcripts.fetch(id: id) else {
             throw VoiceRetryError.transcriptNotFound
         }
@@ -850,11 +884,13 @@ extension VoiceCoordinator {
             throw VoiceRetryError.audioDecodeFailed
         }
 
+        let asrStartedAt = Date()
         let asrResult = try await engine.transcribe(
             samples: decoded.samples,
             sampleRate: Double(decoded.sampleRate),
             options: .default
         )
+        let asrMs = Int(Date().timeIntervalSince(asrStartedAt) * 1000)
         let dictionaryEntries = (try? dictionary?.list()) ?? []
         let (appCtx, globalCtx) = loadContexts(bundleID: original.appBundleID)
         let recentExamples = loadRecentExamples(context: appCtx ?? globalCtx)
@@ -867,7 +903,15 @@ extension VoiceCoordinator {
             globalContext: globalCtx,
             recentExamples: recentExamples
         )
-        let cleanedResult = await makeCleanupPipeline().clean(cleanupRequest)
+        let cleanupStartedAt = Date()
+        let rawCleanedResult = await makeCleanupPipeline(
+            elapsedBeforeCleanupSeconds: Date().timeIntervalSince(retryStartedAt)
+        ).clean(cleanupRequest)
+        let cleanedResult = rawCleanedResult.withTimings(
+            asrMs: asrMs,
+            cleanupMs: Int(Date().timeIntervalSince(cleanupStartedAt) * 1000),
+            totalMs: Int(Date().timeIntervalSince(retryStartedAt) * 1000)
+        )
         let cleanedText = cleanedResult.cleanedText
 
         let saved = try transcripts.save(

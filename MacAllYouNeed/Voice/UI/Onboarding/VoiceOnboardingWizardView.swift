@@ -451,36 +451,23 @@ private struct VoiceASRStepView: View {
     @State private var selectedModelID = VoiceASRSettingsStore.load().modelID
     @State private var isPreparing = false
     @State private var downloadFraction: Double?
-    @State private var showsMoreOptions = false
     @State private var statusMessage = "Choose a local recognition model. Missing models download before dictation uses them."
 
-    private let primaryOptions = VoiceASRModelID.allCases
-    private let moreOptions: [VoiceASROption] = [
-        VoiceASROption(
-            id: "whisper-large-v3-turbo",
-            title: "Whisper large-v3 turbo",
-            subtitle: "Large multilingual model, planned for 8d",
-            available: false
-        ),
-        VoiceASROption(id: "soniox", title: "Soniox", subtitle: "Cloud BYOK, planned for 8d", available: false)
-    ]
+    private let primaryOptions = VoiceModelCatalog.localASRModels
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Choose speech recognition")
                 .font(.title)
                 .bold()
-            Text("Audio stays local by default. Future engines are visible here so the setup matches the v1 catalog.")
+            Text("Audio stays local by default. Qwen3 covers mixed Chinese/English; Parakeet is faster for English and supported European languages.")
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(primaryOptions) { option in
-                    modelButton(option)
-                }
-            }
-            DisclosureGroup("More options", isExpanded: $showsMoreOptions) {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                    ForEach(moreOptions) { option in
-                        optionButton(option)
+                ForEach(primaryOptions) { descriptor in
+                    if let modelID = descriptor.localASRModelID {
+                        modelButton(modelID)
+                    } else {
+                        VoiceUnsupportedASRModelCard(descriptor: descriptor)
                     }
                 }
             }
@@ -516,14 +503,6 @@ private struct VoiceASRStepView: View {
         .disabled(isPreparing)
     }
 
-    private func optionButton(_ option: VoiceASROption) -> some View {
-        Button {} label: {
-            VoiceASROptionView(option: option, isSelected: false)
-        }
-        .buttonStyle(.plain)
-        .disabled(true)
-    }
-
     private func selectModel(_ modelID: VoiceASRModelID) {
         selectedModelID = modelID
         guard !isDownloaded(modelID) else {
@@ -535,17 +514,13 @@ private struct VoiceASRStepView: View {
     }
 
     private func prepareModel(_ modelID: VoiceASRModelID) {
-        guard #available(macOS 15, *) else {
-            statusMessage = "\(modelID.title) preparation requires macOS 15 or later."
-            return
-        }
         guard !isPreparing else { return }
         isPreparing = true
         downloadFraction = 0
         statusMessage = "Downloading \(modelID.title) into the local model cache..."
         Task {
             do {
-                _ = try await Qwen3AsrModels.download(variant: modelID.variant) { progress in
+                _ = try await VoiceModelManager.downloadLocalASRModel(modelID) { progress in
                     Task { @MainActor in
                         downloadFraction = progress.fractionCompleted
                         statusMessage = Self.describe(progress, modelID: modelID)
@@ -574,10 +549,7 @@ private struct VoiceASRStepView: View {
     }
 
     private func isDownloaded(_ modelID: VoiceASRModelID) -> Bool {
-        guard #available(macOS 15, *) else { return false }
-        return Qwen3AsrModels.modelsExist(
-            at: Qwen3AsrModels.defaultCacheDirectory(variant: modelID.variant)
-        )
+        VoiceModelManager.isLocalASRModelInstalled(modelID)
     }
 
     private func actionTitle(for modelID: VoiceASRModelID) -> String {
@@ -594,13 +566,6 @@ private struct VoiceASRStepView: View {
             "Compiling \(modelName)..."
         }
     }
-}
-
-private struct VoiceASROption: Identifiable {
-    let id: String
-    let title: String
-    let subtitle: String
-    let available: Bool
 }
 
 private struct VoiceASRModelOnboardingCard: View {
@@ -650,40 +615,6 @@ private struct VoiceASRModelOnboardingCard: View {
         if isPreparing { return .progress }
         if isDownloaded { return .success }
         return .warning
-    }
-}
-
-private struct VoiceASROptionView: View {
-    let option: VoiceASROption
-    let isSelected: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(option.title)
-                    .font(.headline)
-                Spacer()
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? .primary : .secondary)
-            }
-            Text(option.subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if !option.available {
-                Text("Coming in multi-engine phase")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.primary.opacity(0.45) : Color.secondary.opacity(0.25), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .opacity(option.available ? 1 : 0.55)
     }
 }
 
@@ -737,7 +668,17 @@ private struct VoiceLLMStepView: View {
             }
             MAYNTextField(placeholder: "Model", text: $model, width: 360)
             MAYNTextField(placeholder: "Base URL", text: $baseURLString, width: 360)
-            MAYNSecureField(placeholder: "API key", text: $apiKey, width: 360)
+            if provider == .ollama {
+                VoiceOllamaCleanupControls(
+                    controller: controller,
+                    model: $model,
+                    baseURLString: $baseURLString,
+                    statusMessage: $statusMessage
+                )
+            }
+            if provider.requiresAPIKey {
+                MAYNSecureField(placeholder: "API key", text: $apiKey, width: 360)
+            }
             HStack {
                 Text("Timeout")
                 Spacer()
@@ -1061,7 +1002,7 @@ private struct VoiceLanguagesStepView: View {
             Text("Pick languages")
                 .font(.title)
                 .bold()
-            Text("Use Auto-detect for mixed Chinese and English. Single-language choices bias the current Qwen3-ASR engine.")
+            Text("Use Auto-detect for mixed Chinese and English. Single-language choices bias the selected local or cloud recognition engine.")
                 .foregroundStyle(.secondary)
             Toggle("Auto-detect language", isOn: $autoDetectEverything)
                 .onChange(of: autoDetectEverything) { _, _ in save() }

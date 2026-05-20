@@ -129,6 +129,89 @@ final class GroqASREngineTests: XCTestCase {
         }
     }
 
+    func testOpenAITranscribeRequestShape() async throws {
+        let session = mockSession { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://api.openai.com/v1/audio/transcriptions")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-openai-key")
+            let body = self.bodyData(from: request)
+            XCTAssertNotNil(body.range(of: Data("gpt-4o-transcribe".utf8)))
+            XCTAssertNotNil(body.range(of: Data("en".utf8)))
+            return self.jsonResponse(body: #"{"text":"openai text"}"#)
+        }
+        let engine = makeCloudEngine(
+            providerKind: .openAITranscribe,
+            modelID: .openAIGPT4oTranscribe,
+            languageHint: .english,
+            apiKey: "test-openai-key",
+            session: session
+        )
+
+        let result = try await engine.transcribe(
+            samples: [Float](repeating: 0, count: 8000),
+            sampleRate: 16000,
+            options: .init(preferredModelIdentifier: nil)
+        )
+
+        XCTAssertEqual(result.text, "openai text")
+        XCTAssertEqual(result.modelIdentifier, VoiceCloudASRModelID.openAIGPT4oTranscribe.rawValue)
+    }
+
+    func testElevenLabsScribeRequestShape() async throws {
+        let session = mockSession { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://api.elevenlabs.io/v1/speech-to-text")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "xi-api-key"), "test-eleven-key")
+            let body = self.bodyData(from: request)
+            XCTAssertNotNil(body.range(of: Data("scribe_v2".utf8)))
+            XCTAssertNotNil(body.range(of: Data("model_id".utf8)))
+            return self.jsonResponse(body: #"{"text":"scribe text"}"#)
+        }
+        let engine = makeCloudEngine(
+            providerKind: .elevenLabs,
+            modelID: .elevenLabsScribeV2,
+            apiKey: "test-eleven-key",
+            session: session
+        )
+
+        let result = try await engine.transcribe(
+            samples: [Float](repeating: 0, count: 8000),
+            sampleRate: 16000,
+            options: .init(preferredModelIdentifier: nil)
+        )
+
+        XCTAssertEqual(result.text, "scribe text")
+    }
+
+    func testDeepgramNovaRequestShape() async throws {
+        let session = mockSession { request in
+            XCTAssertEqual(request.url?.path, "/v1/listen")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Token test-deepgram-key")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "audio/wav")
+            let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+            let query = Dictionary(uniqueKeysWithValues: (components?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            XCTAssertEqual(query["model"], "nova-3")
+            XCTAssertEqual(query["smart_format"], "true")
+            XCTAssertEqual(query["language"], "zh")
+            return self.jsonResponse(
+                body: #"{"results":{"channels":[{"alternatives":[{"transcript":"deepgram text"}]}]}}"#
+            )
+        }
+        let engine = makeCloudEngine(
+            providerKind: .deepgram,
+            modelID: .deepgramNova3,
+            languageHint: .chinese,
+            apiKey: "test-deepgram-key",
+            session: session
+        )
+
+        let result = try await engine.transcribe(
+            samples: [Float](repeating: 0, count: 8000),
+            sampleRate: 16000,
+            options: .init(preferredModelIdentifier: nil)
+        )
+
+        XCTAssertEqual(result.text, "deepgram text")
+    }
+
     // MARK: - VoiceASRSettings persistence
 
     func testVoiceASRSettingsPreservesGroqProviderKind() throws {
@@ -155,6 +238,23 @@ final class GroqASREngineTests: XCTestCase {
         GroqASREngine(
             settings: { GroqASRSettings(modelID: modelID, languageHint: languageHint) },
             apiKeyProvider: { apiKey.isEmpty ? nil : apiKey },
+            session: session
+        )
+    }
+
+    private func makeCloudEngine(
+        providerKind: VoiceASRProviderKind,
+        modelID: VoiceCloudASRModelID,
+        languageHint: VoiceASRLanguageHint = .automatic,
+        apiKey: String,
+        session: URLSession
+    ) -> VoiceCloudASREngine {
+        VoiceCloudASREngine(
+            providerKind: providerKind,
+            settings: { VoiceCloudASRSettings(modelID: modelID, languageHint: languageHint) },
+            apiKeyProvider: { requestedProvider in
+                requestedProvider == providerKind && !apiKey.isEmpty ? apiKey : nil
+            },
             session: session
         )
     }

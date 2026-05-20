@@ -184,8 +184,7 @@ struct DockListTabs: View {
                         Button("Rename…") {}
                         Button("Delete", role: .destructive) {
                             Task {
-                                try? model.pinboards.delete(id: board.id)
-                                await model.loadAvailableLists()
+                                await model.deletePinboard(id: board.id)
                             }
                         }
                     }

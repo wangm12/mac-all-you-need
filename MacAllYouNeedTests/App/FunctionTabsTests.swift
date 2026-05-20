@@ -24,6 +24,152 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(DownloadsFunctionTab.storedSelection("settings"), .settings)
     }
 
+    func testDownloadJobRowPresentationMapsQueuedRunningMergingPausedCompletedAndFailedStates() {
+        let queued = DownloadJobRowModel(
+            record: downloadPresentationRecord(state: .queued),
+            progress: nil,
+            statusText: nil
+        )
+        XCTAssertEqual(queued.statusText, "Queued")
+        XCTAssertEqual(queued.phase, "Waiting for an available slot")
+        XCTAssertEqual(queued.statusPillKind, .neutral)
+        XCTAssertEqual(queued.progress, 0)
+
+        let running = DownloadJobRowModel(
+            record: downloadPresentationRecord(state: .running),
+            progress: DownloadProgress(
+                fraction: 0.42,
+                speedBytesPerSec: 14_200_000,
+                etaSeconds: 62,
+                downloadedBytes: 42,
+                totalBytes: 100
+            ),
+            statusText: "Downloading 720p video"
+        )
+        XCTAssertEqual(running.statusText, "Downloading")
+        XCTAssertEqual(running.phase, "Downloading 720p video")
+        XCTAssertEqual(running.statusPillKind, .progress)
+        XCTAssertEqual(running.progress, 0.42, accuracy: 0.001)
+        XCTAssertNotNil(running.speedText)
+        XCTAssertEqual(running.etaText, "ETA 1:02")
+
+        let merging = DownloadJobRowModel(
+            record: downloadPresentationRecord(state: .running),
+            progress: DownloadProgress(
+                fraction: 1,
+                speedBytesPerSec: nil,
+                etaSeconds: nil,
+                downloadedBytes: 100,
+                totalBytes: 100
+            ),
+            statusText: "Merging video and audio"
+        )
+        XCTAssertEqual(merging.statusText, "Merging")
+        XCTAssertEqual(merging.phase, "Merging video and audio")
+
+        let paused = DownloadJobRowModel(
+            record: downloadPresentationRecord(state: .paused, bytesDownloaded: 31, bytesTotal: 100),
+            progress: nil,
+            statusText: nil
+        )
+        XCTAssertEqual(paused.statusText, "Paused")
+        XCTAssertEqual(paused.phase, "Paused; resume continues from partial file")
+        XCTAssertEqual(paused.statusPillKind, .warning)
+        XCTAssertEqual(paused.progress, 0.31, accuracy: 0.001)
+
+        let completed = DownloadJobRowModel(
+            record: downloadPresentationRecord(state: .completed, bytesDownloaded: 100, bytesTotal: 100),
+            progress: nil,
+            statusText: nil
+        )
+        XCTAssertEqual(completed.statusText, "Done")
+        XCTAssertEqual(completed.phase, "Completed")
+        XCTAssertEqual(completed.statusPillKind, .success)
+        XCTAssertEqual(completed.progress, 1)
+        XCTAssertEqual(DownloadJobRowActionPresentation.primaryActionTitle(for: completed.state), "Open Folder")
+
+        let failed = DownloadJobRowModel(
+            record: downloadPresentationRecord(
+                state: .failed,
+                lastError: "ERROR: Unable to extract video data"
+            ),
+            progress: nil,
+            statusText: nil
+        )
+        XCTAssertEqual(failed.statusText, "Failed")
+        XCTAssertEqual(failed.phase, "Failed during extractor step")
+        XCTAssertEqual(failed.inlineError, "ERROR: Unable to extract video data")
+        XCTAssertEqual(failed.errorTooltip, "ERROR: Unable to extract video data")
+        XCTAssertEqual(failed.statusPillKind, .danger)
+        XCTAssertEqual(DownloadJobRowActionPresentation.primaryActionTitle(for: failed.state), "Retry")
+    }
+
+    func testDownloadsQueuePresentationKeepsFailedRowsRetryableAndExcludesCompletedRows() {
+        let failed = downloadPresentationRecord(state: .failed)
+        let completed = downloadPresentationRecord(state: .completed)
+
+        XCTAssertTrue(DownloadsListFilter.activeQueue.includes(.failed))
+        XCTAssertFalse(DownloadsListFilter.activeQueue.includes(.completed))
+        XCTAssertEqual(DownloadsQueuePresentation.visibleRows([failed, completed], filter: .activeQueue).map(\.id), [failed.id])
+        XCTAssertTrue(DownloadsQueuePresentation.showsFailedBanner(rows: [failed, completed], filter: .activeQueue))
+        XCTAssertTrue(DownloadJobRowActionPresentation.isRetryable(failed.state))
+    }
+
+    func testFailedDownloadRowExposesRowLevelHoverHelpEvenWithoutCapturedError() {
+        let capturedError = DownloadJobRowModel(
+            record: downloadPresentationRecord(
+                state: .failed,
+                lastError: "ERROR: Unable to extract video data"
+            ),
+            progress: nil,
+            statusText: nil
+        )
+        let missingError = DownloadJobRowModel(
+            record: downloadPresentationRecord(state: .failed),
+            progress: nil,
+            statusText: nil
+        )
+        let running = DownloadJobRowModel(
+            record: downloadPresentationRecord(state: .running),
+            progress: nil,
+            statusText: nil
+        )
+
+        XCTAssertEqual(
+            DownloadJobRowHoverPresentation.rowHelpText(for: capturedError),
+            "ERROR: Unable to extract video data"
+        )
+        XCTAssertEqual(
+            DownloadJobRowHoverPresentation.rowHelpText(for: missingError),
+            "No captured yt-dlp error is available for this failed download. Retry the row to capture fresh stderr details."
+        )
+        XCTAssertNil(DownloadJobRowHoverPresentation.rowHelpText(for: running))
+        XCTAssertEqual(DownloadJobRowHoverPresentation.inlineErrorLineLimit(isHovering: false), 1)
+        XCTAssertNil(DownloadJobRowHoverPresentation.inlineErrorLineLimit(isHovering: true))
+    }
+
+    func testDownloadsEmptyStatePresentationShowsNeutralActionsForQueue() {
+        let emptyState = DownloadsEmptyStatePresentation.model(for: .activeQueue)
+
+        XCTAssertEqual(emptyState.title, "No downloads queued")
+        XCTAssertEqual(emptyState.subtitle, "Add a URL, paste with ⌘V, or send a link from the browser extension.")
+        XCTAssertEqual(emptyState.primaryActionTitle, "Add URL")
+        XCTAssertEqual(emptyState.secondaryActionTitle, "Paste URL")
+    }
+
+    func testDownloadsSettingsPresentationIncludesRecoveryFilenameCookieAndAssetRows() {
+        XCTAssertEqual(DownloadsSettingsPresentation.interruptedRecoveryTitle, "Retry interrupted downloads on launch")
+        XCTAssertEqual(DownloadsSettingsPresentation.interruptedRecoveryStatusText, "Automatic")
+        XCTAssertEqual(DownloadsSettingsPresentation.filenameExampleActionTitle, "Copy")
+        XCTAssertEqual(DownloadsSettingsPresentation.cookieProfileTitle, "Cookie profiles")
+        XCTAssertEqual(DownloadsSettingsPresentation.bundledAssetsTitle, "Bundled downloader assets")
+        XCTAssertEqual(DownloadConcurrencyControlPresentation.range, 1...10)
+        XCTAssertEqual(
+            DownloadFilenameTemplatePreset.example(for: "%(title)s - %(id)s.%(ext)s"),
+            "My Video - abc123.mp4"
+        )
+    }
+
     func testFolderPreviewDefaultsToSettingsOnly() {
         XCTAssertEqual(FolderPreviewFunctionTab.storedSelection(nil), .settings)
         XCTAssertEqual(FolderPreviewFunctionTab.storedSelection("browse"), .settings)
@@ -35,6 +181,11 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(FolderPreviewMainPagePresentation.visibleSectionTitles, ["Preview settings"])
         XCTAssertFalse(FolderPreviewMainPagePresentation.visibleSectionTitles.contains("How to use it"))
         XCTAssertFalse(FolderPreviewMainPagePresentation.visibleSectionTitles.contains("Preview views"))
+    }
+
+    func testFolderPreviewMainPageHidesRedundantSingleSettingsTab() {
+        XCTAssertFalse(FunctionPageShellPresentation.showsTabStrip(tabCount: Array(FolderPreviewFunctionTab.allCases).count))
+        XCTAssertTrue(FunctionPageShellPresentation.showsTabStrip(tabCount: Array(DownloadsFunctionTab.allCases).count))
     }
 
     func testFolderPreviewSettingsExposeCascadeToggle() {
@@ -556,6 +707,17 @@ final class FunctionTabsTests: XCTestCase {
         )
     }
 
+    func testVoiceModelsNavigationRoutesToVoiceModelsTab() {
+        XCTAssertEqual(
+            VoiceModelsNavigation.route(),
+            DashboardToolSettingsRoute(
+                destination: .voice,
+                tabStorageKey: VoiceFunctionTab.storageKey,
+                tabRawValue: VoiceFunctionTab.models.rawValue
+            )
+        )
+    }
+
     func testFunctionPageHeaderShortcutsAreReadOnlyDisplayOnly() {
         for destination in MainAppDestination.primarySidebarDestinations where destination != .dashboard {
             XCTAssertFalse(MainToolHeaderShortcutModel.isEditable(for: destination))
@@ -639,4 +801,25 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(FunctionTabFlow.contentInsertionOffset(for: .forward), 18)
         XCTAssertEqual(FunctionTabFlow.contentInsertionOffset(for: .backward), -18)
     }
+}
+
+private func downloadPresentationRecord(
+    state: DownloadState,
+    bytesDownloaded: Int64 = 0,
+    bytesTotal: Int64? = nil,
+    lastError: String? = nil
+) -> DownloadRecord {
+    var record = DownloadRecord(
+        url: "https://www.youtube.com/watch?v=IwQFzy9kUFw",
+        title: "Fallback title",
+        destinationPath: "/Users/mingjie.wang/Downloads/MacAllYouNeed/video.mp4",
+        state: state
+    )
+    record.videoTitle = "Bilibili member-only livestream archive"
+    record.channelName = "Creator Channel"
+    record.durationSeconds = 4324
+    record.bytesDownloaded = bytesDownloaded
+    record.bytesTotal = bytesTotal
+    record.lastError = lastError
+    return record
 }

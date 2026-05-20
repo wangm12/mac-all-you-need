@@ -50,28 +50,35 @@ When a new generic primitive is needed, it lives in `MAYNSettingsUI.swift` (desp
 
 All colors derive from `NSColor` system colors or from `Color.primary`/`Color.secondary` opacity. Never `Color(red:green:blue:)` outside the documented exceptions in §10.
 
-| Token | Use |
-|---|---|
-| `window` | The outermost background of any window/scene. |
-| `panel` | Grouped section background (settings sections, capsule strips, dropdowns at rest). |
-| `elevated` | Field/control fill (text fields, buttons at rest, dropdown rest). |
-| `elevatedHover` | Control hover fill. |
-| `elevatedPressed` | Control pressed fill. |
-| `hover` | Row hover overlay. |
-| `selected` | Row/item selected overlay (currently `Color.primary.opacity(0.08)`). |
-| `divider` | 1pt dividers between rows or sections. |
-| `subtleBorder` | Default stroke around controls/cards/panels at rest. |
-| `strongBorder` | Stroke around controls at hover, around capsule tab strips, around instruction strips. |
-| `focusRing` | Stroke around the focused text field and around the selected clipboard card. |
-| `tabSelectedFill` | Fill of the selected pill inside `FunctionSegmentedTabStrip` and `DockListTabs`. |
-| `tabSelectedBorder` | Stroke of the selected tab pill. |
-| `tabSelectedShadow` | 2pt drop-shadow under the selected tab pill. |
-| `muted` | `Color.secondary` alias — for de-emphasized labels. |
-| `controlTint` | Tint passed to `NavigationSplitView` so accent stays neutral gray. |
-| `success` | Green — completed downloads, granted permissions, success toasts. |
-| `warning` | Orange — denied permissions, recoverable problems. |
-| `danger` | Red — destructive buttons, error toasts. |
-| `progress` | Blue — active downloads, in-flight permission setup, highlighted permission card. |
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `window` | `#ECECEC` | `#323232` | The outermost background of any window/scene. |
+| `panel` | `#FFFFFF` | `#1E1E1E` | Grouped section background (settings sections, capsule strips, dropdowns at rest). |
+| `elevated` | `#FFFFFF` | `#1E1E1E` | Field/control fill (text fields, buttons at rest, dropdown rest). |
+| `elevatedHover` | `.primary @ 4.5%` | `.primary @ 4.5%` | Control hover fill. |
+| `elevatedPressed` | `.primary @ 7.5%` | `.primary @ 7.5%` | Control pressed fill. |
+| `hover` | `.primary @ 5%` | `.primary @ 5%` | Row hover overlay. |
+| `selected` | `.primary @ 8%` | `.primary @ 8%` | Row/item selected overlay. |
+| `divider` | `.secondary @ 16%` | `.secondary @ 16%` | 1pt dividers between rows or sections. |
+| `subtleBorder` | `.primary @ 10%` | `.primary @ 10%` | Default stroke around controls/cards/panels at rest. |
+| `strongBorder` | `.primary @ 18%` | `.primary @ 18%` | Stroke around controls at hover, around capsule tab strips, around instruction strips. |
+| `focusRing` | `.primary @ 70%` | `.primary @ 70%` | Stroke around the focused text field and around the selected clipboard card. |
+| `tabSelectedFill` | `.primary @ 14%` | `.primary @ 14%` | Fill of the selected pill inside `FunctionSegmentedTabStrip` and `DockListTabs`. |
+| `tabSelectedBorder` | `.primary @ 20%` | `.primary @ 20%` | Stroke of the selected tab pill. |
+| `tabSelectedShadow` | `#000 @ 6%` | `#000 @ 6%` | 2pt drop-shadow under the selected tab pill. |
+| `muted` | `.secondary` | `.secondary` | `Color.secondary` alias — for de-emphasized labels. |
+| `controlTint` | `.secondary` | `.secondary` | Tint passed to `NavigationSplitView` so accent stays neutral gray. |
+| `success` | `#28CD41` | `#32D74B` | Green — completed downloads, granted permissions, success toasts. |
+| `warning` | `#FF9500` | `#FF9F0A` | Orange — denied permissions, recoverable problems. |
+| `danger` | `#FF3B30` | `#FF453A` | Red — destructive buttons, error toasts. |
+| `progress` | `#007AFF` | `#0A84FF` | Blue — active downloads, in-flight permission setup, highlighted permission card. |
+
+Notation:
+- `.primary` ≈ `NSColor.labelColor` — Light `rgba(0, 0, 0, .85)` / Dark `rgba(255, 255, 255, .85)`.
+- `.secondary` ≈ `NSColor.secondaryLabelColor` — Light `rgba(0, 0, 0, .50)` / Dark `rgba(255, 255, 255, .55)`.
+- `.primary @ N%` means `Color.primary` rendered at opacity `N%` over the surface beneath it; the effective hex depends on the underlying surface and the current appearance.
+- All literal hex values are sRGB. macOS automatically swaps the variant based on the system appearance, so designer comps for both Light and Dark mode use the column that matches the comp.
+- `success` / `warning` / `danger` / `progress` are Apple's `systemGreen` / `systemOrange` / `systemRed` / `systemBlue`; values shown are the standard macOS defaults but may shift by a few units across OS versions and Increase-Contrast modes.
 
 Rules:
 - Semantic only. There is no "brand color." If you want to draw attention, use `progress` or `focusRing`.
@@ -139,6 +146,22 @@ There is no `MAYNFont` enum — SwiftUI's semantic font system already handles d
 | Hotkey glyph (compact, ≤24pt chip) | `.system(size: 15, weight: .semibold)` modifier, `.system(size: 13, weight: .semibold, design: .rounded)` key |
 
 Do not write `.font(.system(size: 12))` or `.font(.system(size: 14))` in product code. If a label doesn't fit one of the rows above, it is almost certainly a `.caption`, `.callout`, or `.body`.
+
+### 4.5 Feature-identity accents (sRGB literals)
+
+These seven tints identify a function on the dashboard, the main sidebar icons, and feature-card iconography. They are the only literal RGB triples allowed in app chrome and are exempted per §10.4. They MUST NOT appear in settings rows, status indicators, toasts, badges, or any non-iconography surface.
+
+| Feature | sRGB | Hex |
+|---|---|---|
+| Clipboard | `0.10, 0.42, 0.92` | `#1A6BEB` |
+| Voice | `0.64, 0.22, 0.88` | `#A338E0` |
+| Downloads | `0.02, 0.58, 0.42` | `#05946B` |
+| Folder Preview | `0.86, 0.46, 0.12` | `#DB751F` |
+| Snippets | `0.82, 0.18, 0.36` | `#D12E5C` |
+| Window Layouts | `0.20, 0.48, 0.72` | `#337AB8` |
+| Window Grab | `0.24, 0.46, 0.36` | `#3D755C` |
+
+Source of truth: `MainWindowRoot.swift accent(for:)`. Both Light and Dark mode use the same value — these are designed to read on both appearances.
 
 ---
 

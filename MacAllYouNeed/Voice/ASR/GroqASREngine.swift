@@ -186,3 +186,289 @@ enum GroqASRError: LocalizedError {
         }
     }
 }
+
+// MARK: - Shared cloud ASR engine
+
+private let cloudASRLog = Logger(subsystem: "com.macallyouneed.voice", category: "cloud-asr")
+
+actor VoiceCloudASREngine: VoiceTranscriptionEngine {
+    private let providerKind: VoiceASRProviderKind
+    private let settings: () -> VoiceCloudASRSettings
+    private let apiKeyProvider: (VoiceASRProviderKind) throws -> String?
+    private let session: URLSession
+
+    nonisolated var modelIdentifier: String {
+        let settings = VoiceCloudASRSettingsStore.load()
+        return settings.modelID.rawValue
+    }
+
+    init(
+        providerKind: VoiceASRProviderKind,
+        settings: @escaping () -> VoiceCloudASRSettings,
+        keyStore: VoiceCloudASRKeyStore,
+        session: URLSession = .shared
+    ) {
+        self.init(
+            providerKind: providerKind,
+            settings: settings,
+            apiKeyProvider: { try keyStore.apiKey(for: $0) },
+            session: session
+        )
+    }
+
+    init(
+        providerKind: VoiceASRProviderKind,
+        settings: @escaping () -> VoiceCloudASRSettings,
+        apiKeyProvider: @escaping (VoiceASRProviderKind) throws -> String?,
+        session: URLSession = .shared
+    ) {
+        self.providerKind = providerKind
+        self.settings = settings
+        self.apiKeyProvider = apiKeyProvider
+        self.session = session
+    }
+
+    func transcribe(
+        samples: [Float],
+        sampleRate: Double,
+        options _: VoiceTranscriptionOptions
+    ) async throws -> VoiceTranscriptionResult {
+        let currentSettings = settings()
+        let modelID = currentSettings.modelID(for: providerKind)
+        guard let apiKey = try apiKeyProvider(modelID.providerKind) else {
+            throw VoiceCloudASRError.missingAPIKey(modelID.providerKind)
+        }
+
+        let resampled = AudioCaptureService.resample(samples, from: sampleRate, to: 16000)
+        let wavData = VoiceAudioCodec.encodeWAV(samples: resampled, sampleRate: 16000)
+        let seconds = resampled.count / 16000
+        let maxBytes = 24 * 1024 * 1024
+        guard wavData.count <= maxBytes else {
+            throw VoiceCloudASRError.fileTooLarge(provider: modelID.providerKind, seconds: seconds)
+        }
+
+        cloudASRLog.info("Cloud ASR upload start — provider: \(modelID.providerKind.rawValue, privacy: .public) model: \(modelID.providerModelID, privacy: .public) seconds: \(seconds, privacy: .public)")
+
+        let text: String = switch modelID.providerKind {
+        case .local:
+            throw VoiceCloudASRError.unsupportedProvider(modelID.providerKind)
+        case .groq:
+            try await uploadOpenAICompatible(
+                endpoint: URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!,
+                authorizationHeader: "Bearer \(apiKey)",
+                wavData: wavData,
+                modelID: modelID.providerModelID,
+                language: currentSettings.iso639LanguageCode,
+                providerKind: modelID.providerKind
+            )
+        case .openAITranscribe:
+            try await uploadOpenAICompatible(
+                endpoint: URL(string: "https://api.openai.com/v1/audio/transcriptions")!,
+                authorizationHeader: "Bearer \(apiKey)",
+                wavData: wavData,
+                modelID: modelID.providerModelID,
+                language: currentSettings.iso639LanguageCode,
+                providerKind: modelID.providerKind
+            )
+        case .elevenLabs:
+            try await uploadElevenLabs(
+                wavData: wavData,
+                apiKey: apiKey,
+                modelID: modelID.providerModelID,
+                language: currentSettings.iso639LanguageCode
+            )
+        case .deepgram:
+            try await uploadDeepgram(
+                wavData: wavData,
+                apiKey: apiKey,
+                modelID: modelID.providerModelID,
+                language: currentSettings.iso639LanguageCode
+            )
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        cloudASRLog.info("Cloud ASR received — provider: \(modelID.providerKind.rawValue, privacy: .public) chars: \(trimmed.count, privacy: .public)")
+        return VoiceTranscriptionResult(
+            text: trimmed,
+            language: currentSettings.languageHint == .english ? .english : .mixed,
+            modelIdentifier: modelID.rawValue
+        )
+    }
+
+    private func uploadOpenAICompatible(
+        endpoint: URL,
+        authorizationHeader: String,
+        wavData: Data,
+        modelID: String,
+        language: String?,
+        providerKind: VoiceASRProviderKind
+    ) async throws -> String {
+        let boundary = "CloudASR-\(UUID().uuidString)"
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.multipartBody(
+            wavData: wavData,
+            modelFieldName: "model",
+            modelID: modelID,
+            languageFieldName: "language",
+            language: language,
+            boundary: boundary,
+            extraTextFields: ["response_format": "json"]
+        )
+
+        let data = try await data(for: request, providerKind: providerKind)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let text = json["text"] as? String
+        else {
+            throw VoiceCloudASRError.invalidResponse(providerKind)
+        }
+        return text
+    }
+
+    private func uploadElevenLabs(
+        wavData: Data,
+        apiKey: String,
+        modelID: String,
+        language: String?
+    ) async throws -> String {
+        let boundary = "ElevenLabsASR-\(UUID().uuidString)"
+        var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.multipartBody(
+            wavData: wavData,
+            modelFieldName: "model_id",
+            modelID: modelID,
+            languageFieldName: "language_code",
+            language: language,
+            boundary: boundary
+        )
+
+        let data = try await data(for: request, providerKind: .elevenLabs)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let text = json["text"] as? String
+        else {
+            throw VoiceCloudASRError.invalidResponse(.elevenLabs)
+        }
+        return text
+    }
+
+    private func uploadDeepgram(
+        wavData: Data,
+        apiKey: String,
+        modelID: String,
+        language: String?
+    ) async throws -> String {
+        var components = URLComponents(string: "https://api.deepgram.com/v1/listen")!
+        var queryItems = [
+            URLQueryItem(name: "model", value: modelID),
+            URLQueryItem(name: "smart_format", value: "true")
+        ]
+        if let language {
+            queryItems.append(URLQueryItem(name: "language", value: language))
+        }
+        components.queryItems = queryItems
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
+        request.httpBody = wavData
+
+        let data = try await data(for: request, providerKind: .deepgram)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = json["results"] as? [String: Any],
+              let channels = results["channels"] as? [[String: Any]],
+              let firstChannel = channels.first,
+              let alternatives = firstChannel["alternatives"] as? [[String: Any]],
+              let firstAlternative = alternatives.first,
+              let transcript = firstAlternative["transcript"] as? String
+        else {
+            throw VoiceCloudASRError.invalidResponse(.deepgram)
+        }
+        return transcript
+    }
+
+    private func data(for request: URLRequest, providerKind: VoiceASRProviderKind) async throws -> Data {
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw VoiceCloudASRError.invalidResponse(providerKind)
+        }
+        guard 200 ..< 300 ~= http.statusCode else {
+            let body = String(data: data, encoding: .utf8) ?? "(empty)"
+            cloudASRLog.error("Cloud ASR HTTP \(http.statusCode, privacy: .public) provider: \(providerKind.rawValue, privacy: .public) body: \(body, privacy: .private)")
+            throw VoiceCloudASRError.httpError(provider: providerKind, code: http.statusCode)
+        }
+        return data
+    }
+
+    private static func multipartBody(
+        wavData: Data,
+        modelFieldName: String,
+        modelID: String,
+        languageFieldName: String,
+        language: String?,
+        boundary: String,
+        extraTextFields: [String: String] = [:]
+    ) -> Data {
+        var body = Data()
+
+        func append(_ string: String) {
+            body.append(Data(string.utf8))
+        }
+
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n")
+        append("Content-Type: audio/wav\r\n\r\n")
+        body.append(wavData)
+        append("\r\n")
+
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"\(modelFieldName)\"\r\n\r\n")
+        append(modelID)
+        append("\r\n")
+
+        for (name, value) in extraTextFields.sorted(by: { $0.key < $1.key }) {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+            append(value)
+            append("\r\n")
+        }
+
+        if let language {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"\(languageFieldName)\"\r\n\r\n")
+            append(language)
+            append("\r\n")
+        }
+
+        append("--\(boundary)--\r\n")
+        return body
+    }
+}
+
+enum VoiceCloudASRError: LocalizedError {
+    case missingAPIKey(VoiceASRProviderKind)
+    case unsupportedProvider(VoiceASRProviderKind)
+    case httpError(provider: VoiceASRProviderKind, code: Int)
+    case invalidResponse(VoiceASRProviderKind)
+    case fileTooLarge(provider: VoiceASRProviderKind, seconds: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case let .missingAPIKey(provider):
+            "\(provider.apiKeyLabel) is not configured."
+        case let .unsupportedProvider(provider):
+            "\(provider.label) is not supported by the cloud ASR runtime."
+        case let .httpError(provider, code):
+            "\(provider.label) returned HTTP \(code). Check your API key and model access."
+        case let .invalidResponse(provider):
+            "\(provider.label) returned an unexpected response."
+        case let .fileTooLarge(provider, seconds):
+            "Recording (\(seconds)s) exceeds \(provider.label)'s upload safety limit. Split into shorter segments."
+        }
+    }
+}

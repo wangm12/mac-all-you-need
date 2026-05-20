@@ -116,6 +116,56 @@ struct VoiceCleanupResult: Equatable {
     let cleanedText: String
     let usedLLM: Bool
     let providerIdentifier: String?
+    let fallbackReason: VoiceCleanupFallbackReason?
+    let asrMs: Int?
+    let cleanupMs: Int
+    let totalMs: Int?
+    let deadlineExceeded: Bool
+
+    init(
+        rawText: String,
+        cleanedText: String,
+        usedLLM: Bool,
+        providerIdentifier: String?,
+        fallbackReason: VoiceCleanupFallbackReason? = nil,
+        asrMs: Int? = nil,
+        cleanupMs: Int = 0,
+        totalMs: Int? = nil,
+        deadlineExceeded: Bool = false
+    ) {
+        self.rawText = rawText
+        self.cleanedText = cleanedText
+        self.usedLLM = usedLLM
+        self.providerIdentifier = providerIdentifier
+        self.fallbackReason = fallbackReason
+        self.asrMs = asrMs
+        self.cleanupMs = cleanupMs
+        self.totalMs = totalMs
+        self.deadlineExceeded = deadlineExceeded
+    }
+
+    func withTimings(asrMs: Int?, cleanupMs: Int, totalMs: Int) -> VoiceCleanupResult {
+        VoiceCleanupResult(
+            rawText: rawText,
+            cleanedText: cleanedText,
+            usedLLM: usedLLM,
+            providerIdentifier: providerIdentifier,
+            fallbackReason: fallbackReason,
+            asrMs: asrMs,
+            cleanupMs: cleanupMs,
+            totalMs: totalMs,
+            deadlineExceeded: deadlineExceeded
+        )
+    }
+}
+
+enum VoiceCleanupFallbackReason: String, Codable, Equatable {
+    case providerUnavailable
+    case transcriptTooShort
+    case emptyResponse
+    case deadlineExceeded
+    case providerError
+    case forcedLocal
 }
 
 protocol VoiceLLMProvider: Sendable {
@@ -134,22 +184,46 @@ protocol VoiceTextGenerationProvider: Sendable {
 struct VoiceCleanupPipeline {
     private let provider: (any VoiceLLMProvider)?
     private let timeout: Duration
+    private let forcedFallbackReason: VoiceCleanupFallbackReason?
+    private let forcedDeadlineExceeded: Bool
 
-    init(provider: (any VoiceLLMProvider)? = nil, timeout: Duration = .seconds(7)) {
+    init(
+        provider: (any VoiceLLMProvider)? = nil,
+        timeout: Duration = .seconds(7),
+        forcedFallbackReason: VoiceCleanupFallbackReason? = nil,
+        forcedDeadlineExceeded: Bool = false
+    ) {
         self.provider = provider
         self.timeout = timeout
+        self.forcedFallbackReason = forcedFallbackReason
+        self.forcedDeadlineExceeded = forcedDeadlineExceeded
     }
 
     func clean(_ request: VoiceCleanupRequest) async -> VoiceCleanupResult {
+        let startedAt = Date()
         let localText = VoiceLocalTextCleaner.clean(request.rawText)
         let speechUnits = Self.speechUnitCount(in: localText)
-        guard let provider, speechUnits >= 3 else {
-            log.info("cleanup: local only — no provider or speechUnits \(speechUnits, privacy: .public) < 3")
+        guard let provider else {
+            log.info("cleanup: local only — provider unavailable")
             return VoiceCleanupResult(
                 rawText: request.rawText,
                 cleanedText: applyDictionary(to: localText, entries: request.dictionaryEntries),
                 usedLLM: false,
-                providerIdentifier: nil
+                providerIdentifier: nil,
+                fallbackReason: forcedFallbackReason ?? .providerUnavailable,
+                cleanupMs: Self.elapsedMs(since: startedAt),
+                deadlineExceeded: forcedDeadlineExceeded
+            )
+        }
+        guard speechUnits >= 3 else {
+            log.info("cleanup: local only — speechUnits \(speechUnits, privacy: .public) < 3")
+            return VoiceCleanupResult(
+                rawText: request.rawText,
+                cleanedText: applyDictionary(to: localText, entries: request.dictionaryEntries),
+                usedLLM: false,
+                providerIdentifier: provider.providerIdentifier,
+                fallbackReason: .transcriptTooShort,
+                cleanupMs: Self.elapsedMs(since: startedAt)
             )
         }
 
@@ -171,18 +245,41 @@ struct VoiceCleanupPipeline {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !llmText.isEmpty else {
                 log.warning("cleanup: LLM returned empty, falling back to local")
-                return fallback(request: request, localText: localText, providerIdentifier: provider.providerIdentifier)
+                return fallback(
+                    request: request,
+                    localText: localText,
+                    providerIdentifier: provider.providerIdentifier,
+                    reason: .emptyResponse,
+                    startedAt: startedAt
+                )
             }
-            log.info("cleanup: LLM ok — output: \(llmText.prefix(60), privacy: .public)")
+            log.info("cleanup: LLM ok — outputLength: \(llmText.count, privacy: .public) chars")
             return VoiceCleanupResult(
                 rawText: request.rawText,
                 cleanedText: applyDictionary(to: llmText, entries: request.dictionaryEntries),
                 usedLLM: true,
-                providerIdentifier: provider.providerIdentifier
+                providerIdentifier: provider.providerIdentifier,
+                cleanupMs: Self.elapsedMs(since: startedAt)
+            )
+        } catch VoiceCleanupPipelineError.timedOut {
+            log.error("cleanup: LLM timed out, falling back to local")
+            return fallback(
+                request: request,
+                localText: localText,
+                providerIdentifier: provider.providerIdentifier,
+                reason: .deadlineExceeded,
+                startedAt: startedAt,
+                deadlineExceeded: true
             )
         } catch {
             log.error("cleanup: LLM failed (\(error.localizedDescription, privacy: .public)), falling back to local")
-            return fallback(request: request, localText: localText, providerIdentifier: provider.providerIdentifier)
+            return fallback(
+                request: request,
+                localText: localText,
+                providerIdentifier: provider.providerIdentifier,
+                reason: .providerError,
+                startedAt: startedAt
+            )
         }
     }
 
@@ -208,13 +305,19 @@ struct VoiceCleanupPipeline {
     private func fallback(
         request: VoiceCleanupRequest,
         localText: String,
-        providerIdentifier: String?
+        providerIdentifier: String?,
+        reason: VoiceCleanupFallbackReason,
+        startedAt: Date,
+        deadlineExceeded: Bool = false
     ) -> VoiceCleanupResult {
         VoiceCleanupResult(
             rawText: request.rawText,
             cleanedText: applyDictionary(to: localText, entries: request.dictionaryEntries),
             usedLLM: false,
-            providerIdentifier: providerIdentifier
+            providerIdentifier: providerIdentifier,
+            fallbackReason: reason,
+            cleanupMs: Self.elapsedMs(since: startedAt),
+            deadlineExceeded: deadlineExceeded
         )
     }
 
@@ -257,6 +360,10 @@ struct VoiceCleanupPipeline {
         default:
             false
         }
+    }
+
+    private static func elapsedMs(since date: Date) -> Int {
+        max(0, Int(Date().timeIntervalSince(date) * 1000))
     }
 }
 

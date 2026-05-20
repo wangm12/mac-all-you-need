@@ -24,6 +24,8 @@ struct OpenAICompatibleVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvi
         }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": model,
+            "temperature": 0,
+            "max_tokens": 512,
             "messages": [
                 [
                     "role": "system",
@@ -49,6 +51,8 @@ struct OpenAICompatibleVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvi
         }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": model,
+            "temperature": 0,
+            "max_tokens": 512,
             "messages": [
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userText]

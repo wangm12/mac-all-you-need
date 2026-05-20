@@ -17,6 +17,7 @@ DerivedData/
 .DS_Store
 
 # Secrets & local config
+.claude/
 *.p12
 *.cer
 *.mobileprovision
