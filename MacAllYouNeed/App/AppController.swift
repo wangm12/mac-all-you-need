@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Core
 import CoreFoundation
 import CryptoKit
@@ -7,59 +8,9 @@ import Foundation
 import PackPipeline
 import Platform
 
-private struct StartupStores {
-    let pinboard: PinboardStore
-    let snippet: SnippetStore
-    let clipboard: ClipboardStore
-    let voiceTranscripts: VoiceTranscriptStore
-    let voiceDictionary: VoiceDictionaryStore
-    let voicePersonalization: VoicePersonalizationStore
-    let voiceTrainingExamples: VoiceTrainingExampleStore
-    let blob: BlobStore
-    let search: SearchStore
-}
-
-private extension HotkeyAction {
-    var windowAction: WindowAction? {
-        switch self {
-        case .windowLeftHalf:
-            .leftHalf
-        case .windowRightHalf:
-            .rightHalf
-        case .windowTopHalf:
-            .topHalf
-        case .windowBottomHalf:
-            .bottomHalf
-        case .windowTopLeft:
-            .topLeft
-        case .windowTopRight:
-            .topRight
-        case .windowBottomLeft:
-            .bottomLeft
-        case .windowBottomRight:
-            .bottomRight
-        case .windowMaximize:
-            .maximize
-        case .windowAlmostMaximize:
-            .almostMaximize
-        case .windowCenter:
-            .center
-        case .windowRestore:
-            .restore
-        case .windowNextDisplay:
-            .nextDisplay
-        case .windowPreviousDisplay:
-            .previousDisplay
-        case .clipboard, .browseFolder:
-            nil
-        }
-    }
-}
-
 @MainActor
 @Observable
 final class AppController {
-    let deviceID: DeviceID
     let clipboardDeps: AppDependencies
     let clipboardReader: LocalClipboardReader
     let clipboardDock: DockWindowController
@@ -88,48 +39,73 @@ final class AppController {
     /// the What's New sheet, then cleared so it never reappears.
     var pendingMigrationReport: MigrationReport?
 
-    // Stores retained so menu actions (e.g. Clear Older Than) can run locally
-    // when the daemon's XPC mach service isn't available.
-    private let clipStore: ClipboardStore
-    private let blobStore: BlobStore
-    private let searchStore: SearchStore
-    private let pinboardStore: PinboardStore
-    let voiceTranscriptStore: VoiceTranscriptStore
-    let voiceDictionaryStore: VoiceDictionaryStore
-    let voicePersonalizationStore: VoicePersonalizationStore
-    let voiceTrainingExampleStore: VoiceTrainingExampleStore
+    // Phase 7 W1: encrypted stores live in AppStoreContainer; AppController
+    // retains the container reference and exposes the voice stores publicly
+    // because they are read by SwiftUI screens that took the legacy direct
+    // properties.
+    private let stores: AppStoreContainer
+
+    var deviceID: DeviceID { stores.deviceID }
+    var voiceTranscriptStore: VoiceTranscriptStore { stores.voiceTranscripts }
+    var voiceDictionaryStore: VoiceDictionaryStore { stores.voiceDictionary }
+    var voicePersonalizationStore: VoicePersonalizationStore { stores.voicePersonalization }
+    var voiceTrainingExampleStore: VoiceTrainingExampleStore { stores.voiceTrainingExamples }
+
     let voiceCoordinator: VoiceCoordinator
     let voiceRetentionRunner: VoiceTranscriptRetentionRunner
     let windowControl: WindowControlCoordinator
     private let windowControlAccessibilityTrustMonitor: WindowControlAccessibilityTrustMonitor
 
-    private let hotkeyRegistry = HotkeyRegistry()
-    private var fallbackHotkey: GlobalHotkey?
-    private var browseFolderObserver: NSObjectProtocol?
-    private var downloadRequestObserver: NSObjectProtocol?
-    private var pauseCaptureObserver: NSObjectProtocol?
-    private var clearOlderThanObserver: NSObjectProtocol?
-    private var clearAllClipboardObserver: NSObjectProtocol?
-    private var mainWindowSettingsObserver: NSObjectProtocol?
-    private var featureStateObserver: NSObjectProtocol?
-    private var hotkeyRecorderStartObserver: NSObjectProtocol?
-    private var hotkeyRecorderStopObserver: NSObjectProtocol?
+    // Phase 7 W1: hotkey registry + action dispatch table extracted to
+    // HotkeyOrchestrator. AppController forwards `performHotkeyAction` to it.
+    private let hotkeys: HotkeyOrchestrator
+
+    // Phase 7 W1: NotificationCenter observers extracted to a typed-publisher
+    // adapter. AppController owns the adapter + the Combine subscription that
+    // dispatches each AppEvent to the same handler the inline observer used.
+    private let appEventObservers: AppNotificationObservers
+    private var appEventCancellable: AnyCancellable?
+
     private var activeHotkeyRecorderCount = 0
-    private(set) var mainWindow: MainWindowController!
-    private(set) var onboardingWindow: OnboardingWindowController!
-    private(set) var voiceOnboardingWindow: VoiceOnboardingWindowController!
+
+    // Phase 7 W1: window controllers live in AppWindowsCoordinator.
+    // The three legacy properties are computed forwards so external callers
+    // (`AdvancedSettingsView`, `AppControllerOnboarding`, etc.) keep working
+    // unchanged. Implicitly-unwrapped because the controllers must be
+    // constructed AFTER `self` is fully initialized (they take `controller: self`).
+    private(set) var windows: AppWindowsCoordinator!
+
+    var mainWindow: MainWindowController {
+        guard let ctrl = windows.main as? MainWindowController else {
+            preconditionFailure("AppWindowsCoordinator.main is not a MainWindowController")
+        }
+        return ctrl
+    }
+    var onboardingWindow: OnboardingWindowController {
+        guard let ctrl = windows.onboarding as? OnboardingWindowController else {
+            preconditionFailure("AppWindowsCoordinator.onboarding is not an OnboardingWindowController")
+        }
+        return ctrl
+    }
+    var voiceOnboardingWindow: VoiceOnboardingWindowController {
+        guard let ctrl = windows.voiceOnboarding as? VoiceOnboardingWindowController else {
+            preconditionFailure("AppWindowsCoordinator.voiceOnboarding is not a VoiceOnboardingWindowController")
+        }
+        return ctrl
+    }
 
     init() throws {
-        deviceID = try DeviceIdentityStore.loadOrCreate()
+        let deviceID = try DeviceIdentityStore.loadOrCreate()
 
         // Load the device key up front. If the keychain is locked or the entry
         // is missing/corrupt, fail fast — every encrypted store needs this key,
         // and constructing fallback in-memory stores silently orphans user data.
         let keychain = SystemKeychain()
-        let stores = try Self.makeStartupStores(
+        let stores = try AppStoreContainer.makeProductionStores(
             deviceID: deviceID,
             key: KeyManager(keychain: keychain).deviceKey()
         )
+        self.stores = stores
         let cleanupKeyStore = VoiceCleanupKeyStore(keychain: keychain)
 
         let deps = makeAppDependencies(stores: stores)
@@ -145,14 +121,6 @@ final class AppController {
         self.clipboardDock = clipboardDock
         clipboardDock.dockHeight = Self.currentDockHeight()
 
-        clipStore = stores.clipboard
-        blobStore = stores.blob
-        searchStore = stores.search
-        pinboardStore = stores.pinboard
-        voiceTranscriptStore = stores.voiceTranscripts
-        voiceDictionaryStore = stores.voiceDictionary
-        voicePersonalizationStore = stores.voicePersonalization
-        voiceTrainingExampleStore = stores.voiceTrainingExamples
         voiceCoordinator = makeVoiceCoordinator(stores: stores, cleanupKeyStore: cleanupKeyStore)
         voiceRetentionRunner = VoiceTranscriptRetentionRunner(
             transcriptStore: stores.voiceTranscripts,
@@ -211,6 +179,19 @@ final class AppController {
         )
         sideloadController = SideloadController(manager: fm, manifestLoader: manifestLoader)
 
+        // Hotkey orchestrator owns the registry + the action dispatch table.
+        // Closures capture the runtime collaborators directly so the
+        // orchestrator does not need a back-reference to AppController.
+        hotkeys = HotkeyOrchestrator(
+            onClipboardToggle: { [weak clipboardDock] in clipboardDock?.toggle() },
+            onBrowseFolder: { [weak browser] in browser?.openPanelAndBrowse() },
+            onWindowAction: { [weak windowControl] action in windowControl?.perform(action: action) }
+        )
+
+        // Notification adapter — registers all 9 NC observers and surfaces
+        // them as typed AppEvent values on a Combine publisher.
+        appEventObservers = AppNotificationObservers()
+
         windowControl.setHotkeyRegistrationNeedsRefresh { [weak self] in
             self?.registerConfiguredHotkeys()
         }
@@ -222,12 +203,30 @@ final class AppController {
         windowControlAccessibilityTrustMonitor.start()
 
         registerConfiguredHotkeys()
-        registerAppObservers()
 
-        // Initialize after all stored properties are set
-        mainWindow = MainWindowController(controller: self)
-        onboardingWindow = OnboardingWindowController(controller: self)
-        voiceOnboardingWindow = VoiceOnboardingWindowController(controller: self)
+        // Window controllers must be built after all stored properties are
+        // initialized because each takes `controller: self`.
+        let main = MainWindowController(controller: self)
+        let onb = OnboardingWindowController(controller: self)
+        let voiceOnb = VoiceOnboardingWindowController(controller: self)
+        windows = AppWindowsCoordinator(
+            main: main,
+            onboarding: onb,
+            voiceOnboarding: voiceOnb
+        )
+
+        // Subscribe to the typed AppEvent publisher AFTER `self` is fully
+        // initialized so handlers can dispatch back through `self`.
+        //
+        // The original inline observers each wrapped their handler in
+        // `Task { @MainActor in self?.foo() }`, deferring execution to the
+        // next run-loop tick so notification posts couldn't recurse into
+        // AppController. Preserve that hop here so dispatch timing is
+        // identical to pre-extraction behavior.
+        appEventCancellable = appEventObservers.events.sink { [weak self] event in
+            Task { @MainActor in self?.handle(event: event) }
+        }
+
         startAutoDownloadPromptLoop()
 
         Task { [weak self] in
@@ -280,8 +279,7 @@ final class AppController {
     }
 
     func applyHotkeyMap(_ map: [HotkeyAction: [Platform.HotkeyDescriptor]]) throws {
-        fallbackHotkey = nil
-        try hotkeyRegistry.apply(
+        try hotkeys.applyMap(
             map,
             controller: self,
             windowControlEnabled: windowControl.settings.enabled,
@@ -290,17 +288,7 @@ final class AppController {
     }
 
     func performHotkeyAction(_ action: HotkeyAction) {
-        switch action {
-        case .clipboard: clipboardDock.toggle()
-        case .browseFolder: folder.openPanelAndBrowse()
-        case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
-             .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
-             .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
-             .windowNextDisplay, .windowPreviousDisplay:
-            if let action = action.windowAction {
-                windowControl.perform(action: action)
-            }
-        }
+        hotkeys.performAction(action)
     }
 
     func applyWindowControlSettings(_ settings: WindowControlSettings) {
@@ -328,12 +316,12 @@ final class AppController {
             maxAgeSeconds: TimeInterval(days) * 86400,
             maxImageBytes: nil
         )
-        let protected = (try? PinboardStore.protectedIDs(from: pinboardStore)) ?? []
+        let protected = (try? PinboardStore.protectedIDs(from: stores.pinboard)) ?? []
         do {
             try policy.enforceMaxAge(
-                store: clipStore,
-                blobs: blobStore,
-                search: searchStore,
+                store: stores.clipboard,
+                blobs: stores.blob,
+                search: stores.search,
                 protectedIDs: protected
             )
         } catch {
@@ -349,10 +337,10 @@ final class AppController {
     func clearAllClipboardHistory() {
         do {
             let deleted = try ClipboardHistoryClearer.clearAll(
-                store: clipStore,
-                blobs: blobStore,
-                search: searchStore,
-                pinboards: pinboardStore
+                store: stores.clipboard,
+                blobs: stores.blob,
+                search: stores.search,
+                pinboards: stores.pinboard
             )
             NotificationCenter.default.post(name: .clipboardStoreDidChange, object: nil)
             Task { await self.clipboardDeps.dockModel.refresh() }
@@ -364,41 +352,9 @@ final class AppController {
         }
     }
 
-    private static func makePinboardStore(key: SymmetricKey) throws -> PinboardStore {
-        let url = AppGroup.containerURL().appendingPathComponent("databases/pinboards.sqlite")
-        let db = try Database(url: url, migrations: PinboardStore.migrations)
-        return PinboardStore(database: db, deviceKey: key)
-    }
-
-    private static func makeStartupStores(
-        deviceID: DeviceID,
-        key: SymmetricKey
-    ) throws -> StartupStores {
-        let pinboardStore = try makePinboardStore(key: key)
-        let snippetStore = try makeSnippetStore(key: key)
-        let clipboardDatabase = try makeClipboardDatabase()
-        let clipboardStore = try ClipboardStore(database: clipboardDatabase, deviceKey: key, deviceID: deviceID)
-        let searchStore = try makeSearchStore()
-        return StartupStores(
-            pinboard: pinboardStore,
-            snippet: snippetStore,
-            clipboard: clipboardStore,
-            voiceTranscripts: VoiceTranscriptStore(database: clipboardDatabase),
-            voiceDictionary: VoiceDictionaryStore(database: clipboardDatabase),
-            voicePersonalization: VoicePersonalizationStore(database: clipboardDatabase, deviceKey: key),
-            voiceTrainingExamples: VoiceTrainingExampleStore(
-                database: clipboardDatabase,
-                deviceKey: key,
-                audioRoot: AppGroup.containerURL().appendingPathComponent("voice-training-audio", isDirectory: true)
-            ),
-            blob: makeBlobStore(key: key),
-            search: searchStore
-        )
-    }
-
     private func registerConfiguredHotkeys() {
         do {
-            try hotkeyRegistry.apply(
+            try hotkeys.applyMap(
                 HotkeyMapStore.load(),
                 controller: self,
                 windowControlEnabled: windowControl.settings.enabled,
@@ -409,7 +365,7 @@ final class AppController {
                 Task { @MainActor in clipboardDock?.toggle() }
             }
             try? hk.register()
-            fallbackHotkey = hk
+            hotkeys.installFallbackHotkey(hk)
         }
     }
 
@@ -421,67 +377,36 @@ final class AppController {
         }
     }
 
-    private func registerAppObservers() {
-        browseFolderObserver = NotificationCenter.default.addObserver(
-            forName: .browseFolderRequested, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let url = note.object as? URL else { return }
-            Task { @MainActor in self?.folder.show(at: url) }
-        }
-        downloadRequestObserver = NotificationCenter.default.addObserver(
-            forName: .clipboardDownloadRequested, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let url = note.object as? URL else { return }
-            Task { await self?.downloaderVM.add(url: url.absoluteString) }
-        }
-        pauseCaptureObserver = NotificationCenter.default.addObserver(
-            forName: .pauseCaptureRequested, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.suspendCaptureFor60Seconds() }
-        }
-        clearOlderThanObserver = NotificationCenter.default.addObserver(
-            forName: .clearClipboardOlderThanRequested, object: nil, queue: .main
-        ) { [weak self] note in
-            let days = (note.object as? NSNumber)?.intValue ?? (note.object as? Int) ?? 0
-            Task { @MainActor in self?.clearClipboardOlderThan(days: days) }
-        }
-        clearAllClipboardObserver = NotificationCenter.default.addObserver(
-            forName: .clearAllClipboardHistoryRequested, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.clearAllClipboardHistory() }
-        }
-        mainWindowSettingsObserver = NotificationCenter.default.addObserver(
-            forName: .mainWindowSettingsRequested, object: nil, queue: .main
-        ) { [weak self] note in
-            if DockSettingsNavigation.isClipboardRulesRoute(note.object as? String) {
+    /// Dispatch a typed AppEvent surfaced by `AppNotificationObservers`.
+    /// Mirrors the inline closures the controller previously installed
+    /// directly with NotificationCenter.
+    private func handle(event: AppEvent) {
+        switch event {
+        case let .browseFolder(url):
+            folder.show(at: url)
+        case let .clipboardDownloadRequested(url):
+            Task { await self.downloaderVM.add(url: url.absoluteString) }
+        case .pauseCaptureRequested:
+            suspendCaptureFor60Seconds()
+        case let .clearClipboardOlderThan(days):
+            clearClipboardOlderThan(days: days)
+        case .clearAllClipboardHistory:
+            clearAllClipboardHistory()
+        case let .mainWindowSettings(route):
+            if DockSettingsNavigation.isClipboardRulesRoute(route) {
                 AppGroupSettings.defaults.set(ClipboardFunctionTab.rules.rawValue, forKey: ClipboardFunctionTab.storageKey)
-                Task { @MainActor in
-                    self?.showMainWindow(destination: .clipboard)
-                }
+                showMainWindow(destination: .clipboard)
                 return
             }
-            let destination = SettingsDestination.legacySelection(note.object as? String)
+            let destination = SettingsDestination.legacySelection(route)
             AppGroupSettings.defaults.set(destination.rawValue, forKey: DockSettingsNavigation.settingsSelectionKey)
-            Task { @MainActor in
-                self?.showMainWindow(destination: .settings)
-            }
-        }
-        featureStateObserver = NotificationCenter.default.addObserver(
-            forName: .featureRuntimeStateChanged, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                await self?.refreshWindowControlFeatureAvailability()
-            }
-        }
-        hotkeyRecorderStartObserver = NotificationCenter.default.addObserver(
-            forName: .hotkeyRecorderDidStartRecording, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.suspendShortcutTriggersForHotkeyRecording() }
-        }
-        hotkeyRecorderStopObserver = NotificationCenter.default.addObserver(
-            forName: .hotkeyRecorderDidStopRecording, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.resumeShortcutTriggersAfterHotkeyRecording() }
+            showMainWindow(destination: .settings)
+        case .featureRuntimeStateChanged:
+            Task { await self.refreshWindowControlFeatureAvailability() }
+        case .hotkeyRecordingStarted:
+            suspendShortcutTriggersForHotkeyRecording()
+        case .hotkeyRecordingStopped:
+            resumeShortcutTriggersAfterHotkeyRecording()
         }
     }
 
@@ -497,9 +422,7 @@ final class AppController {
     private func suspendShortcutTriggersForHotkeyRecording() {
         activeHotkeyRecorderCount += 1
         guard activeHotkeyRecorderCount == 1 else { return }
-        hotkeyRegistry.unregisterAll()
-        fallbackHotkey?.unregister()
-        fallbackHotkey = nil
+        hotkeys.unregisterAll()
         voiceCoordinator.suspendActivationMonitoring()
         windowControl.suspendForHotkeyRecording()
     }
@@ -534,28 +457,6 @@ final class AppController {
                 }
             }
         }
-    }
-
-    private static func makeSnippetStore(key: SymmetricKey) throws -> SnippetStore {
-        let url = AppGroup.containerURL().appendingPathComponent("databases/snippets.sqlite")
-        let db = try Database(url: url, migrations: SnippetStore.migrations)
-        return SnippetStore(database: db, deviceKey: key)
-    }
-
-    private static func makeClipboardDatabase() throws -> Database {
-        let url = AppGroup.containerURL().appendingPathComponent("databases/clipboard.sqlite")
-        return try Database(url: url, migrations: ClipboardStore.migrations)
-    }
-
-    private static func makeBlobStore(key: SymmetricKey) -> BlobStore {
-        let root = AppGroup.containerURL().appendingPathComponent("blobs", isDirectory: true)
-        return BlobStore(rootURL: root, key: key)
-    }
-
-    private static func makeSearchStore() throws -> SearchStore {
-        let url = AppGroup.containerURL().appendingPathComponent("databases/search.sqlite")
-        let db = try Database(url: url, migrations: SearchStore.migrations)
-        return SearchStore(database: db)
     }
 
     private static func makeSnippetExpander(store: SnippetStore) -> SnippetExpander {
@@ -629,7 +530,7 @@ enum ClipboardHistoryClearer {
 }
 
 @MainActor
-private func makeAppDependencies(stores: StartupStores) -> AppDependencies {
+private func makeAppDependencies(stores: AppStoreContainer) -> AppDependencies {
     AppDependencies(
         pinboards: stores.pinboard,
         snippets: stores.snippet,
@@ -640,7 +541,7 @@ private func makeAppDependencies(stores: StartupStores) -> AppDependencies {
 
 @MainActor
 private func makeVoiceCoordinator(
-    stores: StartupStores,
+    stores: AppStoreContainer,
     cleanupKeyStore: VoiceCleanupKeyStore
 ) -> VoiceCoordinator {
     let keychain = SystemKeychain()

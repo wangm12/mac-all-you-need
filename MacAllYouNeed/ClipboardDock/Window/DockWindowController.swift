@@ -44,8 +44,7 @@ final class DockWindowController {
     private var dragMonitor: NSEventMonitorHandle?
     private var dragSurfaceClearTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
-    private var pasteIntentObserver: NSObjectProtocol?
-    private var hideRequestObserver: NSObjectProtocol?
+    private let dockNotifications: DockNotificationObservers
     private var ignoreOutsideClicksUntil: Date = .distantPast
     private weak var heightPreviewInvokerWindow: NSWindow?
     private var heightPreviewInvokerOriginalLevel: NSWindow.Level?
@@ -66,6 +65,17 @@ final class DockWindowController {
         self.pasteCoordinator = pasteCoordinator
         self.favicons = favicons
         self.registry = registry
+        self.dockNotifications = DockNotificationObservers()
+        dockNotifications.onPasteIntent = { [weak self] intent in
+            guard let self,
+                  let idx = self.model.items.firstIndex(where: { $0.id == intent.itemID })
+            else { return }
+            self.triggerPaste(at: idx, modifiers: intent.plainText ? .option : [])
+        }
+        dockNotifications.onHideRequested = { [weak self] in
+            guard let self, self.window?.isVisible == true else { return }
+            self.hide()
+        }
     }
 
     func toggle() {
@@ -396,43 +406,22 @@ final class DockWindowController {
     /// through `triggerPaste(at:modifiers:)` so dock-dismiss + 80 ms focus
     /// restore are reused.
     private func startPasteIntentObserver() {
-        stopPasteIntentObserver()
-        pasteIntentObserver = NotificationCenter.default.addObserver(
-            forName: .dockPasteRequested, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let self,
-                  let intent = note.object as? DockPasteIntent,
-                  let idx = self.model.items.firstIndex(where: { $0.id == intent.itemID })
-            else { return }
-            self.triggerPaste(at: idx, modifiers: intent.plainText ? .option : [])
-        }
+        dockNotifications.startPasteIntent()
     }
 
     private func stopPasteIntentObserver() {
-        if let pasteIntentObserver {
-            NotificationCenter.default.removeObserver(pasteIntentObserver)
-            self.pasteIntentObserver = nil
-        }
+        dockNotifications.stopPasteIntent()
     }
 
     /// Listen for `dockHideRequested` from in-dock views (e.g. card double-
     /// click) and dismiss the panel. Skip if the panel is already hidden
     /// (avoids redundant slide-down on rapid double-clicks).
     private func startHideRequestObserver() {
-        stopHideRequestObserver()
-        hideRequestObserver = NotificationCenter.default.addObserver(
-            forName: .dockHideRequested, object: nil, queue: .main
-        ) { [weak self] _ in
-            guard let self, self.window?.isVisible == true else { return }
-            self.hide()
-        }
+        dockNotifications.startHideRequested()
     }
 
     private func stopHideRequestObserver() {
-        if let hideRequestObserver {
-            NotificationCenter.default.removeObserver(hideRequestObserver)
-            self.hideRequestObserver = nil
-        }
+        dockNotifications.stopHideRequested()
     }
 
     private func focusDockPanelForKeyboardInput(_ panel: BottomDockWindow) {
@@ -803,5 +792,68 @@ final class DockWindowController {
     private func previewTitle(for item: DockItem) -> String {
         let title = item.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? "Clipboard Preview" : title
+    }
+}
+
+/// Per-component NC adapter for DockWindowController (Phase 7 W1).
+/// Wraps the 2 raw NotificationCenter observers (`dockPasteRequested`,
+/// `dockHideRequested`) in a small typed surface so the dock controller
+/// itself doesn't deal with NSObjectProtocol token plumbing.
+///
+/// Observers have a per-show lifecycle (started in `show()`, stopped in
+/// `hide()`), so the adapter exposes start/stop pairs per notification
+/// rather than a single events publisher.
+@MainActor
+final class DockNotificationObservers {
+    var onPasteIntent: ((DockPasteIntent) -> Void)?
+    var onHideRequested: (() -> Void)?
+
+    private var pasteToken: NSObjectProtocol?
+    private var hideToken: NSObjectProtocol?
+
+    init() {}
+
+    deinit {
+        // Tokens are removed via stop* but defensive cleanup if the controller
+        // is torn down without calling stop.
+        if let pasteToken {
+            NotificationCenter.default.removeObserver(pasteToken)
+        }
+        if let hideToken {
+            NotificationCenter.default.removeObserver(hideToken)
+        }
+    }
+
+    func startPasteIntent() {
+        stopPasteIntent()
+        pasteToken = NotificationCenter.default.addObserver(
+            forName: .dockPasteRequested, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let intent = note.object as? DockPasteIntent else { return }
+            self?.onPasteIntent?(intent)
+        }
+    }
+
+    func stopPasteIntent() {
+        if let pasteToken {
+            NotificationCenter.default.removeObserver(pasteToken)
+            self.pasteToken = nil
+        }
+    }
+
+    func startHideRequested() {
+        stopHideRequested()
+        hideToken = NotificationCenter.default.addObserver(
+            forName: .dockHideRequested, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.onHideRequested?()
+        }
+    }
+
+    func stopHideRequested() {
+        if let hideToken {
+            NotificationCenter.default.removeObserver(hideToken)
+            self.hideToken = nil
+        }
     }
 }

@@ -29,33 +29,22 @@ final class DownloaderViewModel {
     // Actual on-disk path for partial file cleanup on delete
     private var liveDestination: [String: String] = [:]
 
+    // Phase 7 W1: per-component NC adapter folds the 5 raw observers into
+    // a tiny typed surface. Lives below as a private inline type.
+    private let notifications = DownloaderNotificationObservers()
+
     init(coordinator: DownloadCoordinator) {
         self.coordinator = coordinator
-
-        NotificationCenter.default.addObserver(
-            forName: .downloadProgress, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let self,
-                  let id = note.userInfo?["id"] as? String,
-                  let p = note.userInfo?["progress"] as? DownloadProgress else { return }
-            self.handleProgress(id: id, p: p)
+        notifications.onProgress = { [weak self] id, progress in
+            self?.handleProgress(id: id, p: progress)
         }
-        NotificationCenter.default.addObserver(
-            forName: .downloadPhase, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let id = note.userInfo?["id"] as? String,
-                  let phase = note.userInfo?["phase"] as? String else { return }
+        notifications.onPhase = { [weak self] id, phase in
             self?.liveStatus[id] = phase
         }
-        NotificationCenter.default.addObserver(
-            forName: .downloadStateChanged, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let id = note.userInfo?["id"] as? String else { return }
+        notifications.onStateChanged = { [weak self] id, state in
             Task { @MainActor in
                 await self?.refresh()
-                if let state = note.userInfo?["state"] as? String,
-                   ["completed", "failed", "paused"].contains(state)
-                {
+                if let state, ["completed", "failed", "paused"].contains(state) {
                     self?.liveProgress.removeValue(forKey: id)
                     self?.liveStatus.removeValue(forKey: id)
                     self?.speedSamples.removeValue(forKey: id)
@@ -63,16 +52,10 @@ final class DownloaderViewModel {
                 }
             }
         }
-        NotificationCenter.default.addObserver(
-            forName: .downloadDestinationPath, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let id = note.userInfo?["id"] as? String,
-                  let path = note.userInfo?["path"] as? String else { return }
+        notifications.onDestinationPath = { [weak self] id, path in
             self?.liveDestination[id] = path
         }
-        NotificationCenter.default.addObserver(
-            forName: .cookieWarning, object: nil, queue: .main
-        ) { [weak self] _ in
+        notifications.onCookieWarning = { [weak self] in
             self?.cookieWarning = "Some browser profiles could not be imported. Downloads requiring login may fail."
         }
         Task { await self.refresh() }
@@ -224,5 +207,71 @@ final class DownloaderViewModel {
         await refresh()
         let msg = ids.count == 1 ? "Deleted" : "Deleted \(ids.count)"
         CopyHUD.show(msg, symbol: "trash.fill")
+    }
+}
+
+/// Per-component NC adapter for DownloaderViewModel (Phase 7 W1).
+/// Wraps the 5 raw NotificationCenter observers (`downloadProgress`,
+/// `downloadPhase`, `downloadStateChanged`, `downloadDestinationPath`,
+/// `cookieWarning`) in typed closures so the view-model itself doesn't
+/// deal with NSObjectProtocol token plumbing.
+///
+/// Observers are installed for the lifetime of the view-model and torn
+/// down in deinit; no start/stop pairs.
+@MainActor
+final class DownloaderNotificationObservers {
+    var onProgress: ((String, DownloadProgress) -> Void)?
+    var onPhase: ((String, String) -> Void)?
+    /// state may be nil if the notification arrived without a "state" key
+    /// (matches the original observer's permissive handling).
+    var onStateChanged: ((String, String?) -> Void)?
+    var onDestinationPath: ((String, String) -> Void)?
+    var onCookieWarning: (() -> Void)?
+
+    private var tokens: [NSObjectProtocol] = []
+
+    init() {
+        registerAll()
+    }
+
+    deinit {
+        for token in tokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
+    private func registerAll() {
+        observe(.downloadProgress) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String,
+                  let progress = note.userInfo?["progress"] as? DownloadProgress
+            else { return }
+            self?.onProgress?(id, progress)
+        }
+        observe(.downloadPhase) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String,
+                  let phase = note.userInfo?["phase"] as? String
+            else { return }
+            self?.onPhase?(id, phase)
+        }
+        observe(.downloadStateChanged) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String else { return }
+            self?.onStateChanged?(id, note.userInfo?["state"] as? String)
+        }
+        observe(.downloadDestinationPath) { [weak self] note in
+            guard let id = note.userInfo?["id"] as? String,
+                  let path = note.userInfo?["path"] as? String
+            else { return }
+            self?.onDestinationPath?(id, path)
+        }
+        observe(.cookieWarning) { [weak self] _ in
+            self?.onCookieWarning?()
+        }
+    }
+
+    private func observe(_ name: Notification.Name, handler: @escaping (Notification) -> Void) {
+        let token = NotificationCenter.default.addObserver(
+            forName: name, object: nil, queue: .main, using: handler
+        )
+        tokens.append(token)
     }
 }
