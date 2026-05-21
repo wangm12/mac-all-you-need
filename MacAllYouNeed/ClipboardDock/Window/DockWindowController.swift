@@ -4,28 +4,13 @@ import Core
 import Platform
 import SwiftUI
 
-enum DockTypingSearch {
-    static func updatedQuery(
-        current: String,
-        keyCode: UInt16,
-        characters: String?,
-        modifiers: NSEvent.ModifierFlags
-    ) -> String? {
-        let relevantModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
-        let textModifiers: NSEvent.ModifierFlags = [.shift, .capsLock]
-        guard relevantModifiers.subtracting(textModifiers).isEmpty else { return nil }
-
-        if keyCode == 51 {
-            guard !current.isEmpty else { return nil }
-            return String(current.dropLast())
-        }
-
-        guard let characters, !characters.isEmpty else { return nil }
-        let blockedCharacters = CharacterSet.controlCharacters.union(.newlines)
-        guard characters.rangeOfCharacter(from: blockedCharacters) == nil else { return nil }
-        return current + characters
-    }
-}
+// Collaborators extracted from this file (Phase 6):
+//   * DockOutsideClickPolicy       → DockOutsideClickPolicy.swift
+//   * DockPositioner               → DockPositioner.swift
+//   * DockSearchInputController +
+//     DockTypingSearch             → DockSearchInputController.swift
+//   * DockGlobalKeyEventRouter (and the DockGlobalKeyFallback* types it owns)
+//                                  → DockGlobalKeyEventRouter.swift
 
 enum DockLocalKeyEventScope {
     static func shouldHandle(eventWindow: NSWindow?, dockWindow: NSWindow, keyWindow: NSWindow?) -> Bool {
@@ -36,163 +21,11 @@ enum DockLocalKeyEventScope {
     }
 }
 
-enum DockOutsideClickPolicy {
-    static func shouldHide(
-        panelFrame: NSRect,
-        clickLocationOnScreen: NSPoint,
-        ignoreOutsideClicksUntil: Date,
-        now: Date
-    ) -> Bool {
-        guard now >= ignoreOutsideClicksUntil else { return false }
-        return !panelFrame.contains(clickLocationOnScreen)
-    }
-
-    static func screenLocation(for event: NSEvent) -> NSPoint {
-        guard let eventWindow = event.window else {
-            return NSEvent.mouseLocation
-        }
-        return eventWindow.convertPoint(toScreen: event.locationInWindow)
-    }
-}
-
 enum DockHeightPreviewLayering {
     static func invokerLevel(above dockLevel: NSWindow.Level) -> NSWindow.Level {
         let draggingLevel = Int(CGWindowLevelForKey(.draggingWindow))
         let raisedLevel = min(dockLevel.rawValue + 1, draggingLevel - 1)
         return NSWindow.Level(rawValue: raisedLevel)
-    }
-}
-
-enum DockGlobalKeyFallbackAction: Equatable {
-    case quickLook
-    case dismiss
-    case focusBackward
-    case focusForward
-}
-
-struct DockGlobalKeyFallbackBindings {
-    let quickLook: [ShortcutBinding]
-    let dismiss: [ShortcutBinding]
-}
-
-enum DockGlobalKeyFallbackPolicy {
-    static func modifierMask(from flags: CGEventFlags) -> UInt {
-        var modifiers: NSEvent.ModifierFlags = []
-        if flags.contains(.maskAlphaShift) { modifiers.insert(.capsLock) }
-        if flags.contains(.maskShift) { modifiers.insert(.shift) }
-        if flags.contains(.maskControl) { modifiers.insert(.control) }
-        if flags.contains(.maskAlternate) { modifiers.insert(.option) }
-        if flags.contains(.maskCommand) { modifiers.insert(.command) }
-        return modifiers.rawValue & NSEvent.ModifierFlags.deviceIndependentFlagsMask.rawValue
-    }
-
-    static func action(
-        keyCode: UInt16,
-        modifierMask: UInt,
-        bindings: DockGlobalKeyFallbackBindings
-    ) -> DockGlobalKeyFallbackAction? {
-        if matches(bindings.quickLook, keyCode: keyCode, modifierMask: modifierMask) {
-            return .quickLook
-        }
-        if matches(bindings.dismiss, keyCode: keyCode, modifierMask: modifierMask) {
-            return .dismiss
-        }
-
-        guard modifierMask == 0 else { return nil }
-        switch keyCode {
-        case 123:
-            return .focusBackward
-        case 124:
-            return .focusForward
-        default:
-            return nil
-        }
-    }
-
-    private static func matches(
-        _ bindings: [ShortcutBinding],
-        keyCode: UInt16,
-        modifierMask: UInt
-    ) -> Bool {
-        bindings.contains { binding in
-            binding.keyCode == keyCode && binding.modifierMask == modifierMask
-        }
-    }
-}
-
-private final class DockGlobalKeyEventTap {
-    private let bindings: DockGlobalKeyFallbackBindings
-    private let handleAction: @MainActor (DockGlobalKeyFallbackAction) -> Void
-    private var tapController: CGEventTapController?
-
-    init(
-        bindings: DockGlobalKeyFallbackBindings,
-        handleAction: @escaping @MainActor (DockGlobalKeyFallbackAction) -> Void
-    ) {
-        self.bindings = bindings
-        self.handleAction = handleAction
-    }
-
-    @discardableResult
-    func start() -> Bool {
-        guard tapController == nil else { return true }
-
-        let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
-            | CGEventMask(1 << CGEventType.tapDisabledByTimeout.rawValue)
-            | CGEventMask(1 << CGEventType.tapDisabledByUserInput.rawValue)
-        let userInfo = Unmanaged.passUnretained(self).toOpaque()
-        let controller = CGEventTapController(
-            tap: .cghidEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: eventMask,
-            runLoop: .main,
-            callback: { _, type, event, userInfo in
-                guard let userInfo else { return Unmanaged.passUnretained(event) }
-                let eventTap = Unmanaged<DockGlobalKeyEventTap>.fromOpaque(userInfo).takeUnretainedValue()
-                return eventTap.handle(type: type, event: event)
-            },
-            userInfo: userInfo
-        )
-        do {
-            try controller.install()
-        } catch {
-            return false
-        }
-        controller.enable()
-        tapController = controller
-        return true
-    }
-
-    func stop() {
-        tapController?.uninstall()
-        tapController = nil
-    }
-
-    private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            tapController?.reenableAfterTimeout()
-            return Unmanaged.passUnretained(event)
-        }
-
-        guard type == .keyDown else {
-            return Unmanaged.passUnretained(event)
-        }
-
-        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-        let modifierMask = DockGlobalKeyFallbackPolicy.modifierMask(from: event.flags)
-        guard let action = DockGlobalKeyFallbackPolicy.action(
-            keyCode: keyCode,
-            modifierMask: modifierMask,
-            bindings: bindings
-        ) else {
-            return Unmanaged.passUnretained(event)
-        }
-
-        Task { @MainActor [handleAction] in
-            handleAction(action)
-        }
-        return nil
     }
 }
 
@@ -207,8 +40,7 @@ final class DockWindowController {
     private var globalOutsideClickMonitor: NSEventMonitorHandle?
     private var localOutsideClickMonitor: NSEventMonitorHandle?
     private var keyMonitor: NSEventMonitorHandle?
-    private var globalKeyMonitor: NSEventMonitorHandle?
-    private var globalKeyEventTap: DockGlobalKeyEventTap?
+    private var globalKeyRouter: DockGlobalKeyEventRouter?
     private var dragMonitor: NSEventMonitorHandle?
     private var dragSurfaceClearTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
@@ -248,7 +80,7 @@ final class DockWindowController {
     var debugWindowForTesting: BottomDockWindow? { window }
     var debugHasGlobalOutsideClickMonitorForTesting: Bool { globalOutsideClickMonitor != nil }
     var debugHasLocalOutsideClickMonitorForTesting: Bool { localOutsideClickMonitor != nil }
-    var debugHasGlobalKeyMonitorForTesting: Bool { globalKeyMonitor != nil }
+    var debugHasGlobalKeyMonitorForTesting: Bool { globalKeyRouter != nil }
 
     func debugSetWindowForTesting(_ window: BottomDockWindow?) {
         self.window = window
@@ -285,16 +117,11 @@ final class DockWindowController {
             )
         }
 
-        guard let screen = screenWithCursor() ?? NSScreen.main else { return }
+        guard let screen = DockPositioner.screenWithCursor() ?? NSScreen.main else { return }
         // Use the screen's full frame (not visibleFrame) so the dock sits flush
         // against the bottom edge of the display. visibleFrame would leave a
         // gap above the macOS Dock.
-        let frame = NSRect(
-            x: screen.frame.minX,
-            y: screen.frame.minY,
-            width: screen.frame.width,
-            height: dockHeight
-        )
+        let frame = DockPositioner.dockFrame(forScreen: screen, height: dockHeight)
 
         let log = Logging.logger(for: "dock", category: "window")
         log.info("show: cursor=\(NSStringFromPoint(NSEvent.mouseLocation), privacy: .public), screen.frame=\(NSStringFromRect(screen.frame), privacy: .public), screen.visibleFrame=\(NSStringFromRect(screen.visibleFrame), privacy: .public), targetFrame=\(NSStringFromRect(frame), privacy: .public), screens.count=\(NSScreen.screens.count)")
@@ -407,15 +234,10 @@ final class DockWindowController {
 
     private func resizeVisiblePanelForCurrentHeight() {
         guard let panel = window, panel.isVisible,
-              let screen = panel.screen ?? screenWithCursor() ?? NSScreen.main
+              let screen = panel.screen ?? DockPositioner.screenWithCursor() ?? NSScreen.main
         else { return }
 
-        let frame = NSRect(
-            x: screen.frame.minX,
-            y: screen.frame.minY,
-            width: screen.frame.width,
-            height: dockHeight
-        )
+        let frame = DockPositioner.dockFrame(forScreen: screen, height: dockHeight)
         panel.contentView?.layer?.removeAllAnimations()
         panel.setFrame(frame, display: true)
         panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
@@ -508,11 +330,6 @@ final class DockWindowController {
                 dismissWindow: { self.hide() }
             )
         }
-    }
-
-    private func screenWithCursor() -> NSScreen? {
-        let mouse = NSEvent.mouseLocation
-        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
     }
 
     private func startOutsideClickMonitor() {
@@ -813,17 +630,18 @@ final class DockWindowController {
                 return nil
             }
 
-            if !isTextEditingFirstResponder(in: window),
-               let updatedQuery = DockTypingSearch.updatedQuery(
-                current: model.search,
-                keyCode: event.keyCode,
-                characters: event.characters,
-                modifiers: event.modifierFlags
-               )
-            {
-                model.search = updatedQuery
-                model.requestSearchFocus()
-                return nil
+            if !isTextEditingFirstResponder(in: window) {
+                let decision = DockSearchInputController.decide(
+                    currentQuery: model.search,
+                    keyCode: event.keyCode,
+                    characters: event.characters,
+                    modifiers: event.modifierFlags
+                )
+                if case .consume(let newQuery) = decision {
+                    model.search = newQuery
+                    model.requestSearchFocus()
+                    return nil
+                }
             }
 
             if keyMods.isEmpty {
@@ -850,22 +668,19 @@ final class DockWindowController {
             return event
         }
 
-        globalKeyMonitor = NSEventMonitorHandle(global: .keyDown) { [weak self] event in
-            Task { @MainActor in
-                self?.handleGlobalKeyDown(event)
+        let router = DockGlobalKeyEventRouter(
+            bindingsProvider: { [registry] in
+                DockGlobalKeyFallbackBindings(
+                    quickLook: registry.bindings(for: .quickLook),
+                    dismiss: registry.bindings(for: .dismiss)
+                )
+            },
+            handleAction: { [weak self] action in
+                self?.handleGlobalKeyFallbackAction(action)
             }
-        }
-
-        let fallbackBindings = DockGlobalKeyFallbackBindings(
-            quickLook: registry.bindings(for: .quickLook),
-            dismiss: registry.bindings(for: .dismiss)
         )
-        let eventTap = DockGlobalKeyEventTap(bindings: fallbackBindings) { [weak self] action in
-            self?.handleGlobalKeyFallbackAction(action)
-        }
-        if eventTap.start() {
-            globalKeyEventTap = eventTap
-        }
+        router.start()
+        globalKeyRouter = router
     }
 
     private func startDragMonitor() {
@@ -913,27 +728,8 @@ final class DockWindowController {
 
     private func stopKeyMonitor() {
         keyMonitor = nil
-        globalKeyMonitor = nil
-        globalKeyEventTap?.stop()
-        globalKeyEventTap = nil
-    }
-
-    private func handleGlobalKeyDown(_ event: NSEvent) {
-        guard let window, window.isVisible else { return }
-
-        let modifierMask = event.modifierFlags.rawValue
-            & NSEvent.ModifierFlags.deviceIndependentFlagsMask.rawValue
-        let fallbackBindings = DockGlobalKeyFallbackBindings(
-            quickLook: registry.bindings(for: .quickLook),
-            dismiss: registry.bindings(for: .dismiss)
-        )
-        guard let action = DockGlobalKeyFallbackPolicy.action(
-            keyCode: event.keyCode,
-            modifierMask: modifierMask,
-            bindings: fallbackBindings
-        ) else { return }
-
-        handleGlobalKeyFallbackAction(action)
+        globalKeyRouter?.stop()
+        globalKeyRouter = nil
     }
 
     private func handleGlobalKeyFallbackAction(_ action: DockGlobalKeyFallbackAction) {
