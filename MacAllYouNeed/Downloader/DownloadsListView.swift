@@ -326,7 +326,7 @@ struct DownloadsListView: View {
     var onPasteURL: (() -> Void)?
     var onAddURL: (() -> Void)?
     @FocusState private var listFocused: Bool
-    @State private var keyMonitor: Any? = nil
+    @State private var keyMonitor: NSEventMonitorHandle? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -380,10 +380,7 @@ struct DownloadsListView: View {
             installKeyMonitor()
         }
         .onDisappear {
-            if let monitor = keyMonitor {
-                NSEvent.removeMonitor(monitor)
-                keyMonitor = nil
-            }
+            keyMonitor = nil
             vm.selectedIDs = []
             vm.anchorID = nil
         }
@@ -520,7 +517,7 @@ struct DownloadsListView: View {
         guard keyMonitor == nil else { return }
         claimKeyWindow()
         let vm = vm
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        keyMonitor = NSEventMonitorHandle(local: .keyDown) { event in
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let isCommand = modifiers.contains(.command)
             let character = event.charactersIgnoringModifiers ?? ""

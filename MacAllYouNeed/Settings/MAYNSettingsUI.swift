@@ -1,4 +1,5 @@
 import AppKit
+import Platform
 import QuartzCore
 import SwiftUI
 
@@ -245,7 +246,7 @@ private struct MAYNTextFocusDismissBridge: NSViewRepresentable {
 
     final class Coordinator {
         private weak var view: NSView?
-        private var localMouseMonitor: Any?
+        private var localMouseMonitor: NSEventMonitorHandle?
 
         deinit {
             detach()
@@ -255,15 +256,12 @@ private struct MAYNTextFocusDismissBridge: NSViewRepresentable {
             self.view = view
             guard localMouseMonitor == nil else { return }
 
-            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            localMouseMonitor = NSEventMonitorHandle(local: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
                 self?.handle(event) ?? event
             }
         }
 
         func detach() {
-            if let localMouseMonitor {
-                NSEvent.removeMonitor(localMouseMonitor)
-            }
             localMouseMonitor = nil
             view = nil
         }

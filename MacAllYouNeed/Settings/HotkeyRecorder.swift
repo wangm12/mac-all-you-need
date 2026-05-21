@@ -768,10 +768,9 @@ struct HotkeyRecorder: NSViewRepresentable {
         private var isRecording = false
         private var activeModifierFlags: NSEvent.ModifierFlags = []
         private var ignoreKeyEventsUntil: TimeInterval = 0
-        private(set) var keyMonitor: Any?
-        private var globalKeyMonitor: Any?
-        private var eventTap: CFMachPort?
-        private var eventTapSource: CFRunLoopSource?
+        private(set) var keyMonitor: NSEventMonitorHandle?
+        private var globalKeyMonitor: NSEventMonitorHandle?
+        private var tapController: CGEventTapController?
         private var candidateIssueMessage: (HotkeyDescriptor) -> String?
         private var chipDisplayOverride: ((HotkeyDescriptor) -> String)?
         private(set) var pendingDescriptor: HotkeyDescriptor?
@@ -1229,7 +1228,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         private func startMonitoringKeyboard() {
             guard keyMonitor == nil else { return }
             startKeyboardEventTap()
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown]) { [weak self] event in
+            keyMonitor = NSEventMonitorHandle(local: [.keyDown, .flagsChanged, .leftMouseDown]) { [weak self] event in
                 guard let self, self.isRecording else { return event }
                 if event.type == .leftMouseDown {
                     if self.floatingKeyboard.owns(window: event.window) {
@@ -1247,7 +1246,7 @@ struct HotkeyRecorder: NSViewRepresentable {
                 self.capture(event)
                 return nil
             }
-            globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            globalKeyMonitor = NSEventMonitorHandle(global: [.keyDown, .flagsChanged]) { [weak self] event in
                 DispatchQueue.main.async {
                     guard let self, self.isRecording else { return }
                     if event.type == .flagsChanged {
@@ -1261,18 +1260,12 @@ struct HotkeyRecorder: NSViewRepresentable {
 
         private func stopMonitoringKeyboard() {
             stopKeyboardEventTap()
-            if let keyMonitor {
-                NSEvent.removeMonitor(keyMonitor)
-                self.keyMonitor = nil
-            }
-            if let globalKeyMonitor {
-                NSEvent.removeMonitor(globalKeyMonitor)
-                self.globalKeyMonitor = nil
-            }
+            keyMonitor = nil
+            globalKeyMonitor = nil
         }
 
         private func startKeyboardEventTap() {
-            guard eventTap == nil else { return }
+            guard tapController == nil else { return }
             let mask = CGEventMask(
                 (1 << CGEventType.keyDown.rawValue)
                     | (1 << CGEventType.flagsChanged.rawValue)
@@ -1280,45 +1273,36 @@ struct HotkeyRecorder: NSViewRepresentable {
                     | (1 << CGEventType.tapDisabledByUserInput.rawValue)
             )
             let userInfo = Unmanaged.passUnretained(self).toOpaque()
-            guard let tap = CGEvent.tapCreate(
+            let controller = CGEventTapController(
                 tap: .cghidEventTap,
                 place: .headInsertEventTap,
                 options: .defaultTap,
                 eventsOfInterest: mask,
+                runLoop: .main,
                 callback: { _, type, event, userInfo in
                     guard let userInfo else { return Unmanaged.passUnretained(event) }
                     let recorder = Unmanaged<RecorderView>.fromOpaque(userInfo).takeUnretainedValue()
                     return recorder.handleKeyboardEventTap(type: type, event: event)
                 },
                 userInfo: userInfo
-            ) else {
+            )
+            do {
+                try controller.install()
+            } catch {
                 return
             }
-
-            eventTap = tap
-            eventTapSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-            if let eventTapSource {
-                CFRunLoopAddSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
-            }
-            CGEvent.tapEnable(tap: tap, enable: true)
+            controller.enable()
+            tapController = controller
         }
 
         private func stopKeyboardEventTap() {
-            if let eventTap {
-                CGEvent.tapEnable(tap: eventTap, enable: false)
-            }
-            if let eventTapSource {
-                CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
-            }
-            eventTapSource = nil
-            eventTap = nil
+            tapController?.uninstall()
+            tapController = nil
         }
 
         private func handleKeyboardEventTap(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let eventTap {
-                    CGEvent.tapEnable(tap: eventTap, enable: true)
-                }
+                tapController?.reenableAfterTimeout()
                 return Unmanaged.passUnretained(event)
             }
 

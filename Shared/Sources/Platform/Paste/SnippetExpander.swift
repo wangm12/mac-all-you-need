@@ -4,7 +4,7 @@ import Core
 
 public final class SnippetExpander {
     public typealias Lookup = (String) -> String?
-    private var tap: CFMachPort?
+    private var tapController: CGEventTapController?
     private var planner: SnippetExpansionPlanner
 
     public init(
@@ -22,19 +22,23 @@ public final class SnippetExpander {
             let me = Unmanaged<SnippetExpander>.fromOpaque(info).takeUnretainedValue()
             return me.handle(event: event)
         }
-        tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap, place: .headInsertEventTap,
-            options: .defaultTap, eventsOfInterest: mask, callback: cb, userInfo: context
+        let controller = CGEventTapController(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            runLoop: .current(CFRunLoopGetCurrent()),
+            callback: cb,
+            userInfo: context
         )
-        if let tap {
-            let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), src, .commonModes)
-            CGEvent.tapEnable(tap: tap, enable: true)
-        }
+        try? controller.install()
+        controller.enable()
+        tapController = controller
     }
 
     public func stop() {
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false); self.tap = nil }
+        tapController?.uninstall()
+        tapController = nil
         planner.reset()
     }
 

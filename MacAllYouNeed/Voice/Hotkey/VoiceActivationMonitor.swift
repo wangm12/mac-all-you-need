@@ -5,8 +5,8 @@ import Platform
 @MainActor
 final class VoiceActivationMonitor {
     private var globalHotkey: GlobalHotkey?
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
+    private var globalMonitor: NSEventMonitorHandle?
+    private var localMonitor: NSEventMonitorHandle?
     private var settings: VoiceActivationSettings?
     private var isDown = false
     private var staleTask: Task<Void, Never>?
@@ -27,10 +27,10 @@ final class VoiceActivationMonitor {
             globalHotkey = hotkey
 
         case .hold:
-            globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+            globalMonitor = NSEventMonitorHandle(global: [.keyDown, .keyUp]) { [weak self] event in
                 Task { @MainActor in self?.handle(event) }
             }
-            localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+            localMonitor = NSEventMonitorHandle(local: [.keyDown, .keyUp]) { [weak self] event in
                 Task { @MainActor in self?.handle(event) }
                 return event
             }
@@ -41,8 +41,6 @@ final class VoiceActivationMonitor {
         globalHotkey?.unregister()
         globalHotkey = nil
 
-        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
-        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
         globalMonitor = nil
         localMonitor = nil
         settings = nil

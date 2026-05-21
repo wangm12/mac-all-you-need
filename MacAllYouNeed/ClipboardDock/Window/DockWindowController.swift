@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Core
+import Platform
 import SwiftUI
 
 enum DockTypingSearch {
@@ -122,8 +123,7 @@ enum DockGlobalKeyFallbackPolicy {
 private final class DockGlobalKeyEventTap {
     private let bindings: DockGlobalKeyFallbackBindings
     private let handleAction: @MainActor (DockGlobalKeyFallbackAction) -> Void
-    private var eventTap: CFMachPort?
-    private var eventTapSource: CFRunLoopSource?
+    private var tapController: CGEventTapController?
 
     init(
         bindings: DockGlobalKeyFallbackBindings,
@@ -135,52 +135,43 @@ private final class DockGlobalKeyEventTap {
 
     @discardableResult
     func start() -> Bool {
-        guard eventTap == nil else { return true }
+        guard tapController == nil else { return true }
 
         let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
             | CGEventMask(1 << CGEventType.tapDisabledByTimeout.rawValue)
             | CGEventMask(1 << CGEventType.tapDisabledByUserInput.rawValue)
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
-        guard let tap = CGEvent.tapCreate(
+        let controller = CGEventTapController(
             tap: .cghidEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: eventMask,
+            runLoop: .main,
             callback: { _, type, event, userInfo in
                 guard let userInfo else { return Unmanaged.passUnretained(event) }
                 let eventTap = Unmanaged<DockGlobalKeyEventTap>.fromOpaque(userInfo).takeUnretainedValue()
                 return eventTap.handle(type: type, event: event)
             },
             userInfo: userInfo
-        ) else {
+        )
+        do {
+            try controller.install()
+        } catch {
             return false
         }
-
-        eventTap = tap
-        eventTapSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        if let eventTapSource {
-            CFRunLoopAddSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
-        }
-        CGEvent.tapEnable(tap: tap, enable: true)
+        controller.enable()
+        tapController = controller
         return true
     }
 
     func stop() {
-        if let eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
-        }
-        if let eventTapSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
-        }
-        eventTapSource = nil
-        eventTap = nil
+        tapController?.uninstall()
+        tapController = nil
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let eventTap {
-                CGEvent.tapEnable(tap: eventTap, enable: true)
-            }
+            tapController?.reenableAfterTimeout()
             return Unmanaged.passUnretained(event)
         }
 
@@ -213,12 +204,12 @@ final class DockWindowController {
     private let registry: ShortcutRegistry
 
     private var window: BottomDockWindow?
-    private var globalOutsideClickMonitor: Any?
-    private var localOutsideClickMonitor: Any?
-    private var keyMonitor: Any?
-    private var globalKeyMonitor: Any?
+    private var globalOutsideClickMonitor: NSEventMonitorHandle?
+    private var localOutsideClickMonitor: NSEventMonitorHandle?
+    private var keyMonitor: NSEventMonitorHandle?
+    private var globalKeyMonitor: NSEventMonitorHandle?
     private var globalKeyEventTap: DockGlobalKeyEventTap?
-    private var dragMonitor: Any?
+    private var dragMonitor: NSEventMonitorHandle?
     private var dragSurfaceClearTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
     private var pasteIntentObserver: NSObjectProtocol?
@@ -526,8 +517,8 @@ final class DockWindowController {
 
     private func startOutsideClickMonitor() {
         stopOutsideClickMonitor()
-        globalOutsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
+        globalOutsideClickMonitor = NSEventMonitorHandle(
+            global: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             Task { @MainActor in
                 guard let self, self.shouldHideForOutsideClick(event) else { return }
@@ -535,8 +526,8 @@ final class DockWindowController {
             }
         }
 
-        localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
+        localOutsideClickMonitor = NSEventMonitorHandle(
+            local: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             guard let self else { return event }
             if self.shouldHideForOutsideClick(event) {
@@ -547,14 +538,8 @@ final class DockWindowController {
     }
 
     private func stopOutsideClickMonitor() {
-        if let globalOutsideClickMonitor {
-            NSEvent.removeMonitor(globalOutsideClickMonitor)
-            self.globalOutsideClickMonitor = nil
-        }
-        if let localOutsideClickMonitor {
-            NSEvent.removeMonitor(localOutsideClickMonitor)
-            self.localOutsideClickMonitor = nil
-        }
+        globalOutsideClickMonitor = nil
+        localOutsideClickMonitor = nil
     }
 
     private func shouldHideForOutsideClick(_ event: NSEvent) -> Bool {
@@ -640,7 +625,7 @@ final class DockWindowController {
 
     private func startKeyMonitor() {
         stopKeyMonitor()
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyMonitor = NSEventMonitorHandle(local: .keyDown) { [weak self] event in
             guard let self, let window = self.window, window.isVisible else { return event }
             guard DockLocalKeyEventScope.shouldHandle(
                 eventWindow: event.window,
@@ -865,7 +850,7 @@ final class DockWindowController {
             return event
         }
 
-        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        globalKeyMonitor = NSEventMonitorHandle(global: .keyDown) { [weak self] event in
             Task { @MainActor in
                 self?.handleGlobalKeyDown(event)
             }
@@ -885,7 +870,7 @@ final class DockWindowController {
 
     private func startDragMonitor() {
         stopDragMonitor()
-        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+        dragMonitor = NSEventMonitorHandle(local: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
             if event.type == .leftMouseUp {
                 self?.deactivateDockDragSurface()
                 return event
@@ -907,10 +892,7 @@ final class DockWindowController {
     }
 
     private func stopDragMonitor() {
-        if let dragMonitor {
-            NSEvent.removeMonitor(dragMonitor)
-            self.dragMonitor = nil
-        }
+        dragMonitor = nil
         deactivateDockDragSurface()
     }
 
@@ -930,14 +912,8 @@ final class DockWindowController {
     }
 
     private func stopKeyMonitor() {
-        if let keyMonitor {
-            NSEvent.removeMonitor(keyMonitor)
-            self.keyMonitor = nil
-        }
-        if let globalKeyMonitor {
-            NSEvent.removeMonitor(globalKeyMonitor)
-            self.globalKeyMonitor = nil
-        }
+        keyMonitor = nil
+        globalKeyMonitor = nil
         globalKeyEventTap?.stop()
         globalKeyEventTap = nil
     }

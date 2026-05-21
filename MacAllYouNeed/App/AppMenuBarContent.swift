@@ -462,7 +462,7 @@ struct ClipboardMenuBarContent: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var listFocused: Bool
-    @State private var keyMonitor: Any? = nil
+    @State private var keyMonitor: NSEventMonitorHandle? = nil
 
     var body: some View {
         Group {
@@ -518,7 +518,7 @@ struct ClipboardMenuBarContent: View {
             installKeyMonitor()
         }
         .onDisappear {
-            if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
+            keyMonitor = nil
             reader.selectedIDs = []
             reader.anchorID = nil
             PreviewPanel.dismiss()
@@ -571,7 +571,7 @@ struct ClipboardMenuBarContent: View {
         claimKeyWindow()
         let reader = self.reader  // capture class reference — always live
         let blobs = self.blobs
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        keyMonitor = NSEventMonitorHandle(local: .keyDown) { event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let cmd = mods.contains(.command)
             let char = event.charactersIgnoringModifiers ?? ""

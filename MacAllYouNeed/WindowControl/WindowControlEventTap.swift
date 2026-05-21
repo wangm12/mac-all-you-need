@@ -30,8 +30,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         case nativeTitleBarSnap
     }
 
-    private var eventTap: CFMachPort?
-    private var eventTapSource: CFRunLoopSource?
+    private var tapController: CGEventTapController?
     private var runtime = Runtime()
     private var activeTarget: ResolvedWindowTarget?
     private var activeSnapAction: WindowAction?
@@ -60,7 +59,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
     }
 
     var isRunning: Bool {
-        eventTap != nil
+        tapController != nil
     }
 
     func updateRuntime(
@@ -93,7 +92,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
     }
 
     func start() throws {
-        guard eventTap == nil else { return }
+        guard tapController == nil else { return }
         stateMachine.start(enabled: runtime.anyRuntimeBehaviorEnabled, axTrusted: runtime.axTrusted)
 
         let mouseMask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
@@ -106,49 +105,42 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             | CGEventMask(1 << CGEventType.tapDisabledByUserInput.rawValue)
         let mask = mouseMask | recoveryMask
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
-        guard let tap = CGEvent.tapCreate(
+        let controller = CGEventTapController(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: mask,
+            runLoop: .main,
             callback: { _, type, event, userInfo in
                 guard let userInfo else { return Unmanaged.passUnretained(event) }
                 let tap = Unmanaged<WindowControlEventTap>.fromOpaque(userInfo).takeUnretainedValue()
                 return tap.handle(type: type, event: event)
             },
             userInfo: userInfo
-        ) else {
+        )
+        do {
+            try controller.install()
+        } catch {
             throw WindowControlEventTapError.installFailed
         }
-
-        eventTap = tap
-        eventTapSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        if let eventTapSource {
-            CFRunLoopAddSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
-        }
-        CGEvent.tapEnable(tap: tap, enable: true)
+        controller.enable()
+        tapController = controller
     }
 
     func stop() {
         cancelGesture()
         stateMachine.stop()
-        if let eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
-        }
-        if let eventTapSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
-        }
-        eventTapSource = nil
-        eventTap = nil
+        tapController?.uninstall()
+        tapController = nil
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             stateMachine.handleTapDisabled(type == .tapDisabledByTimeout ? .timeout : .userInput)
-            if case .recovering = stateMachine.state, let eventTap {
+            if case .recovering = stateMachine.state, let controller = tapController {
                 stateMachine.retryNow(enabled: runtime.anyRuntimeBehaviorEnabled, axTrusted: runtime.axTrusted)
                 if stateMachine.isTapActive {
-                    CGEvent.tapEnable(tap: eventTap, enable: true)
+                    controller.reenableAfterTimeout()
                 }
             }
             return Unmanaged.passUnretained(event)

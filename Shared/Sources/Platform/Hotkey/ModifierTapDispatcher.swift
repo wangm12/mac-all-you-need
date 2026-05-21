@@ -39,8 +39,7 @@ public final class ModifierTapDispatcher {
     private var nextTokenID: UInt64 = 1
 
     // CGEventTap lifecycle
-    private var eventTap: CFMachPort?
-    private var eventTapSource: CFRunLoopSource?
+    private var tapController: CGEventTapController?
 
     // Per-key timing state (main queue only)
     private var pressStart: [ModifierTapShortcut.Key: TimeInterval] = [:]
@@ -83,7 +82,7 @@ public final class ModifierTapDispatcher {
     // MARK: - CGEventTap lifecycle
 
     private func installTap() {
-        guard eventTap == nil else { return }
+        guard tapController == nil else { return }
 
         let mask = CGEventMask(
             (1 << CGEventType.flagsChanged.rawValue)
@@ -92,11 +91,12 @@ public final class ModifierTapDispatcher {
             | (1 << CGEventType.tapDisabledByUserInput.rawValue)
         )
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
-        guard let tap = CGEvent.tapCreate(
+        let controller = CGEventTapController(
             tap: .cghidEventTap,
             place: .tailAppendEventTap,  // tail: never suppresses, minimal interference
             options: .listenOnly,         // listen-only: cannot suppress events
             eventsOfInterest: mask,
+            runLoop: .main,
             callback: { _, type, event, userInfo in
                 guard let userInfo else { return Unmanaged.passUnretained(event) }
                 let d = Unmanaged<ModifierTapDispatcher>.fromOpaque(userInfo).takeUnretainedValue()
@@ -104,28 +104,20 @@ public final class ModifierTapDispatcher {
                 return Unmanaged.passUnretained(event)
             },
             userInfo: userInfo
-        ) else {
+        )
+        do {
+            try controller.install()
+            controller.enable()
+            tapController = controller
+        } catch {
             return
         }
-
-        eventTap = tap
-        eventTapSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        if let src = eventTapSource {
-            CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
-        }
-        CGEvent.tapEnable(tap: tap, enable: true)
         lastFlags = []
     }
 
     private func removeTap() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-        }
-        if let src = eventTapSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
-        }
-        eventTapSource = nil
-        eventTap = nil
+        tapController?.uninstall()
+        tapController = nil
         pressStart.removeAll()
         nonModifierDownSincePress.removeAll()
         cancelPendingTimer()
@@ -139,7 +131,7 @@ public final class ModifierTapDispatcher {
         // Must be called on the main thread (CGEventTap is on main run loop).
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
-            if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
+            tapController?.reenableAfterTimeout()
 
         case .keyDown:
             // Any non-modifier key pressed while a modifier is held cancels tap.

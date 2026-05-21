@@ -3,6 +3,7 @@ import Core
 import Foundation
 import Observation
 import OSLog
+import Platform
 
 @MainActor
 @Observable
@@ -62,8 +63,8 @@ final class VoiceCoordinator {
     /// non-activating panel, so our app rarely gets key events directly).
     /// Requires the Accessibility permission the app already requests for
     /// snippet expansion.
-    private var escGlobalMonitor: Any?
-    private var escLocalMonitor: Any?
+    private var escGlobalMonitor: NSEventMonitorHandle?
+    private var escLocalMonitor: NSEventMonitorHandle?
 
     private(set) var state: State = .idle
     private(set) var lastTranscript: VoiceCleanupResult?
@@ -806,12 +807,12 @@ final class VoiceCoordinator {
         }
         // Global: events while another app has focus (the common case — the HUD
         // is a non-activating panel so our app rarely is the active app).
-        escGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+        escGlobalMonitor = NSEventMonitorHandle(global: .keyDown) { event in
             handler(event)
         }
         // Local: events while our app does happen to be active. Return the
         // event so other handlers still see it — we react, we don't swallow.
-        escLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        escLocalMonitor = NSEventMonitorHandle(local: .keyDown) { event in
             handler(event)
             return event
         }
