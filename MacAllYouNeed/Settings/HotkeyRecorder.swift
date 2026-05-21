@@ -108,10 +108,13 @@ struct KeyboardShortcutRegistrationSummary: Equatable {
         let pressedKeys = state.pressedKeys
         pressedText = Self.physicalDisplay(from: pressedKeys)
 
-        if let tap = candidate?.modifierTap {
-            // Tap shortcut candidate — show the clean tap display ("Tap ⌘")
-            // rather than the generic "⌘ + …" that implies a key press is needed.
-            registeredText = HotkeyDescriptor(modifierTap: tap).display
+        if let candidate, !Self.isPlaceholder(candidate) {
+            // Any real candidate (combo or modifier-tap) — show its own
+            // display directly. Falling back to `registeredDisplay(from:
+            // pressedKeys)` is wrong for combos because pressedKeys only
+            // tracks the live modifier state, not the captured key code,
+            // so a combo like ⇧⌘1 would render as "⇧ + ⌘ + …".
+            registeredText = candidate.display
             usesGenericRegistration = false
             registrationNoticeText = nil
         } else {
@@ -120,6 +123,14 @@ struct KeyboardShortcutRegistrationSummary: Equatable {
                 && registeredText != Self.waitingForKeyText
             registrationNoticeText = Self.registrationNotice(from: pressedKeys)
         }
+    }
+
+    /// Detect the sentinel placeholder used by HotkeyRecorder when there's
+    /// no real candidate yet (so Confirm/Reset/Cancel can still render).
+    private static func isPlaceholder(_ descriptor: HotkeyDescriptor) -> Bool {
+        descriptor.keyCode == 0
+            && descriptor.modifiers.isEmpty
+            && descriptor.modifierTap == nil
     }
 
     private static let waitingText = "Waiting"
@@ -1013,17 +1024,10 @@ struct HotkeyRecorder: NSViewRepresentable {
         private func updateActiveModifiers(_ flags: NSEvent.ModifierFlags) {
             activeModifierFlags = flags.intersection(.deviceIndependentFlagsMask)
             guard isRecording else { return }
-            // If a new modifier press follows a tap candidate, drop the old
-            // candidate so the new tap replaces it without needing Reset.
-            if !activeModifierFlags.isEmpty && pendingDescriptor?.isModifierTap == true {
-                pendingDescriptor = nil
-                pendingIssueMessage = nil
-            }
             guard pendingDescriptor == nil else {
                 refreshFloatingKeyboard()
                 return
             }
-            pendingDescriptor = nil
             pendingIssueMessage = nil
             publishVisualizerState(.recording(modifierFlags: activeModifierFlags))
             let modifiers = modifierDisplay(from: activeModifierFlags)
@@ -1034,20 +1038,10 @@ struct HotkeyRecorder: NSViewRepresentable {
             activeModifierFlags = HotkeyRecorderEventTranslator.modifierFlags(from: cgFlags)
             guard isRecording else { return }
 
-            // Same as the NSEvent path: pressing a new modifier while a tap
-            // candidate is pending should immediately clear that candidate so
-            // the next release commits a fresh one. Keep `tapLastRelease`
-            // intact — it's how a second tap of the same key becomes ×2.
-            if !activeModifierFlags.isEmpty && pendingDescriptor?.isModifierTap == true {
-                pendingDescriptor = nil
-                pendingIssueMessage = nil
-            }
-
-            // Run tap detection when no combo shortcut is pending yet, OR when
-            // a tap shortcut is pending (so the user can upgrade to double-tap).
-            if pendingDescriptor == nil || pendingDescriptor?.isModifierTap == true {
-                handleTapTransition(cgFlags: cgFlags)
-            }
+            // All tap-candidate state lives inside handleTapTransition —
+            // single source of truth for both press-replace, multi-tap, and
+            // multi-modifier-cancel. No clear logic here.
+            handleTapTransition(cgFlags: cgFlags)
 
             // Refresh keyboard with current modifier state (always, so the
             // keyboard highlights the held keys live).
@@ -1124,45 +1118,71 @@ struct HotkeyRecorder: NSViewRepresentable {
         private static let placeholderCandidate = HotkeyDescriptor(keyCode: 0, modifiers: [])
 
         // MARK: - Modifier-tap detection
+        //
+        // Single algorithm shared by every shortcut recorder in the app:
+        //   - Press one modifier alone        → candidate = Tap <that modifier>
+        //   - Hold / release that modifier    → candidate unchanged
+        //   - Press a different modifier      → candidate replaced with the new one
+        //   - Press a non-modifier key (combo)→ combo capture path replaces candidate
+        //   - Press same modifier twice fast  → candidate upgrades to ×2
+        //   - Two modifier families held      → tap candidate cleared (combo in flight)
 
         private func handleTapTransition(cgFlags: CGEventFlags) {
             let now = ProcessInfo.processInfo.systemUptime
             let held = !activeModifierFlags.isEmpty
 
             if held {
-                if tapPressTime == nil {
-                    tapPressTime = now
-                    tapNonModifierPressed = false
+                if let key = tapKeyFromCGFlags(cgFlags) {
+                    // Exactly one modifier family is held — this is a tap candidate.
+                    let isFirstPressTransition = tapPressTime == nil
+                    if isFirstPressTransition {
+                        tapPressTime = now
+                        tapNonModifierPressed = false
+                    }
+                    tapPressCGFlags = cgFlags
+
+                    // Only set the candidate on the first press transition.
+                    // Re-firing on every flagsChanged would reset count and
+                    // overwrite a multi-tap upgrade.
+                    if isFirstPressTransition {
+                        let count: Int
+                        if let last = tapLastRelease,
+                           last.key == key,
+                           now - last.time <= 0.28 {
+                            count = min(last.count + 1, 2)
+                        } else {
+                            count = 1
+                        }
+                        let tapDescriptor = HotkeyDescriptor(
+                            modifierTap: ModifierTapShortcut(key: key, count: count)
+                        )
+                        previewCandidate(
+                            tapDescriptor,
+                            state: .recording(modifierFlags: activeModifierFlags)
+                        )
+                    }
+                } else {
+                    // Two or more modifier families held simultaneously — the
+                    // user is mid-combo, not picking a single tap modifier.
+                    tapPressCGFlags = cgFlags
+                    if pendingDescriptor?.isModifierTap == true {
+                        pendingDescriptor = nil
+                        pendingIssueMessage = nil
+                    }
                 }
-                tapPressCGFlags = cgFlags
             } else if tapPressTime != nil {
+                // All modifiers released. Record for multi-tap detection.
+                // Candidate stays unchanged so the user sees what they picked.
                 tapPressTime = nil
-                // No hold-time limit in the recorder: the user is *picking*
-                // a modifier, not demonstrating real tap timing. We only
-                // reject if a non-modifier key was pressed during the hold
-                // (that turns the press into a combo capture, not a tap).
-                // The runtime dispatcher (ModifierTapDispatcher) still enforces
-                // its own tap-hold limit so accidental long-holds at use time
-                // don't trigger the shortcut.
-                guard !tapNonModifierPressed else {
+                if tapNonModifierPressed {
                     tapNonModifierPressed = false
                     tapLastRelease = nil
                     return
                 }
                 tapNonModifierPressed = false
-                guard let key = tapKeyFromCGFlags(tapPressCGFlags) else { return }
-                let count: Int
-                if let last = tapLastRelease, last.key == key, now - last.time <= 0.28 {
-                    count = min(last.count + 1, 2)
-                } else {
-                    count = 1
+                if let tap = pendingDescriptor?.modifierTap {
+                    tapLastRelease = (key: tap.key, time: now, count: tap.count)
                 }
-                tapLastRelease = (key: key, time: now, count: count)
-                let tapDescriptor = HotkeyDescriptor(modifierTap: ModifierTapShortcut(key: key, count: count))
-                // Use the NSEvent modifierFlags path so the keyboard visualizer
-                // shows the generic modifier key (e.g. "⌘") rather than defaulting
-                // to "Left ⌘" when physical device bits are unavailable.
-                previewCandidate(tapDescriptor, state: .recording(modifierFlags: activeModifierFlags))
             }
         }
 
