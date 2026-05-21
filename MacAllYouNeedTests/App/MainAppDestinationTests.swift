@@ -72,6 +72,45 @@ final class MainAppDestinationTests: XCTestCase {
         ])
         XCTAssertFalse(MainAppDestination.primarySidebarDestinations.contains(.settings))
     }
+
+    func testDestinationViewTypeNamesAreStable() {
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .dashboard),
+            "DashboardDestinationView"
+        )
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .clipboard),
+            "ClipboardDestinationView"
+        )
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .voice),
+            "VoiceDestinationView"
+        )
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .downloads),
+            "DownloadsDestinationView"
+        )
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .folderPreview),
+            "FolderPreviewDestinationView"
+        )
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .snippets),
+            "SnippetsDestinationView"
+        )
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .windowLayouts),
+            "WindowLayoutsDestinationView"
+        )
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .grabAnywhere),
+            "WindowGrabDestinationView"
+        )
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .settings),
+            "SettingsDestinationView"
+        )
+    }
 }
 
 final class DockSettingsNavigationTests: XCTestCase {
