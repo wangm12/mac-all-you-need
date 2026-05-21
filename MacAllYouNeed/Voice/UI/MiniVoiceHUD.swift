@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UI
 
 @MainActor
 final class MiniVoiceHUD {
@@ -15,8 +16,10 @@ final class MiniVoiceHUD {
         case error(String)
     }
 
-    private var panel: NSPanel?
-    private var hostingView: FirstMouseHostingView<MiniVoiceHUDView>?
+    private var panelController: NonActivatingFloatingPanelController<MiniVoiceHUDView>?
+    /// Tracks the first-mouse hosting view that replaces the controller's
+    /// default NSHostingView so SwiftUI buttons respond on the first click.
+    private var firstMouseHosting: FirstMouseHostingView<MiniVoiceHUDView>?
     /// Locked at session start (first show from hidden) and cleared on dismiss
     /// so the HUD stays on one screen for an entire recording → transcribing →
     /// pasting cycle instead of jumping to whichever screen has the active key
@@ -25,7 +28,7 @@ final class MiniVoiceHUD {
 
     #if DEBUG
     var testingContentView: NSView? {
-        panel?.contentView
+        panelController?.currentPanel?.contentView
     }
     #endif
 
@@ -33,7 +36,7 @@ final class MiniVoiceHUD {
     /// VoiceCoordinator to decide whether an Esc keystroke should dismiss the
     /// HUD or be ignored (so we don't fight with other apps' Esc handlers).
     var isVisible: Bool {
-        panel?.isVisible ?? false
+        panelController?.isPresented ?? false
     }
 
     func show(
@@ -41,78 +44,63 @@ final class MiniVoiceHUD {
         onCancel: (() -> Void)? = nil,
         onPrimary: (() -> Void)? = nil
     ) {
-        let panel = panel ?? makePanel()
-        self.panel = panel
-        let wasVisible = panel.isVisible
         let nextView = MiniVoiceHUDView(
             state: state,
             onCancel: onCancel,
             onPrimary: onPrimary
         )
-        if let hostingView {
-            hostingView.rootView = nextView
-        } else {
-            let hostingView = FirstMouseHostingView(rootView: nextView)
-            self.hostingView = hostingView
-            panel.contentView = hostingView
-        }
-        if !wasVisible {
-            // New session — lock to the screen the user is currently on.
-            targetScreen = Self.screenContainingMouseCursor()
-            let size = MiniVoiceHUDLayout.pillSize
-            panel.setFrame(NSRect(origin: targetOrigin(for: size), size: size), display: false)
-            panel.alphaValue = 0
-        }
-        if wasVisible { return }
+        let size = MiniVoiceHUDLayout.pillSize
 
-        FloatingHUDWindowLayering.orderFront(panel)
-        let duration = MAYNMotionBridge.effectiveDuration(.toastIn)
-        guard duration > 0 else {
-            panel.alphaValue = 1
+        if let controller = panelController, controller.isPresented {
+            // Already visible — update content in-place, no re-animation.
+            firstMouseHosting?.rootView = nextView
             return
         }
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.timingFunction = MAYNMotionBridge.timingFunction(.toastIn)
-            panel.animator().alphaValue = 1
+        // New session — lock to the screen the user is currently on.
+        targetScreen = Self.screenContainingMouseCursor()
+
+        if panelController == nil {
+            let showDuration = MAYNMotionBridge.effectiveDuration(.toastIn)
+            let hideDuration = MAYNMotionBridge.effectiveDuration(.toastOut)
+            panelController = NonActivatingFloatingPanelController<MiniVoiceHUDView>(
+                styleMask: [.borderless, .nonactivatingPanel],
+                level: FloatingHUDWindowLayering.windowLevel,
+                collectionBehavior: FloatingHUDWindowLayering.collectionBehavior,
+                hasShadow: false,
+                backgroundColor: .clear,
+                showAnimationDuration: showDuration,
+                hideAnimationDuration: hideDuration,
+                positioner: { [weak self] panel, size in
+                    guard let self else { return }
+                    let origin = self.targetOrigin(for: size)
+                    panel.setFrameOrigin(origin)
+                }
+            )
+        }
+
+        // present() creates the panel and starts the fade-in animation.
+        panelController?.present(rootView: nextView, size: size, animated: true)
+
+        // Apply HUD-specific panel settings not exposed by the shared controller,
+        // and swap in FirstMouseHostingView so buttons respond on the first click
+        // without requiring the panel to become key.
+        if let panel = panelController?.currentPanel {
+            panel.isOpaque = false
+            panel.hidesOnDeactivate = false
+            panel.ignoresMouseEvents = false
+            let fmh = FirstMouseHostingView(rootView: nextView)
+            fmh.frame = NSRect(origin: .zero, size: size)
+            panel.contentView = fmh
+            firstMouseHosting = fmh
         }
     }
 
     func dismiss() {
-        guard let panel, panel.isVisible else { return }
-
-        let duration = MAYNMotionBridge.effectiveDuration(.toastOut)
-        guard duration > 0 else {
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-            targetScreen = nil
-            return
-        }
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.timingFunction = MAYNMotionBridge.timingFunction(.toastOut)
-            panel.animator().alphaValue = 0
-        } completionHandler: {
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-        }
+        guard let controller = panelController, controller.isPresented else { return }
         targetScreen = nil
-    }
-
-    private func makePanel() -> NSPanel {
-        let panel = VoiceHUDPanel(
-            contentRect: NSRect(origin: .zero, size: MiniVoiceHUDLayout.pillSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isOpaque = false
-        panel.hasShadow = false
-        panel.backgroundColor = .clear
-        FloatingHUDWindowLayering.configure(panel, acceptsMouseEvents: true)
-        return panel
+        firstMouseHosting = nil
+        controller.dismiss(animated: true)
     }
 
     private func targetOrigin(for size: CGSize) -> NSPoint {
@@ -637,10 +625,6 @@ private struct EntranceTransform<Content: View>: View {
             }
     }
 }
-
-/// NSPanel subclass for the voice HUD — plain NSPanel is fine since we fix
-/// first-click on the content view level instead.
-private typealias VoiceHUDPanel = NSPanel
 
 /// NSHostingView subclass that reports acceptsFirstMouse = true so SwiftUI
 /// buttons in the floating HUD respond on the first click without requiring
