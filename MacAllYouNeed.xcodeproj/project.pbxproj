@@ -20,6 +20,7 @@
 		0D40B080E9BE668CE1D74238 /* QuickLookOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62E23F77F9EA9B403DEF485D /* QuickLookOverlay.swift */; };
 		0DB42172A7C47E64048284F6 /* CLAUDE.md in Resources */ = {isa = PBXBuildFile; fileRef = B5EC1BD6ED8299D6F3F00D84 /* CLAUDE.md */; };
 		0E162C1CC3B41CA9F22C39EC /* VoicePostEditLearningMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57E1D571BD0D16BAABE8A14 /* VoicePostEditLearningMonitorTests.swift */; };
+		0E1F4F768C84C12B8DEA2EFF /* HotkeyRecorderModifierFlagsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60183A8998B4849B84296225 /* HotkeyRecorderModifierFlagsTests.swift */; };
 		0E6F099C1C92625B83491D94 /* ShortcutDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACC75C98DB1F63F882D5C087 /* ShortcutDefaults.swift */; };
 		0FEFAB96778B425E0FCDD79F /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F1AA10BC029C6182FEA023F /* GeneralSettingsView.swift */; };
 		1008B3D850686FB7A024E70C /* DockListSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB3113E09553270B55F20199 /* DockListSelector.swift */; };
@@ -446,6 +447,7 @@
 		5E3835E590F0AEE03670F37E /* HotkeyActionFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyActionFeature.swift; sourceTree = "<group>"; };
 		5F6D7B0F394EAFD0746B1085 /* AppIconResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconResolver.swift; sourceTree = "<group>"; };
 		5FC359D212D1313EAD394319 /* LinkCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkCard.swift; sourceTree = "<group>"; };
+		60183A8998B4849B84296225 /* HotkeyRecorderModifierFlagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyRecorderModifierFlagsTests.swift; sourceTree = "<group>"; };
 		610691A8E56C14888787FBF5 /* SettingsRegistryDrivenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRegistryDrivenTests.swift; sourceTree = "<group>"; };
 		62E23F77F9EA9B403DEF485D /* QuickLookOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickLookOverlay.swift; sourceTree = "<group>"; };
 		6492280F864A0A850F6889F9 /* ColorPickerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorPickerCoordinator.swift; sourceTree = "<group>"; };
@@ -1224,6 +1226,7 @@
 		C1D8F1432BCF861D809F2E96 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				60183A8998B4849B84296225 /* HotkeyRecorderModifierFlagsTests.swift */,
 				B7C0599234840A1ED6E057EF /* HotkeyRecorderTests.swift */,
 				17975B7B72723C96B1FB6F85 /* PermissionStatusDisplayTests.swift */,
 				AC457C1856583EC4590A7EAD /* SettingsDestinationTests.swift */,
@@ -1586,6 +1589,7 @@
 				C8EBE19B6C152D9232897101 /* FuzzyMatcherTests.swift in Sources */,
 				9CEF66093EE2A145C1B964DC /* GroqASREngineTests.swift in Sources */,
 				E1D92F8FF11CF827C48701A3 /* HotkeyMapStoreMigrationTests.swift in Sources */,
+				0E1F4F768C84C12B8DEA2EFF /* HotkeyRecorderModifierFlagsTests.swift in Sources */,
 				E852FAE2BB311E081968E98E /* HotkeyRecorderTests.swift in Sources */,
 				B2D13425C45F611C5106886D /* ImageBlobLoaderTests.swift in Sources */,
 				36472E9514E689C1FF8D6DD2 /* MacAllYouNeedApplicationDelegateTests.swift in Sources */,

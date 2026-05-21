@@ -38,15 +38,19 @@ final class WindowControlPresentationTests: XCTestCase {
     }
 
     func testWindowGestureModifierPickerExposesFnAndSideSpecificModifiers() {
-        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.fn))
-        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.leftControl))
-        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.rightControl))
-        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.leftOption))
-        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.rightOption))
-        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.leftCommand))
-        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.rightCommand))
-        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.leftShift))
-        XCTAssertTrue(WindowGestureModifierPicker.options.contains(.rightShift))
+        // The picker now wraps HotkeyRecorderControl and captures modifiers
+        // via ModifierTapShortcut.Key. Verify the underlying enum still
+        // includes Fn + side-specific modifiers so the picker can map them.
+        let supported = Set(ModifierTapShortcut.Key.allCases)
+        XCTAssertTrue(supported.contains(.fn))
+        XCTAssertTrue(supported.contains(.leftControl))
+        XCTAssertTrue(supported.contains(.rightControl))
+        XCTAssertTrue(supported.contains(.leftOption))
+        XCTAssertTrue(supported.contains(.rightOption))
+        XCTAssertTrue(supported.contains(.leftCommand))
+        XCTAssertTrue(supported.contains(.rightCommand))
+        XCTAssertTrue(supported.contains(.leftShift))
+        XCTAssertTrue(supported.contains(.rightShift))
     }
 
     func testActionsTabRoutesShortcutEditsToSettings() {

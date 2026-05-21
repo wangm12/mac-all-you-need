@@ -1,6 +1,39 @@
 import CoreGraphics
 import Foundation
 
+/// Physical modifier device bits encoded in CGEventFlags. macOS sets these
+/// alongside the generic modifier mask so callers can disambiguate left vs
+/// right modifier keys at the HID layer.
+///
+/// Source of truth. All call sites that need to decode physical modifier
+/// presence must use this enum instead of hardcoding the hex values.
+public enum CGModifierDeviceBit {
+    public static let leftControl:  CGEventFlags.RawValue = 0x00000001
+    public static let leftShift:    CGEventFlags.RawValue = 0x00000002
+    public static let rightShift:   CGEventFlags.RawValue = 0x00000004
+    public static let leftCommand:  CGEventFlags.RawValue = 0x00000008
+    public static let rightCommand: CGEventFlags.RawValue = 0x00000010
+    public static let leftOption:   CGEventFlags.RawValue = 0x00000020
+    public static let rightOption:  CGEventFlags.RawValue = 0x00000040
+    public static let rightControl: CGEventFlags.RawValue = 0x00002000
+
+    /// Returns the device bit for the given keyCode, or nil for non-modifier keys.
+    /// Maps the standard Carbon HIToolbox modifier keyCodes (54-62).
+    public static func mask(for keyCode: Int64) -> CGEventFlags.RawValue? {
+        switch keyCode {
+        case 54: return rightCommand
+        case 55: return leftCommand
+        case 56: return leftShift
+        case 58: return leftOption
+        case 59: return leftControl
+        case 60: return rightShift
+        case 61: return rightOption
+        case 62: return rightControl
+        default: return nil
+        }
+    }
+}
+
 public struct WindowGestureModifier: OptionSet, Codable, Hashable, Sendable {
     public let rawValue: Int
 
@@ -37,14 +70,14 @@ public struct WindowGestureModifier: OptionSet, Codable, Hashable, Sendable {
         var modifier: WindowGestureModifier = []
         let rawFlags = flags.rawValue
 
-        let leftControlHeld = rawFlags & Self.deviceLeftControlMask != 0
-        let rightControlHeld = rawFlags & Self.deviceRightControlMask != 0
-        let leftOptionHeld = rawFlags & Self.deviceLeftOptionMask != 0
-        let rightOptionHeld = rawFlags & Self.deviceRightOptionMask != 0
-        let leftCommandHeld = rawFlags & Self.deviceLeftCommandMask != 0
-        let rightCommandHeld = rawFlags & Self.deviceRightCommandMask != 0
-        let leftShiftHeld = rawFlags & Self.deviceLeftShiftMask != 0
-        let rightShiftHeld = rawFlags & Self.deviceRightShiftMask != 0
+        let leftControlHeld = rawFlags & CGModifierDeviceBit.leftControl != 0
+        let rightControlHeld = rawFlags & CGModifierDeviceBit.rightControl != 0
+        let leftOptionHeld = rawFlags & CGModifierDeviceBit.leftOption != 0
+        let rightOptionHeld = rawFlags & CGModifierDeviceBit.rightOption != 0
+        let leftCommandHeld = rawFlags & CGModifierDeviceBit.leftCommand != 0
+        let rightCommandHeld = rawFlags & CGModifierDeviceBit.rightCommand != 0
+        let leftShiftHeld = rawFlags & CGModifierDeviceBit.leftShift != 0
+        let rightShiftHeld = rawFlags & CGModifierDeviceBit.rightShift != 0
 
         if flags.contains(.maskControl) || leftControlHeld || rightControlHeld { modifier.insert(.control) }
         if flags.contains(.maskAlternate) || leftOptionHeld || rightOptionHeld { modifier.insert(.option) }
@@ -97,15 +130,6 @@ public struct WindowGestureModifier: OptionSet, Codable, Hashable, Sendable {
         | (1 << 10)
         | (1 << 11)
         | (1 << 12)
-
-    private static let deviceLeftControlMask: CGEventFlags.RawValue = 0x00000001
-    private static let deviceLeftShiftMask: CGEventFlags.RawValue = 0x00000002
-    private static let deviceRightShiftMask: CGEventFlags.RawValue = 0x00000004
-    private static let deviceLeftCommandMask: CGEventFlags.RawValue = 0x00000008
-    private static let deviceRightCommandMask: CGEventFlags.RawValue = 0x00000010
-    private static let deviceLeftOptionMask: CGEventFlags.RawValue = 0x00000020
-    private static let deviceRightOptionMask: CGEventFlags.RawValue = 0x00000040
-    private static let deviceRightControlMask: CGEventFlags.RawValue = 0x00002000
 
     private var normalizedForMatching: WindowGestureModifier {
         var modifier = self

@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Core
 import CoreGraphics
 import Platform
 import SwiftUI
@@ -55,14 +56,14 @@ struct KeyboardShortcutVisualizerState: Equatable {
         let rawFlags = flags.rawValue
         var keys: Set<KeyboardShortcutVisualizerKeyID> = []
 
-        let leftControl = rawFlags & 0x00000001 != 0
-        let leftShift = rawFlags & 0x00000002 != 0
-        let rightShift = rawFlags & 0x00000004 != 0
-        let leftCommand = rawFlags & 0x00000008 != 0
-        let rightCommand = rawFlags & 0x00000010 != 0
-        let leftOption = rawFlags & 0x00000020 != 0
-        let rightOption = rawFlags & 0x00000040 != 0
-        let rightControl = rawFlags & 0x00002000 != 0
+        let leftControl = rawFlags & CGModifierDeviceBit.leftControl != 0
+        let leftShift = rawFlags & CGModifierDeviceBit.leftShift != 0
+        let rightShift = rawFlags & CGModifierDeviceBit.rightShift != 0
+        let leftCommand = rawFlags & CGModifierDeviceBit.leftCommand != 0
+        let rightCommand = rawFlags & CGModifierDeviceBit.rightCommand != 0
+        let leftOption = rawFlags & CGModifierDeviceBit.leftOption != 0
+        let rightOption = rawFlags & CGModifierDeviceBit.rightOption != 0
+        let rightControl = rawFlags & CGModifierDeviceBit.rightControl != 0
 
         if leftControl || (flags.contains(.maskControl) && !rightControl) { keys.insert(.leftControl) }
         if rightControl { keys.insert(.rightControl) }
@@ -1186,16 +1187,16 @@ struct HotkeyRecorder: NSViewRepresentable {
             }
         }
 
-        private func tapKeyFromCGFlags(_ cgFlags: CGEventFlags) -> ModifierTapShortcut.Key? {
+        func tapKeyFromCGFlags(_ cgFlags: CGEventFlags) -> ModifierTapShortcut.Key? {
             let raw = cgFlags.rawValue
-            let lCtrl  = raw & 0x00000001 != 0
-            let lShift = raw & 0x00000002 != 0
-            let rShift = raw & 0x00000004 != 0
-            let lCmd   = raw & 0x00000008 != 0
-            let rCmd   = raw & 0x00000010 != 0
-            let lOpt   = raw & 0x00000020 != 0
-            let rOpt   = raw & 0x00000040 != 0
-            let rCtrl  = raw & 0x00002000 != 0
+            let lCtrl  = raw & CGModifierDeviceBit.leftControl != 0
+            let lShift = raw & CGModifierDeviceBit.leftShift != 0
+            let rShift = raw & CGModifierDeviceBit.rightShift != 0
+            let lCmd   = raw & CGModifierDeviceBit.leftCommand != 0
+            let rCmd   = raw & CGModifierDeviceBit.rightCommand != 0
+            let lOpt   = raw & CGModifierDeviceBit.leftOption != 0
+            let rOpt   = raw & CGModifierDeviceBit.rightOption != 0
+            let rCtrl  = raw & CGModifierDeviceBit.rightControl != 0
             var families = 0
             var result: ModifierTapShortcut.Key?
             if lCtrl || rCtrl || cgFlags.contains(.maskControl) {

@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import CoreGraphics
 import Foundation
 
@@ -263,30 +264,21 @@ public final class ModifierTapDispatcher {
             }
         }
 
-        // Physical device bits (from WindowGestureModifier pattern)
-        let dLeftControl:  UInt64 = 0x00000001
-        let dLeftShift:    UInt64 = 0x00000002
-        let dRightShift:   UInt64 = 0x00000004
-        let dLeftCommand:  UInt64 = 0x00000008
-        let dRightCommand: UInt64 = 0x00000010
-        let dLeftOption:   UInt64 = 0x00000020
-        let dRightOption:  UInt64 = 0x00000040
-        let dRightControl: UInt64 = 0x00002000
-
+        // Physical device bits (from CGModifierDeviceBit)
         func physicalTransition(key: ModifierTapShortcut.Key, mask: UInt64) {
             let wasOn = rawOld & mask != 0
             let isOn  = rawNew & mask != 0
             if wasOn != isOn { result.append((key, isOn)) }
         }
 
-        physicalTransition(key: .leftControl,  mask: dLeftControl)
-        physicalTransition(key: .rightControl, mask: dRightControl)
-        physicalTransition(key: .leftOption,   mask: dLeftOption)
-        physicalTransition(key: .rightOption,  mask: dRightOption)
-        physicalTransition(key: .leftCommand,  mask: dLeftCommand)
-        physicalTransition(key: .rightCommand, mask: dRightCommand)
-        physicalTransition(key: .leftShift,    mask: dLeftShift)
-        physicalTransition(key: .rightShift,   mask: dRightShift)
+        physicalTransition(key: .leftControl,  mask: CGModifierDeviceBit.leftControl)
+        physicalTransition(key: .rightControl, mask: CGModifierDeviceBit.rightControl)
+        physicalTransition(key: .leftOption,   mask: CGModifierDeviceBit.leftOption)
+        physicalTransition(key: .rightOption,  mask: CGModifierDeviceBit.rightOption)
+        physicalTransition(key: .leftCommand,  mask: CGModifierDeviceBit.leftCommand)
+        physicalTransition(key: .rightCommand, mask: CGModifierDeviceBit.rightCommand)
+        physicalTransition(key: .leftShift,    mask: CGModifierDeviceBit.leftShift)
+        physicalTransition(key: .rightShift,   mask: CGModifierDeviceBit.rightShift)
 
         // Generic modifiers — only fire if no physical bit handled a transition.
         let handledKeys = Set(result.map(\.0))
@@ -309,10 +301,10 @@ public final class ModifierTapDispatcher {
 
     private func selfDeviceMask(_ flag: CGEventFlags) -> UInt64 {
         switch flag {
-        case .maskControl:    return 0x00000001 | 0x00002000
-        case .maskAlternate:  return 0x00000020 | 0x00000040
-        case .maskCommand:    return 0x00000008 | 0x00000010
-        case .maskShift:      return 0x00000002 | 0x00000004
+        case .maskControl:    return CGModifierDeviceBit.leftControl | CGModifierDeviceBit.rightControl
+        case .maskAlternate:  return CGModifierDeviceBit.leftOption | CGModifierDeviceBit.rightOption
+        case .maskCommand:    return CGModifierDeviceBit.leftCommand | CGModifierDeviceBit.rightCommand
+        case .maskShift:      return CGModifierDeviceBit.leftShift | CGModifierDeviceBit.rightShift
         default:              return 0
         }
     }
