@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UI
 
 enum WindowSnapOverlayPresentation {
     static var cornerRadius: CGFloat {
@@ -31,31 +32,45 @@ enum WindowSnapOverlayPresentation {
 final class WindowSnapOverlayPanel {
     static let shared = WindowSnapOverlayPanel()
 
-    private var panel: NSPanel?
-    private var hostingView: NSHostingView<WindowSnapOverlayView>?
+    private var panelController: NonActivatingFloatingPanelController<WindowSnapOverlayView>?
     private var dismissGeneration = 0
 
     func show(frame: CGRect) {
         dismissGeneration += 1
-        let frame = NSRect(origin: frame.origin, size: frame.size)
-        let panel = panel ?? makePanel(frame: frame)
-        self.panel = panel
 
-        FloatingHUDWindowLayering.configure(panel, acceptsMouseEvents: WindowSnapOverlayPresentation.acceptsMouseEvents)
-        panel.hasShadow = WindowSnapOverlayPresentation.usesGlow
-        panel.setFrame(frame, display: true, animate: false)
+        let size = frame.size
 
-        let overlay = WindowSnapOverlayView()
-        if let hostingView {
-            hostingView.rootView = overlay
-            hostingView.frame = NSRect(origin: .zero, size: frame.size)
-        } else {
-            let hostingView = NSHostingView(rootView: overlay)
-            hostingView.frame = NSRect(origin: .zero, size: frame.size)
-            hostingView.autoresizingMask = [.width, .height]
-            panel.contentView = hostingView
-            self.hostingView = hostingView
+        if panelController == nil {
+            let controller = NonActivatingFloatingPanelController<WindowSnapOverlayView>(
+                styleMask: WindowSnapOverlayPresentation.styleMask,
+                level: FloatingHUDWindowLayering.windowLevel,
+                collectionBehavior: FloatingHUDWindowLayering.collectionBehavior,
+                hasShadow: WindowSnapOverlayPresentation.usesGlow,
+                backgroundColor: .clear,
+                showAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastIn),
+                hideAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastOut)
+            )
+            panelController = controller
+
+            // Bootstrap panel creation. We pass animated: false so the controller
+            // doesn't install its own fade; we drive show animation below.
+            controller.present(rootView: WindowSnapOverlayView(), size: size, animated: false)
+
+            // Configure behaviors the controller doesn't expose directly,
+            // then immediately hide so the animate-in path fires on first show.
+            if let panel = controller.currentPanel {
+                panel.isOpaque = false
+                panel.hidesOnDeactivate = false
+                panel.ignoresMouseEvents = !WindowSnapOverlayPresentation.acceptsMouseEvents
+                panel.alphaValue = 0
+                panel.orderOut(nil)
+            }
         }
+
+        guard let panel = panelController?.currentPanel else { return }
+
+        panel.setFrame(NSRect(origin: frame.origin, size: size), display: true, animate: false)
+        panelController?.update(rootView: WindowSnapOverlayView())
 
         guard !panel.isVisible else {
             panel.alphaValue = WindowSnapOverlayPresentation.visibleAlpha
@@ -69,7 +84,7 @@ final class WindowSnapOverlayPanel {
     }
 
     func dismiss() {
-        guard let panel, panel.isVisible else { return }
+        guard let panel = panelController?.currentPanel, panel.isVisible else { return }
         dismissGeneration += 1
         let generation = dismissGeneration
         let duration = MAYNMotionBridge.effectiveDuration(.toastOut)
@@ -94,20 +109,6 @@ final class WindowSnapOverlayPanel {
 
     func hide() {
         dismiss()
-    }
-
-    private func makePanel(frame: NSRect) -> NSPanel {
-        let panel = NSPanel(
-            contentRect: frame,
-            styleMask: WindowSnapOverlayPresentation.styleMask,
-            backing: .buffered,
-            defer: false
-        )
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = WindowSnapOverlayPresentation.usesGlow
-        FloatingHUDWindowLayering.configure(panel, acceptsMouseEvents: WindowSnapOverlayPresentation.acceptsMouseEvents)
-        return panel
     }
 
     private func animate(_ panel: NSPanel, to alpha: CGFloat, kind: MAYNMotionKind) {

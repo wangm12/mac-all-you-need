@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import AVFoundation
 import SwiftUI
+import UI
 import UserNotifications
 
 enum PermissionDisplayState: Equatable {
@@ -285,7 +286,7 @@ enum PermissionFloatingInstructionPresentation {
 final class FloatingPermissionInstructionPanelController {
     static let shared = FloatingPermissionInstructionPanelController()
 
-    private var panel: NSPanel?
+    private var panelController: NonActivatingFloatingPanelController<FloatingPermissionInstructionPanelView>?
     private weak var sourceWindow: NSWindow?
     private var followTimer: Timer?
     private var isFollowingSystemSettings = false
@@ -302,6 +303,17 @@ final class FloatingPermissionInstructionPanelController {
 
         let sourceWindow = preferredSourceWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
 
+        // Tear down any existing panel before showing a new one.
+        if let existing = panelController {
+            existing.currentPanel.map { self.sourceWindow?.removeChildWindow($0) }
+            existing.dismiss(animated: false)
+            panelController = nil
+        }
+        followTimer?.invalidate()
+        followTimer = nil
+        isFollowingSystemSettings = attachToSystemSettings
+        self.sourceWindow = attachToSystemSettings ? nil : sourceWindow
+
         let content = FloatingPermissionInstructionPanelView(
             instruction: instruction,
             appName: appName,
@@ -309,42 +321,35 @@ final class FloatingPermissionInstructionPanelController {
             openSettings: openSettings,
             close: { [weak self] in self?.dismiss() }
         )
-        let hosting = NSHostingController(rootView: content)
-        let frame = initialFrame(
+
+        let initialFrame = computeInitialFrame(
             attachToSystemSettings: attachToSystemSettings,
             sourceWindow: sourceWindow
         )
-        let panel = NSPanel(
-            contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.title = "Permission Instruction"
-        panel.contentViewController = hosting
-        panel.level = PermissionFloatingInstructionPresentation.windowLevel
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.hasShadow = true
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
 
-        if let existingPanel = self.panel {
-            self.sourceWindow?.removeChildWindow(existingPanel)
-            existingPanel.orderOut(nil)
-        }
-        followTimer?.invalidate()
-        followTimer = nil
-        isFollowingSystemSettings = attachToSystemSettings
+        let controller = NonActivatingFloatingPanelController<FloatingPermissionInstructionPanelView>(
+            styleMask: [.borderless, .nonactivatingPanel],
+            level: PermissionFloatingInstructionPresentation.windowLevel,
+            collectionBehavior: [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary],
+            hasShadow: true,
+            backgroundColor: .clear,
+            showAnimationDuration: 0,
+            hideAnimationDuration: 0,
+            positioner: { panel, _ in
+                panel.setFrameOrigin(initialFrame.origin)
+            }
+        )
+        panelController = controller
+        controller.present(rootView: content, size: PermissionFloatingInstructionPresentation.panelSize, animated: false)
+
+        guard let panel = controller.currentPanel else { return }
+        panel.isOpaque = false
 
         if let sourceWindow, !attachToSystemSettings {
             sourceWindow.addChildWindow(panel, ordered: .above)
         }
-        self.sourceWindow = attachToSystemSettings ? nil : sourceWindow
-        self.panel = panel
+
         panel.alphaValue = attachToSystemSettings && systemSettingsPanelFrame() == nil ? 0 : 1
-        panel.orderFrontRegardless()
 
         if attachToSystemSettings {
             startFollowingSystemSettings()
@@ -355,15 +360,15 @@ final class FloatingPermissionInstructionPanelController {
         followTimer?.invalidate()
         followTimer = nil
         isFollowingSystemSettings = false
-        if let panel {
+        if let panel = panelController?.currentPanel {
             sourceWindow?.removeChildWindow(panel)
-            panel.orderOut(nil)
         }
-        panel = nil
+        panelController?.dismiss(animated: false)
+        panelController = nil
         sourceWindow = nil
     }
 
-    private func initialFrame(attachToSystemSettings: Bool, sourceWindow: NSWindow?) -> NSRect {
+    private func computeInitialFrame(attachToSystemSettings: Bool, sourceWindow: NSWindow?) -> NSRect {
         if attachToSystemSettings, let frame = systemSettingsPanelFrame() {
             return frame
         }
@@ -390,7 +395,7 @@ final class FloatingPermissionInstructionPanelController {
     }
 
     private func syncSystemSettingsPosition() {
-        guard isFollowingSystemSettings, let panel else { return }
+        guard isFollowingSystemSettings, let panel = panelController?.currentPanel else { return }
         guard let frame = systemSettingsPanelFrame() else {
             panel.alphaValue = 0
             return

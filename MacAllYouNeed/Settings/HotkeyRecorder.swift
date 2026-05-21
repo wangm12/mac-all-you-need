@@ -4,6 +4,7 @@ import Core
 import CoreGraphics
 import Platform
 import SwiftUI
+import UI
 
 extension Notification.Name {
     static let hotkeyRecorderDidStartRecording = Notification.Name("MAYNHotkeyRecorderDidStartRecording")
@@ -560,14 +561,9 @@ enum KeyboardShortcutFloatingOverlayPresentation {
     }
 }
 
+@MainActor
 final class KeyboardShortcutFloatingOverlayController {
-    private var panel: NSPanel?
-    private var hostingView: NSHostingView<KeyboardShortcutVisualizer>?
-    private var presentationGeneration = 0
-
-    deinit {
-        panel?.orderOut(nil)
-    }
+    private var panelController: NonActivatingFloatingPanelController<KeyboardShortcutVisualizer>?
 
     func update(
         state: KeyboardShortcutVisualizerState,
@@ -592,36 +588,13 @@ final class KeyboardShortcutFloatingOverlayController {
     }
 
     func owns(window: NSWindow?) -> Bool {
-        guard let panel, let window else { return false }
-        return panel === window
+        guard let window else { return false }
+        return panelController?.currentPanel === window
     }
 
     func dismiss(immediate: Bool = false) {
-        guard let panel, panel.isVisible else { return }
-        presentationGeneration += 1
-        let generation = presentationGeneration
-        guard !immediate else {
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-            return
-        }
-
-        let duration = MAYNMotionBridge.effectiveDuration(.toastOut)
-        guard duration > 0 else {
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-            return
-        }
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.timingFunction = MAYNMotionBridge.timingFunction(.toastOut)
-            panel.animator().alphaValue = 0
-        } completionHandler: { [weak self] in
-            guard self?.presentationGeneration == generation else { return }
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-        }
+        guard panelController?.isPresented == true else { return }
+        panelController?.dismiss(animated: !immediate && MAYNMotionBridge.effectiveDuration(.toastOut) > 0)
     }
 
     private func show(
@@ -632,10 +605,6 @@ final class KeyboardShortcutFloatingOverlayController {
         onConfirm: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
-        presentationGeneration += 1
-        let panel = panel ?? makePanel()
-        self.panel = panel
-        let wasVisible = panel.isVisible
         let rootView = KeyboardShortcutVisualizer(
             state: state,
             candidate: candidate,
@@ -645,74 +614,52 @@ final class KeyboardShortcutFloatingOverlayController {
             onCancel: onCancel
         )
 
-        let hostingView: NSHostingView<KeyboardShortcutVisualizer>
-        if let existing = self.hostingView {
-            existing.rootView = rootView
-            hostingView = existing
-        } else {
-            let created = NSHostingView(rootView: rootView)
-            created.autoresizingMask = [.width, .height]
-            self.hostingView = created
-            panel.contentView = created
-            hostingView = created
-        }
-
-        hostingView.layoutSubtreeIfNeeded()
-        var panelSize = hostingView.fittingSize
-        panelSize.width = max(panelSize.width, KeyboardShortcutVisualizerPresentation.width)
-        if panel.frame.size != panelSize {
-            panel.setContentSize(panelSize)
-            hostingView.frame = NSRect(origin: .zero, size: panelSize)
-        }
-        position(panel, panelSize: panelSize)
-
-        if wasVisible { return }
-        panel.alphaValue = 0
-        FloatingHUDWindowLayering.orderFront(panel)
-
-        let duration = MAYNMotionBridge.effectiveDuration(.toastIn)
-        guard duration > 0 else {
-            panel.alphaValue = 1
+        if let controller = panelController, controller.isPresented {
+            controller.update(rootView: rootView)
             return
         }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.timingFunction = MAYNMotionBridge.timingFunction(.toastIn)
-            panel.animator().alphaValue = 1
-        }
+
+        let controller = panelController ?? makeController()
+        panelController = controller
+
+        // Compute size via a temporary hosting view so the panel is given the
+        // correct dimensions from the first frame.
+        let sizer = NSHostingView(rootView: rootView)
+        sizer.layoutSubtreeIfNeeded()
+        var size = sizer.fittingSize
+        size.width = max(size.width, KeyboardShortcutVisualizerPresentation.width)
+
+        let animated = MAYNMotionBridge.effectiveDuration(.toastIn) > 0
+        controller.present(rootView: rootView, size: size, animated: animated)
+        // Mirror FloatingHUDWindowLayering.configure settings not exposed by
+        // NonActivatingFloatingPanelController: keep the overlay visible even
+        // when the app deactivates, and accept mouse events.
+        controller.currentPanel?.hidesOnDeactivate = false
+        controller.currentPanel?.ignoresMouseEvents = false
     }
 
-    private func makePanel() -> NSPanel {
-        let panel = NSPanel(
-            contentRect: NSRect(
-                origin: .zero,
-                size: CGSize(width: KeyboardShortcutVisualizerPresentation.width, height: 1)
-            ),
+    private func makeController() -> NonActivatingFloatingPanelController<KeyboardShortcutVisualizer> {
+        NonActivatingFloatingPanelController(
             styleMask: KeyboardShortcutFloatingOverlayPresentation.styleMask,
-            backing: .buffered,
-            defer: false
-        )
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        FloatingHUDWindowLayering.configure(
-            panel,
-            acceptsMouseEvents: KeyboardShortcutFloatingOverlayPresentation.acceptsMouseEvents
-        )
-        return panel
-    }
-
-    private func position(_ panel: NSPanel, panelSize: CGSize) {
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-        guard let visibleFrame = screen?.visibleFrame else { return }
-        panel.setFrameOrigin(
-            KeyboardShortcutFloatingOverlayPresentation.origin(
-                panelSize: panelSize,
-                visibleFrame: visibleFrame
-            )
+            level: FloatingHUDWindowLayering.windowLevel,
+            collectionBehavior: FloatingHUDWindowLayering.collectionBehavior,
+            hasShadow: true,
+            backgroundColor: .clear,
+            showAnimationDuration: MAYNMotionDuration.toastIn,
+            hideAnimationDuration: MAYNMotionDuration.toastOut,
+            positioner: { panel, panelSize in
+                let mouse = NSEvent.mouseLocation
+                let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+                    ?? NSScreen.main
+                    ?? NSScreen.screens.first
+                guard let visibleFrame = screen?.visibleFrame else { return }
+                panel.setFrameOrigin(
+                    KeyboardShortcutFloatingOverlayPresentation.origin(
+                        panelSize: panelSize,
+                        visibleFrame: visibleFrame
+                    )
+                )
+            }
         )
     }
 }
@@ -857,7 +804,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         }
 
         deinit {
-            floatingKeyboard.dismiss(immediate: true)
+            MainActor.assumeIsolated { floatingKeyboard.dismiss(immediate: true) }
             stopMonitoringKeyboard()
         }
 
