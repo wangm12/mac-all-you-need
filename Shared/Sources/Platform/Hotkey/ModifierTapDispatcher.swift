@@ -45,12 +45,12 @@ public final class ModifierTapDispatcher {
     private var pressStart: [ModifierTapShortcut.Key: TimeInterval] = [:]
     private var nonModifierDownSincePress: Set<ModifierTapShortcut.Key> = []
     private var pendingTap: (key: ModifierTapShortcut.Key, count: Int, time: TimeInterval)?
-    private var pendingTimer: DispatchWorkItem?
+    private var pendingTimer: Task<Void, Never>?
     private var lastFlags: CGEventFlags = []
 
     // MARK: - Init
 
-    private init() {}
+    init() {}
 
     // MARK: - Registration
 
@@ -127,7 +127,7 @@ public final class ModifierTapDispatcher {
 
     // MARK: - Event handling (main queue via CFRunLoopGetMain)
 
-    private func handleEvent(type: CGEventType, event: CGEvent) {
+    func handleEvent(type: CGEventType, event: CGEvent) {
         // Must be called on the main thread (CGEventTap is on main run loop).
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
@@ -150,7 +150,7 @@ public final class ModifierTapDispatcher {
         }
     }
 
-    private func handleFlagsChanged(newFlags: CGEventFlags) {
+    func handleFlagsChanged(newFlags: CGEventFlags) {
         let now = ProcessInfo.processInfo.systemUptime
         let transitions = modifierTransitions(from: lastFlags, to: newFlags)
         lastFlags = newFlags
@@ -197,11 +197,17 @@ public final class ModifierTapDispatcher {
     // MARK: - Dispatch helpers
 
     private func schedulePendingTimer() {
-        let item = DispatchWorkItem { [weak self] in
-            self?.firePendingTap()
+        pendingTimer = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let nanos = UInt64(self.multiTapWindow * 1_000_000_000)
+            do {
+                try await Task.sleep(nanoseconds: nanos)
+            } catch {
+                return
+            }
+            if Task.isCancelled { return }
+            self.firePendingTap()
         }
-        pendingTimer = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + multiTapWindow, execute: item)
     }
 
     private func cancelPendingTimer() {

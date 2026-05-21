@@ -41,6 +41,7 @@
 		207DAD770B0FAF0D89187A5C /* VoiceOnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78433864E06903CDC2978495 /* VoiceOnboardingWindowController.swift */; };
 		20ED377C1E30F0EA0A6D0F06 /* FeaturePickerCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79B1A5A9D1E969AC988D3580 /* FeaturePickerCard.swift */; };
 		2111F8015D4D71A3E2CC781E /* FolderPreviewFeatureActivator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BE4D49A5EE602CBBC1FB956 /* FolderPreviewFeatureActivator.swift */; };
+		00EB20BFF7AC41F2A28BE685 /* FeatureStatePublisherObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97C2B6769A6440ABDB9682D /* FeatureStatePublisherObservationTests.swift */; };
 		226FF15D1665169F775BF5E2 /* AppIconColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E1A984A7EE9AEB13955E475 /* AppIconColor.swift */; };
 		257CB47E805E02012790B35A /* SnippetCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1ABE777A7CD78CB96ABAFC8 /* SnippetCard.swift */; };
 		2596DA6B82D77FF286F323B3 /* VoiceShortcutMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10DDA007B1CE0D6C221097CD /* VoiceShortcutMatcherTests.swift */; };
@@ -90,6 +91,7 @@
 		4FEC0DC0A85C35983F7E20FF /* DockAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA69C93A707658137819D776 /* DockAnimator.swift */; };
 		4FF1325B4E8AD38676BB3EDB /* MigrationReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1308D6CD01832168B6A99A7E /* MigrationReport.swift */; };
 		506DB76C254F145A0C90BD73 /* VoiceCoordinatorAudioPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E910A27E23F56E6922FFED54 /* VoiceCoordinatorAudioPolicyTests.swift */; };
+		54A5D455735A4778875D18B5 /* FeatureSetupCoordinatorObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8EF912CFCB49A495FA6050 /* FeatureSetupCoordinatorObservationTests.swift */; };
 		506F0C499D0BA28FBB1D7B36 /* DockMoreMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB589829CC24E72873D4FF1 /* DockMoreMenu.swift */; };
 		50FBF9E56266F42D0947A917 /* SettingsWindowConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5A39FD01CC23C1BE9DE623 /* SettingsWindowConfig.swift */; };
 		5238F67D6D46D9FAAE7FD31D /* OnboardingDoneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E19A163466CB888C368A496 /* OnboardingDoneView.swift */; };
@@ -347,6 +349,8 @@
 		05FAF7E33EF79F05F7932ED6 /* VoiceHistoryUndoToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceHistoryUndoToken.swift; sourceTree = "<group>"; };
 		0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FolderPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		07D9491FEF0B4BA6626760F8 /* AppIconResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconResolverTests.swift; sourceTree = "<group>"; };
+		3D8EF912CFCB49A495FA6050 /* FeatureSetupCoordinatorObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureSetupCoordinatorObservationTests.swift; sourceTree = "<group>"; };
+		B97C2B6769A6440ABDB9682D /* FeatureStatePublisherObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStatePublisherObservationTests.swift; sourceTree = "<group>"; };
 		0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacAllYouNeed.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0926233877B5C137B0887EF2 /* ClipboardDaemon.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClipboardDaemon.entitlements; sourceTree = "<group>"; };
 		0A6FDB2A914DE03953C08C59 /* DownloadsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsListView.swift; sourceTree = "<group>"; };
@@ -773,6 +777,7 @@
 		2F3836FCE5FC3B72CFF00914 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				3D8EF912CFCB49A495FA6050 /* FeatureSetupCoordinatorObservationTests.swift */,
 				1E444AD4FF1939B4AE78A34D /* FunctionTabsTests.swift */,
 				E33C08F9E8586A89286B4700 /* MacAllYouNeedApplicationDelegateTests.swift */,
 				FEF77F93DD1E8D70CED1B0B2 /* MainAppDestinationTests.swift */,
@@ -1237,6 +1242,7 @@
 		C1D8F1432BCF861D809F2E96 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				B97C2B6769A6440ABDB9682D /* FeatureStatePublisherObservationTests.swift */,
 				60183A8998B4849B84296225 /* HotkeyRecorderModifierFlagsTests.swift */,
 				B7C0599234840A1ED6E057EF /* HotkeyRecorderTests.swift */,
 				17975B7B72723C96B1FB6F85 /* PermissionStatusDisplayTests.swift */,
@@ -1592,10 +1598,12 @@
 				D02E087F979CEF23A1A47CDA /* ClipboardFeatureActivatorTests.swift in Sources */,
 				99F9679CA4CEBCDC5A076E4C /* DockItemTests.swift in Sources */,
 				82B2E08C2233FAE23CB9F96C /* DownloaderFeatureActivatorTests.swift in Sources */,
+				00EB20BFF7AC41F2A28BE685 /* FeatureStatePublisherObservationTests.swift in Sources */,
 				E84022EA5DE8794285253DF8 /* FeatureRegistryProviderTests.swift in Sources */,
 				C1D567FB7FC420A04189EB11 /* FeatureRuntimeTests.swift in Sources */,
 				DC735024CCED5F4A650D1CF0 /* FileURLLoaderTests.swift in Sources */,
 				5D6ED797DFE23677DED5ECB2 /* FolderPreviewFeatureActivatorTests.swift in Sources */,
+				54A5D455735A4778875D18B5 /* FeatureSetupCoordinatorObservationTests.swift in Sources */,
 				C12C8B648DBF69A0D2999AF2 /* FunctionTabsTests.swift in Sources */,
 				C8EBE19B6C152D9232897101 /* FuzzyMatcherTests.swift in Sources */,
 				9CEF66093EE2A145C1B964DC /* GroqASREngineTests.swift in Sources */,

@@ -86,7 +86,7 @@ enum HotkeysSettingsPresentation {
 
 struct HotkeysSettingsView: View {
     let controller: AppController
-    @ObservedObject private var statePublisher: FeatureStatePublisher
+    private var statePublisher: FeatureStatePublisher
     @State private var map: [HotkeyAction: [HotkeyDescriptor]]
     @State private var pendingTriggerDescriptors: [HotkeyAction: [HotkeyDescriptor]] = [:]
     @State private var errorMessage: String?

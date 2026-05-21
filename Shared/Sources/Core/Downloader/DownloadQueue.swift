@@ -79,6 +79,7 @@ public actor DownloadQueue {
     private let started: StartHandler
     private let progress: ProgressHandler
     private let completion: CompletionHandler
+    private var asyncContinuations: [RecordID: CheckedContinuation<Void, Error>] = [:]
 
     public init(
         maxConcurrent: Int,
@@ -95,6 +96,20 @@ public actor DownloadQueue {
     public func enqueue(_ job: DownloadJob) {
         queued.append(job)
         Task { await self.tryStart() }
+    }
+
+    /// Async/await overload. Suspends until the job finishes (success) or fails
+    /// (throws). The callback-based `started`, `progress`, and `completion`
+    /// handlers registered at init are still invoked as normal — both APIs are
+    /// fully active for the same job.
+    ///
+    /// Named distinctly from `enqueue(_:)` to avoid ambiguity at call sites that
+    /// already use `await queue.enqueue(job)` without `try`.
+    public func enqueueAndWait(_ job: DownloadJob) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            asyncContinuations[job.recordID] = continuation
+            enqueue(job)
+        }
     }
 
     public func pause(_ id: RecordID) {
@@ -121,7 +136,9 @@ public actor DownloadQueue {
             job.cancel()
         } else if let idx = queued.firstIndex(where: { $0.recordID == id }) {
             queued.remove(at: idx)
-            completion(id, .failure(CocoaError(.userCancelled)))
+            let error = CocoaError(.userCancelled)
+            completion(id, .failure(error))
+            asyncContinuations.removeValue(forKey: id)?.resume(throwing: error)
         }
     }
 
@@ -208,11 +225,13 @@ public actor DownloadQueue {
         if pausedIDs.contains(recordID) {
             // Job was terminated for pause — don't fire failure completion
             pausedIDs.remove(recordID)
+            asyncContinuations.removeValue(forKey: recordID)  // drop; caller will re-enqueue
             await tryStart()
             return
         }
         if status == 0 {
             completion(recordID, .success(()))
+            asyncContinuations.removeValue(forKey: recordID)?.resume(returning: ())
         } else {
             var ring = StderrRing()
             for line in unmatched { ring.append(line) }
@@ -220,7 +239,9 @@ public actor DownloadQueue {
             if let msg = ring.bestMessage(), !msg.isEmpty {
                 userInfo[NSLocalizedDescriptionKey] = msg
             }
-            completion(recordID, .failure(NSError(domain: "DownloadQueue", code: Int(status), userInfo: userInfo)))
+            let error = NSError(domain: "DownloadQueue", code: Int(status), userInfo: userInfo)
+            completion(recordID, .failure(error))
+            asyncContinuations.removeValue(forKey: recordID)?.resume(throwing: error)
         }
         await tryStart()
     }

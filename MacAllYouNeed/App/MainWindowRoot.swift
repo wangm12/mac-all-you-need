@@ -12,7 +12,7 @@ private typealias HotkeyDescriptor = Platform.HotkeyDescriptor
 
 struct MainWindowRoot: View {
     let controller: AppController
-    @ObservedObject private var statePublisher: FeatureStatePublisher
+    private var statePublisher: FeatureStatePublisher
     @AppStorage(MainAppDestination.storageKey, store: AppGroupSettings.defaults)
     private var selectedRaw = MainAppDestination.dashboard.rawValue
     @State private var pendingOrphans: [OrphanCacheScanner.Orphan] = []
@@ -21,7 +21,7 @@ struct MainWindowRoot: View {
 
     init(controller: AppController) {
         self.controller = controller
-        self._statePublisher = ObservedObject(wrappedValue: controller.featureStatePublisher)
+        self.statePublisher = controller.featureStatePublisher
     }
 
     private var selection: Binding<MainAppDestination> {
@@ -280,7 +280,7 @@ private struct MainSidebarSettingsButton: View {
 private struct DashboardMainPage: View {
     let controller: AppController
     let openDestination: (MainAppDestination) -> Void
-    @ObservedObject private var statePublisher: FeatureStatePublisher
+    private var statePublisher: FeatureStatePublisher
     @State private var pendingFeatureIDs: Set<FeatureID> = []
     @State private var showingUninstallFor: FeatureDescriptor?
 

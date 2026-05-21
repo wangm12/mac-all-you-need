@@ -1,6 +1,6 @@
-import Combine
 import FeatureCore
 import Foundation
+import Observation
 
 /// Abstracts the "install one feature's pack" call so tests can drive it deterministically.
 @MainActor
@@ -18,8 +18,8 @@ protocol OnboardingInstalling: AnyObject {
 /// resumes at the same feature (via OnboardingSelectionStore) and re-runs its sub-steps.
 /// All sub-steps are idempotent (download already-present is a no-op via pack pipeline,
 /// permissions already-granted auto-skip, config closure is pure UI), so re-running is cheap.
-@MainActor
-final class FeatureSetupCoordinator: ObservableObject {
+@Observable @MainActor
+final class FeatureSetupCoordinator {
     enum SubStep: Equatable {
         case idle
         case download(progress: Double)
@@ -29,7 +29,7 @@ final class FeatureSetupCoordinator: ObservableObject {
         case complete
     }
 
-    @Published private(set) var subStep: SubStep = .idle
+    private(set) var subStep: SubStep = .idle
 
     let descriptor: FeatureDescriptor
     private let installer: OnboardingInstalling

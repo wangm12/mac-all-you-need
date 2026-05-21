@@ -4,11 +4,11 @@ import SwiftUI
 /// Hosts the active sub-step for one feature. Owns the FeatureSetupCoordinator instance and
 /// reports completion upward so the wizard can advance to the next selected feature.
 struct FeatureSetupContainerView: View {
-    @StateObject private var coordinator: FeatureSetupCoordinator
+    @State private var coordinator: FeatureSetupCoordinator
     let onFeatureCompleted: () -> Void
 
     init(coordinator: FeatureSetupCoordinator, onFeatureCompleted: @escaping () -> Void) {
-        _coordinator = StateObject(wrappedValue: coordinator)
+        _coordinator = State(wrappedValue: coordinator)
         self.onFeatureCompleted = onFeatureCompleted
     }
 

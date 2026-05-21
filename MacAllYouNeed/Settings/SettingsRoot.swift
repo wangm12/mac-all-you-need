@@ -288,7 +288,7 @@ struct DisabledFeatureBanner: View {
 struct FeatureSettingsContainer<Content: View>: View {
     let featureID: FeatureID
     let controller: AppController
-    @ObservedObject private var statePublisher: FeatureStatePublisher
+    private var statePublisher: FeatureStatePublisher
     @ViewBuilder let content: () -> Content
 
     init(featureID: FeatureID, controller: AppController, @ViewBuilder content: @escaping () -> Content) {

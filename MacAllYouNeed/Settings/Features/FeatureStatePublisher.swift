@@ -1,13 +1,13 @@
-import Combine
 import FeatureCore
 import Foundation
+import Observation
 
-/// Mirrors FeatureManager state into a Published dict that SwiftUI can observe.
+/// Mirrors FeatureManager state into an Observable dict that SwiftUI can observe.
 /// FeatureManager is an actor (writes are async); UI needs synchronous reads.
 /// This class is the bridge.
-@MainActor
-final class FeatureStatePublisher: ObservableObject {
-    @Published private(set) var states: [FeatureID: FeatureRuntimeState] = [:]
+@Observable @MainActor
+final class FeatureStatePublisher {
+    private(set) var states: [FeatureID: FeatureRuntimeState] = [:]
     private let manager: FeatureManager
 
     init(manager: FeatureManager) {
