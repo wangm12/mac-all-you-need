@@ -8,16 +8,6 @@ import Platform
 
 final class DaemonContainer {
     private static let settingsChangedDarwin = "com.macallyouneed.settings-changed" as CFString
-    private static let defaultExcludedBundleIDs: [String] = [
-        "com.apple.keychainaccess",
-        "com.1password.1password",
-        "com.1password.1password7",
-        "com.1password.1password8",
-        "com.lastpass.LastPass",
-        "com.bitwarden.desktop",
-        "com.agilebits.onepassword4",
-        "com.dashlane.Dashlane"
-    ]
 
     let key: SymmetricKey
     let deviceID: DeviceID
@@ -147,13 +137,7 @@ final class DaemonContainer {
 
     private static func loadRules() -> ExclusionRules {
         let defaults = AppGroupSettings.defaults
-        let blockedArray: [String]
-        if let stored = defaults.stringArray(forKey: "clipboardExcludedBundleIDs") {
-            blockedArray = stored
-        } else {
-            blockedArray = defaultExcludedBundleIDs
-            defaults.set(blockedArray, forKey: "clipboardExcludedBundleIDs")
-        }
+        let blockedArray = defaults.stringArray(forKey: "clipboardExcludedBundleIDs") ?? []
         let regexes = defaults.stringArray(forKey: "clipboardRegexBlocklist") ?? []
         return ExclusionRules(
             blockedBundleIDs: Set(blockedArray),

@@ -76,6 +76,12 @@ enum PermissionStatusProvider {
         return optionalPermission(isGranted: hasCheckedAccess)
     }
 
+    /// Probes the live OS state. Returns `.granted` only if the app can
+    /// actually read an FDA-protected system file right now.
+    static func currentFullDiskAccessStatus() -> PermissionDisplayState {
+        optionalPermission(isGranted: FullDiskAccessProbe.isGranted())
+    }
+
     static func notificationStatus(_ status: UNAuthorizationStatus) -> PermissionDisplayState {
         switch status {
         case .authorized, .provisional, .ephemeral:
@@ -156,11 +162,11 @@ enum PermissionInstructionTarget: String, Equatable, Identifiable {
             )
         case .microphone:
             PermissionInstruction(
-                primaryText: "Allow microphone access for \(appName).",
-                secondaryText: "If the prompt already appeared, enable \(appName) in Microphone settings.",
+                primaryText: "Drag \(appName) into Microphone access.",
+                secondaryText: "If \(appName) already appears in the list, turn on its switch.",
                 systemSettingsAnchor: "Privacy_Microphone",
                 symbol: "mic.badge.plus",
-                supportsAppDrag: false
+                supportsAppDrag: true
             )
         case .fullDiskAccess:
             PermissionInstruction(
@@ -549,7 +555,7 @@ private struct FloatingPermissionInstructionPanelView: View {
 
 struct PermissionsSettingsView: View {
     @State private var accessibilityStatus = PermissionStatusProvider.requiredPermission(isGranted: AXIsProcessTrusted())
-    @State private var fullDiskAccessStatus = PermissionStatusProvider.fullDiskAccessStatus(hasCheckedAccess: nil)
+    @State private var fullDiskAccessStatus = PermissionStatusProvider.currentFullDiskAccessStatus()
     @State private var microphoneStatus = PermissionStatusProvider.currentMicrophoneStatus()
     @State private var notificationsStatus = PermissionDisplayState.optional
     @State private var requestedInstructionTarget: PermissionInstructionTarget?
@@ -619,7 +625,14 @@ struct PermissionsSettingsView: View {
                 }
             }
 
-            if let visibleInstructionTarget, visibleInstructionTarget != .fullDiskAccess {
+            // Inline instruction strip only for permissions that don't support
+            // the floating drag panel (currently just Notifications). Anything
+            // with supportsAppDrag = true (Accessibility, Microphone, FDA)
+            // gets the same floating drag-into-Settings panel.
+            if let visibleInstructionTarget,
+               !PermissionFloatingInstructionPresentation.shouldFloat(
+                   visibleInstructionTarget.instruction(appName: appName)
+               ) {
                 permissionInstructionStrip(for: visibleInstructionTarget)
             }
         }
@@ -676,28 +689,19 @@ struct PermissionsSettingsView: View {
     private func refresh() {
         accessibilityStatus = PermissionStatusProvider.requiredPermission(isGranted: AXIsProcessTrusted())
         microphoneStatus = PermissionStatusProvider.currentMicrophoneStatus()
+        fullDiskAccessStatus = PermissionStatusProvider.currentFullDiskAccessStatus()
         advanceInstructionIfCurrentTargetIsGranted()
     }
 
     private func requestAccessibility() {
         focusInstruction(.accessibility)
         _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
-        openPrivacyPane("Privacy_Accessibility")
+        presentFloatingInstructionAndOpenSettings(for: .accessibility)
     }
 
     private func requestFullDiskAccess() {
         focusInstruction(.fullDiskAccess)
-        let instruction = PermissionInstructionTarget.fullDiskAccess.instruction(appName: appName)
-        FloatingPermissionInstructionPanelController.shared.show(
-            instruction: instruction,
-            appName: appName,
-            appURL: Bundle.main.bundleURL,
-            sourceWindow: hostWindow,
-            attachToSystemSettings: true
-        ) {
-            openPrivacyPane(instruction.systemSettingsAnchor)
-        }
-        openPrivacyPane("Privacy_AllFiles")
+        presentFloatingInstructionAndOpenSettings(for: .fullDiskAccess)
     }
 
     private func requestMicrophone() {
@@ -710,8 +714,25 @@ struct PermissionsSettingsView: View {
                 }
             }
         default:
-            openPrivacyPane("Privacy_Microphone")
+            presentFloatingInstructionAndOpenSettings(for: .microphone)
         }
+    }
+
+    /// Single shared path for every permission that uses the drag-into-Settings
+    /// floating panel. Mirrors what `requestFullDiskAccess` was doing inline
+    /// and keeps the three call sites identical so they can never drift.
+    private func presentFloatingInstructionAndOpenSettings(for target: PermissionInstructionTarget) {
+        let instruction = target.instruction(appName: appName)
+        FloatingPermissionInstructionPanelController.shared.show(
+            instruction: instruction,
+            appName: appName,
+            appURL: Bundle.main.bundleURL,
+            sourceWindow: hostWindow,
+            attachToSystemSettings: true
+        ) {
+            openPrivacyPane(instruction.systemSettingsAnchor)
+        }
+        openPrivacyPane(instruction.systemSettingsAnchor)
     }
 
     private func requestNotifications() {

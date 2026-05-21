@@ -547,7 +547,7 @@ private struct ClipboardMainPage: View {
     var body: some View {
         FunctionPageShell(
             title: "Clipboard",
-            subtitle: "History, capture rules, and paste behavior for local clipboard memory.",
+            subtitle: "History, ignored apps, and paste behavior for local clipboard memory.",
             selection: selectedTab,
             toolbar: {
                 MainHeaderShortcutDisplay(
@@ -672,8 +672,8 @@ private struct ClipboardMainPage: View {
 
     private var clipboardRulesSection: some View {
         MAYNSection(
-            title: "Capture rules",
-            subtitle: "Choose apps whose copied content should never be saved to clipboard history, such as password managers, Keychain, or other sensitive tools."
+            title: "Ignored Apps",
+            subtitle: "Clipboard content copied from these apps will never be saved to history."
         ) {
             BundleIDExclusionEditor(bundleIDs: $blockedApps) { ExcludedAppsStore.save($0) }
         }

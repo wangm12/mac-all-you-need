@@ -12,6 +12,7 @@
 		051D5139A9BC6E99170FD42B /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F208E396D585E76CE9A288 /* MainWindowController.swift */; };
 		0585329FE3280A9B5B12698D /* OllamaServiceClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE81270FBD0830A6ADAE856 /* OllamaServiceClientTests.swift */; };
 		066578EA69E2EC36995B907E /* WindowControlAccessibilityTrustMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440B93CF73472061631521A9 /* WindowControlAccessibilityTrustMonitor.swift */; };
+		0692CF13BE93A3BD35C7B1E4 /* FullDiskAccessProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A98DBAEE8E14FA47E8D030A /* FullDiskAccessProbe.swift */; };
 		091C3405B43D06740BE92799 /* ShortcutBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173493C07247517CB2D6B31F /* ShortcutBinding.swift */; };
 		0AB5D8CE10D2D591E3F8BC9E /* VoiceLocalTextCleanerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 960E01127DA93FF593F89958 /* VoiceLocalTextCleanerTests.swift */; };
 		0B287A48E697DDA9E389DD33 /* FeatureCore in Frameworks */ = {isa = PBXBuildFile; productRef = 342234C4D95175B8FC64834F /* FeatureCore */; };
@@ -487,6 +488,7 @@
 		88F478AB8437A1D1DE6174DC /* FeatureAboutContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureAboutContent.swift; sourceTree = "<group>"; };
 		892BB77EC395C1A4D9C8205F /* VoiceLLMProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLLMProviderTests.swift; sourceTree = "<group>"; };
 		895BED09F42DCE9E228138D4 /* MigrationSentinel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationSentinel.swift; sourceTree = "<group>"; };
+		8A98DBAEE8E14FA47E8D030A /* FullDiskAccessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessProbe.swift; sourceTree = "<group>"; };
 		8AFEAC6BBBD9438A1790B90B /* OnboardingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingState.swift; sourceTree = "<group>"; };
 		8B3D26DC785ED24B8C2D441E /* VoiceDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceDescriptor.swift; sourceTree = "<group>"; };
 		8B5A39FD01CC23C1BE9DE623 /* SettingsWindowConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowConfig.swift; sourceTree = "<group>"; };
@@ -1030,6 +1032,7 @@
 				2C9739EFE22157DDF7AFD91B /* ClipboardSettingsView.swift */,
 				A320BFFB4CB076E26BB0770C /* DownloadsSettingsView.swift */,
 				31D70C5F8D0645F8C7B7BAA1 /* FolderPreviewSettingsView.swift */,
+				8A98DBAEE8E14FA47E8D030A /* FullDiskAccessProbe.swift */,
 				6F1AA10BC029C6182FEA023F /* GeneralSettingsView.swift */,
 				5E3835E590F0AEE03670F37E /* HotkeyActionFeature.swift */,
 				B945F20C749B8FE7E2336A32 /* HotkeyMapStore.swift */,
@@ -1727,6 +1730,7 @@
 				5B553CCA2100AA45816F317F /* FolderPreviewDescriptor.swift in Sources */,
 				2111F8015D4D71A3E2CC781E /* FolderPreviewFeatureActivator.swift in Sources */,
 				7E28F30326CC4386E48A4041 /* FolderPreviewSettingsView.swift in Sources */,
+				0692CF13BE93A3BD35C7B1E4 /* FullDiskAccessProbe.swift in Sources */,
 				3DD03139C70EF04DE70A055B /* FunctionPageShell.swift in Sources */,
 				1C63A0DE3B87D470FB1D0C14 /* FunctionTabs.swift in Sources */,
 				1529A36DBC005C38B5D60795 /* FuzzyMatcher.swift in Sources */,

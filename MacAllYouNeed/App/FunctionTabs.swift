@@ -61,7 +61,7 @@ enum ClipboardFunctionTab: String, FunctionTabDestination {
     var title: String {
         switch self {
         case .history: "History"
-        case .rules: "Rules"
+        case .rules: "Ignored Apps"
         case .settings: "Settings"
         }
     }
