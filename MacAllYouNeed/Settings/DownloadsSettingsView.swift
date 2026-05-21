@@ -91,8 +91,8 @@ enum DownloadsSettingsPresentation {
     static let interruptedRecoveryStatusText = "Automatic"
     static let filenameExampleActionTitle = "Copy"
     static let cookieProfileTitle = "Cookie profiles"
-    static let cookieProfileSubtitle = "Chrome, Edge, Brave, and Chromium profiles are imported before download starts."
-    static let cookieProfileStatusText = "Ready"
+    static let cookieProfileSubtitle = "Chrome, Edge, Brave, and Chromium cookies are extracted automatically before each download — no configuration needed."
+    static let cookieProfileStatusText = "Auto"
     static let bundledAssetsTitle = "Bundled downloader assets"
     static let bundledAssetsSubtitle = "yt-dlp, ffmpeg, manifest, architecture, and SHA-256 verification."
 }
@@ -143,16 +143,6 @@ private struct DownloadQueueSettingsSection: View {
             ) {
                 DownloadConcurrencyDropdown(value: $concurrency)
             }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: DownloadsSettingsPresentation.interruptedRecoveryTitle,
-                subtitle: DownloadsSettingsPresentation.interruptedRecoverySubtitle
-            ) {
-                StatusPill(
-                    text: DownloadsSettingsPresentation.interruptedRecoveryStatusText,
-                    kind: .neutral
-                )
-            }
         }
     }
 }
@@ -166,7 +156,7 @@ private struct DownloadDownloaderSettingsSection: View {
             ) {
                 StatusPill(
                     text: DownloadsSettingsPresentation.cookieProfileStatusText,
-                    kind: .success
+                    kind: .neutral
                 )
             }
             MAYNDivider()
@@ -244,34 +234,22 @@ private struct DownloadFilenameTemplateSection: View {
         MAYNSection(title: "File naming") {
             MAYNSettingsRow(
                 title: "Naming style",
-                subtitle: "Choose a readable filename format for new downloads.",
+                subtitle: selectedPreset.subtitle,
                 minHeight: 58
             ) {
-                MAYNDropdown(
-                    selection: $selectedPreset,
-                    options: Array(DownloadFilenameTemplatePreset.allCases),
-                    title: { $0.title },
-                    width: MAYNControlMetrics.widePickerWidth
-                )
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Example file name",
-                subtitle: selectedPreset.subtitle
-            ) {
-                HStack(spacing: 8) {
+                VStack(alignment: .trailing, spacing: 5) {
+                    MAYNDropdown(
+                        selection: $selectedPreset,
+                        options: Array(DownloadFilenameTemplatePreset.allCases),
+                        title: { $0.title },
+                        width: MAYNControlMetrics.widePickerWidth
+                    )
                     Text(exampleFileName)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .foregroundStyle(.secondary)
-                        .frame(width: MAYNControlMetrics.textFieldWidth, alignment: .trailing)
-                    MAYNButton(
-                        DownloadsSettingsPresentation.filenameExampleActionTitle,
-                        height: HotkeyChipPresentation.compactHeight
-                    ) {
-                        copyExample()
-                    }
+                        .frame(width: MAYNControlMetrics.widePickerWidth, alignment: .trailing)
                 }
             }
 

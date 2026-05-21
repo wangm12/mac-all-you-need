@@ -244,6 +244,7 @@
 		D5F051109A97EDC4DF3971A5 /* VoiceAutoSubmitServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33BD4B505313FFE1090292B2 /* VoiceAutoSubmitServiceTests.swift */; };
 		D7C34DC7BF78208BCDE92710 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = 565D43E1D2B76D75D04F84F1 /* Platform */; };
 		D89A829D2528DAC4BDEAEF04 /* ClipboardSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9739EFE22157DDF7AFD91B /* ClipboardSettingsView.swift */; };
+		D8D7274A6CC66CF9F5E71627 /* ModifierRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B722175E635F04F4FA1D0BAC /* ModifierRecorder.swift */; };
 		DA0DDA8A460B59B4060A6F9D /* FeatureToolCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B44E29D71B4EF1BD0D4EFB2 /* FeatureToolCard.swift */; };
 		DB294CD7301DFE4C8276F643 /* VoicePersonalizationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859055D315C52EC6D6F50CE0 /* VoicePersonalizationSettings.swift */; };
 		DC0D9E22A7CB0045F1B5B8F3 /* ClipboardXPCServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE36E9C60737E2A5F1D1AFB /* ClipboardXPCServer.swift */; };
@@ -539,6 +540,7 @@
 		B5EC1BD6ED8299D6F3F00D84 /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
 		B5F3C53A015F073DBAFD32B1 /* ClipboardDockModelListSwitchingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDockModelListSwitchingTests.swift; sourceTree = "<group>"; };
 		B6A8B722E25C891CABB94562 /* FunctionTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FunctionTabs.swift; sourceTree = "<group>"; };
+		B722175E635F04F4FA1D0BAC /* ModifierRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModifierRecorder.swift; sourceTree = "<group>"; };
 		B7C0599234840A1ED6E057EF /* HotkeyRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyRecorderTests.swift; sourceTree = "<group>"; };
 		B90DF7EC578642BCBB27DD41 /* BootstrapDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootstrapDefaults.swift; sourceTree = "<group>"; };
 		B945F20C749B8FE7E2336A32 /* HotkeyMapStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyMapStore.swift; sourceTree = "<group>"; };
@@ -1001,6 +1003,7 @@
 			isa = PBXGroup;
 			children = (
 				5AFBF96227278B3A65341588 /* MissionControlClamp.swift */,
+				B722175E635F04F4FA1D0BAC /* ModifierRecorder.swift */,
 				440B93CF73472061631521A9 /* WindowControlAccessibilityTrustMonitor.swift */,
 				77C7108A5CEEE200BBA94F99 /* WindowControlCoordinator.swift */,
 				F7267EF3FFCFF6BD13F17947 /* WindowControlDiagnosticsView.swift */,
@@ -1756,6 +1759,7 @@
 				68476EBEE95B3AB82B6245EC /* Migrator.swift in Sources */,
 				3068FA5C5CEE60025308D5D8 /* MiniVoiceHUD.swift in Sources */,
 				2976B7030B6CC90DFA97E9FB /* MissionControlClamp.swift in Sources */,
+				D8D7274A6CC66CF9F5E71627 /* ModifierRecorder.swift in Sources */,
 				C928620DE8152BEA0265BD0A /* MultiSelectBar.swift in Sources */,
 				6D67434EA9D683B8A9FA246D /* NewListSheet.swift in Sources */,
 				9590D81D2552FD97059780C5 /* OllamaServiceClient.swift in Sources */,

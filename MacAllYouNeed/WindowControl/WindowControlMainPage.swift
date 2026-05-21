@@ -21,12 +21,6 @@ struct WindowLayoutsMainPage: View {
             title: "Window Layouts",
             subtitle: "Arrange, snap, and restore windows.",
             selection: selectedTab,
-            toolbar: {
-                StatusPill(
-                    text: controller.windowControl.windowLayoutsEnabled ? "On" : "Off",
-                    kind: controller.windowControl.windowLayoutsEnabled ? .success : .neutral
-                )
-            },
             content: {
                 FunctionPageScrollContent {
                     WindowControlSettingsView(
@@ -75,12 +69,6 @@ struct GrabAnywhereMainPage: View {
             title: "Window Grab",
             subtitle: "Hold a modifier and drag windows from any visible area.",
             selection: selectedTab,
-            toolbar: {
-                StatusPill(
-                    text: controller.windowControl.windowGrabEnabled ? "On" : "Off",
-                    kind: controller.windowControl.windowGrabEnabled ? .success : .neutral
-                )
-            },
             content: {
                 FunctionPageScrollContent {
                     WindowControlSettingsView(

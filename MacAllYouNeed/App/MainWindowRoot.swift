@@ -1324,6 +1324,40 @@ private struct ClipboardHistoryPaginationFooter: View {
     }
 }
 
+private struct VoiceTranscriptPaginationFooter: View {
+    let rangeText: String
+    let currentPage: Int
+    let totalPages: Int
+    let canGoPrevious: Bool
+    let canGoNext: Bool
+    let previous: () -> Void
+    let next: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(rangeText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 12)
+
+            MAYNButton("Previous", action: previous)
+                .disabled(!canGoPrevious)
+
+            Text("Page \(currentPage + 1) of \(totalPages)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 86)
+
+            MAYNButton("Next", action: next)
+                .disabled(!canGoNext)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct MainClipboardRecentRow: View {
     let item: ClipboardItemMeta
     let imageLoader: ImageBlobLoader
@@ -1609,6 +1643,7 @@ private struct VoiceMainPage: View {
     @State private var onboardingProgress: VoiceOnboardingProgress
     @State private var errorMessage: String?
     @State private var transcripts: [VoiceTranscript] = []
+    @State private var transcriptPage = 0
     @State private var selectedTranscriptIDs: Set<String> = []
     @State private var voiceHistorySettings = VoiceHistorySettings()
     @State private var historyToast: VoiceHistoryUndoToken?
@@ -1846,12 +1881,8 @@ private struct VoiceMainPage: View {
     }
 
     private var voiceHistorySection: some View {
-        VStack(spacing: 12) {
-            VoiceHistoryStorageHeader(settings: $voiceHistorySettings)
-                .onChange(of: voiceHistorySettings) { _, new in
-                    controller.saveVoiceHistorySettings(new)
-                }
-
+        let page = voiceTranscriptPageState
+        return VStack(spacing: 12) {
             MAYNSection(title: "Recent transcripts") {
                 if transcripts.isEmpty {
                     MAYNSettingsRow(
@@ -1861,7 +1892,7 @@ private struct VoiceMainPage: View {
                         EmptyView()
                     }
                 } else {
-                    ForEach(Array(transcripts.enumerated()), id: \.element.id) { index, transcript in
+                    ForEach(Array(page.visible.enumerated()), id: \.element.id) { index, transcript in
                         if index > 0 { MAYNDivider() }
                         VoiceTranscriptHistoryRow(
                             transcript: transcript,
@@ -1873,8 +1904,26 @@ private struct VoiceMainPage: View {
                             onDelete: { deleteTranscriptWithUndo(transcript) }
                         )
                     }
+
+                    if page.totalPages > 1 {
+                        MAYNDivider()
+                        VoiceTranscriptPaginationFooter(
+                            rangeText: page.rangeText,
+                            currentPage: page.currentPage,
+                            totalPages: page.totalPages,
+                            canGoPrevious: page.canGoPrevious,
+                            canGoNext: page.canGoNext,
+                            previous: { transcriptPage = max(0, transcriptPage - 1) },
+                            next: { transcriptPage = min(page.totalPages - 1, transcriptPage + 1) }
+                        )
+                    }
                 }
             }
+
+            VoiceHistoryStorageHeader(settings: $voiceHistorySettings)
+                .onChange(of: voiceHistorySettings) { _, new in
+                    controller.saveVoiceHistorySettings(new)
+                }
         }
         .overlay(alignment: .bottom) {
             if let toast = historyToast {
@@ -1893,6 +1942,35 @@ private struct VoiceMainPage: View {
         .onKeyPress { keyPress in
             handleVoiceHistoryKeyPress(keyPress)
         }
+    }
+
+    private struct VoiceTranscriptPageState {
+        let visible: [VoiceTranscript]
+        let currentPage: Int
+        let totalPages: Int
+        let totalItems: Int
+        let pageSize: Int
+        var canGoPrevious: Bool { currentPage > 0 }
+        var canGoNext: Bool { currentPage < totalPages - 1 }
+        var rangeText: String {
+            guard totalItems > 0 else { return "0 of 0" }
+            let start = currentPage * pageSize + 1
+            let end = min(start + visible.count - 1, totalItems)
+            return "\(start)–\(end) of \(totalItems)"
+        }
+    }
+
+    private var voiceTranscriptPageState: VoiceTranscriptPageState {
+        let size = 15
+        let total = transcripts.count
+        let pages = max(1, Int(ceil(Double(total) / Double(size))))
+        let page = min(max(0, transcriptPage), pages - 1)
+        let start = page * size
+        let end = min(start + size, total)
+        let visible = start < end ? Array(transcripts[start ..< end]) : []
+        return VoiceTranscriptPageState(
+            visible: visible, currentPage: page, totalPages: pages, totalItems: total, pageSize: size
+        )
     }
 
     private var voiceActivationSection: some View {
@@ -2088,7 +2166,8 @@ private struct VoiceMainPage: View {
                 .map { ($0, controller.cloudASRAPIKey(for: $0)) }
         )
         cloudSetupProviderKind = asrSettings.providerKind.isCloud ? asrSettings.providerKind : cloudSettings.modelID.providerKind
-        transcripts = controller.listRecentVoiceTranscripts(limit: 20)
+        transcripts = controller.listRecentVoiceTranscripts(limit: 500)
+        transcriptPage = 0
         pruneVoiceTranscriptSelection()
         refreshMicrophoneOptions()
         voiceHistorySettings = controller.loadVoiceHistorySettings()
@@ -2657,6 +2736,21 @@ private struct VoiceTranscriptHistoryRow: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                    onCopy()
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Copy transcript")
+                .opacity(isHovering || isSelected ? 1 : 0)
+                .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
+                .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
 
             VoiceTranscriptRowMenu(
                 hasAudio: transcript.audioPath != nil,

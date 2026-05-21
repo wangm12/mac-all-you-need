@@ -77,7 +77,7 @@ struct WindowControlSettingsView: View {
                 title: "Snap modifier",
                 subtitle: "Modifier combo used when snap requires a key."
             ) {
-                WindowGestureModifierPicker(selection: modifierBinding(\.edgeSnapModifier))
+                WindowGestureModifierPicker(selection: modifierBinding(\.edgeSnapModifier), defaultModifier: WindowControlSettings.default.edgeSnapModifier)
             }
         }
     }
@@ -91,7 +91,7 @@ struct WindowControlSettingsView: View {
                 title: "Window Grab modifier",
                 subtitle: "Modifier combo required to drag from anywhere."
             ) {
-                WindowGestureModifierPicker(selection: modifierBinding(\.dragModifier))
+                WindowGestureModifierPicker(selection: modifierBinding(\.dragModifier), defaultModifier: WindowControlSettings.default.dragModifier)
             }
         }
     }
@@ -110,7 +110,7 @@ struct WindowControlSettingsView: View {
                 title: "Double-click modifier",
                 subtitle: "Modifier combo required for double-click maximize."
             ) {
-                WindowGestureModifierPicker(selection: modifierBinding(\.doubleClickModifier))
+                WindowGestureModifierPicker(selection: modifierBinding(\.doubleClickModifier), defaultModifier: WindowControlSettings.default.doubleClickModifier)
             }
         }
     }

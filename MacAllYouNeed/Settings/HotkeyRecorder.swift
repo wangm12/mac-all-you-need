@@ -125,15 +125,19 @@ struct KeyboardShortcutRegistrationSummary: Equatable {
     }
 
     private static func registeredDisplay(from pressedKeys: Set<KeyboardShortcutVisualizerKeyID>) -> String {
-        guard let keyCode = primaryKeyCode(from: pressedKeys) else {
-            return waitingForKeyText
-        }
-
         var parts: [String] = []
         if containsControl(in: pressedKeys) { parts.append("⌃") }
         if containsOption(in: pressedKeys) { parts.append("⌥") }
         if containsShift(in: pressedKeys) { parts.append("⇧") }
         if containsCommand(in: pressedKeys) { parts.append("⌘") }
+
+        guard let keyCode = primaryKeyCode(from: pressedKeys) else {
+            // Only modifier keys held so far. Show what's held with a trailing
+            // ellipsis so "Registers as" mirrors the user's input and signals
+            // that a non-modifier key is still required.
+            return parts.isEmpty ? waitingForKeyText : parts.joined(separator: " + ") + " + …"
+        }
+
         parts.append(keyDisplay(keyCode))
         return parts.joined(separator: " + ")
     }
@@ -992,7 +996,7 @@ struct HotkeyRecorder: NSViewRepresentable {
             visualizerState = state
             floatingKeyboard.update(
                 state: state,
-                candidate: pendingDescriptor,
+                candidate: pendingDescriptor ?? Self.placeholderCandidate,
                 issueMessage: pendingIssueMessage,
                 onReset: { [weak self] in
                     self?.resetPendingShortcut()
@@ -1009,7 +1013,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         private func refreshFloatingKeyboard() {
             floatingKeyboard.update(
                 state: visualizerState,
-                candidate: pendingDescriptor,
+                candidate: pendingDescriptor ?? Self.placeholderCandidate,
                 issueMessage: pendingIssueMessage,
                 onReset: { [weak self] in
                     self?.resetPendingShortcut()
@@ -1035,6 +1039,13 @@ struct HotkeyRecorder: NSViewRepresentable {
         private static func isConfirmKey(_ keyCode: UInt16) -> Bool {
             Int(keyCode) == kVK_Return || Int(keyCode) == kVK_ANSI_KeypadEnter
         }
+
+        /// Placeholder candidate used to keep the Confirm / Reset / Cancel
+        /// button row visible in the floating keyboard even before the user
+        /// has held a valid shortcut. Clicking Confirm with this placeholder
+        /// is a safe no-op because `confirmPendingShortcut` guards on the
+        /// real `pendingDescriptor`.
+        private static let placeholderCandidate = HotkeyDescriptor(keyCode: 0, modifiers: [])
 
         private func startMonitoringKeyboard() {
             guard keyMonitor == nil else { return }
@@ -1180,7 +1191,11 @@ struct HotkeyRecorder: NSViewRepresentable {
         }
 
         private func resolvedColor(_ color: NSColor) -> CGColor {
-            color.usingColorSpace(.deviceRGB)?.cgColor ?? NSColor(calibratedRed: 1, green: 0.25, blue: 0.22, alpha: 1).cgColor
+            var result: CGColor = NSColor(calibratedRed: 1, green: 0.25, blue: 0.22, alpha: 1).cgColor
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                result = color.usingColorSpace(.deviceRGB)?.cgColor ?? result
+            }
+            return result
         }
 
         private func neutralLayerColor(alpha: CGFloat) -> CGColor {

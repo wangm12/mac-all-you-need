@@ -15,10 +15,10 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
     static let primarySidebarDestinations: [MainAppDestination] = [
         .dashboard,
         .clipboard,
+        .snippets,
         .voice,
         .downloads,
         .folderPreview,
-        .snippets,
         .windowLayouts,
         .grabAnywhere
     ]

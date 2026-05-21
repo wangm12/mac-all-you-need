@@ -47,12 +47,9 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
 
     public static let `default` = WindowControlSettings()
 
-    /// Bundle IDs that are known to misbehave when their windows are programmatically
-    /// resized — typically because they ship their own internal window manager,
-    /// reject AX size writes, or restore their own geometry on a timer. Merged into
-    /// `ignoredBundleIDs` on first launch only (controlled by `defaultsSeededVersion`),
-    /// so user-added or user-removed entries are preserved.
-    public static let recommendedIgnoredBundleIDs: [String] = [
+    /// Bundle IDs that were auto-seeded in v1 and should be removed in v3.
+    /// These apps are rarely installed by typical users and were added by mistake.
+    private static let v1SeededBundleIDs: Set<String> = [
         "com.adobe.illustrator",
         "com.adobe.AfterEffects",
         "com.adobe.Photoshop",
@@ -63,44 +60,32 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         "com.aquafold.datastudio.DataStudio"
     ]
 
-    /// Current version of the recommended-ignored-apps seed. Bump when adding
-    /// new entries to `recommendedIgnoredBundleIDs` so existing users pick up
-    /// the additions exactly once.
-    public static let currentDefaultsSeedVersion = 2
+    /// Bundle IDs that are known to misbehave when their windows are programmatically
+    /// resized. Now empty — users should add their own via the Ignored Apps UI.
+    public static let recommendedIgnoredBundleIDs: [String] = []
 
-    /// One-shot seed: merges `recommendedIgnoredBundleIDs` into the user's
-    /// list, and (in v2) forces `enabled` / `dragAnywhereEnabled` to true now
-    /// that the per-feature on/off toggles have been removed from the settings
-    /// pages — those gates are owned by the Dashboard feature cards. Skipped
-    /// once `defaultsSeededVersion` reaches `currentDefaultsSeedVersion`.
-    /// Returns `true` when this call actually changed state.
+    /// Current version of the recommended-ignored-apps seed.
+    public static let currentDefaultsSeedVersion = 3
+
+    /// One-shot migration. Returns `true` when state changed.
     @discardableResult
     public mutating func seedRecommendedIgnoredAppsIfNeeded() -> Bool {
         guard defaultsSeededVersion < Self.currentDefaultsSeedVersion else {
             return false
         }
-        var existing = Set(ignoredBundleIDs)
         var changed = false
-        for bundleID in Self.recommendedIgnoredBundleIDs where !existing.contains(bundleID) {
-            existing.insert(bundleID)
-            ignoredBundleIDs.append(bundleID)
-            changed = true
-        }
-        // v2: the on/off toggles inside Window Layouts / Window Grab settings
-        // pages were removed. The Dashboard's per-feature card is now the only
-        // place a user enables/disables these features. Lock both runtime
-        // flags to true so the FeatureRuntime gate (featureAvailability) stays
-        // the sole source of truth going forward.
-        if !enabled {
-            enabled = true
-            changed = true
-        }
-        if !dragAnywhereEnabled {
-            dragAnywhereEnabled = true
-            changed = true
-        }
+
+        // v2: force enabled/dragAnywhereEnabled = true
+        if !enabled { enabled = true; changed = true }
+        if !dragAnywhereEnabled { dragAnywhereEnabled = true; changed = true }
+
+        // v3: remove the apps auto-seeded in v1 that the user never chose
+        let before = ignoredBundleIDs.count
+        ignoredBundleIDs = ignoredBundleIDs.filter { !Self.v1SeededBundleIDs.contains($0) }
+        if ignoredBundleIDs.count != before { changed = true }
+
         defaultsSeededVersion = Self.currentDefaultsSeedVersion
-        return changed || defaultsSeededVersion != Self.currentDefaultsSeedVersion
+        return changed
     }
 
     public var allowsDragEdgeSnap: Bool {
