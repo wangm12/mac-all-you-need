@@ -3,8 +3,11 @@ import Platform
 import SwiftUI
 
 enum WindowControlSettingsScope {
-    case layouts
-    case grabAnywhere
+    case layoutsShortcuts
+    case layoutsSnap
+    case layoutsApps
+    case grabGesture
+    case grabApps
     case advanced
 }
 
@@ -20,7 +23,7 @@ struct WindowControlSettingsView: View {
         controller: AppController,
         settings: Binding<WindowControlSettings>,
         hotkeyMap: Binding<[HotkeyAction: [HotkeyDescriptor]]>,
-        scope: WindowControlSettingsScope = .layouts
+        scope: WindowControlSettingsScope = .layoutsShortcuts
     ) {
         self.controller = controller
         self.scope = scope
@@ -31,35 +34,20 @@ struct WindowControlSettingsView: View {
     var body: some View {
         Group {
             switch scope {
-            case .layouts:
-                layoutsSection
+            case .layoutsShortcuts:
                 shortcutsSection
+            case .layoutsSnap:
                 edgeSnapSection
+            case .layoutsApps:
                 ignoredAppsSection
-                diagnosticsSection
-            case .grabAnywhere:
+            case .grabGesture:
                 grabAnywhereSection
                 doubleClickSection
+            case .grabApps:
                 ignoredAppsSection
-                diagnosticsSection
             case .advanced:
                 ignoredAppsSection
                 diagnosticsSection
-            }
-        }
-    }
-
-    private var layoutsSection: some View {
-        MAYNSection(
-            title: "Window Layouts",
-            subtitle: "Arrange, snap, and restore windows with configurable keyboard shortcuts."
-        ) {
-            MAYNSettingsRow(
-                title: "Window Layouts",
-                subtitle: "Enable keyboard-driven layout actions."
-            ) {
-                Toggle("", isOn: boolBinding(\.enabled))
-                    .labelsHidden()
             }
         }
     }
@@ -99,14 +87,6 @@ struct WindowControlSettingsView: View {
             title: "Window Grab",
             subtitle: "Hold a modifier and drag a window from any visible area."
         ) {
-            MAYNSettingsRow(
-                title: "Window Grab",
-                subtitle: "Enable modifier-dragging from inside a window."
-            ) {
-                Toggle("", isOn: boolBinding(\.dragAnywhereEnabled))
-                    .labelsHidden()
-            }
-            MAYNDivider()
             MAYNSettingsRow(
                 title: "Window Grab modifier",
                 subtitle: "Modifier combo required to drag from anywhere."
@@ -188,7 +168,7 @@ struct WindowControlSettingsView: View {
 
     private var ignoredAppsSection: some View {
         MAYNSection(
-            title: "Shared Ignored Apps",
+            title: "Ignored Apps",
             subtitle: "Window Layouts and Window Grab stay inactive while these apps are frontmost."
         ) {
             BundleIDExclusionEditor(
@@ -204,7 +184,7 @@ struct WindowControlSettingsView: View {
     }
 
     private var diagnosticsSection: some View {
-        MAYNSection(title: "Shared Diagnostics") {
+        MAYNSection(title: "Diagnostics") {
             MAYNSettingsRow(
                 title: "Event tap",
                 subtitle: WindowControlDiagnosticsPresentation.eventTapDetail(for: controller.windowControl.state)

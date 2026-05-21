@@ -8,9 +8,9 @@ public struct WindowSnapIntentConfiguration: Equatable, Sendable {
 
     public init(
         movementThreshold: CGFloat = 12,
-        edgeThreshold: CGFloat = 24,
-        cornerThreshold: CGFloat = 96,
-        sideHalfThreshold: CGFloat = 160
+        edgeThreshold: CGFloat = 5,
+        cornerThreshold: CGFloat = 20,
+        sideHalfThreshold: CGFloat = 145
     ) {
         self.movementThreshold = movementThreshold
         self.edgeThreshold = edgeThreshold

@@ -46,9 +46,9 @@ public enum WindowSnapZone: String, CaseIterable, Codable, Sendable {
     public static func zone(
         for point: CGPoint,
         in visibleFrame: CGRect,
-        edgeThreshold: CGFloat = 24,
-        cornerThreshold: CGFloat = 96,
-        sideHalfThreshold: CGFloat = 160
+        edgeThreshold: CGFloat = 5,
+        cornerThreshold: CGFloat = 20,
+        sideHalfThreshold: CGFloat = 145
     ) -> WindowSnapZone {
         let nearLeftEdge = point.x <= visibleFrame.minX + edgeThreshold
         let nearRightEdge = point.x >= visibleFrame.maxX - edgeThreshold

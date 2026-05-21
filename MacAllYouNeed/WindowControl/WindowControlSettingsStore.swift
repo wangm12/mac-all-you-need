@@ -5,12 +5,17 @@ enum WindowControlSettingsStore {
     static let key = "windowControl.settings.v1"
 
     static func load(from defaults: UserDefaults = AppGroupSettings.defaults) -> WindowControlSettings {
-        guard let data = defaults.data(forKey: key),
-              let decoded = try? JSONDecoder().decode(WindowControlSettings.self, from: data)
-        else {
-            return .default
+        var settings: WindowControlSettings
+        if let data = defaults.data(forKey: key),
+           let decoded = try? JSONDecoder().decode(WindowControlSettings.self, from: data) {
+            settings = decoded
+        } else {
+            settings = .default
         }
-        return decoded
+        if settings.seedRecommendedIgnoredAppsIfNeeded() {
+            save(settings, to: defaults)
+        }
+        return settings
     }
 
     static func save(_ settings: WindowControlSettings, to defaults: UserDefaults = AppGroupSettings.defaults) {

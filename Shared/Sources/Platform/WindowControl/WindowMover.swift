@@ -152,23 +152,33 @@ public final class WindowMover {
             enhancedUserInterfaceWriteSucceeded = element.setEnhancedUserInterfaceEnabled(false)
         }
 
-        let didMove: Bool
+        // Always run every write regardless of individual return values. AX
+        // attribute-set return codes are unreliable for size/position — apps can
+        // accept a write but clamp the value silently, or reject a write whose
+        // effect actually takes hold. Short-circuiting via && caused us to skip
+        // the position write whenever the first size write returned false, which
+        // is the root cause of "Chrome / Slack / Office land at the wrong size."
         if element.isResizable {
-            didMove = element.setSize(proposedFrame.size)
-                && element.setPosition(proposedFrame.origin)
-                && element.setSize(proposedFrame.size)
+            _ = element.setSize(proposedFrame.size)
+            _ = element.setPosition(proposedFrame.origin)
+            _ = element.setSize(proposedFrame.size)
         } else {
-            didMove = element.setPosition(proposedFrame.origin)
+            _ = element.setPosition(proposedFrame.origin)
         }
+
+        clampOffscreenWindow(element)
 
         if let previousEnhancedUserInterface {
             enhancedUserInterfaceWriteSucceeded = element.setEnhancedUserInterfaceEnabled(previousEnhancedUserInterface)
                 && enhancedUserInterfaceWriteSucceeded
         }
 
+        let actualFrame = element.frame
+        let writeLandedSomewhereValid = isValid(frame: actualFrame)
+
         return result(
             action: action,
-            status: didMove && enhancedUserInterfaceWriteSucceeded ? .moved : .writeFailed,
+            status: writeLandedSomewhereValid && enhancedUserInterfaceWriteSucceeded ? .moved : .writeFailed,
             originalFrame: originalFrame,
             proposedFrame: proposedFrame,
             element: element
@@ -314,15 +324,42 @@ public final class WindowMover {
     private func isValid(frame: CGRect) -> Bool {
         !frame.isNull && !frame.isEmpty && frame.width.isFinite && frame.height.isFinite
     }
+}
 
-    private func approximatelyEqual(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
+private extension WindowMover {
+    func approximatelyEqual(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
         abs(lhs.width - rhs.width) < 0.5 && abs(lhs.height - rhs.height) < 0.5
     }
 
-    private func approximatelyEqual(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+    func approximatelyEqual(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
         abs(lhs.origin.x - rhs.origin.x) < 0.5
             && abs(lhs.origin.y - rhs.origin.y) < 0.5
             && approximatelyEqual(lhs.size, rhs.size)
+    }
+    func clampOffscreenWindow(_ element: any WindowMovableElement) {
+        let actual = element.frame
+        guard isValid(frame: actual),
+              let screen = screenDetector.screen(containing: actual)
+        else {
+            return
+        }
+
+        let visibleFrame = screen.visibleFrame
+        var clamped = actual
+        if clamped.maxX > visibleFrame.maxX {
+            clamped.origin.x = max(visibleFrame.minX, visibleFrame.maxX - clamped.width)
+        } else if clamped.minX < visibleFrame.minX {
+            clamped.origin.x = visibleFrame.minX
+        }
+        if clamped.maxY > visibleFrame.maxY {
+            clamped.origin.y = max(visibleFrame.minY, visibleFrame.maxY - clamped.height)
+        } else if clamped.minY < visibleFrame.minY {
+            clamped.origin.y = visibleFrame.minY
+        }
+
+        if clamped.origin != actual.origin {
+            _ = element.setPosition(clamped.origin)
+        }
     }
 }
 

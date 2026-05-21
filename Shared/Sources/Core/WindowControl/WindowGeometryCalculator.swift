@@ -53,23 +53,23 @@ public struct WindowGeometryCalculator: Sendable {
         sourceVisibleFrame: CGRect,
         targetVisibleFrame: CGRect
     ) -> CGRect {
-        guard sourceVisibleFrame.width > 0, sourceVisibleFrame.height > 0 else {
-            return currentFrame.clamped(to: targetVisibleFrame)
-        }
+        // Preserve the window's size and keep its top-left offset relative to
+        // the display's top-left corner. The previous ratio-scaling logic
+        // shrunk Chrome / Slack / Office windows whenever the target display
+        // was smaller in either axis, even when the window would have fit.
+        // Falling back to clamped() at the end still shrinks size only when
+        // the window is genuinely larger than the target visible frame.
+        let offsetX = currentFrame.minX - sourceVisibleFrame.minX
+        let offsetY = currentFrame.minY - sourceVisibleFrame.minY
 
-        let normalizedX = (currentFrame.minX - sourceVisibleFrame.minX) / sourceVisibleFrame.width
-        let normalizedY = (currentFrame.minY - sourceVisibleFrame.minY) / sourceVisibleFrame.height
-        let normalizedWidth = currentFrame.width / sourceVisibleFrame.width
-        let normalizedHeight = currentFrame.height / sourceVisibleFrame.height
-
-        let moved = CGRect(
-            x: targetVisibleFrame.minX + normalizedX * targetVisibleFrame.width,
-            y: targetVisibleFrame.minY + normalizedY * targetVisibleFrame.height,
-            width: normalizedWidth * targetVisibleFrame.width,
-            height: normalizedHeight * targetVisibleFrame.height
+        let translated = CGRect(
+            x: targetVisibleFrame.minX + offsetX,
+            y: targetVisibleFrame.minY + offsetY,
+            width: currentFrame.width,
+            height: currentFrame.height
         )
 
-        return moved.clamped(to: targetVisibleFrame)
+        return translated.clamped(to: targetVisibleFrame)
     }
 
     private func centeredRect(size: CGSize, in frame: CGRect) -> CGRect {

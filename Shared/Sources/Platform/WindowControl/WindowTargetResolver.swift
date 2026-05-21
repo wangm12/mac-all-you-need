@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 
 public protocol WindowTargetElement: WindowMovableElement {
@@ -84,10 +85,86 @@ public struct WindowTargetResolver {
     }
 
     public func resolveTopmostWindow(at point: CGPoint) -> ResolvedWindowTarget? {
+        // 1. Ask Accessibility for the element directly under the cursor and
+        //    walk up to its enclosing AXWindow. This handles Stage Manager
+        //    strips, occluded windows, and full-screen Spaces where the
+        //    CGWindowList-based path below routinely picks the wrong window.
+        if let viaSystemWide = resolveViaSystemWideAX(at: point) {
+            return viaSystemWide
+        }
+
+        // 2. Fallback: CGWindowList front-to-back + AX windows matched by frame.
         let windows = Self.currentOnScreenWindows()
         let processIdentifiers = Set(windows.map(\.processIdentifier))
         let candidates = processIdentifiers.flatMap { WindowAccessibilityElement.windows(for: $0) }
         return resolveTopmostWindow(at: point, windows: windows, candidates: candidates)
+    }
+
+    private func resolveViaSystemWideAX(at point: CGPoint) -> ResolvedWindowTarget? {
+        guard visibleFrames.isEmpty || visibleFrames.contains(where: { $0.contains(point) }) else {
+            return nil
+        }
+
+        var rawElement: AXUIElement?
+        let lookup = AXUIElementCopyElementAtPosition(
+            AXUIElementCreateSystemWide(),
+            Float(point.x),
+            Float(point.y),
+            &rawElement
+        )
+        guard lookup == .success, let rawElement, let windowAX = enclosingWindow(of: rawElement) else {
+            return nil
+        }
+
+        let wrapper = WindowAccessibilityElement(windowAX)
+        guard wrapper.isSupportedForWindowControl else {
+            return nil
+        }
+
+        let wrapperFrame = wrapper.frame
+        guard wrapperFrame.contains(point) else {
+            return nil
+        }
+
+        let pid = wrapper.processIdentifier
+        let info = Self.currentOnScreenWindows().first { candidate in
+            candidate.processIdentifier == pid
+                && candidate.layer == 0
+                && !candidate.isDesktopElement
+                && candidate.bounds.contains(point)
+                && frame(wrapperFrame, matches: candidate.bounds)
+        }
+
+        let resolvedInfo = info ?? WindowTargetWindowInfo(
+            windowID: 0,
+            processIdentifier: pid,
+            bounds: wrapperFrame,
+            layer: 0,
+            ownerBundleIdentifier: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
+            isDesktopElement: false
+        )
+
+        return ResolvedWindowTarget(windowID: resolvedInfo.windowID, windowInfo: resolvedInfo, element: wrapper)
+    }
+
+    private func enclosingWindow(of element: AXUIElement) -> AXUIElement? {
+        var current = element
+        for _ in 0..<10 {
+            var roleValue: CFTypeRef?
+            if AXUIElementCopyAttributeValue(current, kAXRoleAttribute as CFString, &roleValue) == .success,
+               let role = roleValue as? String, role == "AXWindow" {
+                return current
+            }
+            var parentValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentValue) == .success,
+                  let parentValue,
+                  CFGetTypeID(parentValue) == AXUIElementGetTypeID()
+            else {
+                return nil
+            }
+            current = parentValue as! AXUIElement
+        }
+        return nil
     }
 
     public static func currentOnScreenWindows() -> [WindowTargetWindowInfo] {

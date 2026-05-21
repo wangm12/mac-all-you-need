@@ -100,9 +100,6 @@ require a `design.md §6` entry.
   Enter) and `processCapturedAudio` for the shared live + undo replay path.
 - `App/MainWindowRoot.swift` - seven dashboard function accent RGB tuples for
   feature identity only.
-- `WindowControl/WindowControlMainPage.swift` - `WindowControlFeaturePageShell`
-  avoids nested tabs because Window Layouts and Window Grab are separate sidebar
-  destinations.
 - `WindowControl/WindowSnapOverlayPanel.swift` - fixed black/light-gray OS-style
   drag overlay.
 - SwiftUI context menus - use platform `Divider()`.

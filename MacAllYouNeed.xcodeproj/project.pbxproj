@@ -44,6 +44,7 @@
 		2596DA6B82D77FF286F323B3 /* VoiceShortcutMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10DDA007B1CE0D6C221097CD /* VoiceShortcutMatcherTests.swift */; };
 		267E46615CE1B97B51C489A8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ED1C3FFDEBFBEE59A34F58E4 /* Assets.xcassets */; };
 		273CC03D0B810439A0CF8084 /* WindowControlFeatureActivator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01669BBA1C61D611D592A25B /* WindowControlFeatureActivator.swift */; };
+		2976B7030B6CC90DFA97E9FB /* MissionControlClamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFBF96227278B3A65341588 /* MissionControlClamp.swift */; };
 		297884A73B2D7981F6EFB80C /* VoiceLLMProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 892BB77EC395C1A4D9C8205F /* VoiceLLMProviderTests.swift */; };
 		2BBD484A5079B4F27A0EFE0D /* HotkeyRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6DCF0AE92FA94E30862798C /* HotkeyRegistry.swift */; };
 		2BC41AD24BD7020F7ADAF022 /* AudioCaptureServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E698DACB526F887522CD22A0 /* AudioCaptureServiceTests.swift */; };
@@ -439,6 +440,7 @@
 		526CB0A5555D860A2711277B /* MiniVoiceHUDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniVoiceHUDTests.swift; sourceTree = "<group>"; };
 		52E83A433923D384A05F933F /* AppController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppController.swift; sourceTree = "<group>"; };
 		592607551210D98E2F7A034D /* LocalClipboardReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalClipboardReader.swift; sourceTree = "<group>"; };
+		5AFBF96227278B3A65341588 /* MissionControlClamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionControlClamp.swift; sourceTree = "<group>"; };
 		5DE04D12C9DE286CFFDAF02F /* VoiceTranscriptRetentionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTranscriptRetentionRunner.swift; sourceTree = "<group>"; };
 		5E3835E590F0AEE03670F37E /* HotkeyActionFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyActionFeature.swift; sourceTree = "<group>"; };
 		5F6D7B0F394EAFD0746B1085 /* AppIconResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconResolver.swift; sourceTree = "<group>"; };
@@ -998,6 +1000,7 @@
 		8026F5BD88F76210C545977B /* WindowControl */ = {
 			isa = PBXGroup;
 			children = (
+				5AFBF96227278B3A65341588 /* MissionControlClamp.swift */,
 				440B93CF73472061631521A9 /* WindowControlAccessibilityTrustMonitor.swift */,
 				77C7108A5CEEE200BBA94F99 /* WindowControlCoordinator.swift */,
 				F7267EF3FFCFF6BD13F17947 /* WindowControlDiagnosticsView.swift */,
@@ -1752,6 +1755,7 @@
 				6A84AE691EBC7C2B7CA9D4F1 /* MigrationSentinel.swift in Sources */,
 				68476EBEE95B3AB82B6245EC /* Migrator.swift in Sources */,
 				3068FA5C5CEE60025308D5D8 /* MiniVoiceHUD.swift in Sources */,
+				2976B7030B6CC90DFA97E9FB /* MissionControlClamp.swift in Sources */,
 				C928620DE8152BEA0265BD0A /* MultiSelectBar.swift in Sources */,
 				6D67434EA9D683B8A9FA246D /* NewListSheet.swift in Sources */,
 				9590D81D2552FD97059780C5 /* OllamaServiceClient.swift in Sources */,

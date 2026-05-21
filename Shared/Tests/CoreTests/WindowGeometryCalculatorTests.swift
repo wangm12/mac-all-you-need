@@ -54,7 +54,7 @@ final class WindowGeometryCalculatorTests: XCTestCase {
         )
     }
 
-    func testMovingDisplaysPreservesNormalizedFrame() {
+    func testMovingDisplaysPreservesSizeAndTranslatesPosition() {
         let calc = WindowGeometryCalculator()
         let source = CGRect(x: 0, y: 0, width: 1000, height: 1000)
         let target = CGRect(x: 1000, y: 100, width: 2000, height: 1000)
@@ -66,7 +66,7 @@ final class WindowGeometryCalculatorTests: XCTestCase {
                 sourceVisibleFrame: source,
                 targetVisibleFrame: target
             ),
-            CGRect(x: 1500, y: 300, width: 1000, height: 400)
+            CGRect(x: 1250, y: 300, width: 500, height: 400)
         )
     }
 
@@ -82,7 +82,7 @@ final class WindowGeometryCalculatorTests: XCTestCase {
                 sourceVisibleFrame: source,
                 targetVisibleFrame: target
             ),
-            CGRect(x: 200, y: 180, width: 200, height: 120)
+            CGRect(x: 0, y: 0, width: 400, height: 300)
         )
     }
 

@@ -113,6 +113,9 @@ final class WindowControlCoordinator {
                 show: { snapOverlay.show(frame: $0) },
                 hide: { snapOverlay.hide() }
             )
+            eventTap.restoreFrameLookup = { [weak self] identity in
+                self?.restoreHistory.restoreFrame(for: identity)
+            }
         }
     }
 

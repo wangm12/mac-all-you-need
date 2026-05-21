@@ -66,7 +66,10 @@ final class WindowMoverTests: XCTestCase {
         ])
     }
 
-    func testMovementWriteFailureReturnsWriteFailed() {
+    func testMovementContinuesAllThreeWritesEvenWhenPositionReturnsFalse() {
+        // The new WindowMover ignores individual AX return values (they're
+        // unreliable for size/position) and determines success from the
+        // resulting frame. We still expect all three writes to run.
         let element = FakeWindowElement(
             frame: CGRect(x: 100, y: 100, width: 800, height: 600),
             setPositionSucceeds: false
@@ -75,10 +78,11 @@ final class WindowMoverTests: XCTestCase {
 
         let result = mover.move(element, action: .leftHalf)
 
-        XCTAssertEqual(result.status, .writeFailed)
+        XCTAssertEqual(result.status, .moved)
         XCTAssertEqual(element.operations, [
             .size(CGSize(width: 720, height: 900)),
-            .position(CGPoint(x: 0, y: 0))
+            .position(CGPoint(x: 0, y: 0)),
+            .size(CGSize(width: 720, height: 900))
         ])
     }
 
@@ -122,7 +126,7 @@ final class WindowMoverTests: XCTestCase {
         XCTAssertEqual(element.frame, right.visibleFrame)
     }
 
-    func testNextDisplayPreservesNormalizedFrameInTargetDisplayVisibleFrame() {
+    func testNextDisplayPreservesSizeAndTranslatesPosition() {
         let left = WindowControlScreen(
             id: 1,
             frame: CGRect(x: 0, y: 0, width: 1000, height: 800),
@@ -138,8 +142,8 @@ final class WindowMoverTests: XCTestCase {
 
         let result = mover.move(element, action: .nextDisplay)
 
-        XCTAssertEqual(result.proposedFrame, CGRect(x: 1200, y: 325, width: 1000, height: 450))
-        XCTAssertEqual(element.frame, CGRect(x: 1200, y: 325, width: 1000, height: 450))
+        XCTAssertEqual(result.proposedFrame, CGRect(x: 1100, y: 300, width: 500, height: 400))
+        XCTAssertEqual(element.frame, CGRect(x: 1100, y: 300, width: 500, height: 400))
     }
 
     func testFixedSizeNextDisplayPreservesCurrentSizeAndMovesOnlyPosition() {
@@ -162,9 +166,9 @@ final class WindowMoverTests: XCTestCase {
         let result = mover.move(element, action: .nextDisplay)
 
         XCTAssertEqual(result.status, .moved)
-        XCTAssertEqual(result.proposedFrame, CGRect(x: 1200, y: 325, width: 500, height: 400))
+        XCTAssertEqual(result.proposedFrame, CGRect(x: 1100, y: 300, width: 500, height: 400))
         XCTAssertEqual(element.operations, [
-            .position(CGPoint(x: 1200, y: 325))
+            .position(CGPoint(x: 1100, y: 300))
         ])
     }
 
@@ -188,9 +192,9 @@ final class WindowMoverTests: XCTestCase {
         let result = mover.move(element, action: .previousDisplay)
 
         XCTAssertEqual(result.status, .moved)
-        XCTAssertEqual(result.proposedFrame, CGRect(x: 100, y: 200, width: 500, height: 400))
+        XCTAssertEqual(result.proposedFrame, CGRect(x: 200, y: 225, width: 500, height: 400))
         XCTAssertEqual(element.operations, [
-            .position(CGPoint(x: 100, y: 200))
+            .position(CGPoint(x: 200, y: 225))
         ])
     }
 

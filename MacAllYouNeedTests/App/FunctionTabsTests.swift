@@ -24,6 +24,27 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(DownloadsFunctionTab.storedSelection("settings"), .settings)
     }
 
+    func testWindowLayoutsTabDefaultsToShortcuts() {
+        XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection(nil), .shortcuts)
+        XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("missing"), .shortcuts)
+    }
+
+    func testWindowLayoutsTabMapsAllCases() {
+        XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("shortcuts"), .shortcuts)
+        XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("snap"), .snap)
+        XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("apps"), .apps)
+    }
+
+    func testWindowGrabTabDefaultsToGesture() {
+        XCTAssertEqual(WindowGrabFunctionTab.storedSelection(nil), .gesture)
+        XCTAssertEqual(WindowGrabFunctionTab.storedSelection("missing"), .gesture)
+    }
+
+    func testWindowGrabTabMapsAllCases() {
+        XCTAssertEqual(WindowGrabFunctionTab.storedSelection("gesture"), .gesture)
+        XCTAssertEqual(WindowGrabFunctionTab.storedSelection("apps"), .apps)
+    }
+
     func testDownloadJobRowPresentationMapsQueuedRunningMergingPausedCompletedAndFailedStates() {
         let queued = DownloadJobRowModel(
             record: downloadPresentationRecord(state: .queued),

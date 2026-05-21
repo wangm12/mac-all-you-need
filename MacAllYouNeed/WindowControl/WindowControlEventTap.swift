@@ -38,6 +38,8 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
     private var gestureMode: GestureMode = .none
     private var snapIntent = WindowSnapIntentTracker()
     private var snapOverlayVisible = false
+    private var initialTargetFrame: CGRect?
+    var restoreFrameLookup: ((WindowIdentity) -> CGRect?)? = nil
     private let stateMachine = WindowEventTapStateMachine()
     private let resolver: WindowTargetResolver
     private let mover: WindowMover
@@ -200,6 +202,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         guard modifierHeld else {
             if allowsNativeTitleBarTracking, shouldTrackNativeTitleBarSnap(from: location, target: target, flags: event.flags) {
                 activeTarget = target
+                initialTargetFrame = target.element.frame
                 gestureMode = .nativeTitleBarSnap
                 beginSnapIntent(at: location)
             } else {
@@ -224,9 +227,10 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         }
 
         activeTarget = target
+        initialTargetFrame = target.element.frame
 
         if doubleClickModifierHeld {
-            move(target, action: .maximize)
+            performDoubleClickToggle(target)
             cancelGesture()
             return nil
         }
@@ -256,6 +260,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             guard activeTarget != nil, dragStrategy.isActive else {
                 return Unmanaged.passUnretained(event)
             }
+            clampMissionControlDragLocation(event)
             let decision = dragStrategy.handle(
                 .mouseDragged(to: event.location, axTrusted: runtime.axTrusted)
             )
@@ -279,6 +284,10 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         case .none:
             return Unmanaged.passUnretained(event)
         }
+    }
+
+    private func clampMissionControlDragLocation(_ event: CGEvent) {
+        MissionControlClamp.apply(event)
     }
 
     private func handleMouseUp(_ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -326,6 +335,22 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             snapIntent.reset()
             hideSnapOverlayIfNeeded()
             return
+        }
+
+        // Resize-vs-move guard: if the window's size has changed since the
+        // gesture began, the user is resizing, not moving — never arm a snap.
+        if let initial = initialTargetFrame,
+           let current = activeTarget?.element.frame,
+           !current.isNull,
+           !current.isEmpty {
+            let widthChanged = abs(current.width - initial.width) > 4
+            let heightChanged = abs(current.height - initial.height) > 4
+            if widthChanged || heightChanged {
+                activeSnapAction = nil
+                snapIntent.reset()
+                hideSnapOverlayIfNeeded()
+                return
+            }
         }
 
         guard let screen = WindowScreenDetector.current().screen(containing: location) else {
@@ -387,6 +412,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         snapIntent.reset()
         activeTarget = nil
         activeSnapAction = nil
+        initialTargetFrame = nil
         gestureMode = .none
         hideSnapOverlayIfNeeded()
     }
@@ -395,6 +421,48 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         runtime.layoutsRuntimeEnabled
             && runtime.settings.allowsDragEdgeSnap(activeModifiers: Self.modifiers(from: flags))
             && WindowTitleBarDragRegion.contains(location, in: target.element.frame)
+    }
+
+    private func performDoubleClickToggle(_ target: ResolvedWindowTarget) {
+        // Use the window's native zoom button via AX — this gives the same
+        // animated toggle macOS produces when the user double-clicks the title
+        // bar with "Zoom" configured in System Settings > Desktop & Dock.
+        if let element = target.element as? WindowAccessibilityElement,
+           element.performZoomToggle() {
+            return
+        }
+
+        // Fallback for apps whose zoom button isn't exposed via AX.
+        let accessibilityElement = target.element as? WindowAccessibilityElement
+        let identity = WindowIdentity(
+            pid: target.element.processIdentifier,
+            cgWindowID: target.windowID,
+            titleHash: accessibilityElement?.windowTitleHash,
+            frameFingerprint: accessibilityElement?.frameFingerprint
+        )
+        if isWindowMaximized(target), let restoreFrame = restoreFrameLookup?(identity) {
+            let result = mover.move(target.element, to: restoreFrame, action: .restore)
+            if let movementHandler {
+                Task { @MainActor in movementHandler(.restore, result, identity) }
+            }
+        } else {
+            move(target, action: .maximize)
+        }
+    }
+
+    private func isWindowMaximized(_ target: ResolvedWindowTarget) -> Bool {
+        let frame = target.element.frame
+        guard !frame.isNull, !frame.isEmpty,
+              let screen = WindowScreenDetector.current().screen(containing: frame)
+        else {
+            return false
+        }
+        let vf = screen.visibleFrame
+        let tolerance: CGFloat = 10
+        return abs(frame.minX - vf.minX) < tolerance
+            && abs(frame.minY - vf.minY) < tolerance
+            && abs(frame.maxX - vf.maxX) < tolerance
+            && abs(frame.maxY - vf.maxY) < tolerance
     }
 
     private func beginSnapIntent(at location: CGPoint) {

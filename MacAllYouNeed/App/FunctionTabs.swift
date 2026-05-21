@@ -139,6 +139,53 @@ enum DownloadsFunctionTab: String, FunctionTabDestination {
     }
 }
 
+enum WindowLayoutsFunctionTab: String, FunctionTabDestination {
+    case shortcuts
+    case snap
+    case apps
+
+    static let storageKey = "main.windowLayouts.selectedTab"
+    static let defaultTab = WindowLayoutsFunctionTab.shortcuts
+
+    var title: String {
+        switch self {
+        case .shortcuts: "Shortcuts"
+        case .snap: "Snap"
+        case .apps: "Ignored Apps"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .shortcuts: "command"
+        case .snap: "square.split.2x2"
+        case .apps: "app.badge"
+        }
+    }
+}
+
+enum WindowGrabFunctionTab: String, FunctionTabDestination {
+    case gesture
+    case apps
+
+    static let storageKey = "main.windowGrab.selectedTab"
+    static let defaultTab = WindowGrabFunctionTab.gesture
+
+    var title: String {
+        switch self {
+        case .gesture: "Gesture"
+        case .apps: "Ignored Apps"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .gesture: "hand.draw"
+        case .apps: "app.badge"
+        }
+    }
+}
+
 enum FolderPreviewFunctionTab: String, FunctionTabDestination {
     case settings
 

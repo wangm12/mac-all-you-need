@@ -5,24 +5,48 @@ struct WindowLayoutsMainPage: View {
     let controller: AppController
     @State private var settings = WindowControlSettingsStore.load()
     @State private var hotkeyMap = HotkeyMapStore.defaultMap
+    @AppStorage(WindowLayoutsFunctionTab.storageKey, store: AppGroupSettings.defaults)
+    private var selectedTabRaw = WindowLayoutsFunctionTab.defaultTab.rawValue
+
+    private var selectedTab: Binding<WindowLayoutsFunctionTab> {
+        Binding {
+            WindowLayoutsFunctionTab.storedSelection(selectedTabRaw)
+        } set: {
+            selectedTabRaw = $0.rawValue
+        }
+    }
 
     var body: some View {
-        WindowControlFeaturePageShell(
+        FunctionPageShell(
             title: "Window Layouts",
             subtitle: "Arrange, snap, and restore windows.",
-            statusText: settings.enabled ? "On" : "Off",
-            statusKind: settings.enabled ? .success : .neutral
-        ) {
-            FunctionPageScrollContent {
-                WindowControlSettingsView(
-                    controller: controller,
-                    settings: $settings,
-                    hotkeyMap: $hotkeyMap,
-                    scope: .layouts
+            selection: selectedTab,
+            toolbar: {
+                StatusPill(
+                    text: controller.windowControl.windowLayoutsEnabled ? "On" : "Off",
+                    kind: controller.windowControl.windowLayoutsEnabled ? .success : .neutral
                 )
+            },
+            content: {
+                FunctionPageScrollContent {
+                    WindowControlSettingsView(
+                        controller: controller,
+                        settings: $settings,
+                        hotkeyMap: $hotkeyMap,
+                        scope: scope(for: selectedTab.wrappedValue)
+                    )
+                }
             }
-        }
+        )
         .onAppear(perform: reloadState)
+    }
+
+    private func scope(for tab: WindowLayoutsFunctionTab) -> WindowControlSettingsScope {
+        switch tab {
+        case .shortcuts: .layoutsShortcuts
+        case .snap: .layoutsSnap
+        case .apps: .layoutsApps
+        }
     }
 
     private func reloadState() {
@@ -35,68 +59,52 @@ struct GrabAnywhereMainPage: View {
     let controller: AppController
     @State private var settings = WindowControlSettingsStore.load()
     @State private var hotkeyMap = HotkeyMapStore.defaultMap
+    @AppStorage(WindowGrabFunctionTab.storageKey, store: AppGroupSettings.defaults)
+    private var selectedTabRaw = WindowGrabFunctionTab.defaultTab.rawValue
 
-    private var isEnabled: Bool {
-        settings.enabled && settings.dragAnywhereEnabled
+    private var selectedTab: Binding<WindowGrabFunctionTab> {
+        Binding {
+            WindowGrabFunctionTab.storedSelection(selectedTabRaw)
+        } set: {
+            selectedTabRaw = $0.rawValue
+        }
     }
 
     var body: some View {
-        WindowControlFeaturePageShell(
+        FunctionPageShell(
             title: "Window Grab",
             subtitle: "Hold a modifier and drag windows from any visible area.",
-            statusText: isEnabled ? "On" : "Off",
-            statusKind: isEnabled ? .success : .neutral
-        ) {
-            FunctionPageScrollContent {
-                WindowControlSettingsView(
-                    controller: controller,
-                    settings: $settings,
-                    hotkeyMap: $hotkeyMap,
-                    scope: .grabAnywhere
+            selection: selectedTab,
+            toolbar: {
+                StatusPill(
+                    text: controller.windowControl.windowGrabEnabled ? "On" : "Off",
+                    kind: controller.windowControl.windowGrabEnabled ? .success : .neutral
                 )
+            },
+            content: {
+                FunctionPageScrollContent {
+                    WindowControlSettingsView(
+                        controller: controller,
+                        settings: $settings,
+                        hotkeyMap: $hotkeyMap,
+                        scope: scope(for: selectedTab.wrappedValue)
+                    )
+                }
             }
-        }
+        )
         .onAppear(perform: reloadState)
+    }
+
+    private func scope(for tab: WindowGrabFunctionTab) -> WindowControlSettingsScope {
+        switch tab {
+        case .gesture: .grabGesture
+        case .apps: .grabApps
+        }
     }
 
     private func reloadState() {
         settings = WindowControlSettingsStore.load()
         hotkeyMap = HotkeyMapStore.load()
-    }
-}
-
-private struct WindowControlFeaturePageShell<Content: View>: View {
-    let title: String
-    let subtitle: String
-    let statusText: String
-    let statusKind: StatusPill.Kind
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 16) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title)
-                        .font(.system(size: 26, weight: .semibold))
-                    Text(subtitle)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                StatusPill(text: statusText, kind: statusKind)
-            }
-            .padding(.horizontal, 32)
-            .padding(.top, 28)
-            .padding(.bottom, 20)
-
-            Divider()
-                .overlay(MAYNTheme.divider)
-
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .background(MAYNTheme.window)
     }
 }
 

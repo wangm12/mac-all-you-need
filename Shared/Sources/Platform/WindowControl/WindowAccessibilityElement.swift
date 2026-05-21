@@ -99,6 +99,20 @@ public final class WindowAccessibilityElement: WindowTargetElement {
         return AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value) == .success
     }
 
+    /// Clicks the window's zoom button via AX, producing the same animated
+    /// toggle macOS uses for title-bar double-click "Zoom" behaviour.
+    /// Returns `false` if the zoom button is not accessible.
+    public func performZoomToggle() -> Bool {
+        var buttonRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXZoomButtonAttribute as CFString, &buttonRef) == .success,
+              let buttonRef,
+              CFGetTypeID(buttonRef) == AXUIElementGetTypeID()
+        else {
+            return false
+        }
+        return AXUIElementPerformAction(buttonRef as! AXUIElement, kAXPressAction as CFString) == .success
+    }
+
     private var role: String? {
         stringAttribute(kAXRoleAttribute as CFString)
     }
