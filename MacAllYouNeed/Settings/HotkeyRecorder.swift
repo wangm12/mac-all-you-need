@@ -104,13 +104,22 @@ struct KeyboardShortcutRegistrationSummary: Equatable {
     let usesGenericRegistration: Bool
     let registrationNoticeText: String?
 
-    init(state: KeyboardShortcutVisualizerState) {
+    init(state: KeyboardShortcutVisualizerState, candidate: HotkeyDescriptor? = nil) {
         let pressedKeys = state.pressedKeys
         pressedText = Self.physicalDisplay(from: pressedKeys)
-        registeredText = Self.registeredDisplay(from: pressedKeys)
-        usesGenericRegistration = pressedText != registeredText
-            && registeredText != Self.waitingForKeyText
-        registrationNoticeText = Self.registrationNotice(from: pressedKeys)
+
+        if let tap = candidate?.modifierTap {
+            // Tap shortcut candidate — show the clean tap display ("Tap ⌘")
+            // rather than the generic "⌘ + …" that implies a key press is needed.
+            registeredText = HotkeyDescriptor(modifierTap: tap).display
+            usesGenericRegistration = false
+            registrationNoticeText = nil
+        } else {
+            registeredText = Self.registeredDisplay(from: pressedKeys)
+            usesGenericRegistration = pressedText != registeredText
+                && registeredText != Self.waitingForKeyText
+            registrationNoticeText = Self.registrationNotice(from: pressedKeys)
+        }
     }
 
     private static let waitingText = "Waiting"
@@ -132,9 +141,6 @@ struct KeyboardShortcutRegistrationSummary: Equatable {
         if containsCommand(in: pressedKeys) { parts.append("⌘") }
 
         guard let keyCode = primaryKeyCode(from: pressedKeys) else {
-            // Only modifier keys held so far. Show what's held with a trailing
-            // ellipsis so "Registers as" mirrors the user's input and signals
-            // that a non-modifier key is still required.
             return parts.isEmpty ? waitingForKeyText : parts.joined(separator: " + ") + " + …"
         }
 
@@ -394,7 +400,7 @@ struct KeyboardShortcutVisualizer: View {
                 }
             }
             KeyboardShortcutRegistrationSummaryView(
-                summary: KeyboardShortcutRegistrationSummary(state: state),
+                summary: KeyboardShortcutRegistrationSummary(state: state, candidate: candidate),
                 candidate: candidate,
                 issueMessage: issueMessage,
                 onReset: onReset,
@@ -704,17 +710,23 @@ struct HotkeyRecorder: NSViewRepresentable {
     @Binding private var visualizerState: KeyboardShortcutVisualizerState
     var isInvalid = false
     var candidateIssueMessage: (HotkeyDescriptor) -> String? = { _ in nil }
+    /// Optional callback to override the chip's text. The floating keyboard
+    /// popup still uses `descriptor.display` so the verbose form is preserved
+    /// in the registration summary. Only the in-row chip changes.
+    var chipDisplayOverride: ((HotkeyDescriptor) -> String)? = nil
 
     init(
         descriptor: Binding<HotkeyDescriptor>,
         isInvalid: Bool = false,
         visualizerState: Binding<KeyboardShortcutVisualizerState> = .constant(.inactive),
-        candidateIssueMessage: @escaping (HotkeyDescriptor) -> String? = { _ in nil }
+        candidateIssueMessage: @escaping (HotkeyDescriptor) -> String? = { _ in nil },
+        chipDisplayOverride: ((HotkeyDescriptor) -> String)? = nil
     ) {
         _descriptor = descriptor
         _visualizerState = visualizerState
         self.isInvalid = isInvalid
         self.candidateIssueMessage = candidateIssueMessage
+        self.chipDisplayOverride = chipDisplayOverride
     }
 
     func makeNSView(context: Context) -> RecorderView {
@@ -722,7 +734,8 @@ struct HotkeyRecorder: NSViewRepresentable {
             descriptor: $descriptor,
             visualizerState: $visualizerState,
             isInvalid: isInvalid,
-            candidateIssueMessage: candidateIssueMessage
+            candidateIssueMessage: candidateIssueMessage,
+            chipDisplayOverride: chipDisplayOverride
         )
     }
 
@@ -731,6 +744,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         nsView.updateVisualizerStateBinding($visualizerState)
         nsView.updateValidationState(isInvalid: isInvalid)
         nsView.updateCandidateIssueMessage(candidateIssueMessage)
+        nsView.updateChipDisplayOverride(chipDisplayOverride)
     }
 
     final class RecorderView: NSView {
@@ -747,19 +761,28 @@ struct HotkeyRecorder: NSViewRepresentable {
         private var eventTap: CFMachPort?
         private var eventTapSource: CFRunLoopSource?
         private var candidateIssueMessage: (HotkeyDescriptor) -> String?
+        private var chipDisplayOverride: ((HotkeyDescriptor) -> String)?
         private(set) var pendingDescriptor: HotkeyDescriptor?
         private(set) var pendingIssueMessage: String?
+
+        // Modifier-tap detection state
+        private var tapPressTime: TimeInterval?
+        private var tapPressCGFlags: CGEventFlags = []
+        private var tapNonModifierPressed = false
+        private var tapLastRelease: (key: ModifierTapShortcut.Key, time: TimeInterval, count: Int)?
 
         init(
             descriptor: Binding<HotkeyDescriptor>,
             visualizerState: Binding<KeyboardShortcutVisualizerState> = .constant(.inactive),
             isInvalid: Bool = false,
-            candidateIssueMessage: @escaping (HotkeyDescriptor) -> String? = { _ in nil }
+            candidateIssueMessage: @escaping (HotkeyDescriptor) -> String? = { _ in nil },
+            chipDisplayOverride: ((HotkeyDescriptor) -> String)? = nil
         ) {
             _descriptor = descriptor
             _visualizerState = visualizerState
             self.isInvalid = isInvalid
             self.candidateIssueMessage = candidateIssueMessage
+            self.chipDisplayOverride = chipDisplayOverride
             super.init(frame: .zero)
             label.alignment = .center
             label.lineBreakMode = .byTruncatingMiddle
@@ -769,7 +792,7 @@ struct HotkeyRecorder: NSViewRepresentable {
             setAccessibilityElement(true)
             setAccessibilityRole(.button)
             setAccessibilityLabel("Shortcut recorder")
-            setLabelText(descriptor.wrappedValue.display)
+            setLabelText(chipText(for: descriptor.wrappedValue))
             updateAppearance()
         }
 
@@ -849,9 +872,18 @@ struct HotkeyRecorder: NSViewRepresentable {
             }
         }
 
+        func updateChipDisplayOverride(_ override: ((HotkeyDescriptor) -> String)?) {
+            self.chipDisplayOverride = override
+            if !isRecording { setLabelText(chipText(for: descriptor)) }
+        }
+
+        private func chipText(for descriptor: HotkeyDescriptor) -> String {
+            chipDisplayOverride?(descriptor) ?? descriptor.display
+        }
+
         func refresh() {
             if !isRecording {
-                setLabelText(descriptor.display)
+                setLabelText(chipText(for: descriptor))
             }
             updateAppearance()
         }
@@ -865,6 +897,7 @@ struct HotkeyRecorder: NSViewRepresentable {
             pendingDescriptor = nil
             pendingIssueMessage = nil
             ignoreKeyEventsUntil = ignoreInitialKeyEvents ? ProcessInfo.processInfo.systemUptime + 0.15 : 0
+            resetTapState()
             isRecording = true
             publishVisualizerState(.recording())
             setLabelText("Press shortcut...")
@@ -880,6 +913,7 @@ struct HotkeyRecorder: NSViewRepresentable {
             pendingDescriptor = nil
             pendingIssueMessage = nil
             ignoreKeyEventsUntil = 0
+            resetTapState()
             publishVisualizerState(.inactive)
             stopMonitoringKeyboard()
             NotificationCenter.default.post(name: .hotkeyRecorderDidStopRecording, object: self)
@@ -893,6 +927,12 @@ struct HotkeyRecorder: NSViewRepresentable {
             if event.keyCode == 53 {
                 stopRecording()
                 return
+            }
+            // A real key is being pressed — cancel any pending tap candidate.
+            tapNonModifierPressed = true
+            if pendingDescriptor?.isModifierTap == true {
+                pendingDescriptor = nil
+                pendingIssueMessage = nil
             }
             if Self.isConfirmKey(event.keyCode), pendingDescriptor != nil {
                 confirmPendingShortcut()
@@ -918,6 +958,12 @@ struct HotkeyRecorder: NSViewRepresentable {
             if keyCode == 53 {
                 stopRecording()
                 return
+            }
+            // A real key is being pressed — cancel any pending tap candidate.
+            tapNonModifierPressed = true
+            if pendingDescriptor?.isModifierTap == true {
+                pendingDescriptor = nil
+                pendingIssueMessage = nil
             }
             if Self.isConfirmKey(keyCode), pendingDescriptor != nil {
                 confirmPendingShortcut()
@@ -960,13 +1006,19 @@ struct HotkeyRecorder: NSViewRepresentable {
             pendingDescriptor = candidate
             pendingIssueMessage = candidateIssueMessage(candidate)
             publishVisualizerState(state)
-            setLabelText(candidate.display)
+            setLabelText(chipText(for: candidate))
             updateAppearance()
         }
 
         private func updateActiveModifiers(_ flags: NSEvent.ModifierFlags) {
             activeModifierFlags = flags.intersection(.deviceIndependentFlagsMask)
             guard isRecording else { return }
+            // If a new modifier press follows a tap candidate, drop the old
+            // candidate so the new tap replaces it without needing Reset.
+            if !activeModifierFlags.isEmpty && pendingDescriptor?.isModifierTap == true {
+                pendingDescriptor = nil
+                pendingIssueMessage = nil
+            }
             guard pendingDescriptor == nil else {
                 refreshFloatingKeyboard()
                 return
@@ -981,13 +1033,37 @@ struct HotkeyRecorder: NSViewRepresentable {
         private func updateActiveModifiers(cgFlags: CGEventFlags) {
             activeModifierFlags = HotkeyRecorderEventTranslator.modifierFlags(from: cgFlags)
             guard isRecording else { return }
-            guard pendingDescriptor == nil else {
-                refreshFloatingKeyboard()
-                return
+
+            // Same as the NSEvent path: pressing a new modifier while a tap
+            // candidate is pending should immediately clear that candidate so
+            // the next release commits a fresh one. Keep `tapLastRelease`
+            // intact — it's how a second tap of the same key becomes ×2.
+            if !activeModifierFlags.isEmpty && pendingDescriptor?.isModifierTap == true {
+                pendingDescriptor = nil
+                pendingIssueMessage = nil
             }
-            pendingDescriptor = nil
-            pendingIssueMessage = nil
-            publishVisualizerState(.recording(cgFlags: cgFlags))
+
+            // Run tap detection when no combo shortcut is pending yet, OR when
+            // a tap shortcut is pending (so the user can upgrade to double-tap).
+            if pendingDescriptor == nil || pendingDescriptor?.isModifierTap == true {
+                handleTapTransition(cgFlags: cgFlags)
+            }
+
+            // Refresh keyboard with current modifier state (always, so the
+            // keyboard highlights the held keys live).
+            let recorderState = KeyboardShortcutVisualizerState.recording(cgFlags: cgFlags)
+            visualizerState = recorderState
+            floatingKeyboard.update(
+                state: recorderState,
+                candidate: pendingDescriptor ?? Self.placeholderCandidate,
+                issueMessage: pendingDescriptor?.isModifierTap == true ? nil : pendingIssueMessage,
+                onReset: { [weak self] in self?.resetPendingShortcut() },
+                onConfirm: { [weak self] in self?.confirmPendingShortcut() },
+                onCancel: { [weak self] in self?.stopRecording() }
+            )
+
+            guard pendingDescriptor == nil else { return }
+
             let modifiers = modifierDisplay(from: activeModifierFlags)
             setLabelText(modifiers.isEmpty ? "Press shortcut..." : "\(modifiers)…")
         }
@@ -1046,6 +1122,88 @@ struct HotkeyRecorder: NSViewRepresentable {
         /// is a safe no-op because `confirmPendingShortcut` guards on the
         /// real `pendingDescriptor`.
         private static let placeholderCandidate = HotkeyDescriptor(keyCode: 0, modifiers: [])
+
+        // MARK: - Modifier-tap detection
+
+        private func handleTapTransition(cgFlags: CGEventFlags) {
+            let now = ProcessInfo.processInfo.systemUptime
+            let held = !activeModifierFlags.isEmpty
+
+            if held {
+                if tapPressTime == nil {
+                    tapPressTime = now
+                    tapNonModifierPressed = false
+                }
+                tapPressCGFlags = cgFlags
+            } else if tapPressTime != nil {
+                tapPressTime = nil
+                // No hold-time limit in the recorder: the user is *picking*
+                // a modifier, not demonstrating real tap timing. We only
+                // reject if a non-modifier key was pressed during the hold
+                // (that turns the press into a combo capture, not a tap).
+                // The runtime dispatcher (ModifierTapDispatcher) still enforces
+                // its own tap-hold limit so accidental long-holds at use time
+                // don't trigger the shortcut.
+                guard !tapNonModifierPressed else {
+                    tapNonModifierPressed = false
+                    tapLastRelease = nil
+                    return
+                }
+                tapNonModifierPressed = false
+                guard let key = tapKeyFromCGFlags(tapPressCGFlags) else { return }
+                let count: Int
+                if let last = tapLastRelease, last.key == key, now - last.time <= 0.28 {
+                    count = min(last.count + 1, 2)
+                } else {
+                    count = 1
+                }
+                tapLastRelease = (key: key, time: now, count: count)
+                let tapDescriptor = HotkeyDescriptor(modifierTap: ModifierTapShortcut(key: key, count: count))
+                // Use the NSEvent modifierFlags path so the keyboard visualizer
+                // shows the generic modifier key (e.g. "⌘") rather than defaulting
+                // to "Left ⌘" when physical device bits are unavailable.
+                previewCandidate(tapDescriptor, state: .recording(modifierFlags: activeModifierFlags))
+            }
+        }
+
+        private func tapKeyFromCGFlags(_ cgFlags: CGEventFlags) -> ModifierTapShortcut.Key? {
+            let raw = cgFlags.rawValue
+            let lCtrl  = raw & 0x00000001 != 0
+            let lShift = raw & 0x00000002 != 0
+            let rShift = raw & 0x00000004 != 0
+            let lCmd   = raw & 0x00000008 != 0
+            let rCmd   = raw & 0x00000010 != 0
+            let lOpt   = raw & 0x00000020 != 0
+            let rOpt   = raw & 0x00000040 != 0
+            let rCtrl  = raw & 0x00002000 != 0
+            var families = 0
+            var result: ModifierTapShortcut.Key?
+            if lCtrl || rCtrl || cgFlags.contains(.maskControl) {
+                families += 1
+                result = lCtrl && !rCtrl ? .leftControl : rCtrl && !lCtrl ? .rightControl : .control
+            }
+            if lOpt || rOpt || cgFlags.contains(.maskAlternate) {
+                families += 1
+                result = lOpt && !rOpt ? .leftOption : rOpt && !lOpt ? .rightOption : .option
+            }
+            if lCmd || rCmd || cgFlags.contains(.maskCommand) {
+                families += 1
+                result = lCmd && !rCmd ? .leftCommand : rCmd && !lCmd ? .rightCommand : .command
+            }
+            if lShift || rShift || cgFlags.contains(.maskShift) {
+                families += 1
+                result = lShift && !rShift ? .leftShift : rShift && !lShift ? .rightShift : .shift
+            }
+            if cgFlags.contains(.maskSecondaryFn) { families += 1; result = .fn }
+            return families == 1 ? result : nil
+        }
+
+        private func resetTapState() {
+            tapPressTime = nil
+            tapPressCGFlags = []
+            tapNonModifierPressed = false
+            tapLastRelease = nil
+        }
 
         private func startMonitoringKeyboard() {
             guard keyMonitor == nil else { return }
@@ -1281,6 +1439,7 @@ struct HotkeyRecorderControl: View {
     var errorWidth: CGFloat = 220
     var alignment: HorizontalAlignment = .trailing
     var errorFrameAlignment: Alignment = .trailing
+    var chipDisplayOverride: ((HotkeyDescriptor) -> String)? = nil
     let reset: () -> Void
 
     var body: some View {
@@ -1303,7 +1462,8 @@ struct HotkeyRecorderControl: View {
                     descriptor: $descriptor,
                     isInvalid: issueMessage != nil,
                     visualizerState: $visualizerState,
-                    candidateIssueMessage: candidateIssueMessage
+                    candidateIssueMessage: candidateIssueMessage,
+                    chipDisplayOverride: chipDisplayOverride
                 )
                     .frame(width: recorderWidth, height: recorderHeight)
                 Button(action: reset) {

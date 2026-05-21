@@ -16,10 +16,23 @@ public struct HotkeyDescriptor: Hashable, Codable, Sendable {
 
     public let keyCode: UInt32
     public let modifiers: Modifiers
+    /// Non-nil when this descriptor represents a modifier-tap shortcut.
+    /// When set, `keyCode` and `modifiers` are unused for registration.
+    public let modifierTap: ModifierTapShortcut?
 
-    public init(keyCode: UInt32, modifiers: Modifiers) {
+    public var isModifierTap: Bool { modifierTap != nil }
+
+    public init(keyCode: UInt32, modifiers: Modifiers, modifierTap: ModifierTapShortcut? = nil) {
         self.keyCode = keyCode
         self.modifiers = modifiers
+        self.modifierTap = modifierTap
+    }
+
+    // Convenience for modifier-tap descriptors (keyCode/modifiers unused).
+    public init(modifierTap: ModifierTapShortcut) {
+        self.keyCode = 0
+        self.modifiers = []
+        self.modifierTap = modifierTap
     }
 
     public static let defaultClipboard = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_V), modifiers: [.command, .shift])
@@ -27,6 +40,10 @@ public struct HotkeyDescriptor: Hashable, Codable, Sendable {
     public static let defaultFolder = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_F), modifiers: [.command, .shift])
 
     public var display: String {
+        if let tap = modifierTap {
+            let glyph = tap.key.glyph
+            return tap.count > 1 ? "\(glyph) ×\(tap.count)" : "Tap \(glyph)"
+        }
         var s = ""
         if modifiers.contains(.control) { s += "⌃" }
         if modifiers.contains(.option) { s += "⌥" }
@@ -74,5 +91,64 @@ public struct HotkeyDescriptor: Hashable, Codable, Sendable {
         case kVK_DownArrow: "↓"
         default: "?"
         }
+    }
+}
+
+// MARK: - Modifier tap shortcut
+
+/// Describes a global shortcut triggered by tapping (pressing and quickly
+/// releasing) a single modifier key, optionally multiple times in succession.
+public struct ModifierTapShortcut: Hashable, Codable, Sendable {
+    public enum Key: String, Codable, Sendable, CaseIterable {
+        case command
+        case option
+        case control
+        case shift
+        case fn
+        case leftCommand
+        case rightCommand
+        case leftOption
+        case rightOption
+        case leftControl
+        case rightControl
+        case leftShift
+        case rightShift
+
+        /// Display glyph shown in the UI (e.g. "⌘", "Left ⌘").
+        public var glyph: String {
+            switch self {
+            case .command:      "⌘"
+            case .option:       "⌥"
+            case .control:      "⌃"
+            case .shift:        "⇧"
+            case .fn:           "Fn"
+            case .leftCommand:  "Left ⌘"
+            case .rightCommand: "Right ⌘"
+            case .leftOption:   "Left ⌥"
+            case .rightOption:  "Right ⌥"
+            case .leftControl:  "Left ⌃"
+            case .rightControl: "Right ⌃"
+            case .leftShift:    "Left ⇧"
+            case .rightShift:   "Right ⇧"
+            }
+        }
+    }
+
+    /// The modifier key that must be tapped.
+    public let key: Key
+    /// Number of consecutive taps required (1 = single, 2 = double).
+    public let count: Int
+
+    public init(key: Key, count: Int = 1) {
+        self.key = key
+        self.count = max(1, min(count, 2))
+    }
+
+    public static func singleTap(_ key: Key) -> ModifierTapShortcut {
+        ModifierTapShortcut(key: key, count: 1)
+    }
+
+    public static func doubleTap(_ key: Key) -> ModifierTapShortcut {
+        ModifierTapShortcut(key: key, count: 2)
     }
 }

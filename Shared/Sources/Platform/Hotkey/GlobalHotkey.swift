@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 public final class GlobalHotkey {
     private var hotKeyRef: EventHotKeyRef?
     private var hotKeyID: UInt32?
+    private var modifierTapToken: ModifierTapDispatcher.Token?
     private let descriptor: HotkeyDescriptor
     private let callback: () -> Void
     private static let stateLock = NSLock()
@@ -21,6 +22,11 @@ public final class GlobalHotkey {
     }
 
     public func register() throws {
+        if let tap = descriptor.modifierTap {
+            modifierTapToken = ModifierTapDispatcher.shared.register(tap, callback: callback)
+            return
+        }
+        // Carbon path for key-combo shortcuts.
         Self.installHandlerIfNeeded()
         let id = Self.allocateID(callback: callback)
         var hkID = EventHotKeyID(signature: OSType(0x4D41_594E), id: id) // 'MAYN'
@@ -38,6 +44,10 @@ public final class GlobalHotkey {
     }
 
     public func unregister() {
+        if let token = modifierTapToken {
+            ModifierTapDispatcher.shared.unregister(token)
+            modifierTapToken = nil
+        }
         if let ref = hotKeyRef { UnregisterEventHotKey(ref) }
         if let id = hotKeyID { Self.removeCallback(id: id) }
         hotKeyRef = nil
