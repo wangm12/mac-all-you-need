@@ -47,7 +47,7 @@ struct VoiceOnboardingWizardView: View {
         case .accessibility:
             VoiceAccessibilityStepView(autoAdvance: { move(to: .asr) })
         case .asr:
-            VoiceASRStepView()
+            VoiceASRStepView(controller: controller)
         case .llm:
             VoiceLLMStepView(controller: controller)
         case .hotkey:
@@ -138,7 +138,7 @@ private extension VoiceOnboardingStep {
         case .accessibility:
             "Paste anywhere"
         case .asr:
-            "Local engine"
+            "Recognition engine"
         case .llm:
             "Cleanup"
         case .hotkey:

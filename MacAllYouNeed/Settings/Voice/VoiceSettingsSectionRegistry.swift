@@ -21,7 +21,7 @@ enum VoiceSettingsSectionRegistry {
     ]
 
     static let headers: [Section: String] = [
-        .provider: "Models",
+        .provider: "Recognition",
         .apiKey: "API Key Setup",
         .cleanup: "Cleanup",
         .dictionary: "Dictionary",

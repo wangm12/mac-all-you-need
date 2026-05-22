@@ -1,4 +1,4 @@
-import Core
+@preconcurrency import Core
 import Foundation
 
 /// Resolves the on-disk paths of the Downloader's external binaries (yt-dlp, ffmpeg).

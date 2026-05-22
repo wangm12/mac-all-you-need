@@ -45,6 +45,10 @@ struct VoiceDestinationView: View {
     @State private var modelDownloadStatus: [VoiceASRModelID: String] = [:]
     @State private var modelDownloadFractions: [VoiceASRModelID: Double] = [:]
     @State private var downloadingModelID: VoiceASRModelID?
+    @State private var isShowingEnginePicker = false
+    @State private var pickerSelectedEngineID: VoiceEngineID
+    @State private var pickerFilter: VoiceEnginePickerFilter = .all
+    @State private var pickerSearchText = ""
     private let microphoneRefreshTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     init(controller: AppController) {
@@ -82,6 +86,15 @@ struct VoiceDestinationView: View {
         _cleanupTimeoutSeconds = State(initialValue: cleanupSettings.timeoutSeconds)
         _cleanupLatencyPolicy = State(initialValue: cleanupSettings.latencyPolicy)
         _onboardingProgress = State(initialValue: VoiceOnboardingProgressStore.load())
+        _pickerSelectedEngineID = State(
+            initialValue: VoiceEngineCatalogPresentation.currentEngineID(
+                providerKind: asrSettings.providerKind,
+                selectedLocalModelID: asrSettings.modelID,
+                selectedCloudModelID: asrSettings.providerKind.isCloud
+                    ? cloudSettings.modelID(for: asrSettings.providerKind)
+                    : cloudSettings.modelID
+            )
+        )
     }
 
     private var selectedTab: Binding<VoiceFunctionTab> {
@@ -165,6 +178,9 @@ struct VoiceDestinationView: View {
             cloudSetupProviderKind = newModelID.providerKind
             applyCloudDropdownSettings()
         }
+        .sheet(isPresented: $isShowingEnginePicker) {
+            voiceEnginePickerSheet
+        }
     }
 
     private var voiceDictateSection: some View {
@@ -207,9 +223,27 @@ struct VoiceDestinationView: View {
 
     private var voiceRecognitionModelsSection: some View {
         MAYNSection(
-            title: "Recognition model",
-            subtitle: "Choose the local or BYOK cloud recognizer used for dictation."
+            title: "Recognition",
+            subtitle: "Choose your current recognition engine or open the exact engine picker for local, cloud, and experimental options."
         ) {
+            MAYNSettingsRow(
+                title: "Recognition engine",
+                subtitle: recognitionModelSummary
+            ) {
+                MAYNButton("Change...") {
+                    openVoiceEnginePicker()
+                }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Exact selection",
+                subtitle: "Advanced selection for exact local, cloud, and experimental recognizers."
+            ) {
+                MAYNButton("Choose exact engine...") {
+                    openVoiceEnginePicker()
+                }
+            }
+            MAYNDivider()
             MAYNSettingsRow(
                 title: "Dictation language",
                 subtitle: "Auto-detect is best for mixed Chinese and English; switch to one language only when results drift."
@@ -220,54 +254,6 @@ struct VoiceDestinationView: View {
                     title: VoiceLanguageModePresentation.title,
                     width: MAYNControlMetrics.widePickerWidth
                 )
-            }
-            MAYNDivider()
-            VoiceCloudASRSetupDrawer(
-                isExpanded: $isCloudAPISetupExpanded,
-                providerKind: cloudSetupProviderKind,
-                apiKey: cloudAPIKeyBinding,
-                isTesting: isTestingCloud,
-                statusMessage: cloudStatusMessage,
-                testConnection: testCloudConnection
-            )
-            MAYNDivider()
-            ForEach(Array(VoiceModelCatalog.cloudASRModels.enumerated()), id: \.element.id) { index, descriptor in
-                let modelID = descriptor.cloudASRModelID!
-                if index > 0 { MAYNDivider() }
-                VoiceCloudASRModelRow(
-                    modelID: modelID,
-                    isSelected: VoiceASRModelSelectionState.isCloudModelSelected(
-                        providerKind: asrProviderKind,
-                        selectedModelID: cloudModelID,
-                        modelID: modelID,
-                        hasUsableAPIKey: hasUsableCloudAPIKey(for: modelID.providerKind)
-                    ),
-                    hasUsableAPIKey: hasUsableCloudAPIKey(for: modelID.providerKind),
-                    action: { selectCloudModel(modelID) }
-                )
-            }
-            MAYNDivider()
-            ForEach(Array(VoiceModelCatalog.localASRModels.enumerated()), id: \.element.id) { index, descriptor in
-                if index > 0 { MAYNDivider() }
-                if let modelID = descriptor.localASRModelID {
-                    VoiceASRModelRow(
-                        modelID: modelID,
-                        isSelected: VoiceASRModelSelectionState.isLocalModelSelected(
-                            providerKind: asrProviderKind,
-                            selectedModelID: selectedASRModelID,
-                            modelID: modelID
-                        ),
-                        isDownloaded: isDownloaded(modelID),
-                        statusMessage: modelDownloadStatus[modelID],
-                        downloadFraction: modelDownloadFractions[modelID],
-                        isDownloading: downloadingModelID == modelID,
-                        onSelect: { selectModel(modelID) },
-                        onShowInFinder: { showModelInFinder(modelID) },
-                        onDelete: { deleteModel(modelID) }
-                    )
-                } else {
-                    VoiceUnsupportedASRModelRow(descriptor: descriptor)
-                }
             }
         }
     }
@@ -408,12 +394,12 @@ struct VoiceDestinationView: View {
     }
 
     private var voiceModelSummarySection: some View {
-        MAYNSection(title: "Models") {
+        MAYNSection(title: "Recognition") {
             MAYNSettingsRow(
-                title: "Recognition model",
+                title: "Recognition engine",
                 subtitle: recognitionModelSummary
             ) {
-                MAYNButton("Open Models") {
+                MAYNButton("Choose recognition engine") {
                     selectedTabRaw = VoiceFunctionTab.models.rawValue
                 }
             }
@@ -424,6 +410,266 @@ struct VoiceDestinationView: View {
             ) {
                 StatusPill(text: cleanupEnabled ? cleanupProvider.label : "Off", kind: .neutral)
             }
+        }
+    }
+
+    private var voiceEnginePickerSheet: some View {
+        VoiceEnginePickerSheet(
+            selectedEngineID: $pickerSelectedEngineID,
+            filter: $pickerFilter,
+            searchText: $pickerSearchText,
+            currentEngineID: currentEngineID,
+            entries: voiceEnginePickerEntries,
+            onDone: { isShowingEnginePicker = false }
+        ) { engineID in
+            voiceEngineDetailPane(for: engineID)
+        }
+    }
+
+    private var voiceEnginePickerEntries: [VoiceEngineListEntry] {
+        VoiceEngineCatalogPresentation.pickerEntries()
+    }
+
+    private var currentEngineID: VoiceEngineID {
+        VoiceEngineCatalogPresentation.currentEngineID(
+            providerKind: asrProviderKind,
+            selectedLocalModelID: selectedASRModelID,
+            selectedCloudModelID: cloudModelID
+        )
+    }
+
+    private func openVoiceEnginePicker() {
+        pickerSelectedEngineID = currentEngineID
+        pickerFilter = .all
+        pickerSearchText = ""
+        isShowingEnginePicker = true
+    }
+
+    @ViewBuilder
+    private func voiceEngineDetailPane(for engineID: VoiceEngineID) -> some View {
+        switch engineID {
+        case let .local(modelID):
+            voiceLocalEngineDetailPane(for: modelID)
+        case let .cloud(modelID):
+            voiceCloudEngineDetailPane(for: modelID)
+        case let .experimental(descriptorID):
+            voiceExperimentalEngineDetailPane(for: descriptorID)
+        }
+    }
+
+    private func voiceLocalEngineDetailPane(for modelID: VoiceASRModelID) -> some View {
+        let isCurrent = currentEngineID == .local(modelID)
+        let installed = isDownloaded(modelID)
+        let isDownloading = downloadingModelID == modelID
+        let downloadFraction = modelDownloadFractions[modelID]
+        let statusText: String
+        let statusKind: StatusPill.Kind
+
+        if isDownloading {
+            statusText = "Downloading"
+            statusKind = .progress
+        } else if isCurrent {
+            statusText = "In use"
+            statusKind = .success
+        } else if installed {
+            statusText = "Installed"
+            statusKind = .neutral
+        } else {
+            statusText = "Not installed"
+            statusKind = .warning
+        }
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Local engine")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                StatusPill(text: statusText, kind: statusKind)
+            }
+
+            Text(modelID.title)
+                .font(.title3.weight(.semibold))
+            Text(modelID.subtitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                StatusPill(text: modelID.diskLabel, kind: .neutral)
+                StatusPill(text: modelID.requiresOSLabel, kind: .neutral)
+                StatusPill(text: VoiceLanguageModePresentation.title(for: languageHint), kind: .neutral)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Details")
+                    .font(.callout.weight(.semibold))
+                Label(modelID.strengths, systemImage: "checkmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Label(modelID.tradeoffs, systemImage: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let downloadFraction, isDownloading {
+                ProgressView(value: downloadFraction)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if isDownloading {
+                Text("Install in progress. This engine becomes active when download and compile finish.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if installed {
+                if !isCurrent {
+                    MAYNButton("Use engine", role: .primary) {
+                        useModel(modelID)
+                    }
+                }
+            } else {
+                MAYNButton("Download and use", role: .primary) {
+                    downloadModel(modelID, selectWhenReady: true)
+                }
+            }
+
+            if installed, !isDownloading {
+                HStack(spacing: 8) {
+                    MAYNButton("Show file") {
+                        showModelInFinder(modelID)
+                    }
+                    MAYNButton("Delete...", role: .destructive) {
+                        deleteModel(modelID)
+                    }
+                }
+            }
+
+            if let status = modelDownloadStatus[modelID] {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func voiceCloudEngineDetailPane(for modelID: VoiceCloudASRModelID) -> some View {
+        let provider = modelID.providerKind
+        let hasKey = hasUsableCloudAPIKey(for: provider)
+        let isCurrent = currentEngineID == .cloud(modelID)
+        let isProviderTesting = isTestingCloud && cloudSetupProviderKind == provider
+        let statusText: String
+        let statusKind: StatusPill.Kind
+
+        if isProviderTesting {
+            statusText = "Testing"
+            statusKind = .progress
+        } else if isCurrent, hasKey {
+            statusText = "In use"
+            statusKind = .success
+        } else if hasKey {
+            statusText = "API key ready"
+            statusKind = .neutral
+        } else {
+            statusText = "API key required"
+            statusKind = .warning
+        }
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Cloud engine")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                StatusPill(text: statusText, kind: statusKind)
+            }
+
+            Text(modelID.title)
+                .font(.title3.weight(.semibold))
+            Text(modelID.subtitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                StatusPill(text: provider.label, kind: .neutral)
+                StatusPill(text: hasKey ? "Key entered" : "Needs key", kind: hasKey ? .neutral : .warning)
+                StatusPill(text: VoiceLanguageModePresentation.title(for: cloudLanguageHint), kind: .neutral)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Details")
+                    .font(.callout.weight(.semibold))
+                Label("Requires network access.", systemImage: "network")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Label("Sends audio to \(provider.label) using your API key.", systemImage: "icloud")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Label("Respects the same language hint used by dictation.", systemImage: "globe")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            MAYNSecureField(
+                placeholder: provider.apiKeyPlaceholder,
+                text: cloudAPIKeyBinding(for: provider),
+                width: MAYNControlMetrics.wideTextFieldWidth
+            )
+
+            if hasKey {
+                MAYNButton("Use engine", role: .primary) {
+                    selectCloudModel(modelID)
+                }
+            } else {
+                MAYNButton("Configure API key", role: .primary) {
+                    selectCloudModel(modelID)
+                }
+            }
+
+            HStack(spacing: 8) {
+                MAYNButton(isProviderTesting ? "Testing..." : "Test connection") {
+                    cloudSetupProviderKind = provider
+                    cloudModelID = modelID
+                    testCloudConnection()
+                }
+                .disabled(isProviderTesting)
+            }
+
+            if cloudSetupProviderKind == provider, let cloudStatusMessage {
+                Text(cloudStatusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func voiceExperimentalEngineDetailPane(for descriptorID: String) -> some View {
+        let descriptor = VoiceEngineCatalogPresentation.experimentalDescriptor(for: descriptorID)
+        let title = descriptor?.title ?? "Experimental engine"
+        let subtitle = descriptor?.subtitle ?? "Planned recognizer. Not available in the current build."
+        let requirement = descriptor?.requiresOSLabel ?? "Unavailable"
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Experimental")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                StatusPill(text: "Unavailable", kind: .warning)
+            }
+
+            Text(title)
+                .font(.title3.weight(.semibold))
+            Text(subtitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                StatusPill(text: requirement, kind: .neutral)
+                StatusPill(text: "Advanced picker only", kind: .neutral)
+            }
+
+            Text("This engine remains visible for planning and migration checks, but it is not selectable for dictation in this release.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -881,14 +1127,6 @@ struct VoiceDestinationView: View {
         }
     }
 
-    private func selectModel(_ modelID: VoiceASRModelID) {
-        if isDownloaded(modelID) {
-            useModel(modelID)
-        } else {
-            downloadModel(modelID, selectWhenReady: true)
-        }
-    }
-
     private func selectCloudModel(_ modelID: VoiceCloudASRModelID) {
         cloudSetupProviderKind = modelID.providerKind
         guard hasUsableCloudAPIKey(for: modelID.providerKind) else {
@@ -1093,10 +1331,10 @@ struct VoiceDestinationView: View {
         VoiceCloudASRSettings(modelID: cloudModelID, languageHint: cloudLanguageHint)
     }
 
-    private var cloudAPIKeyBinding: Binding<String> {
+    private func cloudAPIKeyBinding(for providerKind: VoiceASRProviderKind) -> Binding<String> {
         Binding(
-            get: { cloudAPIKeys[cloudSetupProviderKind] ?? "" },
-            set: { cloudAPIKeys[cloudSetupProviderKind] = $0 }
+            get: { cloudAPIKeys[providerKind] ?? "" },
+            set: { cloudAPIKeys[providerKind] = $0 }
         )
     }
 
@@ -1236,97 +1474,5 @@ private enum VoiceModelDownloadPresenter {
         case let .compiling(modelName):
             "Compiling \(modelName)..."
         }
-    }
-}
-
-private struct VoiceASRModelRow: View {
-    let modelID: VoiceASRModelID
-    let isSelected: Bool
-    let isDownloaded: Bool
-    let statusMessage: String?
-    let downloadFraction: Double?
-    let isDownloading: Bool
-    let onSelect: () -> Void
-    let onShowInFinder: () -> Void
-    let onDelete: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovering = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
-                VStack(alignment: .leading, spacing: 3) {
-                    VoiceASRModelTitleLine(modelID: modelID)
-                    Text(modelID.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .trailing, spacing: 8) {
-                    if let statusText = presentation.statusText {
-                        StatusPill(text: statusText, kind: presentation.statusKind.statusPillKind)
-                    }
-                    if let downloadFraction {
-                        ProgressView(value: downloadFraction)
-                            .frame(width: 170)
-                    }
-                    if let actionTitle = presentation.actionTitle {
-                        MAYNButton(actionTitle) {
-                            onSelect()
-                        }
-                    }
-                    if isDownloaded, !isDownloading {
-                        HStack(spacing: 6) {
-                            MAYNButton("Show", height: 24, action: onShowInFinder)
-                            MAYNButton("Delete", role: .destructive, height: 24, action: onDelete)
-                        }
-                    }
-                    if let statusMessage {
-                        Text(statusMessage)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .frame(minWidth: MAYNControlMetrics.trailingLaneMinWidth, alignment: .trailing)
-            }
-
-            VoiceModelDetailLines(
-                strengths: modelID.strengths,
-                tradeoffs: modelID.tradeoffs
-            )
-        }
-        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering ? MAYNTheme.hover : Color.clear)
-        .contentShape(Rectangle())
-        .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
-        .onHover { isHovering = $0 }
-    }
-
-    private var presentation: VoiceASRModelRowPresentation {
-        VoiceASRModelRowPresentation.model(
-            isSelected: isSelected,
-            isDownloaded: isDownloaded,
-            isDownloading: isDownloading
-        )
-    }
-}
-
-private struct VoiceModelDetailLines: View {
-    let strengths: String
-    let tradeoffs: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(strengths, systemImage: "checkmark.circle")
-            Label(tradeoffs, systemImage: "exclamationmark.circle")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

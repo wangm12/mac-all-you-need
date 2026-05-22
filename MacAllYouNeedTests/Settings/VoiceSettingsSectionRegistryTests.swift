@@ -22,7 +22,7 @@ final class VoiceSettingsSectionRegistryTests: XCTestCase {
     // MARK: - Section header strings
 
     func testProviderSectionHeader() {
-        XCTAssertEqual(VoiceSettingsSectionRegistry.headers[.provider], "Models")
+        XCTAssertEqual(VoiceSettingsSectionRegistry.headers[.provider], "Recognition")
     }
 
     func testAPIKeySectionHeader() {

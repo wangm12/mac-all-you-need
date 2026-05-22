@@ -86,7 +86,7 @@ enum VoiceFunctionTab: String, FunctionTabDestination {
     var title: String {
         switch self {
         case .dictate: "Dictate"
-        case .models: "Models"
+        case .models: "Recognition"
         case .history: "History"
         case .dictionary: "Dictionary"
         case .personalization: "Personalization"

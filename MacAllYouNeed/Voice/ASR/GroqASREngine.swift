@@ -20,7 +20,7 @@ actor GroqASREngine: VoiceTranscriptionEngine {
     }
 
     /// Production init — reads from Keychain.
-    convenience init(settings: @escaping () -> GroqASRSettings, keyStore: GroqASRKeyStore, session: URLSession = .shared) {
+    init(settings: @escaping () -> GroqASRSettings, keyStore: GroqASRKeyStore, session: URLSession = .shared) {
         self.init(settings: settings, apiKeyProvider: { try keyStore.apiKey() }, session: session)
     }
 

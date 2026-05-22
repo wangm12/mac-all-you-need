@@ -37,7 +37,7 @@ enum VoiceOnboardingStep: String, CaseIterable, Codable, Equatable, Identifiable
         case .accessibility:
             "Accessibility"
         case .asr:
-            "Speech model"
+            "Recognition engine"
         case .llm:
             "AI cleanup"
         case .hotkey:
