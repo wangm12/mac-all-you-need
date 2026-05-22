@@ -36,40 +36,31 @@ final class VoiceCoordinator {
     private var operationGeneration = 0
     private var activationMonitoringSuspended = false
 
-    /// Captured audio for the in-flight transcription. Held while .transcribing
-    /// is active so that a mid-stream cancel can offer Undo (re-run the same
-    /// audio without making the user re-dictate).
-    private var inflightCaptured: CapturedAudio?
-    /// ASR result for the in-flight cleanup phase. Set after ASR completes so
-    /// that Undo during LLM cleanup can skip ASR and re-run only cleanup.
-    private var inflightASRResult: VoiceTranscriptionResult?
-    private var inflightAppBundleID: String?
+    /// Test seams. Production callers go through the public `init` which sets
+    /// these to live defaults (`CursorPaster.paste`, real AX reader, real
+    /// cleanup factory, real learning monitor, no-op observer). Tests use the
+    /// internal init below to swap them out.
+    private let cleanupPipelineFactoryOverride: ((TimeInterval) -> VoiceCleanupPipeline)?
+    private let pasterOverride: ((String) async -> CursorPaster.Result)?
+    private let snapshotFocusedOverride: (() -> AXTargetSnapshot?)?
+    private let learningStarterOverride: ((String, String?, String?, Bool, AXTargetSnapshot?) -> Void)?
+    private let cleanupObserver: ((VoiceCleanupRequest) -> Void)?
 
-    /// Snapshot kept after cancel so the user can tap Undo to replay it.
-    /// Cleared when Undo runs, the HUD is dismissed, or the window expires.
-    private var pendingUndo: UndoContext?
+    /// Holds the captured audio + ASR result for the in-flight dictation so
+    /// the 5s Cancelled+Undo affordance can replay it without forcing the
+    /// user to re-dictate. Exposed (internal) for tests.
+    let undoBookkeeping = UndoContextBookkeeping()
     private var undoExpirationTask: Task<Void, Never>?
     private static let undoWindowSeconds: TimeInterval = 5
 
-    private struct UndoContext {
-        let captured: CapturedAudio
-        let asrResult: VoiceTranscriptionResult?
-        let appBundleID: String?
-        let cancelledAt: Date
-    }
-
-    /// Global Esc-key monitors. Installed on start() so that Esc aborts the
-    /// active dictation while another app holds focus (the HUD is a
-    /// non-activating panel, so our app rarely gets key events directly).
-    /// Requires the Accessibility permission the app already requests for
-    /// snippet expansion.
-    private var escGlobalMonitor: NSEventMonitorHandle?
-    private var escLocalMonitor: NSEventMonitorHandle?
+    /// Global Esc-key dispatch. Installed on start() so Esc/Return/numpad
+    /// Enter can drive the HUD even when our app is not active.
+    private let escKeyMonitor = EscKeyMonitor()
 
     private(set) var state: State = .idle
     private(set) var lastTranscript: VoiceCleanupResult?
 
-    init(
+    convenience init(
         transcripts: VoiceTranscriptStore,
         dictionary: VoiceDictionaryStore? = nil,
         personalizationStore: VoicePersonalizationStore? = nil,
@@ -82,6 +73,50 @@ final class VoiceCoordinator {
         summarizer: VoicePersonalizationSummarizer? = nil,
         historySettings: @escaping () -> VoiceHistorySettings = { .init() }
     ) {
+        self.init(
+            transcripts: transcripts,
+            dictionary: dictionary,
+            personalizationStore: personalizationStore,
+            trainingExampleStore: trainingExampleStore,
+            personalizationSettings: personalizationSettings,
+            engine: engine,
+            cleanupSettings: cleanupSettings,
+            cleanupKeyStore: cleanupKeyStore,
+            learningMonitor: learningMonitor,
+            summarizer: summarizer,
+            historySettings: historySettings,
+            cleanupPipelineFactory: nil,
+            paster: nil,
+            snapshotFocused: nil,
+            learningStarter: nil,
+            cleanupObserver: nil
+        )
+    }
+
+    /// Internal init seam used by `VoiceCoordinatorPipelineCallSequenceTests`
+    /// to inject the cleanup pipeline factory, paster, AX snapshotter, and
+    /// learning monitor starter without standing up the real CursorPaster /
+    /// AX / cloud LLM dependencies. All overrides default to nil — when nil
+    /// the production path is used.
+    // swiftlint:disable:next function_parameter_count
+    init(
+        transcripts: VoiceTranscriptStore,
+        dictionary: VoiceDictionaryStore? = nil,
+        personalizationStore: VoicePersonalizationStore? = nil,
+        trainingExampleStore: VoiceTrainingExampleStore? = nil,
+        personalizationSettings: @escaping () -> VoicePersonalizationSettings = { .default },
+        engine: any VoiceTranscriptionEngine = VoiceLocalASREngine(),
+        cleanupSettings: VoiceCleanupSettings = VoiceCleanupSettingsStore.load(),
+        cleanupKeyStore: VoiceCleanupKeyStore = VoiceCleanupKeyStore(keychain: SystemKeychain()),
+        learningMonitor: VoicePostEditLearningMonitor? = nil,
+        summarizer: VoicePersonalizationSummarizer? = nil,
+        historySettings: @escaping () -> VoiceHistorySettings = { .init() },
+        cleanupPipelineFactory: ((TimeInterval) -> VoiceCleanupPipeline)?,
+        paster: ((String) async -> CursorPaster.Result)?,
+        snapshotFocused: (() -> AXTargetSnapshot?)?,
+        learningStarter: ((String, String?, String?, Bool, AXTargetSnapshot?) -> Void)?,
+        cleanupObserver: ((VoiceCleanupRequest) -> Void)?
+    ) {
         self.transcripts = transcripts
         self.dictionary = dictionary
         self.personalizationStore = personalizationStore
@@ -93,8 +128,15 @@ final class VoiceCoordinator {
         self.learningMonitor = learningMonitor ?? VoicePostEditLearningMonitor()
         self.summarizer = summarizer
         self.historySettings = historySettings
+        cleanupPipelineFactoryOverride = cleanupPipelineFactory
+        pasterOverride = paster
+        snapshotFocusedOverride = snapshotFocused
+        learningStarterOverride = learningStarter
+        self.cleanupObserver = cleanupObserver
         activation.onPress = { [weak self] in Task { @MainActor in await self?.handleActivationPress() } }
         activation.onRelease = { [weak self] in Task { @MainActor in await self?.handleActivationRelease() } }
+        escKeyMonitor.onEsc = { [weak self] in self?.handleEscKey() }
+        escKeyMonitor.onReturn = { [weak self] in self?.handleEnterKey() }
     }
 
     func start() {
@@ -111,7 +153,7 @@ final class VoiceCoordinator {
         } else if let qwen = engine as? Qwen3Engine {
             Task.detached { await qwen.warmup() }
         }
-        installEscKeyMonitor()
+        escKeyMonitor.install()
     }
 
     func applyActivationSettings(_ settings: VoiceActivationSettings) throws {
@@ -179,7 +221,7 @@ final class VoiceCoordinator {
         // If a Cancelled+Undo pill is still up from a previous session, clear
         // it now so we never accumulate a stale undo context behind a fresh
         // recording (Gap D in the interaction audit).
-        if pendingUndo != nil {
+        if undoBookkeeping.hasPendingUndo {
             expirePendingUndo()
         }
 
@@ -221,158 +263,149 @@ final class VoiceCoordinator {
         await processCapturedAudio(captured: captured, presetASRResult: nil, presetAppBundleID: nil)
     }
 
-    private func processCapturedAudio(
+    /// Drives the ASR → cleanup → paste → save → learning pipeline against
+    /// `captured` audio. Internal (not private) so the spine test can drive
+    /// it end-to-end with injected phase dependencies. Shared by the live
+    /// `stopRecordingAndPaste` entry and by `undoLastCancel`, which calls in
+    /// again with `presetASRResult` populated so the ASR phase is skipped.
+    func processCapturedAudio(
         captured: CapturedAudio,
         presetASRResult: VoiceTranscriptionResult?,
         presetAppBundleID: String?
     ) async {
         operationGeneration += 1
         let generation = operationGeneration
-        let operationStartedAt = Date()
-        state = .transcribing
-
         let appBundleID = presetAppBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        inflightCaptured = captured
-        inflightAppBundleID = appBundleID
-        inflightASRResult = presetASRResult
+        state = .transcribing
+        undoBookkeeping.setInflight(captured: captured, appBundleID: appBundleID, asrResult: presetASRResult)
+        hud.show(presetASRResult == nil ? .transcribing : .thinking,
+                 onCancel: makeCancelAction(),
+                 onPrimary: makeCancelAction())
+        log.info("ASR start — app: \(appBundleID ?? "nil", privacy: .public) presetASR: \(presetASRResult != nil, privacy: .public)")
 
-        // If we already have an ASR result (undo re-entry), skip straight to the
-        // .thinking HUD pill because ASR is already done.
-        if presetASRResult == nil {
-            hud.show(.transcribing, onCancel: makeCancelAction(), onPrimary: makeCancelAction())
-        } else {
-            hud.show(.thinking, onCancel: makeCancelAction(), onPrimary: makeCancelAction())
-        }
+        var ctx = VoicePipelineContext(
+            captured: captured,
+            presetASRResult: presetASRResult,
+            appBundleID: appBundleID,
+            generation: generation,
+            operationStartedAt: Date()
+        )
+
         do {
-            log.info("ASR start — app: \(appBundleID ?? "nil", privacy: .public) presetASR: \(presetASRResult != nil, privacy: .public)")
-
-            // Load personalization context for this app (style hints only).
-            let (appCtx, globalCtx) = loadContexts(bundleID: appBundleID)
-            let recentExamplesContext = (appCtx?.enabled == false)
-                ? nil
-                : (appCtx ?? globalCtx)
-
-            let result: VoiceTranscriptionResult
-            var asrMs: Int?
-            if let preset = presetASRResult {
-                result = preset
-            } else {
-                let asrStart = Date()
-                result = try await engine.transcribe(
-                    samples: captured.samples,
-                    sampleRate: captured.sampleRate,
-                    options: .default
-                )
-                asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
-                log.info("ASR done — \(asrMs ?? 0, privacy: .public)ms model: \(result.modelIdentifier, privacy: .public) lang: \(result.language.rawValue, privacy: .public) chars: \(result.text.count, privacy: .public)")
-                guard isCurrentOperation(generation), state == .transcribing else {
-                    clearInflightContext()
-                    return
-                }
-                // Capture result so a cancel during cleanup can replay only the cleanup pass.
-                inflightASRResult = result
+            // Phase 1 — ASR.
+            try await ASRPhase(engine: engine, log: log).run(&ctx)
+            guard checkpoint(generation) else { return }
+            if presetASRResult == nil, let asr = ctx.asrResult {
+                undoBookkeeping.setInflightASRResult(asr)
             }
-            let dictionaryEntries = (try? dictionary?.list()) ?? []
 
-            // Build personalization-enriched cleanup request via the testable builder.
-            let recentExamples = loadRecentExamples(context: recentExamplesContext)
-            let cleanupRequest = Self.buildCleanupRequest(
-                rawText: result.text,
-                appBundleID: appBundleID,
-                language: result.language,
-                dictionaryEntries: dictionaryEntries,
-                appContext: appCtx,
-                globalContext: globalCtx,
-                recentExamples: recentExamples
-            )
-
+            // Phase 2 — Cleanup.
             hud.show(.thinking, onCancel: makeCancelAction(), onPrimary: makeCancelAction())
-            let cleanup = makeCleanupPipeline(
-                elapsedBeforeCleanupSeconds: Date().timeIntervalSince(operationStartedAt)
-            )
-            log.info("LLM cleanup start — text length: \(result.text.count, privacy: .public) chars")
-            let cleanupStart = Date()
-            let rawCleanupResult = await cleanup.clean(cleanupRequest)
-            let cleanupMs = Int(Date().timeIntervalSince(cleanupStart) * 1000)
-            let totalMs = Int(Date().timeIntervalSince(operationStartedAt) * 1000)
-            let cleanupResult = rawCleanupResult.withTimings(
-                asrMs: asrMs,
-                cleanupMs: cleanupMs,
-                totalMs: totalMs
-            )
-            log.info("LLM cleanup done — \(cleanupMs, privacy: .public)ms total: \(totalMs, privacy: .public)ms usedLLM: \(cleanupResult.usedLLM, privacy: .public) provider: \(cleanupResult.providerIdentifier ?? "none", privacy: .public) chars: \(cleanupResult.cleanedText.count, privacy: .public) fallback: \(cleanupResult.fallbackReason?.rawValue ?? "none", privacy: .public)")
-            guard isCurrentOperation(generation), state == .transcribing else {
-                clearInflightContext()
-                return
-            }
-            let text = cleanupResult.cleanedText
-            guard !text.isEmpty else {
+            await makeCleanupPhase(bundleID: appBundleID).run(&ctx)
+            guard checkpoint(generation) else { return }
+            guard let cleanupResult = ctx.cleanupResult, !cleanupResult.cleanedText.isEmpty else {
                 log.error("processCapturedAudio: cleaned text was empty")
-                clearInflightContext()
+                undoBookkeeping.clearInflight()
                 fail("Transcript was empty")
                 return
             }
             lastTranscript = cleanupResult
 
-            // Snapshot AX target before paste so the monitor can track the field.
-            let axSnapshot = AXFocusedTextReader.snapshotFocused()
-
+            // Phase 3 — Paste (also saves transcript + training example).
             state = .pasting
-            let pasteResult = await CursorPaster.paste(text)
-            log.info("paste — didPost: \(pasteResult.didPostPasteEvent, privacy: .public) chars: \(text.count, privacy: .public)")
-            let transcriptID = UUID().uuidString
-            let audioPath = persistAudio(captured: captured, transcriptID: transcriptID)
-            let savedTranscript = try saveTranscript(
-                transcriptID: transcriptID,
-                captured: captured,
-                result: result,
-                cleanedText: text,
-                appBundleID: appBundleID,
-                audioPath: audioPath
-            )
-            log.info("transcript saved — id: \(savedTranscript.id, privacy: .public) audioPath: \(audioPath ?? "nil", privacy: .public)")
-            saveTrainingExample(
-                captured: captured,
-                result: result,
-                cleanedText: text,
-                transcriptID: savedTranscript.id,
-                appBundleID: appBundleID,
-                audioPath: audioPath
-            )
-            NotificationCenter.default.post(name: .voiceTranscriptAppended, object: savedTranscript.id)
+            try await makePastePhase().run(&ctx)
+            if let pasteResult = ctx.pasteResult {
+                hud.show(pasteResult.didPostPasteEvent ? .pasted : .copied,
+                         onPrimary: makeDismissAction())
+            }
 
-            hud.show(
-                pasteResult.didPostPasteEvent ? .pasted : .copied,
-                onPrimary: makeDismissAction()
-            )
-
-            // Fire post-edit learning monitor (fire-and-forget).
-            startLearningMonitor(
-                pastedText: text,
-                transcriptID: savedTranscript.id,
-                appBundleID: appBundleID,
-                isAutoSubmit: false,
-                snapshot: axSnapshot
-            )
+            // Phase 4 — Learning monitor (fire-and-forget).
+            makeLearningPhase().run(ctx)
 
             try? await Task.sleep(for: .milliseconds(1200))
             guard isCurrentOperation(generation) else { return }
             state = .idle
-            clearInflightContext()
+            undoBookkeeping.clearInflight()
             hud.dismiss()
         } catch {
             guard isCurrentOperation(generation) else { return }
-            clearInflightContext()
+            undoBookkeeping.clearInflight()
             fail(error.localizedDescription)
         }
+    }
+
+    /// Returns false (and clears the inflight context) when this operation has
+    /// been superseded — coordinator should bail out of the pipeline.
+    private func checkpoint(_ generation: Int) -> Bool {
+        let ok = isCurrentOperation(generation) && (state == .transcribing || state == .pasting)
+        if !ok { undoBookkeeping.clearInflight() }
+        return ok
+    }
+
+    /// Builds a CleanupPhase wired to the current personalization context for
+    /// `bundleID`. Extracted so processCapturedAudio stays orchestration-only.
+    private func makeCleanupPhase(bundleID: String?) -> CleanupPhase {
+        let (appCtx, globalCtx) = loadContexts(bundleID: bundleID)
+        let recentExamplesContext = (appCtx?.enabled == false) ? nil : (appCtx ?? globalCtx)
+        let dictionaryEntries = (try? dictionary?.list()) ?? []
+        let recentExamples = loadRecentExamples(context: recentExamplesContext)
+        return CleanupPhase(
+            makePipeline: { [weak self] elapsed in
+                self?.makeCleanupPipeline(elapsedBeforeCleanupSeconds: elapsed) ?? VoiceCleanupPipeline()
+            },
+            personalization: .init(
+                dictionaryEntries: dictionaryEntries,
+                appContext: appCtx,
+                globalContext: globalCtx,
+                recentExamples: recentExamples
+            ),
+            observer: cleanupObserver,
+            log: log
+        )
+    }
+
+    private func makePastePhase() -> PastePhase {
+        PastePhase(
+            saveTranscript: { [weak self] id, captured, result, text, bundleID, audioPath in
+                guard let self else { throw NSError(domain: "VoiceCoordinator", code: -1) }
+                return try self.saveTranscript(
+                    transcriptID: id, captured: captured, result: result,
+                    cleanedText: text, appBundleID: bundleID, audioPath: audioPath
+                )
+            },
+            persistAudio: { [weak self] captured, id in
+                self?.persistAudio(captured: captured, transcriptID: id)
+            },
+            saveTrainingExample: { [weak self] captured, result, text, id, bundleID, audioPath in
+                self?.saveTrainingExample(
+                    captured: captured, result: result, cleanedText: text,
+                    transcriptID: id, appBundleID: bundleID, audioPath: audioPath
+                )
+            },
+            paste: pasterOverride ?? { text in await CursorPaster.paste(text) },
+            snapshotFocused: snapshotFocusedOverride ?? { AXFocusedTextReader.snapshotFocused() },
+            log: log
+        )
+    }
+
+    private func makeLearningPhase() -> LearningPhase {
+        LearningPhase(start: { [weak self] text, transcriptID, bundleID, isAutoSubmit, snapshot in
+            if let override = self?.learningStarterOverride {
+                override(text, transcriptID, bundleID, isAutoSubmit, snapshot)
+            } else {
+                self?.startLearningMonitor(
+                    pastedText: text, transcriptID: transcriptID,
+                    appBundleID: bundleID, isAutoSubmit: isAutoSubmit, snapshot: snapshot
+                )
+            }
+        })
     }
 
     /// Re-runs the transcribe + cleanup + paste flow against the audio that was
     /// in flight when the user last cancelled. If the cancel happened after
     /// ASR completed, this skips ASR and replays just the cleanup pass.
     func undoLastCancel() async {
-        guard let undo = pendingUndo else { return }
-        pendingUndo = nil
+        guard let undo = undoBookkeeping.consumePendingUndo() else { return }
         cancelUndoExpiration()
         log.info("undoLastCancel — replay (asrPreset: \(undo.asrResult != nil, privacy: .public) age: \(Int(Date().timeIntervalSince(undo.cancelledAt) * 1000), privacy: .public)ms)")
         await processCapturedAudio(
@@ -380,12 +413,6 @@ final class VoiceCoordinator {
             presetASRResult: undo.asrResult,
             presetAppBundleID: undo.appBundleID
         )
-    }
-
-    private func clearInflightContext() {
-        inflightCaptured = nil
-        inflightASRResult = nil
-        inflightAppBundleID = nil
     }
 
     private func scheduleUndoExpiration() {
@@ -404,9 +431,9 @@ final class VoiceCoordinator {
     }
 
     private func expirePendingUndo() {
-        guard pendingUndo != nil else { return }
+        guard undoBookkeeping.hasPendingUndo else { return }
         log.info("undo window expired — dismissing cancelled pill")
-        pendingUndo = nil
+        undoBookkeeping.expirePendingUndo()
         cancelUndoExpiration()
         hud.dismiss()
     }
@@ -414,9 +441,9 @@ final class VoiceCoordinator {
     func cancelCurrentOperation() {
         guard state == .recording || state == .transcribing else { return }
         let wasRecording = state == .recording
-        let savedTranscribingCaptured = inflightCaptured
-        let savedASRResult = inflightASRResult
-        let savedAppBundleID = inflightAppBundleID
+        let savedTranscribingCaptured = undoBookkeeping.inflightCaptured
+        let savedASRResult = undoBookkeeping.inflightASRResult
+        let savedAppBundleID = undoBookkeeping.inflightAppBundleID
 
         operationGeneration += 1
         levelTask?.cancel()
@@ -426,10 +453,10 @@ final class VoiceCoordinator {
         // During .recording the mic is still open; stop() returns the audio we
         // captured so far so a recording-time cancel can also offer Undo.
         // During .transcribing the mic was already stopped — stop() returns nil
-        // and we fall back to inflightCaptured (set inside processCapturedAudio).
+        // and we fall back to the inflight context.
         let stoppedAudio = audio.stop()
         state = .idle
-        clearInflightContext()
+        undoBookkeeping.clearInflight()
 
         let undoCaptured: CapturedAudio?
         let undoAppBundleID: String?
@@ -446,11 +473,10 @@ final class VoiceCoordinator {
 
         if let captured = undoCaptured {
             log.info("cancelCurrentOperation — offering undo (wasRecording: \(wasRecording, privacy: .public) asrPreset: \(undoASRResult != nil, privacy: .public))")
-            pendingUndo = UndoContext(
+            undoBookkeeping.recordCancel(
                 captured: captured,
                 asrResult: undoASRResult,
-                appBundleID: undoAppBundleID,
-                cancelledAt: Date()
+                appBundleID: undoAppBundleID
             )
             hud.show(.cancelled,
                      onCancel: makeDismissUndoAction(),
@@ -684,6 +710,9 @@ final class VoiceCoordinator {
     }
 
     private func makeCleanupPipeline(elapsedBeforeCleanupSeconds: TimeInterval) -> VoiceCleanupPipeline {
+        if let override = cleanupPipelineFactoryOverride {
+            return override(elapsedBeforeCleanupSeconds)
+        }
         do {
             let provider = try VoiceCleanupProviderFactory.makeProvider(
                 settings: cleanupSettings,
@@ -790,39 +819,11 @@ final class VoiceCoordinator {
         }
     }
 
-    private func installEscKeyMonitor() {
-        if escGlobalMonitor != nil || escLocalMonitor != nil { return }
-        let handler: @Sendable (NSEvent) -> Void = { [weak self] event in
-            let keyCode = event.keyCode
-            // Esc, Return, or numpad Enter — every other key is ignored.
-            guard keyCode == 0x35 || keyCode == 0x24 || keyCode == 0x4C else { return }
-            Task { @MainActor in
-                guard let self else { return }
-                switch keyCode {
-                case 0x35: self.handleEscKey()
-                case 0x24, 0x4C: self.handleEnterKey()
-                default: break
-                }
-            }
-        }
-        // Global: events while another app has focus (the common case — the HUD
-        // is a non-activating panel so our app rarely is the active app).
-        escGlobalMonitor = NSEventMonitorHandle(global: .keyDown) { event in
-            handler(event)
-        }
-        // Local: events while our app does happen to be active. Return the
-        // event so other handlers still see it — we react, we don't swallow.
-        escLocalMonitor = NSEventMonitorHandle(local: .keyDown) { event in
-            handler(event)
-            return event
-        }
-    }
-
     private func handleEscKey() {
         if state == .recording || state == .transcribing {
             log.info("esc — cancelling current operation (state: \(String(describing: self.state), privacy: .public))")
             cancelCurrentOperation()
-        } else if pendingUndo != nil {
+        } else if undoBookkeeping.hasPendingUndo {
             log.info("esc — dismissing undo offer")
             expirePendingUndo()
         } else if hud.isVisible {
@@ -836,7 +837,7 @@ final class VoiceCoordinator {
     private func handleEnterKey() {
         // Only fires when the Cancelled+Undo pill is on screen. Acts as a
         // keyboard shortcut for the on-screen Undo button.
-        guard pendingUndo != nil else { return }
+        guard undoBookkeeping.hasPendingUndo else { return }
         log.info("enter — triggering undo")
         Task { @MainActor in
             await self.undoLastCancel()
