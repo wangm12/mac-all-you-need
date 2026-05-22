@@ -42,7 +42,7 @@ public struct HotkeyDescriptor: Hashable, Codable, Sendable {
     public var display: String {
         if let tap = modifierTap {
             let glyph = tap.key.glyph
-            return tap.count > 1 ? "\(glyph) ×\(tap.count)" : "Tap \(glyph)"
+            return tap.count > 1 ? "\(glyph) ×\(tap.count)" : glyph
         }
         var s = ""
         if modifiers.contains(.control) { s += "⌃" }

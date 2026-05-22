@@ -17,7 +17,7 @@ final class HotkeyDescriptorTests: XCTestCase {
 
     func testModifierTapSingleTapDisplay() {
         let d = HotkeyDescriptor(modifierTap: .singleTap(.command))
-        XCTAssertEqual(d.display, "Tap ⌘")
+        XCTAssertEqual(d.display, "⌘")
         XCTAssertTrue(d.isModifierTap)
     }
 
