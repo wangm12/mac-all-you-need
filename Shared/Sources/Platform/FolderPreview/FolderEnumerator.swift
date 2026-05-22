@@ -11,6 +11,15 @@ public struct FolderEntry: Sendable, Equatable {
     public let size: Int64
     public let modified: Date
     public let kind: FolderEntryKind
+
+    public init(name: String, path: String, isDirectory: Bool, size: Int64, modified: Date, kind: FolderEntryKind) {
+        self.name = name
+        self.path = path
+        self.isDirectory = isDirectory
+        self.size = size
+        self.modified = modified
+        self.kind = kind
+    }
 }
 
 public struct FolderInventory: Sendable {

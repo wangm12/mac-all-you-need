@@ -216,23 +216,18 @@ struct VoiceSettingsView: View {
                 }
             }
 
-            MAYNSection(title: "Models") {
-                MAYNSettingsRow(
-                    title: "Recognition model",
-                    subtitle: recognitionModelSummary
-                ) {
-                    MAYNButton("Open Models") {
-                        controller.showVoiceModels()
-                    }
-                }
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Cleanup model",
-                    subtitle: cleanupModelSummary
-                ) {
-                    StatusPill(text: cleanupEnabled ? cleanupProvider.label : "Off", kind: .neutral)
-                }
-            }
+            VoiceProviderSection(
+                asrProviderKind: asrProviderKind,
+                selectedASRModelID: selectedASRModelID,
+                cloudModelID: cloudModelID,
+                onOpenModels: { controller.showVoiceModels() }
+            )
+
+            VoiceCleanupSection(
+                cleanupEnabled: cleanupEnabled,
+                cleanupProvider: cleanupProvider,
+                cleanupModel: cleanupModel
+            )
 
             MAYNSection(title: "Audio") {
                 MAYNSettingsRow(
@@ -264,17 +259,17 @@ struct VoiceSettingsView: View {
                 }
             }
 
-            MAYNSection(title: "Dictionary") {
-                MAYNSettingsRow(
-                    title: "Voice dictionary",
-                    subtitle: "\(dictionaryEntries.count) manual entries. Correct names, product terms, and recurring ASR mistakes before cleanup and paste."
-                ) {
-                    MAYNButton("Open") {
-                        dictionaryEntries = controller.listVoiceDictionaryEntries()
-                        isShowingDictionary = true
-                    }
+            VoiceDictionarySection(
+                entryCount: dictionaryEntries.count,
+                onOpen: {
+                    dictionaryEntries = controller.listVoiceDictionaryEntries()
+                    isShowingDictionary = true
                 }
-            }
+            )
+
+            VoicePersonalizationSection()
+
+            VoiceTrainingExamplesSection()
 
             // App-specific overrides are now configured in the Personalization tab.
 
@@ -573,23 +568,6 @@ struct VoiceSettingsView: View {
         return text.isEmpty ? "Last transcript is empty." : text
     }
 
-    private var recognitionModelSummary: String {
-        switch asrProviderKind {
-        case .local:
-            selectedASRModelID.title
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
-            cloudModelID.title
-        }
-    }
-
-    private var cleanupModelSummary: String {
-        guard cleanupEnabled else {
-            return "AI cleanup is off; local cleanup and dictionary still apply."
-        }
-        let model = cleanupModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        return model.isEmpty ? cleanupProvider.label : "\(cleanupProvider.label) · \(model)"
-    }
-
     private var cleanupSettingsDraft: VoiceCleanupSettings {
         VoiceCleanupSettings(
             isEnabled: cleanupEnabled,
@@ -646,213 +624,5 @@ struct VoiceSettingsView: View {
 
     private func microphoneTitle(_ id: String) -> String {
         microphoneOptions.first { $0.id == id }?.name ?? "Auto-detect"
-    }
-}
-
-enum VoiceLanguageModePresentation {
-    static let exposesSingleDropdown = true
-    static let showsSeparateMultipleLanguagesStatus = false
-
-    static func title(for hint: VoiceASRLanguageHint) -> String {
-        switch hint {
-        case .automatic:
-            "Auto-detect Chinese + English"
-        case .chinese:
-            "Chinese only"
-        case .english:
-            "English only"
-        }
-    }
-}
-
-struct VoiceCloudASRModelRow: View {
-    let modelID: VoiceCloudASRModelID
-    let isSelected: Bool
-    let hasUsableAPIKey: Bool
-    let action: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(modelID.title)
-                    .font(.callout)
-                Text(modelID.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .trailing, spacing: 8) {
-                if let statusText = presentation.statusText {
-                    StatusPill(text: statusText, kind: presentation.statusKind.statusPillKind)
-                }
-                if let actionTitle = presentation.actionTitle {
-                    MAYNButton(actionTitle, action: action)
-                }
-            }
-            .frame(minWidth: MAYNControlMetrics.trailingLaneMinWidth, alignment: .trailing)
-        }
-        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
-        .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
-        .frame(minHeight: 78)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering ? MAYNTheme.hover : Color.clear)
-        .contentShape(Rectangle())
-        .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
-        .onHover { isHovering = presentation.actionTitle != nil && $0 }
-        .accessibilityValue(hasUsableAPIKey ? "" : "API key required")
-    }
-
-    private var presentation: VoiceASRModelRowPresentation {
-        VoiceASRModelRowPresentation.cloudModel(
-            isSelected: isSelected,
-            hasUsableAPIKey: hasUsableAPIKey
-        )
-    }
-}
-
-struct VoiceCloudASRSetupDrawer: View {
-    @Binding var isExpanded: Bool
-    let providerKind: VoiceASRProviderKind
-    @Binding var apiKey: String
-    let isTesting: Bool
-    let statusMessage: String?
-    let testConnection: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovering = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-
-            if isExpanded {
-                drawerContent
-            }
-        }
-        .animation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion), value: isExpanded)
-    }
-
-    private var header: some View {
-        Button {
-            withAnimation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion)) {
-                isExpanded.toggle()
-            }
-        } label: {
-            HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(VoiceCloudASRSetupDrawerPresentation.title(for: providerKind))
-                        .font(.callout)
-                    Text(VoiceCloudASRSetupDrawerPresentation.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: 10) {
-                    StatusPill(text: setupStatus.text, kind: setupStatus.kind.statusPillKind)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                        .frame(width: 14, height: 14)
-                }
-                .frame(minWidth: MAYNControlMetrics.trailingLaneMinWidth, alignment: .trailing)
-            }
-            .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
-            .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
-            .frame(minHeight: MAYNControlMetrics.rowMinHeight)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHovering ? MAYNTheme.hover : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityLabel(VoiceCloudASRSetupDrawerPresentation.title(for: providerKind))
-        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-    }
-
-    private var drawerContent: some View {
-        VStack(spacing: 0) {
-            MAYNDivider()
-            MAYNSettingsRow(title: providerKind.apiKeyLabel) {
-                MAYNSecureField(
-                    placeholder: providerKind.apiKeyPlaceholder,
-                    text: $apiKey,
-                    width: MAYNControlMetrics.wideTextFieldWidth
-                )
-            }
-            if let actionTitle = VoiceASRProviderControlsPresentation.connectionActionTitle(for: providerKind) {
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Connection",
-                    subtitle: "Test after adding or changing the API key."
-                ) {
-                    VStack(alignment: .trailing, spacing: 6) {
-                        MAYNButton(isTesting ? "Testing..." : actionTitle) {
-                            testConnection()
-                        }
-                        .disabled(isTesting)
-
-                        if let statusMessage {
-                            Text(statusMessage)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.trailing)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var setupStatus: VoiceCloudASRSetupStatusPresentation {
-        VoiceCloudASRSetupDrawerPresentation.status(
-            apiKey: apiKey,
-            isTesting: isTesting,
-            statusMessage: statusMessage
-        )
-    }
-}
-
-struct VoiceASRModelTitleLine: View {
-    let modelID: VoiceASRModelID
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 7) {
-            Text(VoiceASRModelTitlePresentation.title(for: modelID))
-                .font(.callout)
-            VoiceASRModelSizeTag(text: VoiceASRModelTitlePresentation.sizeLabel(for: modelID))
-        }
-    }
-}
-
-private struct VoiceASRModelSizeTag: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(MAYNTheme.elevated, in: Capsule())
-            .overlay(Capsule().stroke(MAYNTheme.subtleBorder, lineWidth: 1))
-    }
-}
-
-private enum VoiceSettingsModelDownloadPresenter {
-    static func describe(_ progress: DownloadUtils.DownloadProgress) -> String {
-        switch progress.phase {
-        case .listing:
-            "Listing model files..."
-        case let .downloading(completedFiles, totalFiles):
-            "Downloading \(completedFiles)/\(totalFiles) files..."
-        case let .compiling(modelName):
-            "Compiling \(modelName)..."
-        }
     }
 }

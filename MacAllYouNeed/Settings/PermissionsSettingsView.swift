@@ -579,27 +579,19 @@ struct PermissionsSettingsView: View {
                 title: "Required Access",
                 subtitle: "These permissions unlock core workflows. The app stays local-first either way."
             ) {
-                PermissionCard(
-                    title: "Accessibility",
-                    reason: "Allows global shortcuts, paste injection, snippet expansion, and window features in the active app.",
-                    state: accessibilityStatus.cardState,
-                    actionTitle: accessibilityStatus == .granted ? "Granted" : "Open",
-                    isHighlighted: highlightedPermission == .accessibility
-                ) {
-                    requestAccessibility()
-                }
+                AccessibilityPermissionRow(
+                    status: accessibilityStatus,
+                    isHighlighted: highlightedPermission == .accessibility,
+                    onAction: requestAccessibility
+                )
 
                 MAYNDivider()
 
-                PermissionCard(
-                    title: "Microphone",
-                    reason: "Allows voice dictation and the voice setup test to capture local audio.",
-                    state: microphoneStatus.cardState,
-                    actionTitle: microphoneActionTitle,
-                    isHighlighted: highlightedPermission == .microphone
-                ) {
-                    requestMicrophone()
-                }
+                MicrophonePermissionRow(
+                    status: microphoneStatus,
+                    isHighlighted: highlightedPermission == .microphone,
+                    onAction: requestMicrophone
+                )
 
             }
 
@@ -607,27 +599,19 @@ struct PermissionsSettingsView: View {
                 title: "Optional Access",
                 subtitle: "Useful for cookie import and status feedback, but not required for local capture or downloads."
             ) {
-                PermissionCard(
-                    title: "Full Disk Access",
-                    reason: "Allows browser cookie import for authenticated video downloads.",
-                    state: fullDiskAccessStatus.cardState,
-                    actionTitle: "Open",
-                    isHighlighted: highlightedPermission == .fullDiskAccess
-                ) {
-                    requestFullDiskAccess()
-                }
+                FullDiskAccessPermissionRow(
+                    status: fullDiskAccessStatus,
+                    isHighlighted: highlightedPermission == .fullDiskAccess,
+                    onAction: requestFullDiskAccess
+                )
 
                 MAYNDivider()
 
-                PermissionCard(
-                    title: "Notifications",
-                    reason: "Shows download completion and failure alerts.",
-                    state: notificationsStatus.cardState,
-                    actionTitle: PermissionActionPresentation.notificationActionTitle(for: notificationsStatus),
-                    isHighlighted: highlightedPermission == .notifications
-                ) {
-                    requestNotifications()
-                }
+                NotificationsPermissionRow(
+                    status: notificationsStatus,
+                    isHighlighted: highlightedPermission == .notifications,
+                    onAction: requestNotifications
+                )
             }
 
             // Inline instruction strip only for permissions that don't support
@@ -678,17 +662,6 @@ struct PermissionsSettingsView: View {
         }
         .id(target.rawValue)
         .transition(.opacity)
-    }
-
-    private var microphoneActionTitle: String {
-        switch microphoneStatus {
-        case .granted:
-            "Granted"
-        case .denied:
-            "Open"
-        default:
-            "Request"
-        }
     }
 
     private func refresh() {
