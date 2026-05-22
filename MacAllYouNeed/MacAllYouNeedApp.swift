@@ -69,13 +69,12 @@ final class MacAllYouNeedApplicationDelegate: NSObject, NSApplicationDelegate {
             return true
         }
         #endif
-        // If any window is already visible (e.g. the floating clipboard dock
-        // just opened via Cmd-Shift-V), the user didn't ask us to reopen the
-        // app's main window — they activated a panel. Routing the startup
-        // surface here would steal focus away from the panel and pop the
-        // main window unexpectedly. Only auto-route on a true reopen (no
-        // visible windows).
-        guard !flag else { return true }
+        // Non-activating auxiliary panels may not count toward AppKit's
+        // visible-window flag, so check app-owned auxiliary surfaces too.
+        guard ApplicationReopenPolicy.shouldRouteStartupSurface(
+            hasVisibleWindows: flag,
+            hasVisibleAuxiliarySurface: controller?.hasVisibleAuxiliarySurface == true
+        ) else { return true }
         routeStartupSurface()
         return true
     }
@@ -194,6 +193,15 @@ final class MacAllYouNeedApplicationDelegate: NSObject, NSApplicationDelegate {
         alert.informativeText = error.localizedDescription
         alert.alertStyle = .critical
         alert.runModal()
+    }
+}
+
+enum ApplicationReopenPolicy {
+    static func shouldRouteStartupSurface(
+        hasVisibleWindows: Bool,
+        hasVisibleAuxiliarySurface: Bool
+    ) -> Bool {
+        !hasVisibleWindows && !hasVisibleAuxiliarySurface
     }
 }
 

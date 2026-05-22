@@ -41,4 +41,11 @@ final class MacAllYouNeedApplicationDelegateTests: XCTestCase {
         XCTAssertTrue(didHandleReopen)
         XCTAssertTrue(shouldContinue)
     }
+
+    func testReopenDoesNotInvokeStartupSurfaceHandlerWhenAuxiliaryPanelIsVisible() {
+        XCTAssertFalse(ApplicationReopenPolicy.shouldRouteStartupSurface(
+            hasVisibleWindows: false,
+            hasVisibleAuxiliarySurface: true
+        ))
+    }
 }

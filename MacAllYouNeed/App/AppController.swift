@@ -94,6 +94,10 @@ final class AppController {
         return ctrl
     }
 
+    var hasVisibleAuxiliarySurface: Bool {
+        clipboardDock.isVisible
+    }
+
     init() throws {
         let deviceID = try DeviceIdentityStore.loadOrCreate()
 

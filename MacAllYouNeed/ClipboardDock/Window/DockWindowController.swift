@@ -86,6 +86,10 @@ final class DockWindowController {
         }
     }
 
+    var isVisible: Bool {
+        window?.isVisible == true
+    }
+
 #if DEBUG
     var debugWindowForTesting: BottomDockWindow? { window }
     var debugHasGlobalOutsideClickMonitorForTesting: Bool { globalOutsideClickMonitor != nil }
