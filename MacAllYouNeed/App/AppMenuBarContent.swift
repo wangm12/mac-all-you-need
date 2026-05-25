@@ -10,6 +10,7 @@ struct AppMenuBarContent: View {
         case clipboard = "Clipboard"
         case voice = "Voice"
         case downloads = "Downloads"
+        case layouts = "Layouts"
         case snippets = "Snippets"
 
         var title: String { rawValue }
@@ -19,6 +20,7 @@ struct AppMenuBarContent: View {
             case .clipboard: "doc.on.clipboard"
             case .voice: "waveform"
             case .downloads: "arrow.down.circle"
+            case .layouts: "rectangle.3.group"
             case .snippets: "text.quote"
             }
         }
@@ -31,14 +33,7 @@ struct AppMenuBarContent: View {
 
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Command Center")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("Mac All You Need")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
+                Spacer(minLength: 0)
                 Button {
                     controller.showMainWindow(destination: .settings)
                 } label: {
@@ -48,10 +43,11 @@ struct AppMenuBarContent: View {
                         .background(Color.primary.opacity(0.07), in: Circle())
                 }
                 .buttonStyle(.plain)
+                .help("Settings")
             }
             .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
 
             CommandCenterTabBar(selection: $tab)
                 .padding(.horizontal, 10)
@@ -72,6 +68,8 @@ struct AppMenuBarContent: View {
                     VoicePopoverView(controller: controller)
                 case .downloads:
                     DownloadsPopoverView(controller: controller)
+                case .layouts:
+                    WindowLayoutsPopoverView(controller: controller)
                 case .snippets:
                     SnippetsListView(model: controller.clipboardDeps.dockModel)
                 }
@@ -118,6 +116,13 @@ struct AppMenuBarContent: View {
             PreviewPanel.dismiss()
             ClipboardSystemQuickLookCoordinator.shared.dismiss()
         }
+        .onChange(of: tab) { _, _ in
+            // Defer until after SwiftUI commits the new tab branch so AppKit sees
+            // stable geometry before we re-anchor the popover.
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .menuBarPopoverReanchorRequested, object: nil)
+            }
+        }
     }
 
     private func openSelectedTabInMainWindow() {
@@ -126,11 +131,14 @@ struct AppMenuBarContent: View {
             AppGroupSettings.defaults.set(ClipboardFunctionTab.history.rawValue, forKey: ClipboardFunctionTab.storageKey)
             controller.showMainWindow(destination: .clipboard)
         case .voice:
-            AppGroupSettings.defaults.set(VoiceFunctionTab.dictate.rawValue, forKey: VoiceFunctionTab.storageKey)
+            AppGroupSettings.defaults.set(VoiceFunctionTab.history.rawValue, forKey: VoiceFunctionTab.storageKey)
             controller.showMainWindow(destination: .voice)
         case .downloads:
             AppGroupSettings.defaults.set(DownloadsFunctionTab.queue.rawValue, forKey: DownloadsFunctionTab.storageKey)
             controller.showMainWindow(destination: .downloads)
+        case .layouts:
+            AppGroupSettings.defaults.set(WindowLayoutsFunctionTab.shortcuts.rawValue, forKey: WindowLayoutsFunctionTab.storageKey)
+            controller.showMainWindow(destination: .windowLayouts)
         case .snippets:
             AppGroupSettings.defaults.set(SnippetsFunctionTab.library.rawValue, forKey: SnippetsFunctionTab.storageKey)
             controller.showMainWindow(destination: .snippets)

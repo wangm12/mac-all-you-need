@@ -28,6 +28,8 @@ final class DaemonContainer {
     private var retentionTimer: DispatchSourceTimer?
 
     init() throws {
+        ClipboardExcludedAppsPruner.migrateIfNeeded()
+
         let root = AppGroup.containerURL().appendingPathComponent("databases", isDirectory: true)
         let blobRoot = AppGroup.containerURL().appendingPathComponent("blobs", isDirectory: true)
         let manager = KeyManager(keychain: SystemKeychain())
@@ -124,8 +126,6 @@ final class DaemonContainer {
         case .unknown:
             break
         }
-
-        CaptureSound.playIfEnabled()
     }
 
     func isCaptureSuspended(now: Date = Date()) -> Bool {

@@ -163,6 +163,8 @@ final class AppController {
         onboarding = OnboardingState.load()
         LoginItemController.reconcileLaunchAtLogin()
         AppAppearanceMode.applyStoredPreference()
+        ClipboardExcludedAppsPruner.migrateIfNeeded()
+        ClipboardLegacySettingsMigration.mergeClipboardMaxItemsIntoRetentionIfNeeded()
 
         // Feature system (Phase 04) — initialized before first self-method calls
         let featureRegistry = FeatureRegistryProvider.makeRegistry()

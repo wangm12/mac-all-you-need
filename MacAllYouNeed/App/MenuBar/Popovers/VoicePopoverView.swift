@@ -1,223 +1,190 @@
-import ApplicationServices
-import AVFoundation
+import AppKit
 import Core
+import Platform
 import SwiftUI
 
+/// Command Center Voice tab: transcript history only (copy + retry per row).
+/// Keyboard: arrows to move selection, Space to preview, Return to copy, double-click row to copy
+/// (same model as the main Voice History tab).
 struct VoicePopoverView: View {
     let controller: AppController
 
-    @State private var micPermission = AVCaptureDevice.authorizationStatus(for: .audio)
-
-    private var coordinator: VoiceCoordinator {
-        controller.voiceCoordinator
-    }
-
-    private var activationSettings: VoiceActivationSettings {
-        VoiceActivationSettingsStore.load()
-    }
-
-    private var asrSettings: VoiceASRSettings {
-        VoiceASRSettingsStore.load()
-    }
-
-    private var onboardingProgress: VoiceOnboardingProgress {
-        VoiceOnboardingProgressStore.load()
-    }
+    @State private var transcripts: [VoiceTranscript] = []
+    @State private var selectedTranscriptIDs: Set<String> = []
+    @State private var transcriptAnchorID: String?
+    @FocusState private var listFocused: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Voice")
-                            .font(.system(size: 22, weight: .semibold))
-                        Text(stateTitle)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    ShortcutChip(text: activationSettings.shortcut.display)
-                }
-
-                HStack(spacing: 8) {
-                    VoiceCommandButton(
-                        title: coordinator.state == .recording ? "Stop & Paste" : "Start",
-                        symbol: coordinator.state == .recording ? "checkmark" : "mic"
-                    ) {
-                        if coordinator.state == .recording {
-                            Task { await coordinator.stopRecordingAndPaste() }
-                        } else {
-                            Task { await coordinator.startRecording() }
+        Group {
+            if transcripts.isEmpty {
+                ContentUnavailableView(
+                    "No transcripts yet",
+                    systemImage: "waveform",
+                    description: Text("Completed dictations appear here after transcription.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(transcripts, id: \.id) { transcript in
+                            VoiceTranscriptHistoryRowView(
+                                transcript: transcript,
+                                surface: .commandCenter,
+                                isSelected: selectedTranscriptIDs.contains(transcript.id),
+                                onSelect: { selectTranscript(transcript) },
+                                onCopy: { copyTranscripts(ids: [transcript.id]) },
+                                onRetry: { retryTranscript(transcript) },
+                                onDownload: {},
+                                onDelete: {}
+                            )
                         }
                     }
-                    .disabled(!canToggleRecording)
-
-                    VoiceCommandButton(title: "Setup", symbol: "slider.horizontal.3") {
-                        NSApp.activate(ignoringOtherApps: true)
-                        controller.showVoiceOnboarding()
-                    }
-
-                    VoiceCommandButton(title: "Dictionary", symbol: "text.book.closed") {
-                        AppGroupSettings.defaults.set(VoiceFunctionTab.dictionary.rawValue, forKey: VoiceFunctionTab.storageKey)
-                        controller.showMainWindow(destination: .voice)
-                    }
-
-                    VoiceCommandButton(title: "Mic", symbol: "mic.badge.plus") {
-                        Task { await refreshMicrophonePermission(requestIfNeeded: true) }
-                    }
-                    .disabled(micPermission == .authorized)
-                }
-
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    VoiceStatusTile(title: "Mode", value: activationSettings.mode.label, symbol: "switch.2")
-                    VoiceStatusTile(title: "Language", value: asrSettings.languageHint.label, symbol: "textformat")
-                    VoiceStatusTile(title: "Microphone", value: microphoneStatusText, symbol: "mic")
-                    VoiceStatusTile(title: "Accessibility", value: accessibilityStatusText, symbol: "keyboard")
-                    VoiceStatusTile(title: "Setup", value: onboardingProgress.isCompleted ? "Complete" : onboardingProgress.currentStep.title, symbol: "checklist")
-                    VoiceStatusTile(title: "Cleanup", value: cleanupStatusText, symbol: "sparkles")
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Last transcript")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        if let transcript = coordinator.lastTranscript {
-                            Text(transcript.usedLLM ? "LLM" : "Local")
-                                .font(.system(size: 10, weight: .semibold))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(Color.primary.opacity(0.08), in: Capsule())
-                        }
-                    }
-
-                    Text(lastTranscriptText)
-                        .font(.system(size: 13))
-                        .foregroundStyle(coordinator.lastTranscript == nil ? .tertiary : .primary)
-                        .lineLimit(6)
-                        .frame(maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
-                        .padding(12)
-                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.10), lineWidth: 1))
                 }
             }
-            .padding(16)
         }
-        .task {
-            await refreshMicrophonePermission(requestIfNeeded: false)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MAYNTheme.window)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($listFocused)
+        .onKeyPress { handleKeyPress($0) }
+        .onAppear {
+            listFocused = true
+            reloadTranscripts()
         }
-    }
-
-    private var canToggleRecording: Bool {
-        switch coordinator.state {
-        case .idle, .recording:
-            true
-        case .transcribing, .pasting, .error:
-            false
-        }
-    }
-
-    private var stateTitle: String {
-        switch coordinator.state {
-        case .idle:
-            "Ready for dictation"
-        case .recording:
-            "Listening"
-        case .transcribing:
-            "Transcribing audio"
-        case .pasting:
-            "Pasting into the focused app"
-        case let .error(message):
-            message
+        .onReceive(NotificationCenter.default.publisher(for: .voiceTranscriptAppended)) { _ in
+            reloadTranscripts()
         }
     }
 
-    private var lastTranscriptText: String {
-        guard let transcript = coordinator.lastTranscript else {
-            return "No transcript captured yet."
-        }
-        return transcript.cleanedText.isEmpty ? transcript.rawText : transcript.cleanedText
+    private var voiceTranscriptIDs: [String] {
+        transcripts.map(\.id)
     }
 
-    private var microphoneStatusText: String {
-        switch micPermission {
-        case .authorized:
-            "Granted"
-        case .notDetermined:
-            "Not requested"
-        case .denied:
-            "Denied"
-        case .restricted:
-            "Restricted"
-        @unknown default:
-            "Unknown"
+    private func reloadTranscripts() {
+        transcripts = controller.listRecentVoiceTranscripts(limit: 200)
+        pruneSelection()
+    }
+
+    private func pruneSelection() {
+        let existing = Set(transcripts.map(\.id))
+        selectedTranscriptIDs.formIntersection(existing)
+        if let transcriptAnchorID, !existing.contains(transcriptAnchorID) {
+            self.transcriptAnchorID = selectedTranscriptIDs.first ?? transcripts.first?.id
         }
     }
 
-    private var accessibilityStatusText: String {
-        AXIsProcessTrusted() ? "Granted" : "Needs access"
+    private func selectTranscript(_ transcript: VoiceTranscript) {
+        let modifiers = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let state = MainVoiceTranscriptHistoryPresentation.selection(
+            afterClicking: transcript.id,
+            orderedIDs: voiceTranscriptIDs,
+            selectedIDs: selectedTranscriptIDs,
+            anchorID: transcriptAnchorID,
+            command: modifiers.contains(.command),
+            shift: modifiers.contains(.shift)
+        )
+        selectedTranscriptIDs = state.selectedIDs
+        transcriptAnchorID = state.anchorID
     }
 
-    private var cleanupStatusText: String {
-        let settings = controller.voiceCleanupSettings()
-        return settings.isEnabled ? settings.provider.label : "Local"
+    private func effectiveTranscriptIDs() -> [String] {
+        MainVoiceTranscriptHistoryPresentation.effectiveIDs(
+            selectedIDs: selectedTranscriptIDs,
+            anchorID: transcriptAnchorID,
+            orderedIDs: voiceTranscriptIDs
+        )
     }
 
-    private func refreshMicrophonePermission(requestIfNeeded: Bool) async {
-        if requestIfNeeded, micPermission == .notDetermined {
-            let granted = await AVCaptureDevice.requestAccess(for: .audio)
-            micPermission = granted ? .authorized : AVCaptureDevice.authorizationStatus(for: .audio)
-        } else {
-            micPermission = AVCaptureDevice.authorizationStatus(for: .audio)
-        }
+    private func copyTranscripts(ids: [String]) {
+        let strings = ids.compactMap { id in
+            transcripts.first { $0.id == id }.map(MainVoiceTranscriptHistoryPresentation.displayText)
+        }.filter { $0 != "Empty transcript" }
+        guard !strings.isEmpty else { return }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(strings.joined(separator: "\n"), forType: .string)
+        NSPasteboard.general.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
+        CopyHUD.show(strings.count == 1 ? "Copied" : "Copied \(strings.count)")
     }
-}
 
-// MARK: - Supporting views
+    private func previewTranscript(id: String?, direction: PreviewPanelTransitionDirection = .none) {
+        guard let id,
+              let transcript = transcripts.first(where: { $0.id == id })
+        else { return }
 
-private struct VoiceStatusTile: View {
-    let title: String
-    let value: String
-    let symbol: String
+        PreviewPanel.show(
+            .text(MainVoiceTranscriptHistoryPresentation.displayText(transcript), monospaced: false),
+            metadata: PreviewPanelMetadata(
+                title: "Voice transcript",
+                subtitle: "\(CompactTimestamp.format(transcript.endedAt)) · \(transcript.language.rawValue)",
+                badge: "\(transcript.durationMs) ms",
+                symbol: "waveform"
+            ),
+            direction: direction
+        )
+    }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 24, height: 24)
-                .background(Color.primary.opacity(0.08), in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                Text(value)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(2)
+    private func retryTranscript(_ transcript: VoiceTranscript) {
+        Task { @MainActor in
+            do {
+                _ = try await controller.retryVoiceTranscript(id: transcript.id)
+                reloadTranscripts()
+            } catch {
+                CopyHUD.show("Retry failed", symbol: "exclamationmark.triangle.fill")
             }
-            Spacer(minLength: 0)
         }
-        .padding(10)
-        .frame(minHeight: 58, alignment: .topLeading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.10), lineWidth: 1))
     }
-}
 
-private struct VoiceCommandButton: View {
-    let title: String
-    let symbol: String
-    let action: () -> Void
+    private func moveSelection(delta: Int) {
+        let previousIndex = transcriptAnchorID.flatMap { voiceTranscriptIDs.firstIndex(of: $0) } ?? 0
+        let state = MainVoiceTranscriptHistoryPresentation.selection(
+            afterMovingFrom: transcriptAnchorID,
+            orderedIDs: voiceTranscriptIDs,
+            delta: delta
+        )
+        selectedTranscriptIDs = state.selectedIDs
+        transcriptAnchorID = state.anchorID
 
-    var body: some View {
-        MAYNButton(role: .primary, height: MAYNControlMetrics.controlHeight, action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .frame(maxWidth: .infinity)
+        if PreviewPanel.isVisible,
+           let transcriptAnchorID {
+            let nextIndex = voiceTranscriptIDs.firstIndex(of: transcriptAnchorID) ?? previousIndex
+            previewTranscript(
+                id: transcriptAnchorID,
+                direction: PreviewPanelTransitionDirection.horizontal(from: previousIndex, to: nextIndex)
+            )
+        }
+    }
+
+    private func handleKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+        let raw = keyPress.key.character
+
+        if keyPress.modifiers.contains(.command), String(raw).lowercased() == "a" {
+            selectedTranscriptIDs = Set(voiceTranscriptIDs)
+            transcriptAnchorID = voiceTranscriptIDs.first
+            return .handled
+        }
+
+        if keyPress.modifiers.contains(.command), String(raw).lowercased() == "c" {
+            copyTranscripts(ids: effectiveTranscriptIDs())
+            return .handled
+        }
+
+        switch raw {
+        case " ":
+            previewTranscript(id: effectiveTranscriptIDs().first)
+            return .handled
+        case "\r":
+            copyTranscripts(ids: effectiveTranscriptIDs())
+            return .handled
+        case Character(UnicodeScalar(NSDownArrowFunctionKey)!):
+            moveSelection(delta: 1)
+            return .handled
+        case Character(UnicodeScalar(NSUpArrowFunctionKey)!):
+            moveSelection(delta: -1)
+            return .handled
+        default:
+            return .ignored
         }
     }
 }

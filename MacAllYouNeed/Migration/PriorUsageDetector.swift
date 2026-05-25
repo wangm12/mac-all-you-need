@@ -47,12 +47,12 @@ struct PriorUsageDetector {
     private func detectClipboard() throws -> PriorUsageLevel {
         if try clipboardRecordCount() > 0 { return .directEvidence }
         // Indirect: any non-default clipboard setting
-        let defaultMaxItems = 10_000
-        if defaults.object(forKey: "clipboardMaxItems") != nil,
-           defaults.integer(forKey: "clipboardMaxItems") != defaultMaxItems {
+        if let v = defaults.object(forKey: "retention.maxItems") as? Int, v != 1000 {
             return .indirectEvidence
         }
-        if defaults.object(forKey: "capture.sound") != nil { return .indirectEvidence }
+        if let v = defaults.object(forKey: "retention.maxAgeDays") as? Int, v != 30 {
+            return .indirectEvidence
+        }
         if defaults.object(forKey: "autoPaste.behavior") != nil { return .indirectEvidence }
         if defaults.object(forKey: "autoPaste.delayMs") != nil { return .indirectEvidence }
         return .none

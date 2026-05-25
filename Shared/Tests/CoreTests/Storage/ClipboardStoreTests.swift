@@ -66,6 +66,21 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertNotEqual(items.first?.id, b.id)
     }
 
+    func testListFiltersByModifiedOnOrAfter() throws {
+        let oldDate = Date().addingTimeInterval(-86_400 * 60)
+        let old = try store.append(ClipboardRecord.text("old"))
+        try db.queue.write { conn in
+            try conn.execute(
+                sql: "UPDATE clipboard_records SET modified = ? WHERE id = ?",
+                arguments: [Int(oldDate.timeIntervalSince1970 * 1000), old.id.rawValue]
+            )
+        }
+        let recent = try store.append(ClipboardRecord.text("new"))
+        let cutoff = Date().addingTimeInterval(-86_400 * 10)
+        let items = try store.list(limit: 50, modifiedOnOrAfter: cutoff)
+        XCTAssertEqual(items.map(\.id), [recent.id])
+    }
+
     func testMetasForIDsPreservesRequestedOrder() throws {
         let a = try store.append(ClipboardRecord.text("a"))
         let b = try store.append(ClipboardRecord.text("b"))

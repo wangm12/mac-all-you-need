@@ -276,7 +276,7 @@ final class FunctionTabsTests: XCTestCase {
             CommandCenterFooterPresentation.model(for: .voice, voiceShortcut: "⌃⌥Space"),
             CommandCenterFooterModel(
                 shortcutText: "⌃⌥Space",
-                label: "voice dictation",
+                label: "transcript history",
                 openButtonTitle: "Open Voice",
                 showsCapturePause: false
             )
@@ -287,6 +287,15 @@ final class FunctionTabsTests: XCTestCase {
                 shortcutText: nil,
                 label: "download queue",
                 openButtonTitle: "Open Downloads",
+                showsCapturePause: false
+            )
+        )
+        XCTAssertEqual(
+            CommandCenterFooterPresentation.model(for: .layouts),
+            CommandCenterFooterModel(
+                shortcutText: nil,
+                label: "window snap",
+                openButtonTitle: "Open Window Layouts",
                 showsCapturePause: false
             )
         )

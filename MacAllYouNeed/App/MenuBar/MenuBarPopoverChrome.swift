@@ -27,7 +27,7 @@ enum CommandCenterFooterPresentation {
         case .voice:
             CommandCenterFooterModel(
                 shortcutText: voiceShortcut,
-                label: "voice dictation",
+                label: "transcript history",
                 openButtonTitle: "Open Voice",
                 showsCapturePause: false
             )
@@ -36,6 +36,13 @@ enum CommandCenterFooterPresentation {
                 shortcutText: nil,
                 label: "download queue",
                 openButtonTitle: "Open Downloads",
+                showsCapturePause: false
+            )
+        case .layouts:
+            CommandCenterFooterModel(
+                shortcutText: nil,
+                label: "window snap",
+                openButtonTitle: "Open Window Layouts",
                 showsCapturePause: false
             )
         case .snippets:

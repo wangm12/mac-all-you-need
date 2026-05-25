@@ -77,6 +77,7 @@
 		30817B8FBB77C8CCD9E10A98 /* VoiceEnginePickerPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1F55159B8A707BD0F2A698 /* VoiceEnginePickerPresentationTests.swift */; };
 		322BC848FD051ADB897164C2 /* VoiceOnboardingStepTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68118F753D7238BD7FE4BAA9 /* VoiceOnboardingStepTests.swift */; };
 		33024A3FF865BE033F66CA18 /* WindowControlDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7267EF3FFCFF6BD13F17947 /* WindowControlDiagnosticsView.swift */; };
+		33274AB15FC410A630878E5A /* WindowLayoutsPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883234431F185F2BECF6FF2D /* WindowLayoutsPopoverView.swift */; };
 		336DFED373876A136CBC58A6 /* AppControllerNotificationDispatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2651FAD28FDAF1600C1E399 /* AppControllerNotificationDispatchTests.swift */; };
 		33B786B1242E57007C89613D /* HotkeyRecorderControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2242BE0F1954EEEFB05FDD /* HotkeyRecorderControl.swift */; };
 		33CA749509F08A288C89A7CB /* WindowControlSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E380E3A1BBCAAF0B9FEA6E /* WindowControlSettingsStore.swift */; };
@@ -134,6 +135,7 @@
 		57A0D3780189FD2B9902A1EE /* WindowGestureModifierPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 270A6A75BEBC34BBBB8CA36A /* WindowGestureModifierPicker.swift */; };
 		57B73E22BDACDCB60818E70F /* OnboardingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFEAC6BBBD9438A1790B90B /* OnboardingState.swift */; };
 		582DFF7623B6B8A16349A269 /* MenuBarPopoverChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF01C1EB3A255081C6D30294 /* MenuBarPopoverChrome.swift */; };
+		58944CD593AB746D7CC43C1E /* VoiceTranscriptHistoryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2272B2E654945F8E41447EE3 /* VoiceTranscriptHistoryRowView.swift */; };
 		58ADC7C90556176718B14CF5 /* StorageSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C51FD0F039999C99D523F48 /* StorageSettingsView.swift */; };
 		59680E2C269D52126A76E7CD /* VoiceLoggingPrivacyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F565C181660CF87D0DAF1624 /* VoiceLoggingPrivacyTests.swift */; };
 		5A530B06FACC1C14E1E1F909 /* SparkleUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D642F8E187653FEAF596BEF /* SparkleUpdater.swift */; };
@@ -171,7 +173,6 @@
 		6DD4F8DCCAC105D573E50A8D /* Qwen3Engine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9005CAFFBC8E8A328E09A36E /* Qwen3Engine.swift */; };
 		6E4F2A5317394886DFF042E5 /* ClipboardPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEC9C99ADC6738B80EA20E3C /* ClipboardPopoverView.swift */; };
 		6EE8AB0956D577CEADD18E96 /* SelectionStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A3E7E5516C334DCBD9E018 /* SelectionStateTests.swift */; };
-		6F71AA015377739D9BE74961 /* WindowControlPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79BC513BA9F2C75F0E8DEA0E /* WindowControlPopoverView.swift */; };
 		702D40B241159F618BFDC96C /* UIAuditHarnessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF87D820C0A9E78F7FC7098A /* UIAuditHarnessTests.swift */; };
 		728EB405E01F13171E166B53 /* FeatureSetupDownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC98D803E51E894BD3045F98 /* FeatureSetupDownloadView.swift */; };
 		73D07BF9291EC12A33EA983E /* MiniVoiceHUDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 526CB0A5555D860A2711277B /* MiniVoiceHUDTests.swift */; };
@@ -315,6 +316,7 @@
 		D0CBA387D05A4BF6037AC15F /* VoicePersonalizationPrivacyFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 046FB7EE3DE19E5111E957E4 /* VoicePersonalizationPrivacyFilter.swift */; };
 		D11055EB489B28A135B57228 /* OrphanCacheScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB10A7C3ED3A6724CDC8E7F /* OrphanCacheScanner.swift */; };
 		D1985B818845D087D592D05B /* MainAppDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702265E3CD5662AC69D14691 /* MainAppDestination.swift */; };
+		D201829A57E6539350DC05D7 /* ClipboardLegacySettingsMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5226A6D09862A19658B3C893 /* ClipboardLegacySettingsMigration.swift */; };
 		D21E4CC4BDEF957DC4A4DE63 /* BottomDockWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39254E3F271506135A45C200 /* BottomDockWindow.swift */; };
 		D25322FBA7E9736DFB8D044E /* WindowGrabDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B4BF85CE4FA0121C5A4B81 /* WindowGrabDestinationView.swift */; };
 		D3080FA02BEF8F38B42C1E4B /* DragDropSubModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EC1FDA72DB34FA116CECE3 /* DragDropSubModel.swift */; };
@@ -484,6 +486,7 @@
 		1ED440FF24BD0A2A5D26298F /* VoiceLocalASREngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLocalASREngine.swift; sourceTree = "<group>"; };
 		1FD6E040F3D59D75457BA942 /* DockRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockRootView.swift; sourceTree = "<group>"; };
 		209C2A22A65635AC298E6CC0 /* SnippetsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsListView.swift; sourceTree = "<group>"; };
+		2272B2E654945F8E41447EE3 /* VoiceTranscriptHistoryRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTranscriptHistoryRowView.swift; sourceTree = "<group>"; };
 		2284C4D37037A68FF65EDA9A /* FeatureSetupPermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureSetupPermissionsView.swift; sourceTree = "<group>"; };
 		22CEDC346A888223ABD8ADA1 /* PastePhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastePhase.swift; sourceTree = "<group>"; };
 		236B373D8AFE6F872C4EFF2B /* FileCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileCard.swift; sourceTree = "<group>"; };
@@ -565,6 +568,7 @@
 		51C9C0F991711F34C197BAFE /* WindowControlSettingsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowControlSettingsStoreTests.swift; sourceTree = "<group>"; };
 		51EFDE5964850F567177E85F /* VoicePipelineContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePipelineContext.swift; sourceTree = "<group>"; };
 		51F208E396D585E76CE9A288 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
+		5226A6D09862A19658B3C893 /* ClipboardLegacySettingsMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardLegacySettingsMigration.swift; sourceTree = "<group>"; };
 		526CB0A5555D860A2711277B /* MiniVoiceHUDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniVoiceHUDTests.swift; sourceTree = "<group>"; };
 		52E83A433923D384A05F933F /* AppController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppController.swift; sourceTree = "<group>"; };
 		592607551210D98E2F7A034D /* LocalClipboardReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalClipboardReader.swift; sourceTree = "<group>"; };
@@ -608,7 +612,6 @@
 		785DD52CE7E2564E48EF1DF0 /* PermissionsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsSettingsView.swift; sourceTree = "<group>"; };
 		789D9719CDE8B2C6B3D14D4B /* TransformMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransformMenu.swift; sourceTree = "<group>"; };
 		79B1A5A9D1E969AC988D3580 /* FeaturePickerCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePickerCard.swift; sourceTree = "<group>"; };
-		79BC513BA9F2C75F0E8DEA0E /* WindowControlPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowControlPopoverView.swift; sourceTree = "<group>"; };
 		7A8628397431FC8F2D6346D1 /* FolderImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderImageCache.swift; sourceTree = "<group>"; };
 		7B0B0C8F9C8227C552BE45ED /* PackInstallController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackInstallController.swift; sourceTree = "<group>"; };
 		7B44E29D71B4EF1BD0D4EFB2 /* FeatureToolCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureToolCard.swift; sourceTree = "<group>"; };
@@ -633,6 +636,7 @@
 		859055D315C52EC6D6F50CE0 /* VoicePersonalizationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePersonalizationSettings.swift; sourceTree = "<group>"; };
 		85B9B79A7149BEA0570931B4 /* TextCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextCard.swift; sourceTree = "<group>"; };
 		87D987ABFFCBCE9C47280888 /* VoicePersonalizationPrivacyFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePersonalizationPrivacyFilterTests.swift; sourceTree = "<group>"; };
+		883234431F185F2BECF6FF2D /* WindowLayoutsPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayoutsPopoverView.swift; sourceTree = "<group>"; };
 		888B35A6B574394E28E673E7 /* AICleanupStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICleanupStepView.swift; sourceTree = "<group>"; };
 		88F478AB8437A1D1DE6174DC /* FeatureAboutContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureAboutContent.swift; sourceTree = "<group>"; };
 		892BB77EC395C1A4D9C8205F /* VoiceLLMProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLLMProviderTests.swift; sourceTree = "<group>"; };
@@ -903,7 +907,7 @@
 				774A65584FE2D9BB4FC31B63 /* DownloadsPopoverView.swift */,
 				B3CD47E8E891CEF6493A207F /* SnippetsPopoverView.swift */,
 				F2E45DBB88B37CADCC5FD38A /* VoicePopoverView.swift */,
-				79BC513BA9F2C75F0E8DEA0E /* WindowControlPopoverView.swift */,
+				883234431F185F2BECF6FF2D /* WindowLayoutsPopoverView.swift */,
 			);
 			path = Popovers;
 			sourceTree = "<group>";
@@ -1344,6 +1348,7 @@
 			isa = PBXGroup;
 			children = (
 				D35637426A62149C687DE169 /* AdvancedSettingsView.swift */,
+				5226A6D09862A19658B3C893 /* ClipboardLegacySettingsMigration.swift */,
 				2C9739EFE22157DDF7AFD91B /* ClipboardSettingsView.swift */,
 				A320BFFB4CB076E26BB0770C /* DownloadsSettingsView.swift */,
 				31D70C5F8D0645F8C7B7BAA1 /* FolderPreviewSettingsView.swift */,
@@ -1530,6 +1535,7 @@
 				6A3D5A34DBBE574D545D8D80 /* VoicePersonalizationPage.swift */,
 				3D0140F4AD906E02B652613F /* VoiceProviderSetupView.swift */,
 				7B70502AC9ABBAEE27E4D718 /* VoiceRecognitionSetupGuide.swift */,
+				2272B2E654945F8E41447EE3 /* VoiceTranscriptHistoryRowView.swift */,
 				125F952B2DB6DE7C585AACA8 /* VoiceTranscriptRowMenu.swift */,
 				955D107477C99646C0364ABF /* VoiceUnsupportedASRModelRow.swift */,
 				FAFDAEF70524C30FC90157E5 /* Onboarding */,
@@ -2160,6 +2166,7 @@
 				202630EB35D64AC40921CE1C /* ClipboardDock.swift in Sources */,
 				16DDE55D34DC095F9E351974 /* ClipboardDockModel.swift in Sources */,
 				2D5603FCA46C893D5BE60F68 /* ClipboardFeatureActivator.swift in Sources */,
+				D201829A57E6539350DC05D7 /* ClipboardLegacySettingsMigration.swift in Sources */,
 				6E4F2A5317394886DFF042E5 /* ClipboardPopoverView.swift in Sources */,
 				D89A829D2528DAC4BDEAEF04 /* ClipboardSettingsView.swift in Sources */,
 				3D2F1429F98CEB6491DA8384 /* CodeCard.swift in Sources */,
@@ -2379,6 +2386,7 @@
 				E21291929C7FE435CE3C331F /* VoiceSettingsView.swift in Sources */,
 				B44CAC6AA73D1B703F1F7262 /* VoiceShortcutMatcher.swift in Sources */,
 				7569987ACEEC2E3B3367CDE8 /* VoiceTrainingExamplesSection.swift in Sources */,
+				58944CD593AB746D7CC43C1E /* VoiceTranscriptHistoryRowView.swift in Sources */,
 				444CF48D008FF98D258BBC5F /* VoiceTranscriptRetentionRunner.swift in Sources */,
 				1FF93092D9B581D75C8B7CD1 /* VoiceTranscriptRowMenu.swift in Sources */,
 				5B1438F12C926B34FBC81CBB /* VoiceUnsupportedASRModelRow.swift in Sources */,
@@ -2390,7 +2398,6 @@
 				AC31C97D4D6525E481AB8B9D /* WindowControlEventTap.swift in Sources */,
 				273CC03D0B810439A0CF8084 /* WindowControlFeatureActivator.swift in Sources */,
 				90F6AD4659B7FE66F18EBEAB /* WindowControlMainPage.swift in Sources */,
-				6F71AA015377739D9BE74961 /* WindowControlPopoverView.swift in Sources */,
 				33CA749509F08A288C89A7CB /* WindowControlSettingsStore.swift in Sources */,
 				B74C4C26EC67AA5203B84509 /* WindowControlSettingsView.swift in Sources */,
 				57A0D3780189FD2B9902A1EE /* WindowGestureModifierPicker.swift in Sources */,
@@ -2398,6 +2405,7 @@
 				D25322FBA7E9736DFB8D044E /* WindowGrabDestinationView.swift in Sources */,
 				AD3959D69980A423BE4800EF /* WindowLayoutsDescriptor.swift in Sources */,
 				68B2B862F1FB48630B93C2D6 /* WindowLayoutsDestinationView.swift in Sources */,
+				33274AB15FC410A630878E5A /* WindowLayoutsPopoverView.swift in Sources */,
 				E28F04AC1E33360F7B86D2F8 /* WindowSnapOverlayPanel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

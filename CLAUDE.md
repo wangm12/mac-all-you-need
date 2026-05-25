@@ -218,7 +218,7 @@ Main-app source layout:
   rules, app exclusions, and multi-select.
 - `Command-Shift-V` dock/popup with search focus, keyboard navigation,
   transforms, quick look, pinboards, and drag-reorder.
-- Command Center menu-bar popover with four tabs: Clipboard, Voice, Downloads,
+- Command Center menu-bar popover with five tabs: Clipboard, Voice, Downloads, Layouts,
   Snippets. Footer is tab-specific; Pause appears only for Clipboard.
 - Snippet library powered by the local dock model, not stale XPC snippet reads.
   Snippet rows show body preview and keep the trigger visible.

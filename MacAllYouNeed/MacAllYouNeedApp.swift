@@ -221,6 +221,10 @@ private final class AppStatusItemController: NSObject, NSPopoverDelegate {
     private var popover: NSPopover?
     private var defaultsObserver: NSObjectProtocol?
     private var dismissObserver: NSObjectProtocol?
+    private var reanchorObserver: NSObjectProtocol?
+    private var screenParametersObserver: NSObjectProtocol?
+    private var popoverWindowObservers: [NSObjectProtocol] = []
+    private var reanchorWorkItem: DispatchWorkItem?
 
     init(controller: AppController) {
         self.controller = controller
@@ -239,6 +243,20 @@ private final class AppStatusItemController: NSObject, NSPopoverDelegate {
         ) { [weak self] _ in
             Task { @MainActor in self?.closePopover() }
         }
+        reanchorObserver = NotificationCenter.default.addObserver(
+            forName: .menuBarPopoverReanchorRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.schedulePopoverReanchor() }
+        }
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.schedulePopoverReanchor() }
+        }
     }
 
     deinit {
@@ -248,6 +266,13 @@ private final class AppStatusItemController: NSObject, NSPopoverDelegate {
         if let dismissObserver {
             NotificationCenter.default.removeObserver(dismissObserver)
         }
+        if let reanchorObserver {
+            NotificationCenter.default.removeObserver(reanchorObserver)
+        }
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
+        }
+        reanchorWorkItem?.cancel()
     }
 
     func applyVisibilityFromDefaults() {
@@ -300,6 +325,7 @@ private final class AppStatusItemController: NSObject, NSPopoverDelegate {
         self.popover = popover
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+        scheduleFollowUpScreenAlignment()
     }
 
     private func makePopover() -> NSPopover {
@@ -313,7 +339,149 @@ private final class AppStatusItemController: NSObject, NSPopoverDelegate {
     }
 
     private func closePopover() {
+        reanchorWorkItem?.cancel()
+        tearDownPopoverWindowObservers()
         popover?.performClose(nil)
+    }
+
+    private func tearDownPopoverWindowObservers() {
+        for observer in popoverWindowObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        popoverWindowObservers.removeAll()
+    }
+
+    private func installPopoverWindowObservers(for window: NSWindow) {
+        tearDownPopoverWindowObservers()
+        let center = NotificationCenter.default
+        let screenChange = center.addObserver(
+            forName: NSWindow.didChangeScreenNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.schedulePopoverReanchor() }
+        }
+        popoverWindowObservers.append(screenChange)
+    }
+
+    /// Coalesce tab switches and layout so we re-anchor after SwiftUI settles.
+    private func schedulePopoverReanchor() {
+        reanchorWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.repositionPopoverIfShown()
+        }
+        reanchorWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    /// Re-show relative to the status item when the popover window is not
+    /// already substantially on the menu-bar screen.
+    ///
+    /// Calling `NSPopover.show` while already visible during SwiftUI tab churn
+    /// (Clipboard / Downloads) can make AppKit re-home the window on the wrong
+    /// display; only invoke `show` when overlap with the status item screen is low.
+    private func repositionPopoverIfShown() {
+        guard let popover, popover.isShown, let button = statusItem?.button else { return }
+        if let popWindow = popover.contentViewController?.view.window,
+           Self.popoverWindowHasSufficientOverlapWithStatusItemScreen(button: button, popWindow: popWindow) {
+            popWindow.makeKey()
+            scheduleFollowUpScreenAlignment()
+            return
+        }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+        scheduleFollowUpScreenAlignment()
+    }
+
+    private func scheduleFollowUpScreenAlignment() {
+        DispatchQueue.main.async { [weak self] in
+            self?.verifyAndCorrectPopoverScreenIfNeeded()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.verifyAndCorrectPopoverScreenIfNeeded()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self] in
+            self?.verifyAndCorrectPopoverScreenIfNeeded()
+        }
+    }
+
+    private func verifyAndCorrectPopoverScreenIfNeeded() {
+        guard let popover, popover.isShown,
+              let button = statusItem?.button as NSButton?,
+              let popWindow = popover.contentViewController?.view.window else { return }
+
+        if Self.popoverWindowHasSufficientOverlapWithStatusItemScreen(button: button, popWindow: popWindow) {
+            return
+        }
+
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popWindow.makeKey()
+    }
+
+    /// Resolve the logical display hosting the status item (menu bar may sit
+    /// above `visibleFrame`; use `NSScreen.frame` / `NSMouseInRect`).
+    private static func screenForStatusItemButton(_ button: NSButton) -> NSScreen? {
+        guard let window = button.window else { return nil }
+        let rectInWindow = button.convert(button.bounds, to: nil)
+        let rectInScreen = window.convertToScreen(rectInWindow)
+        let anchor = NSPoint(x: rectInScreen.midX, y: rectInScreen.midY)
+        return NSScreen.screens.first { NSMouseInRect(anchor, $0.frame, false) }
+    }
+
+    /// Fraction of the popover window area that lies inside `screenFrame`
+    /// (global display coordinates).
+    private static func overlapFraction(of windowFrame: NSRect, with screenFrame: NSRect) -> CGFloat {
+        let inter = windowFrame.intersection(screenFrame)
+        guard inter.width > 0, inter.height > 0 else { return 0 }
+        let interArea = inter.width * inter.height
+        let winArea = windowFrame.width * windowFrame.height
+        guard winArea > 0 else { return 0 }
+        return interArea / winArea
+    }
+
+    /// True when enough of the popover sits on the same logical display as the
+    /// status item — avoids mis-detecting during layout when the window center
+    /// briefly sits over an adjacent screen while the anchor is still correct.
+    private static func popoverWindowHasSufficientOverlapWithStatusItemScreen(
+        button: NSButton,
+        popWindow: NSWindow,
+        minimumFraction: CGFloat = 0.2
+    ) -> Bool {
+        guard let targetScreen = screenForStatusItemButton(button) else {
+            // Cannot resolve menu-bar screen; do not fight AppKit.
+            return true
+        }
+        return overlapFraction(of: popWindow.frame, with: targetScreen.frame) >= minimumFraction
+    }
+
+    /// Without `.fullScreenAuxiliary` the popover stays on the desktop Space,
+    /// so clicks from a full-screen app appear to do nothing.
+    ///
+    /// Omit `.canJoinAllSpaces`: it lets AppKit re-home the popover across
+    /// displays when content updates (tabs, SwiftUI layout).
+    private func applyCommandCenterPopoverSpaceBehavior(to popover: NSPopover) {
+        if let window = popover.contentViewController?.view.window {
+            window.collectionBehavior.formUnion(.fullScreenAuxiliary)
+        }
+    }
+
+    func popoverWillShow(_ notification: Notification) {
+        guard let popover = notification.object as? NSPopover else { return }
+        applyCommandCenterPopoverSpaceBehavior(to: popover)
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        guard let popover = notification.object as? NSPopover else { return }
+        applyCommandCenterPopoverSpaceBehavior(to: popover)
+        if let window = popover.contentViewController?.view.window {
+            installPopoverWindowObservers(for: window)
+        }
+        scheduleFollowUpScreenAlignment()
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        tearDownPopoverWindowObservers()
+        reanchorWorkItem?.cancel()
     }
 }
 
@@ -326,4 +494,5 @@ private func MAYNIsRunningUnderXCTest() -> Bool {
 
 extension Notification.Name {
     static let menuBarPopoverDismissRequested = Notification.Name("menuBarPopoverDismissRequested")
+    static let menuBarPopoverReanchorRequested = Notification.Name("menuBarPopoverReanchorRequested")
 }

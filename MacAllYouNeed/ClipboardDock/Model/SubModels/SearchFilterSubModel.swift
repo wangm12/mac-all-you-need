@@ -160,13 +160,17 @@ final class SearchFilterSubModel {
             // (e.g. CleanShot writes png + file URL + sometimes rtf for one
             // copy action) before we trim to the requested limit.
             let fetchLimit = max(limit * 3, limit + 30)
+            let window = ClipboardHistoryWindow.listParameters()
             let raw: [ClipboardItemMeta]
             if let query, !query.isEmpty {
-                let recent = (try? clip.list(limit: max(fetchLimit, 200))) ?? []
+                let recent = (try? clip.list(
+                    limit: max(fetchLimit, 200),
+                    modifiedOnOrAfter: window.modifiedOnOrAfter
+                )) ?? []
                 let lower = query.lowercased()
                 raw = Array(recent.filter { $0.preview.lowercased().contains(lower) })
             } else {
-                raw = (try? clip.list(limit: fetchLimit)) ?? []
+                raw = (try? clip.list(limit: fetchLimit, modifiedOnOrAfter: window.modifiedOnOrAfter)) ?? []
             }
             let deduped = SearchFilterSubModel.dedupSamePaste(raw, limit: limit)
             return deduped.map { SearchFilterSubModel.xpcMeta(from: $0, clip: clip) }

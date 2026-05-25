@@ -1,5 +1,6 @@
 import AppKit
 import Core
+import CoreFoundation
 import SwiftUI
 
 enum ClipboardDockHeightSetting {
@@ -32,8 +33,7 @@ enum ClipboardDockOpenFocusSetting {
 
 struct ClipboardSettingsView: View {
     let controller: AppController
-    @AppStorage("clipboardMaxItems", store: AppGroupSettings.defaults) private var maxItems = 10000
-    @AppStorage("capture.sound", store: AppGroupSettings.defaults) private var captureSound = false
+    @AppStorage("retention.maxAgeDays", store: AppGroupSettings.defaults) private var maxAgeDays = 30
     @AppStorage("autoPaste.behavior", store: AppGroupSettings.defaults) private var pasteBehavior = "pasteIntoFocused"
     @AppStorage("autoPaste.delayMs", store: AppGroupSettings.defaults) private var pasteDelay = 150
     @State private var blockedApps: [String] = ExcludedAppsStore.load()
@@ -45,28 +45,19 @@ struct ClipboardSettingsView: View {
         ) {
             MAYNSection(title: "History") {
                 MAYNSettingsRow(
-                    title: "Maximum items",
-                    subtitle: "Upper bound for searchable clipboard history before retention cleanup."
+                    title: "History window",
+                    subtitle: "Only browse items newer than this in the main Clipboard page. Same setting as Storage → History size → Maximum age."
                 ) {
-                    MAYNNumericStepper(
-                        text: "\(maxItems)",
-                        value: $maxItems,
-                        range: 100...100_000,
-                        step: 100,
-                        presets: [1_000, 5_000, 10_000, 50_000, 100_000]
+                    MAYNDropdown(
+                        selection: $maxAgeDays,
+                        options: [0, 7, 30, 90, 365],
+                        title: clipboardHistoryMaxAgeTitle,
+                        width: MAYNControlMetrics.widePickerWidth
                     )
                 }
             }
 
             MAYNSection(title: "Capture") {
-                MAYNSettingsRow(
-                    title: "Play sound on capture",
-                    subtitle: "Audible feedback when a new clipboard item is recorded."
-                ) {
-                    Toggle("", isOn: $captureSound)
-                        .labelsHidden()
-                }
-                MAYNDivider()
                 BundleIDExclusionEditor(bundleIDs: $blockedApps) { ExcludedAppsStore.save($0) }
             }
 
@@ -105,6 +96,31 @@ struct ClipboardSettingsView: View {
 
             ClipboardDockHeightSection(controller: controller)
         }
+        .onChange(of: maxAgeDays) { _, _ in
+            postRetentionSettingsChangedDarwin()
+        }
+    }
+
+    private func clipboardHistoryMaxAgeTitle(_ days: Int) -> String {
+        switch days {
+        case 0:
+            "Forever"
+        case 1:
+            "1 day"
+        default:
+            "\(days) days"
+        }
+    }
+
+    private func postRetentionSettingsChangedDarwin() {
+        let name = "com.macallyouneed.settings-changed" as CFString
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(name),
+            nil,
+            nil,
+            true
+        )
     }
 
     private let pasteBehaviorOptions = ["pasteIntoFocused", "copyOnly", "copyThenPaste"]

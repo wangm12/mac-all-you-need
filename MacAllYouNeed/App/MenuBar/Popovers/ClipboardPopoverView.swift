@@ -34,6 +34,11 @@ struct ClipboardPopoverView: View {
                                         reader.selectedIDs = [item.id.rawValue]
                                         reader.anchorID = item.id.rawValue
                                         copySelectedAndDismiss()
+                                    },
+                                    onCopy: {
+                                        reader.selectedIDs = [item.id.rawValue]
+                                        reader.anchorID = item.id.rawValue
+                                        copySelectedAndDismiss()
                                     }
                                 )
                                 .id(item.id.rawValue)
@@ -260,14 +265,18 @@ struct ClipboardPopoverView: View {
     }
 
     private func claimKeyWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        DispatchQueue.main.async {
-            for window in NSApp.windows {
-                let name = String(describing: type(of: window))
-                if name.contains("MenuBarExtra") || name.contains("NSStatusBarWindow") {
-                    window.makeKeyAndOrderFront(nil)
-                    return
-                }
+        // Do NOT call NSApp.activate here. When a full-screen app lives on
+        // one Space and our app's other windows (main window, extra
+        // NSStatusBarWindow instances on the non-fullscreen display) live on
+        // the desktop Space, activating pulls macOS to that desktop Space,
+        // dragging the popover along with it. The popover is already key
+        // when shown by AppStatusItemController; just re-assert key on the
+        // popover window itself in case SwiftUI shifted first-responder.
+        for window in NSApp.windows {
+            let name = String(describing: type(of: window))
+            if name.contains("Popover") {
+                window.makeKey()
+                return
             }
         }
     }
@@ -373,6 +382,7 @@ private struct ClipboardItemRow2: View {
     let isSelected: Bool
     let onTap: () -> Void
     let onActivate: () -> Void
+    let onCopy: () -> Void
 
     @State private var isHovering = false
 
@@ -433,6 +443,13 @@ private struct ClipboardItemRow2: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
+            DownloadIconButton(
+                symbolName: "doc.on.doc",
+                role: .secondary,
+                accessibilityLabel: "Copy",
+                action: onCopy
+            )
+            .help("Copy")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

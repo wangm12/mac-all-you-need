@@ -8,7 +8,7 @@ If something here conflicts with a screenshot, the document wins. If something h
 
 ## 1. Purpose
 
-One visual language across the menu-bar Command Center, dashboard, main tool pages, settings, onboarding wizards, the floating voice HUD, the clipboard dock, the folder browser, and the window-control surfaces. No new ad-hoc colors, fonts, spacings, animations, or controls when a system primitive already exists.
+One visual language across the menu-bar tools popover, dashboard, main tool pages, settings, onboarding wizards, the floating voice HUD, the clipboard dock, the folder browser, and the window-control surfaces. No new ad-hoc colors, fonts, spacings, animations, or controls when a system primitive already exists.
 
 The system is calm, native, neutral. Color is for state (success/warning/danger/progress) and for accenting the app icon of a clipboard item — never for decoration.
 
@@ -306,10 +306,12 @@ This is the map. When working on any surface, conform to this structure.
 ### 7.1 Menu-bar popover
 - File: `MacAllYouNeed/App/AppMenuBarContent.swift`
 - 500×600 `NSPopover` content.
-- Layout: header (Command Center + Settings button) → `FunctionSegmentedTabStrip` (4 tabs: Clipboard / Voice / Downloads / Snippets) → tab content → footer.
+- Layout: header (Settings only — no title bar copy) → `FunctionSegmentedTabStrip` (5 tabs: Clipboard / Voice / Downloads / Layouts / Snippets) → tab content → footer.
+- **Layouts** tab: Rectangle-style snap grid for the frontmost window (halves, corners, maximize, center, restore, display cycling). Uses `WindowControlCoordinator.perform`; respects feature enable, per-user “Window Layouts on”, Accessibility trust, and ignored-app rules — same as keyboard shortcuts.
 - Footer is tab-specific: shortcut hint + label + Open button for the active tab + Quit. "Pause 60s" appears only on the Clipboard tab.
 - Snippet rows show the snippet body preview as the primary readable text and keep the trigger visible as metadata.
-- All four tabs must use `FunctionSegmentedTabStrip`.
+- Voice tab (`VoicePopoverView`): recent transcript list only — per-row **Copy** and **Retry** (no download/delete). Same keyboard affordances as the main Voice History list: **Space** previews the selection, **Return** copies, double-click a row copies, arrow keys move selection, **⌘C** / **⌘A** supported.
+- All five tabs must use `FunctionSegmentedTabStrip`.
 
 ### 7.2 Main window
 - File: `MacAllYouNeed/App/MainWindowRoot.swift`

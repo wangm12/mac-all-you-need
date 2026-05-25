@@ -272,8 +272,9 @@ struct VoiceDestinationView: View {
                 } else {
                     ForEach(Array(page.visible.enumerated()), id: \.element.id) { index, transcript in
                         if index > 0 { MAYNDivider() }
-                        VoiceTranscriptHistoryRow(
+                        VoiceTranscriptHistoryRowView(
                             transcript: transcript,
+                            surface: .main,
                             isSelected: selectedTranscriptIDs.contains(transcript.id),
                             onSelect: { selectVoiceTranscript(transcript) },
                             onCopy: { copyVoiceTranscripts(ids: [transcript.id]) },
@@ -1374,93 +1375,6 @@ private struct VoiceTranscriptPaginationFooter: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct VoiceTranscriptHistoryRow: View {
-    let transcript: VoiceTranscript
-    let isSelected: Bool
-    let onSelect: () -> Void
-    let onCopy: () -> Void
-    let onRetry: () -> Void
-    let onDownload: () -> Void
-    let onDelete: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(displayText)
-                    .font(.callout)
-                    .lineLimit(2)
-                Text(metadataLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button {
-                    onCopy()
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Copy transcript")
-                .opacity(isHovering || isSelected ? 1 : 0)
-                .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
-                .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
-
-            VoiceTranscriptRowMenu(
-                hasAudio: transcript.audioPath != nil,
-                onRetry: onRetry,
-                onDownload: onDownload,
-                onDelete: onDelete
-            )
-            .opacity(isHovering || isSelected ? 1 : 0)
-            .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
-            .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(minHeight: 62)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-        .simultaneousGesture(TapGesture(count: 2).onEnded { onCopy() })
-        .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
-        .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
-        .onHover { isHovering = $0 }
-    }
-
-    private var displayText: String {
-        MainVoiceTranscriptHistoryPresentation.displayText(transcript)
-    }
-
-    private var metadataLine: String {
-        let time = CompactTimestamp.format(transcript.endedAt)
-        let duration = formatDuration(ms: transcript.durationMs)
-        return "\(time) · \(transcript.language.rawValue) · \(transcript.modelIdentifier) · \(duration)"
-    }
-
-    private func formatDuration(ms: Int) -> String {
-        let seconds = Double(ms) / 1000.0
-        if seconds < 60 { return String(format: "%.1f s", seconds) }
-        let minutes = Int(seconds / 60)
-        let remainder = Int(seconds.truncatingRemainder(dividingBy: 60))
-        return "\(minutes)m \(remainder)s"
-    }
-
-    private var rowBackground: Color {
-        if isSelected { return Color.primary.opacity(0.10) }
-        if isHovering { return MAYNTheme.hover }
-        return .clear
     }
 }
 

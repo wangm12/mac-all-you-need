@@ -156,13 +156,32 @@ public final class ClipboardStore {
         )
     }
 
-    public func list(limit: Int, offset: Int = 0) throws -> [ClipboardItemMeta] {
+    public func list(limit: Int, offset: Int = 0, modifiedOnOrAfter: Date? = nil) throws -> [ClipboardItemMeta] {
+        try listRows(limit: limit, offset: offset, modifiedOnOrAfter: modifiedOnOrAfter)
+    }
+
+    /// Binary overload keeps a stable symbol for older call sites (`list(limit:offset:)`).
+    public func list(limit: Int, offset: Int) throws -> [ClipboardItemMeta] {
+        try listRows(limit: limit, offset: offset, modifiedOnOrAfter: nil)
+    }
+
+    private func listRows(limit: Int, offset: Int, modifiedOnOrAfter: Date?) throws -> [ClipboardItemMeta] {
         try db.queue.read { conn in
-            try Row.fetchAll(conn, sql: """
+            if let modifiedOnOrAfter {
+                let ms = Int(modifiedOnOrAfter.timeIntervalSince1970 * 1000)
+                return try Row.fetchAll(conn, sql: """
+                    SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
+                           frequency, last_accessed, custom_label
+                    FROM clipboard_records
+                    WHERE modified >= ?
+                    ORDER BY modified DESC, lamport DESC LIMIT ? OFFSET ?
+                    """, arguments: [ms, limit, max(0, offset)]).map(Self.metaRow)
+            }
+            return try Row.fetchAll(conn, sql: """
                 SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
                        frequency, last_accessed, custom_label
                 FROM clipboard_records ORDER BY modified DESC, lamport DESC LIMIT ? OFFSET ?
-            """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
+                """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
         }
     }
 
@@ -224,28 +243,50 @@ public final class ClipboardStore {
         }
     }
 
-    public func recentByFrequency(limit: Int, offset: Int = 0) throws -> [ClipboardItemMeta] {
+    public func recentByFrequency(limit: Int, offset: Int = 0, modifiedOnOrAfter: Date? = nil) throws -> [ClipboardItemMeta] {
         try db.queue.read { conn in
-            try Row.fetchAll(conn, sql: """
+            if let modifiedOnOrAfter {
+                let ms = Int(modifiedOnOrAfter.timeIntervalSince1970 * 1000)
+                return try Row.fetchAll(conn, sql: """
+                    SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
+                           frequency, last_accessed, custom_label
+                    FROM clipboard_records
+                    WHERE modified >= ?
+                    ORDER BY frequency DESC, modified DESC
+                    LIMIT ? OFFSET ?
+                    """, arguments: [ms, limit, max(0, offset)]).map(Self.metaRow)
+            }
+            return try Row.fetchAll(conn, sql: """
                 SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
                        frequency, last_accessed, custom_label
                 FROM clipboard_records
                 ORDER BY frequency DESC, modified DESC
                 LIMIT ? OFFSET ?
-            """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
+                """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
         }
     }
 
-    public func recentByLastAccessed(limit: Int, offset: Int = 0) throws -> [ClipboardItemMeta] {
+    public func recentByLastAccessed(limit: Int, offset: Int = 0, modifiedOnOrAfter: Date? = nil) throws -> [ClipboardItemMeta] {
         try db.queue.read { conn in
-            try Row.fetchAll(conn, sql: """
+            if let modifiedOnOrAfter {
+                let ms = Int(modifiedOnOrAfter.timeIntervalSince1970 * 1000)
+                return try Row.fetchAll(conn, sql: """
+                    SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
+                           frequency, last_accessed, custom_label
+                    FROM clipboard_records
+                    WHERE last_accessed IS NOT NULL AND modified >= ?
+                    ORDER BY last_accessed DESC
+                    LIMIT ? OFFSET ?
+                    """, arguments: [ms, limit, max(0, offset)]).map(Self.metaRow)
+            }
+            return try Row.fetchAll(conn, sql: """
                 SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
                        frequency, last_accessed, custom_label
                 FROM clipboard_records
                 WHERE last_accessed IS NOT NULL
                 ORDER BY last_accessed DESC
                 LIMIT ? OFFSET ?
-            """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
+                """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
         }
     }
 

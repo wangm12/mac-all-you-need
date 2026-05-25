@@ -240,7 +240,7 @@ Main-app source layout:
 
 - Clipboard capture, encryption, FTS indexing, app exclusions, retention, paste
   injection, URL detection, and history search.
-- Command Center menu-bar popover with four tabs: Clipboard, Voice, Downloads,
+- Command Center menu-bar popover with five tabs: Clipboard, Voice, Downloads, Layouts,
   Snippets. Footer actions are tab-specific; Pause is Clipboard-only.
 - Bottom dock with Clipboard History, Snippets, and user pinboards; pinboards
   support card and tab reordering.

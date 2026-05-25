@@ -1,3 +1,5 @@
+import AppKit
+import Core
 import SwiftUI
 
 /// Named `SnippetsListView` to preserve the call site in `MainWindowRoot.swift`.
@@ -55,6 +57,13 @@ struct SnippetsListView: View {
                                     }
                                 }
                                 Spacer()
+                                DownloadIconButton(
+                                    symbolName: "doc.on.doc",
+                                    role: .secondary,
+                                    accessibilityLabel: "Copy",
+                                    action: { copySnippet(snippet) }
+                                )
+                                .help("Copy snippet")
                             }
                             .padding(10)
                             .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
@@ -69,5 +78,13 @@ struct SnippetsListView: View {
             }
         }
         .task { await model.loadSnippets() }
+    }
+
+    private func copySnippet(_ snippet: Snippet) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(snippet.body, forType: .string)
+        NotificationCenter.default.post(name: .menuBarPopoverDismissRequested, object: nil)
+        CopyHUD.show("Copied")
     }
 }

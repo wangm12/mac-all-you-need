@@ -1,12 +1,12 @@
 import AppKit
 import Core
+import CoreFoundation
 import Platform
 import SwiftUI
 
 struct ClipboardDestinationView: View {
     let controller: AppController
-    @AppStorage("clipboardMaxItems", store: AppGroupSettings.defaults) private var maxItems = 10000
-    @AppStorage("capture.sound", store: AppGroupSettings.defaults) private var captureSound = false
+    @AppStorage("retention.maxAgeDays", store: AppGroupSettings.defaults) private var maxAgeDays = 30
     @AppStorage("autoPaste.behavior", store: AppGroupSettings.defaults) private var pasteBehavior = "pasteIntoFocused"
     @AppStorage("autoPaste.delayMs", store: AppGroupSettings.defaults) private var pasteDelay = 150
     @AppStorage(ClipboardFunctionTab.storageKey, store: AppGroupSettings.defaults) private var selectedTabRaw = ClipboardFunctionTab.history.rawValue
@@ -74,7 +74,8 @@ struct ClipboardDestinationView: View {
         .onChange(of: historyItems.map(\.id.rawValue)) { _, _ in
             clampClipboardHistoryPage()
         }
-        .onChange(of: maxItems) { _, _ in
+        .onChange(of: maxAgeDays) { _, _ in
+            postRetentionSettingsChangedDarwin()
             reloadClipboardHistory()
         }
     }
@@ -187,24 +188,15 @@ struct ClipboardDestinationView: View {
 
             MAYNSection(title: "Capture") {
                 MAYNSettingsRow(
-                    title: "Maximum items",
-                    subtitle: "Upper bound for searchable clipboard history before retention cleanup."
+                    title: "History window",
+                    subtitle: "Only list and search items newer than this. Matches Storage → History size → Maximum age; nightly cleanup uses the same clock."
                 ) {
-                    MAYNNumericStepper(
-                        text: "\(maxItems)",
-                        value: $maxItems,
-                        range: 100...100_000,
-                        step: 100,
-                        presets: [1_000, 5_000, 10_000, 50_000, 100_000]
+                    MAYNDropdown(
+                        selection: $maxAgeDays,
+                        options: [0, 7, 30, 90, 365],
+                        title: clipboardHistoryMaxAgeTitle,
+                        width: MAYNControlMetrics.widePickerWidth
                     )
-                }
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Play sound on capture",
-                    subtitle: "Audible feedback when a new clipboard item is recorded."
-                ) {
-                    Toggle("", isOn: $captureSound)
-                        .labelsHidden()
                 }
             }
 
@@ -236,7 +228,7 @@ struct ClipboardDestinationView: View {
                         suffix: "ms"
                     )
                 }
-            }
+                }
             }
 
             ClipboardDockHeightSection(controller: controller)
@@ -246,6 +238,28 @@ struct ClipboardDestinationView: View {
     }
 
     private let pasteBehaviorOptions = ["pasteIntoFocused", "copyOnly", "copyThenPaste"]
+
+    private func clipboardHistoryMaxAgeTitle(_ days: Int) -> String {
+        switch days {
+        case 0:
+            "Forever"
+        case 1:
+            "1 day"
+        default:
+            "\(days) days"
+        }
+    }
+
+    private func postRetentionSettingsChangedDarwin() {
+        let name = "com.macallyouneed.settings-changed" as CFString
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(name),
+            nil,
+            nil,
+            true
+        )
+    }
 
     private func pasteBehaviorTitle(_ behavior: String) -> String {
         switch behavior {
@@ -342,11 +356,13 @@ struct ClipboardDestinationView: View {
             return
         }
 
-        let limit = max(1, maxItems)
+        let params = ClipboardHistoryWindow.listParameters()
+        let limit = params.fetchLimit
         isHistoryLoading = true
         Task {
+            let cutoff = params.modifiedOnOrAfter
             let result = await Task.detached(priority: .userInitiated) {
-                Result { try store.list(limit: limit) }
+                Result { try store.list(limit: limit, modifiedOnOrAfter: cutoff) }
             }.value
 
             switch result {

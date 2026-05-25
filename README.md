@@ -57,7 +57,7 @@ The app ships as three Xcode targets bundled into one `.app`:
 
 ## App Surfaces
 
-- Menu-bar Command Center with Clipboard, Voice, Downloads, and Snippets tabs.
+- Menu-bar tools popover with Clipboard, Voice, Downloads, Layouts, and Snippets tabs.
 - Main window with Dashboard plus first-class pages for every tool.
 - Bottom clipboard dock with history, snippets, user pinboards, drag/drop, and
   keyboard shortcuts.

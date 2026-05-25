@@ -66,7 +66,8 @@ final class LocalClipboardReader {
     func relatedItems(toID id: String, within: TimeInterval = 2.0) -> [ClipboardItemMeta] {
         guard let store else { return [] }
         guard let target = items.first(where: { $0.id.rawValue == id }) else { return [] }
-        let all = (try? store.list(limit: 200)) ?? []
+        let window = ClipboardHistoryWindow.listParameters()
+        let all = (try? store.list(limit: 200, modifiedOnOrAfter: window.modifiedOnOrAfter)) ?? []
         return all.filter { abs($0.modified.timeIntervalSince(target.modified)) < within }
     }
 
@@ -131,7 +132,8 @@ final class LocalClipboardReader {
         guard let store else { return }
         let currentQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let result = await Task.detached(priority: .userInitiated) {
-            Result { try store.list(limit: 200) }
+            let window = ClipboardHistoryWindow.listParameters()
+            return Result { try store.list(limit: 200, modifiedOnOrAfter: window.modifiedOnOrAfter) }
         }.value
         switch result {
         case .success(let fetched):

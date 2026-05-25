@@ -35,18 +35,29 @@ import Foundation
             let pageSize = max(1, min(limit, 100))
             let offset = max(0, Int(pageToken ?? "") ?? 0)
             let trimmedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let window = ClipboardHistoryWindow.listParameters()
             let metas: [ClipboardItemMeta]
             if let trimmedQuery, !trimmedQuery.isEmpty {
                 let hits = try search.search(query: trimmedQuery, limit: pageSize, offset: offset)
-                metas = try clip.metas(for: hits.map(\.id))
+                var resolved = try clip.metas(for: hits.map(\.id))
+                if let cutoff = window.modifiedOnOrAfter {
+                    resolved = resolved.filter { $0.modified >= cutoff }
+                }
+                metas = resolved
             } else {
                 switch historySortMode() {
                 case .recency:
-                    metas = try clip.list(limit: pageSize, offset: offset)
+                    metas = try clip.list(
+                        limit: pageSize, offset: offset, modifiedOnOrAfter: window.modifiedOnOrAfter
+                    )
                 case .frequency:
-                    metas = try clip.recentByFrequency(limit: pageSize, offset: offset)
+                    metas = try clip.recentByFrequency(
+                        limit: pageSize, offset: offset, modifiedOnOrAfter: window.modifiedOnOrAfter
+                    )
                 case .recentlyUsed:
-                    metas = try clip.recentByLastAccessed(limit: pageSize, offset: offset)
+                    metas = try clip.recentByLastAccessed(
+                        limit: pageSize, offset: offset, modifiedOnOrAfter: window.modifiedOnOrAfter
+                    )
                 }
             }
             let items = metas.map { xpcMeta(from: $0) }

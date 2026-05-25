@@ -232,10 +232,9 @@ struct DownloadJobRow: View {
             Text(model.title)
                 .font(isCompact ? .caption.weight(.semibold) : .callout.weight(.semibold))
                 .lineLimit(1)
+                .layoutPriority(-1)
             Spacer(minLength: 6)
-            if !isCompact {
-                actionButtons
-            }
+            actionButtons
         }
     }
 
@@ -386,6 +385,7 @@ struct DownloadIconButton: View {
     let accessibilityLabel: String
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
     @State private var isHovering = false
     @State private var isPressed = false
 
@@ -401,10 +401,10 @@ struct DownloadIconButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
         .scaleEffect(isPressed && !reduceMotion ? 0.985 : 1)
-        .onHover { isHovering = $0 }
+        .onHover { if isEnabled { isHovering = $0 } else { isHovering = false } }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
+                .onChanged { _ in if isEnabled { isPressed = true } }
                 .onEnded { _ in isPressed = false }
         )
         .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
@@ -412,10 +412,12 @@ struct DownloadIconButton: View {
     }
 
     private var foreground: Color {
-        role == .destructive ? MAYNTheme.danger : .secondary
+        if !isEnabled { return .secondary.opacity(0.45) }
+        return role == .destructive ? MAYNTheme.danger : .secondary
     }
 
     private var background: Color {
+        if !isEnabled { return Color.clear }
         if isPressed { return MAYNTheme.elevatedPressed }
         if isHovering { return MAYNTheme.elevatedHover }
         return Color.clear
