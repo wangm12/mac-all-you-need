@@ -16,6 +16,9 @@ font, spacing, animation, control, page chrome, or feature surface.
   Advanced). Feature/workflow settings live primarily inside main tool pages.
 - Onboarding: feature picker + per-feature setup; voice has a separate 9-step
   wizard.
+- Voice AI cleanup: `VoiceCleanupProviderKind` includes Anthropic, OpenAI
+  compatible, Groq, Gemini, Ollama, and oMLX presets (each with its own
+  keychain slot). Groq **ASR** keys are separate from Groq **cleanup** keys.
 
 ## Hard Rules (Machine-Enforced via `.swiftlint.yml`)
 
@@ -94,8 +97,10 @@ require a `design.md §6` entry.
   presentation - per-app/user pinboard color tuples.
 - `Voice/UI/MiniVoiceHUD.swift` - v8 voice pill (universal 144x32, three slots:
   left status icon, centered label, right action). Near-black background, white
-  ink, `#363636` border. Documented raw-RGB exception for HUD legibility over
-  arbitrary desktops. Stop button always cancels; Cancelled pill exposes a 5s
+  ink, `#363636` border. During LLM **cleanup** (still labeled Transcribing), a gray
+  **track** carries a **black** fill that wipes left→right with streamed cleanup
+  progress (Typeless-style; short boot sweep before the first token when progress
+  stays at zero), then snaps to full black when cleanup completes. Documented raw-RGB exception for HUD legibility over arbitrary desktops. Stop button always cancels; Cancelled pill exposes a 5s
   Undo. See `VoiceCoordinator` for the keyboard model (Esc, Return / numpad
   Enter) and `processCapturedAudio` for the shared live + undo replay path.
 - `App/MainWindowRoot.swift` - seven dashboard function accent RGB tuples for

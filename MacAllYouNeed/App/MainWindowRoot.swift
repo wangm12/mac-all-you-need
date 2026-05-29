@@ -12,6 +12,8 @@ struct MainWindowRoot: View {
     @State private var pendingOrphans: [OrphanCacheScanner.Orphan] = []
     @State private var showWhatsNew = false
     @State private var whatsNewReport: MigrationReport?
+    @State private var isSidebarCollapsed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(controller: AppController) {
         self.controller = controller
@@ -27,45 +29,20 @@ struct MainWindowRoot: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            VStack(alignment: .leading, spacing: 6) {
-                Color.clear
-                    .frame(height: 34)
+        HStack(spacing: 0) {
+            mainSidebar
+                .frame(width: isSidebarCollapsed ? MainSidebarMetrics.collapsedWidth : MainSidebarMetrics.expandedWidth)
+                .background(MAYNTheme.panel)
 
-                ForEach(MainSidebarDestinationPresentation.renderedDestinations()) { destination in
-                    let isDisabled = isFeatureDisabled(for: destination)
-                    MainSidebarButton(
-                        destination: destination,
-                        isSelected: selection.wrappedValue == destination,
-                        isDisabled: isDisabled,
-                        badge: MainSidebarBadgePresentation.badgeText(
-                            for: destination,
-                            records: controller.downloaderVM.rows
-                        )
-                    ) {
-                        selection.wrappedValue = destination
-                    }
-                }
+            Rectangle()
+                .fill(MAYNTheme.divider)
+                .frame(width: 1)
 
-                Spacer(minLength: 0)
-
-                Divider()
-                    .padding(.vertical, 6)
-
-                MainSidebarSettingsButton {
-                    openSettingsInMain()
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 260)
-            .background(MAYNTheme.panel)
-        } detail: {
             detailView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(MAYNTheme.window)
         }
+        .animation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion), value: isSidebarCollapsed)
         .tint(MAYNTheme.controlTint)
         .accentColor(.gray)
         .maynDismissTextFocusOnOutsideClick()
@@ -176,6 +153,65 @@ struct MainWindowRoot: View {
         guard let fid = MainSidebarDestinationPresentation.featureID(for: destination) else { return false }
         return statePublisher.state(for: fid).activationState != .enabled
     }
+
+    private var mainSidebar: some View {
+        VStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 6) {
+            HStack {
+                if !isSidebarCollapsed {
+                    Spacer(minLength: 0)
+                }
+                Button {
+                    withAnimation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion)) {
+                        isSidebarCollapsed.toggle()
+                    }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar")
+            }
+            .frame(height: 34)
+            .frame(maxWidth: .infinity)
+
+            ForEach(MainSidebarDestinationPresentation.renderedDestinations()) { destination in
+                let isDisabled = isFeatureDisabled(for: destination)
+                MainSidebarButton(
+                    destination: destination,
+                    isSelected: selection.wrappedValue == destination,
+                    isDisabled: isDisabled,
+                    isCollapsed: isSidebarCollapsed,
+                    badge: MainSidebarBadgePresentation.badgeText(
+                        for: destination,
+                        records: controller.downloaderVM.rows
+                    )
+                ) {
+                    selection.wrappedValue = destination
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Divider()
+                .padding(.vertical, 6)
+
+            MainSidebarSettingsButton(
+                isCollapsed: isSidebarCollapsed,
+                isSelected: MainAppDestination.storedSelection(selectedRaw) == .settings
+            ) {
+                openSettingsInMain()
+            }
+        }
+        .padding(.horizontal, isSidebarCollapsed ? 8 : 10)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+enum MainSidebarMetrics {
+    static let expandedWidth: CGFloat = 220
+    static let collapsedWidth: CGFloat = 56
 }
 
 enum MainWindowRootPresentation {
@@ -183,6 +219,7 @@ enum MainWindowRootPresentation {
     static let observesFeatureStatePublisher = true
     static let disabledSidebarItemsAreNonClickable = true
     static let disabledSidebarItemsIgnoreHover = true
+    static let sidebarCollapsesToIconRail = true
 }
 
 /// Test contract: maps each `MainAppDestination` to the typename of the View
@@ -208,47 +245,86 @@ private struct MainSidebarButton: View {
     let destination: MainAppDestination
     let isSelected: Bool
     let isDisabled: Bool
+    let isCollapsed: Bool
     let badge: String?
     let action: () -> Void
     @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: destination.symbolName)
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(width: 16)
-                    if isDisabled {
-                        Image(systemName: "slash.circle")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .offset(x: 5, y: -5)
-                    }
-                }
-                Text(destination.title)
-                    .font(.callout)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if let badge {
-                    Text(badge)
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .background(MAYNTheme.progress, in: Capsule())
-                        .accessibilityLabel("\(badge) downloads in progress")
+            Group {
+                if isCollapsed {
+                    collapsedLabel
+                } else {
+                    expandedLabel
                 }
             }
             .foregroundStyle(isSelected && !isDisabled ? .primary : .secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, isCollapsed ? 0 : 10)
             .padding(.vertical, 7)
             .background(rowBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+        .help(destination.title)
         .onHover { isHovering = $0 }
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var expandedLabel: some View {
+        HStack(spacing: 9) {
+            destinationIcon
+            Text(destination.title)
+                .font(.callout)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if let badge {
+                Text(badge)
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .background(MAYNTheme.progress, in: Capsule())
+                    .accessibilityLabel("\(badge) downloads in progress")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var collapsedLabel: some View {
+        destinationIcon
+            .frame(maxWidth: .infinity)
+    }
+
+    private var destinationIcon: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: destination.symbolName)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 16, height: 16)
+            if isDisabled {
+                Image(systemName: "slash.circle")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .offset(x: 5, y: -5)
+            } else if isCollapsed, let badge {
+                Text(badge)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                    .frame(minWidth: 14, minHeight: 14)
+                    .background(MAYNTheme.progress, in: Capsule())
+                    .offset(x: 6, y: -6)
+                    .accessibilityLabel("\(badge) downloads in progress")
+            }
+        }
+    }
+
+    private var accessibilityLabel: String {
+        if let badge, !isCollapsed {
+            return "\(destination.title), \(badge) downloads in progress"
+        }
+        return destination.title
     }
 
     private var rowBackground: Color {
@@ -260,27 +336,33 @@ private struct MainSidebarButton: View {
 }
 
 private struct MainSidebarSettingsButton: View {
+    let isCollapsed: Bool
+    let isSelected: Bool
     let action: () -> Void
     @State private var isHovering = false
-    @AppStorage(MainAppDestination.storageKey, store: AppGroupSettings.defaults)
-    private var selectedRaw = MainAppDestination.dashboard.rawValue
 
     var body: some View {
         Button(action: action) {
-            Label("Settings", systemImage: "gearshape")
-                .font(.callout)
-                .foregroundStyle(isSelected ? .primary : .secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(rowBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            Group {
+                if isCollapsed {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 16, height: 16)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("Settings", systemImage: "gearshape")
+                        .font(.callout)
+                }
+            }
+            .foregroundStyle(isSelected ? .primary : .secondary)
+            .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+            .padding(.horizontal, isCollapsed ? 0 : 10)
+            .padding(.vertical, 7)
+            .background(rowBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
+        .help("Settings")
         .onHover { isHovering = $0 }
-    }
-
-    private var isSelected: Bool {
-        MainAppDestination.storedSelection(selectedRaw) == .settings
     }
 
     private var rowBackground: Color {
@@ -370,20 +452,15 @@ enum DashboardClipboardPreviewPresentation {
 struct MainClipboardHistoryPageState: Equatable {
     let filteredItems: [ClipboardItemMeta]
     let visibleItems: [ClipboardItemMeta]
-    let currentPage: Int
-    let totalPages: Int
-    let totalItems: Int
-    let pageSize: Int
+    let pagination: MAYNListPaginationState
 
-    var canGoPrevious: Bool { currentPage > 0 }
-    var canGoNext: Bool { currentPage < totalPages - 1 }
-
-    var rangeText: String {
-        guard totalItems > 0 else { return "0 of 0" }
-        let start = currentPage * pageSize + 1
-        let end = min(start + visibleItems.count - 1, totalItems)
-        return "\(start)-\(end) of \(totalItems)"
-    }
+    var currentPage: Int { pagination.currentPage }
+    var totalPages: Int { pagination.totalPages }
+    var totalItems: Int { pagination.totalItems }
+    var pageSize: Int { pagination.pageSize }
+    var canGoPrevious: Bool { pagination.canGoPrevious }
+    var canGoNext: Bool { pagination.canGoNext }
+    var rangeText: String { pagination.rangeText(visibleItemCount: visibleItems.count) }
 }
 
 enum MainClipboardHistoryPresentation {
@@ -393,22 +470,18 @@ enum MainClipboardHistoryPresentation {
         requestedPage: Int,
         pageSize requestedPageSize: Int
     ) -> MainClipboardHistoryPageState {
-        let pageSize = max(1, requestedPageSize)
         let filteredItems = filter(items, query: query)
-        let totalItems = filteredItems.count
-        let totalPages = max(1, Int(ceil(Double(totalItems) / Double(pageSize))))
-        let currentPage = min(max(0, requestedPage), totalPages - 1)
-        let start = currentPage * pageSize
-        let end = min(start + pageSize, totalItems)
-        let visibleItems = start < end ? Array(filteredItems[start ..< end]) : []
+        let pagination = MAYNListPagination.make(
+            totalItems: filteredItems.count,
+            requestedPage: requestedPage,
+            pageSize: requestedPageSize
+        )
+        let visibleItems = MAYNListPagination.slice(filteredItems, pagination: pagination)
 
         return MainClipboardHistoryPageState(
             filteredItems: filteredItems,
             visibleItems: visibleItems,
-            currentPage: currentPage,
-            totalPages: totalPages,
-            totalItems: totalItems,
-            pageSize: pageSize
+            pagination: pagination
         )
     }
 

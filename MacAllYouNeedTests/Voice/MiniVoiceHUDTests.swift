@@ -1,8 +1,10 @@
 @testable import MacAllYouNeed
+import AppKit
+import SwiftUI
 import XCTest
 
 final class MiniVoiceHUDTests: XCTestCase {
-    func testV7UniversalPillSize() {
+    func testV8UniversalPillSize() {
         XCTAssertEqual(MiniVoiceHUDLayout.pillWidth, 144)
         XCTAssertEqual(MiniVoiceHUDLayout.pillHeight, 32)
         XCTAssertEqual(MiniVoiceHUDLayout.iconSize, 14)
@@ -10,21 +12,19 @@ final class MiniVoiceHUDTests: XCTestCase {
         XCTAssertEqual(MiniVoiceHUDLayout.rightSlotCenter, 124)
     }
 
-    func testAllStatesShareUniversalPillSize() {
+    func testAllDefaultStatesShareUniversalPillSize() {
         let expected = CGSize(width: 144, height: 32)
         for state in [
             MiniVoiceHUD.State.recording(level: 0.4),
-            .transcribing,
-            .thinking,
-            .pasted,
-            .copied,
+            .transcribing(.asr),
+            .transcribing(.cleanup(progress: 0)),
             .cancelled,
             .noSpeech("x"),
             .error("y"),
             .idlePreview
         ] {
             XCTAssertEqual(MiniVoiceHUDLayout.size(for: state), expected,
-                           "state \(state) must use universal v7 pill size")
+                           "state \(state) must use universal v8 pill size")
         }
     }
 
@@ -38,7 +38,7 @@ final class MiniVoiceHUDTests: XCTestCase {
     }
 
     func testTranscribingPillUsesAISparkleAndIsStoppable() {
-        let pill = MiniVoiceHUDPill(state: .transcribing)
+        let pill = MiniVoiceHUDPill(state: .transcribing(.asr))
 
         XCTAssertEqual(pill.label, "Transcribing")
         XCTAssertEqual(pill.leading, .aiSparkle)
@@ -46,31 +46,19 @@ final class MiniVoiceHUDTests: XCTestCase {
         XCTAssertFalse(pill.isTerminal)
     }
 
-    func testThinkingPillUsesDotSpinnerAndIsStoppable() {
-        let pill = MiniVoiceHUDPill(state: .thinking)
+    func testTranscribingCleanupPillMatchesAsrChrome() {
+        let pill = MiniVoiceHUDPill(state: .transcribing(.cleanup(progress: 0.3)))
 
-        XCTAssertEqual(pill.label, "Thinking")
-        XCTAssertEqual(pill.leading, .dotSpinner)
+        XCTAssertEqual(pill.label, "Transcribing")
+        XCTAssertEqual(pill.leading, .aiSparkle)
         XCTAssertTrue(pill.isStoppable)
         XCTAssertFalse(pill.isTerminal)
     }
 
-    func testPastedMapsToAppliedCheckPill() {
-        let pill = MiniVoiceHUDPill(state: .pasted)
-
-        XCTAssertEqual(pill.label, "Applied")
-        XCTAssertEqual(pill.leading, .checkInCircle)
-        XCTAssertFalse(pill.isStoppable)
-        XCTAssertTrue(pill.isTerminal)
-    }
-
-    func testCopiedMapsToCopiedCheckPill() {
-        let pill = MiniVoiceHUDPill(state: .copied)
-
-        XCTAssertEqual(pill.label, "Copied")
-        XCTAssertEqual(pill.leading, .checkInCircle)
-        XCTAssertFalse(pill.isStoppable)
-        XCTAssertTrue(pill.isTerminal)
+    func testThinkingTrackIsLighterThanBlackFill() {
+        let track = rgbComponents(MiniVoiceHUDPalette.pillThinkingTrack)
+        let black = rgbComponents(MiniVoiceHUDPalette.pillBlack)
+        XCTAssertGreaterThan(track.r + track.g + track.b, black.r + black.g + black.b)
     }
 
     func testNoSpeechPillUsesWarningTriangle() {
@@ -131,4 +119,10 @@ final class MiniVoiceHUDTests: XCTestCase {
         XCTAssertTrue(hud.testingContentView === firstContentView)
         hud.dismiss()
     }
+}
+
+private func rgbComponents(_ color: Color) -> (r: CGFloat, g: CGFloat, b: CGFloat) {
+    let ns = NSColor(color)
+    guard let rgb = ns.usingColorSpace(.deviceRGB) else { return (0, 0, 0) }
+    return (rgb.redComponent, rgb.greenComponent, rgb.blueComponent)
 }

@@ -84,6 +84,22 @@ targets:
           cp "${SRCROOT}/Vendored/binaries/ffmpeg" "${RES}/ffmpeg"
           cp "${SRCROOT}/Vendored/binaries/manifest.json" "${RES}/downloader-manifest.json"
 
+  TypelessImport:
+    type: tool
+    platform: macOS
+    sources:
+      - Tools/TypelessImport
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.typeless-import
+        CODE_SIGN_ENTITLEMENTS: Tools/TypelessImport/TypelessImport.entitlements
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
+        INFOPLIST_KEY_MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
+    dependencies:
+      - package: Shared
+        product: Core
+
   MacAllYouNeedTests:
     type: bundle.unit-test
     platform: macOS
@@ -156,3 +172,9 @@ targets:
         product: Platform
       - package: Shared
         product: FeatureCore
+
+schemes:
+  TypelessImport:
+    build:
+      targets:
+        TypelessImport: all

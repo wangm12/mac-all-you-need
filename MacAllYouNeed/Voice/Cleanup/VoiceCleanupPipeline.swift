@@ -171,6 +171,24 @@ enum VoiceCleanupFallbackReason: String, Codable, Equatable {
 protocol VoiceLLMProvider: Sendable {
     var providerIdentifier: String { get }
     func clean(_ request: VoiceLLMRequest) async throws -> String
+    /// Incremental text deltas (e.g. SSE). Default wraps `clean` in a single yield.
+    func cleanStreaming(_ request: VoiceLLMRequest) -> AsyncThrowingStream<String, Error>
+}
+
+extension VoiceLLMProvider {
+    func cleanStreaming(_ request: VoiceLLMRequest) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let text = try await clean(request)
+                    continuation.yield(text)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
 }
 
 /// Narrow protocol for text generation with explicit system + user prompts.
@@ -182,6 +200,14 @@ protocol VoiceTextGenerationProvider: Sendable {
 }
 
 struct VoiceCleanupPipeline {
+    /// Maps cumulative streamed (post–reasoning-strip) character count to a 0…1
+    /// progress hint. Asymptotic and capped below 1 so the coordinator can snap
+    /// to `1` when cleanup completes (Typeless-style gray→black fill).
+    static func thinkingStreamProgressHint(strippedCharCount: Int) -> Double {
+        let n = Double(max(0, strippedCharCount))
+        return min(0.95, 1.0 - exp(-n / 72.0))
+    }
+
     private let provider: (any VoiceLLMProvider)?
     private let timeout: Duration
     private let forcedFallbackReason: VoiceCleanupFallbackReason?
@@ -199,7 +225,10 @@ struct VoiceCleanupPipeline {
         self.forcedDeadlineExceeded = forcedDeadlineExceeded
     }
 
-    func clean(_ request: VoiceCleanupRequest) async -> VoiceCleanupResult {
+    func clean(
+        _ request: VoiceCleanupRequest,
+        onThinkingProgress: ((Double) -> Void)? = nil
+    ) async -> VoiceCleanupResult {
         let startedAt = Date()
         let localText = VoiceLocalTextCleaner.clean(request.rawText)
         let speechUnits = Self.speechUnitCount(in: localText)
@@ -241,8 +270,12 @@ struct VoiceCleanupPipeline {
 
         do {
             log.info("cleanup: LLM call — provider: \(provider.providerIdentifier, privacy: .public) timeout: \(timeout, privacy: .public)")
-            let llmText = try await cleanWithTimeout(provider: provider, request: llmRequest)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let llmText = try await cleanWithTimeout(
+                provider: provider,
+                request: llmRequest,
+                onThinkingProgress: onThinkingProgress
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !llmText.isEmpty else {
                 log.warning("cleanup: LLM returned empty, falling back to local")
                 return fallback(
@@ -285,11 +318,25 @@ struct VoiceCleanupPipeline {
 
     private func cleanWithTimeout(
         provider: any VoiceLLMProvider,
-        request: VoiceLLMRequest
+        request: VoiceLLMRequest,
+        onThinkingProgress: ((Double) -> Void)?
     ) async throws -> String {
         try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask {
-                try await provider.clean(request)
+                var accumulated = ""
+                let stream = provider.cleanStreaming(request)
+                for try await chunk in stream {
+                    accumulated += chunk
+                    if let onThinkingProgress {
+                        let stripped = Self.stripReasoningArtifacts(from: accumulated)
+                        let hint = Self.thinkingStreamProgressHint(strippedCharCount: stripped.count)
+                        await MainActor.run {
+                            onThinkingProgress(hint)
+                        }
+                    }
+                }
+                return Self.stripReasoningArtifacts(from: accumulated)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
             }
             group.addTask {
                 try await Task.sleep(for: timeout)
@@ -364,6 +411,19 @@ struct VoiceCleanupPipeline {
 
     private static func elapsedMs(since date: Date) -> Int {
         max(0, Int(Date().timeIntervalSince(date) * 1000))
+    }
+
+    /// Strips model reasoning blocks (e.g. Qwen redacted_thinking XML) and hides in-progress reasoning while streaming.
+    static func stripReasoningArtifacts(from raw: String) -> String {
+        var s = raw.replacingOccurrences(
+            of: #"(?is)<think>.*?</think>\s*"#,
+            with: "",
+            options: .regularExpression
+        )
+        if let range = s.range(of: "<think>", options: .caseInsensitive) {
+            s = String(s[..<range.lowerBound])
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

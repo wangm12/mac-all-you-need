@@ -14,19 +14,31 @@ struct VoiceProviderSection: View {
         MAYNSection(title: "Recognition") {
             MAYNSettingsRow(
                 title: "Recognition engine",
-                subtitle: recognitionModelSummary
+                subtitle: recognitionEngineRowSubtitle,
+                belowSubtitle: {
+                    AnyView(StatusPill(text: recognitionEngineSingleTag, kind: .neutral))
+                }
             ) {
                 MAYNButton("Choose recognition engine", action: onOpenModels)
             }
         }
     }
 
-    private var recognitionModelSummary: String {
+    private var recognitionEngineSingleTag: String {
         switch asrProviderKind {
         case .local:
             selectedASRModelID.title
         case .groq, .elevenLabs, .openAITranscribe, .deepgram:
             cloudModelID.title
+        }
+    }
+
+    private var recognitionEngineRowSubtitle: String {
+        switch asrProviderKind {
+        case .local:
+            selectedASRModelID.subtitle
+        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+            cloudModelID.subtitle
         }
     }
 }

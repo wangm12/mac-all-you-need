@@ -7,19 +7,19 @@ import Foundation
 /// this type does not touch AppKit or SwiftUI directly.
 ///
 /// Invariants enforced here:
-///  - `.stop` from `.recording` or `.transcribing` or `.thinking` always
-///    transitions to `.cancelled` — never advances to a downstream phase. This
-///    encodes the "Stop button always cancels" rule from the v8 HUD spec.
+///  - `.stop` from `.recording` or `.transcribing` always transitions to
+///    `.cancelled` — never advances to a downstream phase. This encodes the
+///    "Stop button always cancels" rule from the v8 HUD spec.
 ///  - `.dismiss` always lands on `.idle`.
 struct HUDStateMachine: Equatable {
     /// Mirrors the publicly exposed `VoiceCoordinator.State` plus a
-    /// `.thinking` phase (separated from `.transcribing` for the LLM cleanup
-    /// pill) and the `.cancelled` terminal phase that drives the 5s Undo pill.
+    /// `.cancelled` terminal phase that drives the 5s Undo pill. ASR and LLM
+    /// cleanup are both represented as `.transcribing` on this machine (the
+    /// HUD still shows a single **Transcribing** pill for both).
     enum Phase: Equatable {
         case idle
         case recording
         case transcribing
-        case thinking
         case pasting
         case applied
         case cancelled
@@ -41,7 +41,7 @@ struct HUDStateMachine: Equatable {
     /// `.stop` is a no-op (we never reach `.cancelled` from `.idle` or terminal).
     static func isStoppable(_ phase: Phase) -> Bool {
         switch phase {
-        case .recording, .transcribing, .thinking: true
+        case .recording, .transcribing: true
         default: false
         }
     }
@@ -69,9 +69,8 @@ struct HUDStateMachine: Equatable {
             phase = .transcribing; return true
         case (.recording, .beginThinking),
              (.transcribing, .beginThinking):
-            phase = .thinking; return true
-        case (.thinking, .beginPasting),
-             (.transcribing, .beginPasting):
+            phase = .transcribing; return true
+        case (.transcribing, .beginPasting):
             phase = .pasting; return true
         case (.pasting, .completedPaste):
             phase = .applied; return true

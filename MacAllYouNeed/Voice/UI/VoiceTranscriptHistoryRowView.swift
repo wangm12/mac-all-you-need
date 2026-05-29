@@ -99,17 +99,7 @@ struct VoiceTranscriptHistoryRowView: View {
     }
 
     private var metadataLine: String {
-        let time = CompactTimestamp.format(transcript.endedAt)
-        let duration = formatDuration(ms: transcript.durationMs)
-        return "\(time) · \(transcript.language.rawValue) · \(transcript.modelIdentifier) · \(duration)"
-    }
-
-    private func formatDuration(ms: Int) -> String {
-        let seconds = Double(ms) / 1000.0
-        if seconds < 60 { return String(format: "%.1f s", seconds) }
-        let minutes = Int(seconds / 60)
-        let remainder = Int(seconds.truncatingRemainder(dividingBy: 60))
-        return "\(minutes)m \(remainder)s"
+        VoiceTranscriptHistoryMetadata.line(for: transcript)
     }
 
     private var rowBackground: Color {

@@ -1,16 +1,77 @@
 import AppKit
+import Combine
 import SwiftUI
 import UI
 
+/// Drives Typeless-style cleanup progress wipe on the transcribing pill: optional
+/// boot sweep before the first stream chunk, then monotonic progress to `1`
+/// (see `MiniVoiceHUDView`).
+@MainActor
+final class MiniVoiceThinkingProgressBridge: ObservableObject {
+    /// Combined wipe amount 0...1 for the black fill (`max(boot, stream)`).
+    @Published private(set) var displayWipe: Double = 0
+
+    private var streamProgress: Double = 0
+    private var bootProgress: Double = 0
+    private var bootTask: Task<Void, Never>?
+
+    func cancelBootAndResetDisplay() {
+        bootTask?.cancel()
+        bootTask = nil
+        streamProgress = 0
+        bootProgress = 0
+        displayWipe = 0
+    }
+
+    /// Starts a new cleanup-wipe session: reset, then optional ~400ms boot to ~0.32
+    /// until stream progress overtakes it.
+    func beginThinkingSession(reduceMotion: Bool) {
+        cancelBootAndResetDisplay()
+        guard !reduceMotion else { return }
+        bootTask = Task { @MainActor in
+            let steps = 10
+            for i in 1 ... steps {
+                try? await Task.sleep(nanoseconds: 40_000_000)
+                guard !Task.isCancelled else { return }
+                bootProgress = 0.32 * Double(i) / Double(steps)
+                recombine()
+            }
+        }
+    }
+
+    func applyStreamProgress(_ progress: Double) {
+        let clamped = min(1, max(0, progress))
+        streamProgress = max(streamProgress, clamped)
+        if streamProgress > bootProgress, bootTask != nil {
+            bootTask?.cancel()
+            bootTask = nil
+            bootProgress = 0
+        }
+        recombine()
+    }
+
+    private func recombine() {
+        let next = min(1, max(bootProgress, streamProgress))
+        if abs(next - displayWipe) > 1e-12 {
+            displayWipe = next
+        }
+    }
+}
+
 @MainActor
 final class MiniVoiceHUD {
+    /// Post-commit transcription: cloud/local ASR, then optional LLM cleanup. The
+    /// HUD always reads **Transcribing**; cleanup adds the gray-track + black wipe.
+    enum TranscribingSubphase: Equatable {
+        case asr
+        /// `progress` is 0...1 on first `show`; live wipe uses `MiniVoiceThinkingProgressBridge`.
+        case cleanup(progress: Double)
+    }
+
     enum State: Equatable {
         case idlePreview
         case recording(level: Float)
-        case transcribing
-        case thinking
-        case pasted
-        case copied
+        case transcribing(TranscribingSubphase)
         case cancelled
         case noSpeech(String)
         case error(String)
@@ -25,6 +86,7 @@ final class MiniVoiceHUD {
     /// pasting cycle instead of jumping to whichever screen has the active key
     /// window during state transitions.
     private var targetScreen: NSScreen?
+    private let thinkingProgressBridge = MiniVoiceThinkingProgressBridge()
 
     #if DEBUG
     var testingContentView: NSView? {
@@ -44,16 +106,28 @@ final class MiniVoiceHUD {
         onCancel: (() -> Void)? = nil,
         onPrimary: (() -> Void)? = nil
     ) {
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if case let .transcribing(sub) = state, case let .cleanup(initial) = sub {
+            thinkingProgressBridge.beginThinkingSession(reduceMotion: reduceMotion)
+            if initial > 0 {
+                thinkingProgressBridge.applyStreamProgress(initial)
+            }
+        } else {
+            thinkingProgressBridge.cancelBootAndResetDisplay()
+        }
         let nextView = MiniVoiceHUDView(
             state: state,
+            thinkingProgress: thinkingProgressBridge,
             onCancel: onCancel,
             onPrimary: onPrimary
         )
-        let size = MiniVoiceHUDLayout.pillSize
+        let size = MiniVoiceHUDLayout.size(for: state)
 
         if let controller = panelController, controller.isPresented {
             // Already visible — update content in-place, no re-animation.
             firstMouseHosting?.rootView = nextView
+            firstMouseHosting?.frame = NSRect(origin: .zero, size: size)
+            controller.updateSize(size)
             return
         }
 
@@ -91,13 +165,38 @@ final class MiniVoiceHUD {
             panel.ignoresMouseEvents = false
             let fmh = FirstMouseHostingView(rootView: nextView)
             fmh.frame = NSRect(origin: .zero, size: size)
+            fmh.layer?.setAffineTransform(CGAffineTransform.identity)
             panel.contentView = fmh
             firstMouseHosting = fmh
         }
     }
 
+    /// Updates the cleanup wipe without rebuilding the hosting view (stream chunks).
+    func updateThinkingProgress(_ progress: Double) {
+        guard panelController?.isPresented == true else { return }
+        thinkingProgressBridge.applyStreamProgress(progress)
+    }
+
     func dismiss() {
+        thinkingProgressBridge.cancelBootAndResetDisplay()
         guard let controller = panelController, controller.isPresented else { return }
+        if let fmh = firstMouseHosting, NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false {
+            fmh.wantsLayer = true
+            if let layer = fmh.layer {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.12
+                    layer.setAffineTransform(CGAffineTransform(scaleX: 0.88, y: 0.88))
+                }, completionHandler: { [weak self] in
+                    layer.setAffineTransform(CGAffineTransform.identity)
+                    self?.tearDownHUD(controller: controller)
+                })
+                return
+            }
+        }
+        tearDownHUD(controller: controller)
+    }
+
+    private func tearDownHUD(controller: NonActivatingFloatingPanelController<MiniVoiceHUDView>) {
         targetScreen = nil
         firstMouseHosting = nil
         controller.dismiss(animated: true)
@@ -111,7 +210,7 @@ final class MiniVoiceHUD {
         guard let frame = screen?.visibleFrame else { return .zero }
         return NSPoint(
             x: frame.midX - size.width / 2,
-            y: frame.minY + 96
+            y: frame.minY + MiniVoiceHUDLayout.bottomInsetAboveDock
         )
     }
 
@@ -124,18 +223,19 @@ final class MiniVoiceHUD {
 }
 
 enum MiniVoiceHUDLayout {
-    /// Universal pill size per v7 spec. Every state uses the same 144x32pt
-    /// chrome — no morph, no resize.
+    /// Universal pill size per v8 spec — fixed 144×32 chrome.
     static let pillWidth: CGFloat = 144
     static let pillHeight: CGFloat = 32
     static let pillSize = CGSize(width: pillWidth, height: pillHeight)
+    /// Distance from the screen `visibleFrame` bottom (above Dock / inset) to the pill origin.
+    static let bottomInsetAboveDock: CGFloat = 28
     static let cornerRadius: CGFloat = 16
     static let iconSize: CGFloat = 14
     /// X-center of the left status slot inside the pill (spec §slot metrics).
     static let leftSlotCenter: CGFloat = 20
     /// X-center of the right stop slot inside the pill.
     static let rightSlotCenter: CGFloat = 124
-    /// Label safe-zone insets (34pt from each edge, 76pt centered band).
+    /// Label safe-zone insets (34pt from each edge, 76pt centered band at default width).
     static let labelInset: CGFloat = 34
     static let fontSize: CGFloat = 11
 
@@ -148,6 +248,8 @@ enum MiniVoiceHUDPalette {
     // MiniVoiceHUD is a documented design.md §10 exception for raw RGB so the
     // HUD reads against arbitrary desktop backgrounds. v7 tokens.
     static let pillBlack = Color(red: 0x05 / 255.0, green: 0x05 / 255.0, blue: 0x05 / 255.0)
+    /// Cool gray track behind the transcribing cleanup wipe (Typeless-style).
+    static let pillThinkingTrack = Color(red: 0x5A / 255.0, green: 0x5A / 255.0, blue: 0x5C / 255.0)
     static let pillBorder = Color(red: 0x36 / 255.0, green: 0x36 / 255.0, blue: 0x36 / 255.0)
     static let pillBorderHover = Color(red: 0x60 / 255.0, green: 0x60 / 255.0, blue: 0x60 / 255.0)
     static let pillText = Color.white
@@ -159,7 +261,7 @@ struct MiniVoiceHUDPill: Equatable {
     enum Leading {
         case waveformBars
         case aiSparkle
-        case dotSpinner
+        case bouncingDots
         case checkInCircle
         case xInCircle
         case warningTriangle
@@ -177,12 +279,20 @@ struct MiniVoiceHUDPill: Equatable {
         case .idlePreview: ""
         case .recording: "Listening"
         case .transcribing: "Transcribing"
-        case .thinking: "Thinking"
-        case .pasted: "Applied"
-        case .copied: "Copied"
         case .cancelled: "Cancelled"
         case .noSpeech: "No speech"
         case .error: "Failed"
+        }
+    }
+
+    var labelTransitionSlot: String {
+        switch state.normalizedForDisplay {
+        case .idlePreview: "idlePreview"
+        case .recording: "recording"
+        case .transcribing: "transcribing"
+        case .cancelled: "cancelled"
+        case .noSpeech: "noSpeech"
+        case .error: "error"
         }
     }
 
@@ -191,8 +301,6 @@ struct MiniVoiceHUDPill: Equatable {
         case .idlePreview: .none
         case .recording: .waveformBars
         case .transcribing: .aiSparkle
-        case .thinking: .dotSpinner
-        case .pasted, .copied: .checkInCircle
         case .cancelled: .xInCircle
         case .noSpeech, .error: .warningTriangle
         }
@@ -202,7 +310,7 @@ struct MiniVoiceHUDPill: Equatable {
     /// stop button only for these states.
     var isStoppable: Bool {
         switch state.normalizedForDisplay {
-        case .recording, .transcribing, .thinking: true
+        case .recording, .transcribing: true
         default: false
         }
     }
@@ -215,7 +323,7 @@ struct MiniVoiceHUDPill: Equatable {
 
     var isTerminal: Bool {
         switch state.normalizedForDisplay {
-        case .pasted, .copied, .noSpeech, .error: true
+        case .noSpeech, .error: true
         default: false
         }
     }
@@ -238,28 +346,46 @@ extension MiniVoiceHUD.State {
 
 struct MiniVoiceHUDView: View {
     let state: MiniVoiceHUD.State
+    @ObservedObject var thinkingProgress: MiniVoiceThinkingProgressBridge
     let onCancel: (() -> Void)?
     let onPrimary: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
+    private var hudAsymmetricTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: -4)),
+            removal: .opacity.combined(with: .offset(y: 4))
+        )
+    }
+
     var body: some View {
         EntranceTransform {
             ZStack {
-                Capsule()
-                    .fill(MiniVoiceHUDPalette.pillBlack)
-                    .overlay(
-                        Capsule().strokeBorder(
-                            isHovering && pill.isStoppable
-                                ? MiniVoiceHUDPalette.pillBorderHover
-                                : MiniVoiceHUDPalette.pillBorder,
-                            lineWidth: 1
-                        )
+                Group {
+                    if showsTranscribingCleanupWipe {
+                        thinkingPillBackground(wipe: thinkingProgress.displayWipe)
+                    } else {
+                        Capsule()
+                            .fill(MiniVoiceHUDPalette.pillBlack)
+                    }
+                }
+                .animation(
+                    MAYNMotion.animation(.control, reduceMotion: reduceMotion),
+                    value: thinkingWipeAnimationValue
+                )
+                .overlay(
+                    Capsule().strokeBorder(
+                        isHovering && pill.isStoppable
+                            ? MiniVoiceHUDPalette.pillBorderHover
+                            : MiniVoiceHUDPalette.pillBorder,
+                        lineWidth: 1
                     )
+                )
 
                 leadingIcon
                     .id(pill.leading)
-                    .transition(.opacity)
+                    .transition(hudAsymmetricTransition)
                     .frame(width: MiniVoiceHUDLayout.iconSize,
                            height: MiniVoiceHUDLayout.iconSize)
                     .position(x: MiniVoiceHUDLayout.leftSlotCenter,
@@ -269,9 +395,9 @@ struct MiniVoiceHUDView: View {
                     .font(.system(size: MiniVoiceHUDLayout.fontSize, weight: .semibold))
                     .foregroundStyle(MiniVoiceHUDPalette.pillText)
                     .lineLimit(1)
-                    .id(pill.label)
-                    .transition(.opacity)
-                    .frame(width: MiniVoiceHUDLayout.pillWidth - MiniVoiceHUDLayout.labelInset * 2)
+                    .id(pill.labelTransitionSlot)
+                    .transition(hudAsymmetricTransition)
+                    .frame(width: max(0, MiniVoiceHUDLayout.pillWidth - MiniVoiceHUDLayout.labelInset * 2))
                     .position(x: MiniVoiceHUDLayout.pillWidth / 2,
                               y: MiniVoiceHUDLayout.pillHeight / 2)
 
@@ -290,8 +416,8 @@ struct MiniVoiceHUDView: View {
             .contentShape(Capsule())
             .onTapGesture(perform: handleBackgroundTap)
             .onHover { isHovering = $0 }
-            .animation(MAYNMotion.animation(.press, reduceMotion: reduceMotion), value: pill.leading)
-            .animation(MAYNMotion.animation(.press, reduceMotion: reduceMotion), value: pill.label)
+            .animation(MAYNMotion.animation(.control, reduceMotion: reduceMotion), value: pill.leading)
+            .animation(MAYNMotion.animation(.control, reduceMotion: reduceMotion), value: pill.labelTransitionSlot)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(accessibilityText)
         }
@@ -301,6 +427,35 @@ struct MiniVoiceHUDView: View {
 
     private var pill: MiniVoiceHUDPill {
         MiniVoiceHUDPill(state: state)
+    }
+
+    private var showsTranscribingCleanupWipe: Bool {
+        if case let .transcribing(sub) = state.normalizedForDisplay, case .cleanup = sub { return true }
+        return false
+    }
+
+    /// Stable animation token for the cleanup wipe; `-1` when the wipe stack is inactive.
+    private var thinkingWipeAnimationValue: Double {
+        if showsTranscribingCleanupWipe { return thinkingProgress.displayWipe }
+        return -1
+    }
+
+    @ViewBuilder
+    private func thinkingPillBackground(wipe: Double) -> some View {
+        let w = min(1, max(0, wipe))
+        let fillWidth = MiniVoiceHUDLayout.pillWidth * w
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(MiniVoiceHUDPalette.pillThinkingTrack)
+            Capsule()
+                .fill(MiniVoiceHUDPalette.pillBlack)
+                .mask(alignment: .leading) {
+                    Rectangle()
+                        .frame(width: fillWidth)
+                }
+        }
+        .frame(width: MiniVoiceHUDLayout.pillWidth, height: MiniVoiceHUDLayout.pillHeight)
+        .clipShape(Capsule())
     }
 
     private var accessibilityText: String {
@@ -326,7 +481,7 @@ struct MiniVoiceHUDView: View {
         switch pill.leading {
         case .waveformBars:     WaveformBars(level: recordingLevel)
         case .aiSparkle:        AISparkleIcon()
-        case .dotSpinner:       DotSpinner()
+        case .bouncingDots:     HorizontalBouncingDots()
         case .checkInCircle:    CheckInCircle()
         case .xInCircle:        XInCircle()
         case .warningTriangle:  WarningTriangle()
@@ -343,29 +498,31 @@ struct MiniVoiceHUDView: View {
 private struct WaveformBars: View {
     let level: Float
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let barCount = 6
-    private let barWidth: CGFloat = 1.8
-    private let barSpacing: CGFloat = 2.3
-    /// Per-bar amplitude weights (v8 spec). Matches the static SVG bar heights
-    /// but is now multiplied by the live mic level so the wave reacts to voice.
-    private let barWeights: [CGFloat] = [0.35, 0.62, 0.92, 0.70, 0.82, 0.48]
+    private let barCount = 8
+    private let barWidth: CGFloat = 1.45
+    private let barSpacing: CGFloat = 1.65
+    /// Per-bar amplitude weights (taller center emphasis).
+    private let barWeights: [CGFloat] = [0.38, 0.58, 0.78, 0.95, 0.88, 0.72, 0.55, 0.42]
     /// Baseline bar height in pt when the mic is silent (level == 0).
-    private let baselineHeight: CGFloat = 2.4
+    private let baselineHeight: CGFloat = 2.5
     /// Peak amplitude added on top of baseline when level == 1 and stagger peaks.
-    private let amplitudeRange: CGFloat = 11
+    private let amplitudeRange: CGFloat = 12.5
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: reduceMotion)) { context in
             let now = context.date.timeIntervalSinceReferenceDate
             let levelClamped = CGFloat(min(max(level, 0), 1))
+            let idleBreath = reduceMotion ? 1.0 : 0.92 + 0.08 * CGFloat(sin(now / 0.55))
 
             HStack(alignment: .center, spacing: barSpacing) {
                 ForEach(0 ..< barCount, id: \.self) { index in
+                    let freq = 0.085 + Double(index) * 0.012
                     let stagger: CGFloat = reduceMotion
                         ? 1.0
-                        : 0.86 + CGFloat(sin(now / 0.09 + Double(index))) * 0.14
+                        : 0.86 + CGFloat(sin(now / freq + Double(index) * 0.35)) * 0.14
+                    let breath = levelClamped < 0.02 ? idleBreath : 1.0
                     let height = baselineHeight
-                        + levelClamped * barWeights[index] * stagger * amplitudeRange
+                        + levelClamped * barWeights[index] * stagger * amplitudeRange * breath
                     Capsule()
                         .fill(Color.white)
                         .frame(width: barWidth, height: max(baselineHeight, height))
@@ -435,29 +592,26 @@ private struct AISparkleIcon: View {
     }
 }
 
-private struct DotSpinner: View {
+private struct HorizontalBouncingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let dotCount = 8
-    private let loopPeriod: TimeInterval = 1.1
-    private let radius: CGFloat = 5
-    private let dotSize: CGFloat = 1.8
+    private let dotCount = 3
+    private let dotSize: CGFloat = 2.1
+    private let spacing: CGFloat = 3.2
+    private let bouncePeriod: TimeInterval = 0.42
+    private let stagger: TimeInterval = 0.12
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: reduceMotion)) { context in
             let now = context.date.timeIntervalSinceReferenceDate
-            let phase = now.truncatingRemainder(dividingBy: loopPeriod) / loopPeriod
-            let leadIndex = reduceMotion ? 0 : Int(phase * Double(dotCount)) % dotCount
-
-            ZStack {
+            HStack(spacing: spacing) {
                 ForEach(0 ..< dotCount, id: \.self) { index in
-                    let offset = (index - leadIndex + dotCount) % dotCount
-                    let opacity = 1.0 - (Double(offset) / Double(dotCount)) * 0.78
-                    let angle = Angle(degrees: Double(index) * (360.0 / Double(dotCount)) - 90)
+                    let phase = now - Double(index) * stagger
+                    let t = phase.truncatingRemainder(dividingBy: bouncePeriod) / bouncePeriod
+                    let y: CGFloat = reduceMotion ? 0 : -3.2 * CGFloat(abs(sin(t * .pi)))
                     Circle()
-                        .fill(Color.white.opacity(opacity))
+                        .fill(Color.white)
                         .frame(width: dotSize, height: dotSize)
-                        .offset(x: cos(angle.radians) * radius,
-                                y: sin(angle.radians) * radius)
+                        .offset(y: y)
                 }
             }
         }
@@ -617,7 +771,7 @@ private struct EntranceTransform<Content: View>: View {
         content()
             .opacity(inflated ? 1 : 0)
             .offset(y: inflated ? 0 : MAYNMotionBridge.translation(4, reduceMotion: reduceMotion))
-            .scaleEffect(inflated ? 1 : (reduceMotion ? 1 : 0.98))
+            .scaleEffect(inflated ? 1 : (reduceMotion ? 1 : 0.82))
             .onAppear {
                 withAnimation(MAYNMotion.animation(.control, reduceMotion: reduceMotion)) {
                     inflated = true

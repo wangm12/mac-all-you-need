@@ -15,21 +15,8 @@ struct VoiceTranscriptRowMenu: View {
                 Button(action: onDownload) {
                     Label("Download audio", systemImage: "arrow.down.circle")
                 }
-            } else {
-                Button(
-                    action: {},
-                    label: { Label("Retry", systemImage: "arrow.clockwise") }
-                )
-                .disabled(true)
-                .help("Audio recording wasn't saved for this transcript")
-                Button(
-                    action: {},
-                    label: { Label("Download audio", systemImage: "arrow.down.circle") }
-                )
-                .disabled(true)
-                .help("Audio recording wasn't saved for this transcript")
+                Divider()
             }
-            Divider()
             Button(role: .destructive, action: onDelete) {
                 Label("Delete transcript", systemImage: "trash")
             }

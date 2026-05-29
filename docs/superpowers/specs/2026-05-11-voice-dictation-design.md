@@ -1,9 +1,15 @@
 # Voice Dictation Module — Design Spec
 
-**Status:** Draft (brainstormed 2026-05-11)
+**Status:** Draft (brainstormed 2026-05-11); personalization **shipped**; training export **planned** (Plan 8f)
 **Owner:** mingjie-father
 **Project:** mac-all-you-need (Plan 8)
 **Brainstorming source:** Typeless (cloud), VoiceInk (open Swift), OpenWhispr (Electron) — see Section 12
+
+**Personalization & training research (2026-05-29):**
+
+- Findings: [`docs/research/voice-personalization-and-training.md`](../../research/voice-personalization-and-training.md)
+- Normative spec: [`docs/specs/voice-personalization-and-training-v1.md`](../../specs/voice-personalization-and-training-v1.md)
+- Implementation history: [`docs/spec-1-personalization-plan-v2.md`](../../spec-1-personalization-plan-v2.md)
 
 ---
 
@@ -507,10 +513,13 @@ This avoids a separate "voice clipboard" table, keeps paste-back on the existing
 
 #### TrainingExporter
 
-- Settings → Advanced → "Export voice training data"
-- Output: `.tar.gz` containing `data.jsonl` (one transcript per line) + `audio/<id>.wav` files.
-- JSONL schema: `{id, audio_path, raw_text, cleaned_text, user_edited_text, detected_languages, duration_ms, asr_model_id, source_app, created_at}`.
-- Compatible with HuggingFace `datasets` library and standard ASR fine-tuning pipelines.
+- Settings → Advanced (or Personalization) → "Export voice training data"
+- Output: `.tar.gz` containing `data.jsonl` (one utterance per line) + `audio/<id>.wav` files (decrypted from App Group store at export time).
+- **Normative JSONL schema, quality filters, and segment rules:** [`docs/specs/voice-personalization-and-training-v1.md`](../../specs/voice-personalization-and-training-v1.md) §4.3.
+- Default export: `quality == high`, audio present, duration 1–30 s (Whisper fine-tuning convention; see research doc §3 P9).
+- Source rows: `voice_training_examples` (not `voice_personalization_samples`).
+- Compatible with HuggingFace `datasets`, [Listenr](https://github.com/Rebreda/listenr) `manifest.jsonl`, and [finetune-openai-whisper](https://github.com/farisalasmary/finetune-openai-whisper) JSONL.
+- **Out of app:** LoRA training scripts (documented in repo); no in-app fine-tune UI in v1.
 
 ### 4.7 HUD (`Voice/UI/HUD/`)
 
@@ -933,10 +942,14 @@ Plan 8.0 must produce a short findings document before Plan 8a starts:
 
 ## 11. Open Questions for Future Iterations
 
+Research pass 2026-05-29 resolved *how* personalization vs training should be split; items below remain product backlog.
+
 - **v1.1: Per-URL Power Mode profiles** for browsers (11 browser AppleScripts; lift from VoiceInk).
 - **v1.1: ScreenCaptureKit + Vision OCR** for screen-capture context (Power Mode).
-- **v2: Auto-learned dictionary** — diff user edits to transcripts in History, auto-add to word replacements.
-- **v2: Personal Whisper LoRA fine-tune** workflow (uses TrainingExporter output).
+- **v1.1: Manual cleanup example pairs in UI** — Superwhisper Custom mode parity (see research doc §2).
+- **v2: Auto-learned dictionary** — Wispr-style auto-add proper nouns from corrections + history diff (research doc §5).
+- **v2: Personal Whisper LoRA workflow** — TrainingExporter + external scripts (Listenr-aligned); not in-app training (normative spec §4.4).
+- **v2: Retrieval-based few-shot examples** for cleanup (GEC literature; research doc §3 P3).
 - **v2: Multi-speaker diarization** (FluidAudio supports it natively).
 - **v2: System audio tap** for meeting transcription (`CATapDescription`, macOS 14.2+).
 - **v2: iOS companion app** — once Plan 2 (Sync Engine) is finally built.
@@ -946,9 +959,13 @@ Plan 8.0 must produce a short findings document before Plan 8a starts:
 ## 12. References
 
 ### Researched competitors
-- **Typeless** — typeless.com — cloud-only, AWS us-east-2, Soniox + Claude Haiku-class LLM stack hypothesized.
-- **VoiceInk** — github.com/Beingpax/VoiceInk — native Swift, 4-engine support (whisper.cpp / FluidAudio Parakeet / Apple SpeechAnalyzer / 10 cloud providers), GPL source / paid binary.
-- **OpenWhispr** — github.com/OpenWhispr/openwhispr — Electron, 4 local engines + 3 streaming cloud, 8-provider scoped LLM registry, MIT.
+- **Typeless** — typeless.com — cloud-only; style/tone marketing; on-device history; see research doc §2.
+- **Superwhisper** — superwhisper.com — per-mode AI instructions + manual input/output examples; per-app auto-activation.
+- **Wispr Flow** — wisprflow.ai — cloud; dictionary + auto-add from corrections; style presets.
+- **Aqua Voice** — aquavoice.com — dictionary + custom instructions; phonetic ASR pipeline (marketing).
+- **VoiceInk** — github.com/Beingpax/VoiceInk — native Swift, Power Mode, enhancement modes, GPL source / paid binary.
+- **OpenWhispr** — github.com/OpenWhispr/openwhispr — Electron, multi-engine + LLM registry, MIT.
+- **Listenr** — github.com/Rebreda/listenr — local record → correct → JSONL → Whisper LoRA (MPL-2.0); reference for TrainingExporter.
 
 ### Models researched
 - **Qwen3-ASR-0.6B / 1.7B** — huggingface.co/Qwen — Apache 2.0, beats Whisper-v3 multilingual, 22 Chinese dialects, MLX/CoreML Swift wrappers exist.

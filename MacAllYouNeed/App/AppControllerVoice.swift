@@ -19,6 +19,19 @@ extension AppController {
         try voiceDictionaryStore.delete(id: id)
     }
 
+    func importVoiceDictionaryCSV(_ data: Data) throws -> VoiceDictionaryCSVImportSummary {
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw VoiceDictionaryCSVImportError.unsupportedEncoding
+        }
+        let rows = try VoiceDictionaryCSVParser.parse(text)
+        var imported = 0
+        for row in rows {
+            try voiceDictionaryStore.upsert(phrase: row.phrase, replacement: row.replacement)
+            imported += 1
+        }
+        return VoiceDictionaryCSVImportSummary(imported: imported)
+    }
+
     func listRecentVoiceTranscripts(limit: Int = 20) -> [VoiceTranscript] {
         (try? voiceTranscriptStore.listRecent(limit: limit)) ?? []
     }

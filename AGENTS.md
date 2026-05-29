@@ -75,7 +75,8 @@ Current first-class tool surfaces:
 - **Voice** - dictation into any app, local Qwen3-ASR, optional Groq Whisper,
   cleanup, transcript history, dictionary, personalization profiles, post-edit
   learning, 9-step setup, and a v8 mini HUD with voice-reactive Listening,
-  AI sparkle Transcribing, dot-spinner Thinking, and 5-second Cancelled + Undo.
+  AI sparkle **Transcribing** through cleanup (HUD dismisses after paste),
+  and 5-second Cancelled + Undo.
 - **Downloads** - yt-dlp + ffmpeg queue, completed downloads, cookies,
   metadata, pause/resume, browser-extension dispatch server, Dock progress, and
   clipboard video URL detection.
@@ -151,9 +152,9 @@ Main-app source layout:
   Welcome -> Choose Features -> per-feature setup -> Done.
 - `MacAllYouNeed/Voice/UI/Onboarding/` - voice-specific 9-step wizard.
 - `MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift` - v8 floating pill (universal
-  144x32, three slots: left status / center label / right action). Eight
-  pill states: Listening, Transcribing, Thinking, Applied, Copied, Cancelled,
-  No speech, Failed.
+  144x32, three slots: left status / center label / right action). Happy path:
+  Listening, Transcribing (ASR + cleanup) then dismiss; Cancelled, No speech, Failed
+  when needed.
 - `MacAllYouNeed/Voice/VoiceCoordinator.swift` - dictation state machine,
   shared `processCapturedAudio(captured:presetASRResult:)` for live and undo
   replay paths, inflight + pendingUndo bookkeeping, global NSEvent monitor for
@@ -174,12 +175,15 @@ Main-app source layout:
 - One universal 144x32 pill with three slots: left status icon, centered label,
   right action. No state ever resizes the pill.
 - Listening uses a voice-reactive waveform driven by `audio.peakLevel`.
-  Transcribing uses an AI sparkle icon (subtle 1200ms pulse, no waveform).
-  Thinking uses a rotating 8-dot spinner. Terminal states use check / X /
-  warning-triangle icons.
+  **Transcribing** keeps the AI sparkle (subtle 1200ms pulse, no waveform) for
+  the whole ASR + cleanup span; during cleanup the pill adds a gray **track**
+  with a **black** fill wiping left→right from streamed cleanup progress (short
+  boot sweep before the first token when progress stays at zero), then snaps to
+  full black when cleanup completes. Cancelled uses X-in-circle;
+  No speech / Failed use warning triangles (success dismisses the HUD).
 - Stop button always cancels. The hotkey (PTT release or toggle second-press)
   is the only commit path.
-- Cancelling during Listening / Transcribing / Thinking always offers Undo for
+- Cancelling during Listening or Transcribing always offers Undo for
   5 seconds. `processCapturedAudio(captured:presetASRResult:)` is shared
   between the live entry and the undo replay; if ASR completed before the
   cancel, the replay skips ASR.
@@ -248,9 +252,9 @@ Main-app source layout:
   be created by dragging clipboard items to the Snippets tab.
 - Voice supports local/cloud ASR, cleanup, dictionary, transcripts,
   personalization, setup, and a v8 mini HUD with voice-reactive Listening,
-  AI sparkle Transcribing, dot-spinner Thinking, and 5-second Cancelled + Undo
-  on every mid-stream cancel (stop button, Esc, or pill-body tap; Return /
-  numpad Enter retries from the cached audio).
+  AI sparkle Transcribing through cleanup (then dismiss after paste),
+  and 5-second Cancelled + Undo on every mid-stream cancel (stop button, Esc,
+  or pill-body tap; Return / numpad Enter retries from the cached audio).
 - Downloads support queue/completed views, metadata, cookies, pause/resume,
   browser extension dispatch, and package-managed binaries.
 - Folder Preview supports Quick Look folder/archive previews, Browse Folder,
@@ -269,6 +273,13 @@ Main-app source layout:
 - Sync Engine remains skipped indefinitely.
 - Public Sparkle appcast, GitHub Actions release, notarized/stapled official
   distribution, and paid Developer ID signing remain Plan 7 work.
+
+## Typeless history import
+
+Migrates Typeless local history into MAYN `voice_transcripts` + `voice_training_examples`
+in the App Group `clipboard.sqlite`. Source:
+`~/Library/Application Support/Typeless/`. Run only while the main app is quit:
+`make import-typeless` or `./scripts/import-typeless-history.sh` (`--dry-run` supported).
 
 ## Build Requirements
 

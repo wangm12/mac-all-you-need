@@ -18,22 +18,22 @@ final class HUDStateMachineTests: XCTestCase {
         XCTAssertEqual(sm.phase, .transcribing)
     }
 
-    func testTranscribingToThinking_onBeginThinking() {
+    func testTranscribingStaysTranscribing_onBeginThinking() {
         var sm = HUDStateMachine(phase: .transcribing)
         XCTAssertTrue(sm.apply(.beginThinking))
-        XCTAssertEqual(sm.phase, .thinking)
+        XCTAssertEqual(sm.phase, .transcribing)
     }
 
-    func testRecordingDirectlyToThinking_whenAsrSkippedViaUndoReplay() {
-        // Undo replay path: presetASRResult was provided so the HUD jumps
-        // straight to .thinking without surfacing .transcribing.
+    func testRecordingStaysTranscribing_whenAsrSkippedViaUndoReplay() {
+        // Undo replay path: preset ASR skips cloud ASR; machine still models a
+        // single `.transcribing` span for ASR+cleanup.
         var sm = HUDStateMachine(phase: .recording)
         XCTAssertTrue(sm.apply(.beginThinking))
-        XCTAssertEqual(sm.phase, .thinking)
+        XCTAssertEqual(sm.phase, .transcribing)
     }
 
-    func testThinkingToPasting_onBeginPasting() {
-        var sm = HUDStateMachine(phase: .thinking)
+    func testTranscribingToPasting_onBeginPasting() {
+        var sm = HUDStateMachine(phase: .transcribing)
         XCTAssertTrue(sm.apply(.beginPasting))
         XCTAssertEqual(sm.phase, .pasting)
     }
@@ -55,12 +55,6 @@ final class HUDStateMachineTests: XCTestCase {
 
     func testStopFromTranscribing_lands_onCancelled() {
         var sm = HUDStateMachine(phase: .transcribing)
-        XCTAssertTrue(sm.apply(.stop))
-        XCTAssertEqual(sm.phase, .cancelled)
-    }
-
-    func testStopFromThinking_lands_onCancelled() {
-        var sm = HUDStateMachine(phase: .thinking)
         XCTAssertTrue(sm.apply(.stop))
         XCTAssertEqual(sm.phase, .cancelled)
     }
@@ -151,8 +145,8 @@ final class HUDStateMachineTests: XCTestCase {
 
     // MARK: - isStoppable helper
 
-    func testIsStoppable_trueForRecordingTranscribingThinking() {
-        for phase in [HUDStateMachine.Phase.recording, .transcribing, .thinking] {
+    func testIsStoppable_trueForRecordingAndTranscribing() {
+        for phase in [HUDStateMachine.Phase.recording, .transcribing] {
             XCTAssertTrue(HUDStateMachine(phase: phase).isStoppable,
                           "\(phase) must be stoppable")
         }

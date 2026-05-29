@@ -29,26 +29,18 @@ struct DownloadsDestinationView: View {
             subtitle: "Queue media downloads, review results, and tune downloader behavior.",
             selection: selectedTab,
             toolbar: {
-                HStack(spacing: 8) {
-                    MainHeaderShortcutDisplay(
-                        text: MainToolHeaderShortcutModel.display(
-                            for: .downloads,
-                            hotkeys: hotkeyMap,
-                            voiceSettings: VoiceActivationSettingsStore.load()
-                        ),
-                        issueMessage: MainToolHeaderShortcutModel.issue(
-                            for: .downloads,
-                            hotkeys: hotkeyMap,
-                            voiceSettings: VoiceActivationSettingsStore.load()
-                        )
+                MainHeaderShortcutDisplay(
+                    text: MainToolHeaderShortcutModel.display(
+                        for: .downloads,
+                        hotkeys: hotkeyMap,
+                        voiceSettings: VoiceActivationSettingsStore.load()
+                    ),
+                    issueMessage: MainToolHeaderShortcutModel.issue(
+                        for: .downloads,
+                        hotkeys: hotkeyMap,
+                        voiceSettings: VoiceActivationSettingsStore.load()
                     )
-                    MAYNButton("Paste URL") {
-                        enqueueClipboardURL()
-                    }
-                    MAYNButton("Add URL", role: .primary) {
-                        presentAddURLSheet(prefill: DownloaderViewModel.clipboardVideoURL())
-                    }
-                }
+                )
             }
         ) {
             switch DownloadsFunctionTab.storedSelection(selectedTabRaw) {

@@ -1,10 +1,22 @@
 # Spec 1 v2 — Voice Personalization (Plan after Codex review)
 
-Status: **In Build — Wave 4 (T7) in progress.**
-Branch: `feature/voice-personalization` (off main @ `6c99828`)
-Created: 2026-05-14 | Updated: 2026-05-15
+Status: **Shipped on main** (implementation complete; this doc retained as task history).  
+Created: 2026-05-14 | Updated: 2026-05-29  
 Reviewer: Codex (msg `msg_d18f5c4f7a614a91`, thread `thread_04e07a33aee647bd`)
-Build reviewer: Codex Wave 1–3 reviews incorporated (4 review-fix commits)
+
+## Research synthesis (2026-05-29)
+
+Competitor, paper, and OSS research is captured in:
+
+- **Findings:** [`docs/research/voice-personalization-and-training.md`](research/voice-personalization-and-training.md)
+- **Normative product spec:** [`docs/specs/voice-personalization-and-training-v1.md`](specs/voice-personalization-and-training-v1.md)
+
+**Conclusions relevant to this spec:**
+
+- MAYN’s inference track (post-edit samples → summarizer → `VoicePromptBuilder`) matches industry **few-shot / mode** personalization; automatic edit learning is a differentiator vs Superwhisper/VoiceInk.
+- Offline training remains a **separate track** (`voice_training_examples` + planned TrainingExporter); do not conflate with `voice_personalization_samples`.
+- Cloud summarization disclosure (locked decision **B4** below) remains required when the configured text-generation provider is remote.
+- **Not mergeable gate** below is **resolved** — `VoiceAppProfileStore` was removed; coordinator uses `VoicePersonalizationStore` only.
 
 ## Build progress
 
@@ -18,11 +30,11 @@ Build reviewer: Codex Wave 1–3 reviews incorporated (4 review-fix commits)
 | T5 Summarizer | ✅ done | 88d5ba7 | 7 pass |
 | T6 Prompt builder injection | ✅ done | 88d5ba7 | 9 pass |
 | Review fixes (Wave 1–3) | ✅ done | 7ef80a5, f147366, f1129c3 | — |
-| T7 VoiceCoordinator integration | 🔄 in progress | — | — |
-| T8 Personalization page UI | ⏳ pending | — | — |
-| T9 Onboarding consent toggle | ⏳ pending | — | — |
-| T10 Test sweep + CI green | ⏳ pending | — | — |
-| T11 Manual verification doc | ⏳ pending | — | — |
+| T7 VoiceCoordinator integration | ✅ done | — | — |
+| T8 Personalization page UI | ✅ done | — | — |
+| T9 Onboarding consent toggle | ✅ done (AICleanupStepView) | — | — |
+| T10 Test sweep + CI green | ✅ done | — | — |
+| T11 Manual verification doc | ✅ done | — | [`spec-1-personalization-verification.md`](spec-1-personalization-verification.md) |
 
 ## Key review findings incorporated (post-Codex)
 - AX identity: `AXTargetSnapshot` with `CFEqual` (B1 Wave 1)
@@ -32,9 +44,11 @@ Build reviewer: Codex Wave 1–3 reviews incorporated (4 review-fix commits)
 - cappedExamples: takes newest-first slice, returns oldest-first (P2.5 Wave 3)
 - `makeTextGenerationProvider`: `try` not `try?` for keychain errors (medium Wave 2)
 
-## Not mergeable gate
-`VoiceAppProfileStore` is a no-op shim. `app_profiles` was dropped. T7 must land
-before this branch is mergeable to main.
+## Not mergeable gate (historical — resolved)
+
+`VoiceAppProfileStore` was removed; `app_profiles` dropped. Coordinator and UI use `VoicePersonalizationStore` only.
+
+**Follow-up work** (not in this spec): TrainingExporter, training-examples list UI, manual mode examples — see [`docs/specs/voice-personalization-and-training-v1.md`](specs/voice-personalization-and-training-v1.md) §7.
 
 ---
 

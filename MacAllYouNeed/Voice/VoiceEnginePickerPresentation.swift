@@ -72,14 +72,14 @@ enum VoiceEngineID: Hashable, Identifiable {
         }
     }
 
-    var iconSymbol: String {
+    var pickerIcon: VoicePickerRowIcon {
         switch self {
         case .local:
-            "internaldrive.fill"
-        case .cloud:
-            "cloud.fill"
+            VoiceProviderIconPresentation.pickerIcon(for: VoiceModelRuntime.qwenCoreML)
+        case let .cloud(modelID):
+            VoiceProviderIconPresentation.pickerIcon(for: modelID.providerKind)
         case .experimental:
-            "flask.fill"
+            VoiceProviderIconPresentation.pickerIcon(for: VoiceModelRuntime.mlxExperimental)
         }
     }
 }
@@ -96,6 +96,28 @@ struct VoiceEngineListEntry: Identifiable, Hashable {
 }
 
 enum VoiceEngineCatalogPresentation {
+    static func twoPaneEntries(from entries: [VoiceEngineListEntry]) -> [VoiceTwoPanePickerEntry<VoiceEngineID, VoiceEngineGroup>] {
+        entries.map { entry in
+            VoiceTwoPanePickerEntry(
+                id: entry.id,
+                title: entry.title,
+                subtitle: entry.subtitle,
+                icon: entry.id.pickerIcon,
+                group: entry.group
+            )
+        }
+    }
+
+    static func matchesFilter(
+        _ entry: VoiceTwoPanePickerEntry<VoiceEngineID, VoiceEngineGroup>,
+        filter: VoiceEnginePickerFilter
+    ) -> Bool {
+        matchesFilter(
+            VoiceEngineListEntry(id: entry.id, title: entry.title, subtitle: entry.subtitle, group: entry.group),
+            filter: filter
+        )
+    }
+
     static func currentEngineID(
         providerKind: VoiceASRProviderKind,
         selectedLocalModelID: VoiceASRModelID,

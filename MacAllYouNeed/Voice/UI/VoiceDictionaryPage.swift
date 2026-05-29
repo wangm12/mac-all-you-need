@@ -1,5 +1,7 @@
+import AppKit
 import Core
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum VoiceDictionaryFilter: String, SegmentedTabDestination {
     case all
@@ -63,7 +65,9 @@ struct VoiceDictionaryPage: View {
     @State private var searchText = ""
     @State private var draft = VoiceDictionaryDraft()
     @State private var isShowingEditor = false
+    @State private var isShowingCSVImport = false
     @State private var errorMessage: String?
+    @State private var importSuccessMessage: String?
 
     private var filteredEntries: [VoiceDictionaryEntry] {
         VoiceDictionaryPresentation.filtered(entries, query: searchText, filter: filter)
@@ -92,8 +96,13 @@ struct VoiceDictionaryPage: View {
                     VoiceDictionaryActionBar(
                         filter: $filter,
                         searchText: $searchText,
-                        onNewWord: beginNewWord
+                        onAddWord: beginNewWord,
+                        onImportCSV: { isShowingCSVImport = true }
                     )
+
+                    if let importSuccessMessage {
+                        StatusPill(text: importSuccessMessage, kind: .success)
+                    }
 
                     if let errorMessage {
                         StatusPill(text: errorMessage, kind: .danger)
@@ -103,7 +112,7 @@ struct VoiceDictionaryPage: View {
                         VoiceDictionaryEmptyState(
                             title: emptyTitle,
                             subtitle: emptySubtitle,
-                            actionTitle: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "New word" : nil,
+                            actionTitle: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Add word" : nil,
                             action: beginNewWord
                         )
                         .frame(maxWidth: .infinity)
@@ -128,6 +137,12 @@ struct VoiceDictionaryPage: View {
                 draft: $draft,
                 onCancel: { isShowingEditor = false },
                 onSave: saveDraft
+            )
+        }
+        .sheet(isPresented: $isShowingCSVImport) {
+            VoiceDictionaryCSVImportSheet(
+                onCancel: { isShowingCSVImport = false },
+                onImport: importCSV
             )
         }
     }
@@ -155,7 +170,29 @@ struct VoiceDictionaryPage: View {
     private func beginNewWord() {
         draft = VoiceDictionaryDraft()
         errorMessage = nil
+        importSuccessMessage = nil
         isShowingEditor = true
+    }
+
+    private func importCSV(_ data: Data) {
+        do {
+            let summary = try controller.importVoiceDictionaryCSV(data)
+            isShowingCSVImport = false
+            errorMessage = nil
+            importSuccessMessage = "Imported \(summary.imported) \(summary.imported == 1 ? "word" : "words") from CSV."
+            reload()
+        } catch let error as VoiceDictionaryCSVParserError {
+            switch error {
+            case .emptyFile:
+                errorMessage = "The CSV file is empty."
+            case .noValidRows:
+                errorMessage = "No valid rows found. Check the format and try again."
+            }
+        } catch VoiceDictionaryCSVImportError.unsupportedEncoding {
+            errorMessage = "The file must be UTF-8 encoded."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func beginEditing(_ entry: VoiceDictionaryEntry) {
@@ -247,7 +284,8 @@ private struct VoiceDictionaryHeader: View {
 private struct VoiceDictionaryActionBar: View {
     @Binding var filter: VoiceDictionaryFilter
     @Binding var searchText: String
-    let onNewWord: () -> Void
+    let onAddWord: () -> Void
+    let onImportCSV: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -255,6 +293,7 @@ private struct VoiceDictionaryActionBar: View {
                 tabs: VoiceDictionaryFilter.allCases,
                 selection: filter,
                 fillsAvailableWidth: false,
+                equalSegmentWidths: true,
                 size: .control
             ) { nextFilter in
                 filter = nextFilter
@@ -265,8 +304,13 @@ private struct VoiceDictionaryActionBar: View {
 
             Spacer(minLength: 12)
 
-            MAYNButton(role: .primary, height: MAYNControlMetrics.controlHeight, action: onNewWord) {
-                Label("New word", systemImage: "plus")
+            MAYNButton(role: .secondary, height: MAYNControlMetrics.controlHeight, action: onImportCSV) {
+                Label("Import CSV", systemImage: "square.and.arrow.down")
+                    .labelStyle(.titleAndIcon)
+            }
+
+            MAYNButton(role: .primary, height: MAYNControlMetrics.controlHeight, action: onAddWord) {
+                Label("Add word", systemImage: "plus")
                     .labelStyle(.titleAndIcon)
             }
         }
@@ -337,6 +381,7 @@ private struct VoiceDictionaryEmptyState: View {
                     .padding(.top, 4)
             }
         }
+        .frame(maxWidth: .infinity)
         .padding(.vertical, 64)
         .padding(.horizontal, 24)
         .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -458,7 +503,7 @@ private struct VoiceDictionaryEditorSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(draft.id == nil ? "New word" : "Edit word")
+                Text(draft.id == nil ? "Add word" : "Edit word")
                     .font(.system(size: 20, weight: .semibold))
                 Text("Replace a recurring misrecognition before cleanup and paste.")
                     .font(.callout)
@@ -486,5 +531,140 @@ private struct VoiceDictionaryEditorSheet: View {
         }
         .padding(22)
         .frame(width: 420)
+    }
+}
+
+private struct VoiceDictionaryCSVImportSheet: View {
+    let onCancel: () -> Void
+    let onImport: (Data) -> Void
+
+    @State private var selectedFileName: String?
+    @State private var pendingData: Data?
+    @State private var previewCount: Int?
+    @State private var previewError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Import from CSV")
+                    .font(.system(size: 20, weight: .semibold))
+                Text(VoiceDictionaryCSVParser.formatSummary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(VoiceDictionaryCSVParser.formatTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(VoiceDictionaryCSVParser.formatRules, id: \.self) { rule in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("•")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(rule)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
+                Text(VoiceDictionaryCSVParser.formatExample)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                    )
+            }
+
+            if let selectedFileName {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text")
+                        .foregroundStyle(.secondary)
+                    Text(selectedFileName)
+                        .font(.callout)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    if let previewCount {
+                        Text("\(previewCount) \(previewCount == 1 ? "row" : "rows")")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if let previewError {
+                Text(previewError)
+                    .font(.caption)
+                    .foregroundStyle(MAYNTheme.danger)
+            }
+
+            HStack {
+                MAYNButton("Choose CSV…", role: .secondary, action: chooseCSVFile)
+                Spacer()
+                MAYNButton("Cancel", action: onCancel)
+                MAYNButton("Import", role: .primary, action: importSelectedFile)
+                    .disabled(pendingData == nil || previewError != nil)
+            }
+        }
+        .padding(22)
+        .frame(width: 480)
+    }
+
+    private func chooseCSVFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Import voice dictionary"
+        panel.prompt = "Choose CSV"
+        panel.message = "Select a UTF-8 CSV with phrase and replacement columns."
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.commaSeparatedText, .plainText]
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            guard let text = String(data: data, encoding: .utf8) else {
+                pendingData = nil
+                previewCount = nil
+                previewError = "The file must be UTF-8 encoded."
+                selectedFileName = url.lastPathComponent
+                return
+            }
+            let rows = try VoiceDictionaryCSVParser.parse(text)
+            pendingData = data
+            previewCount = rows.count
+            previewError = nil
+            selectedFileName = url.lastPathComponent
+        } catch let error as VoiceDictionaryCSVParserError {
+            pendingData = nil
+            previewCount = nil
+            selectedFileName = url.lastPathComponent
+            switch error {
+            case .emptyFile:
+                previewError = "The CSV file is empty."
+            case .noValidRows:
+                previewError = "No valid rows found. Check the format above."
+            }
+        } catch {
+            pendingData = nil
+            previewCount = nil
+            previewError = error.localizedDescription
+            selectedFileName = url.lastPathComponent
+        }
+    }
+
+    private func importSelectedFile() {
+        guard let pendingData else { return }
+        onImport(pendingData)
     }
 }

@@ -36,7 +36,11 @@ struct VoiceLLMStepView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Toggle("Enable AI cleanup", isOn: $cleanupEnabled)
-            HStack(spacing: 10) {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 158), spacing: 10)],
+                alignment: .leading,
+                spacing: 10
+            ) {
                 ForEach(VoiceCleanupProviderKind.allCases) { kind in
                     Button {
                         provider = kind
@@ -49,6 +53,7 @@ struct VoiceLLMStepView: View {
                     .buttonStyle(.plain)
                 }
             }
+            .frame(maxWidth: 360, alignment: .leading)
             MAYNTextField(placeholder: "Model", text: $model, width: 360)
             MAYNTextField(placeholder: "Base URL", text: $baseURLString, width: 360)
             if provider == .ollama {
@@ -88,7 +93,10 @@ struct VoiceLLMStepView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Improve cleanup over time by learning from your edits")
                         .font(.body)
-                    Text("Edit samples are stored locally and encrypted. Older samples are summarized via your selected cleanup LLM provider to refine your style profile.")
+                    Text(
+                        "Edit samples are stored locally and encrypted. Older samples are summarized "
+                            + "via your selected cleanup LLM provider to refine your style profile."
+                    )
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -172,14 +180,7 @@ struct VoiceCleanupProviderCard: View {
     }
 
     private var title: String {
-        switch provider {
-        case .anthropic:
-            "Claude Haiku 4.5"
-        case .openAICompatible:
-            "OpenAI gpt-5-nano"
-        case .ollama:
-            "Ollama"
-        }
+        provider.label
     }
 
     private var subtitle: String {
@@ -188,8 +189,14 @@ struct VoiceCleanupProviderCard: View {
             "Recommended cloud cleanup"
         case .openAICompatible:
             "OpenAI-compatible endpoint"
+        case .groq:
+            "Groq OpenAI-compatible API"
+        case .gemini:
+            "Google AI Studio key"
         case .ollama:
             "Local cleanup provider"
+        case .omlx:
+            "Local MLX server — confirm port in oMLX"
         }
     }
 }

@@ -226,7 +226,10 @@ struct VoiceSettingsView: View {
             VoiceCleanupSection(
                 cleanupEnabled: cleanupEnabled,
                 cleanupProvider: cleanupProvider,
-                cleanupModel: cleanupModel
+                cleanupModel: cleanupModel,
+                cleanupBaseURLString: cleanupBaseURLString,
+                cleanupTimeoutSeconds: cleanupTimeoutSeconds,
+                cleanupLatencyPolicy: cleanupLatencyPolicy
             )
 
             MAYNSection(title: "Audio") {

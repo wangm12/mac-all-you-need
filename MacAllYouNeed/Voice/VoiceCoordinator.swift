@@ -278,9 +278,13 @@ final class VoiceCoordinator {
         let appBundleID = presetAppBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         state = .transcribing
         undoBookkeeping.setInflight(captured: captured, appBundleID: appBundleID, asrResult: presetASRResult)
-        hud.show(presetASRResult == nil ? .transcribing : .thinking,
-                 onCancel: makeCancelAction(),
-                 onPrimary: makeCancelAction())
+        hud.show(
+            presetASRResult == nil
+                ? .transcribing(.asr)
+                : .transcribing(.cleanup(progress: 0)),
+            onCancel: makeCancelAction(),
+            onPrimary: makeCancelAction()
+        )
         log.info("ASR start — app: \(appBundleID ?? "nil", privacy: .public) presetASR: \(presetASRResult != nil, privacy: .public)")
 
         var ctx = VoicePipelineContext(
@@ -300,8 +304,12 @@ final class VoiceCoordinator {
             }
 
             // Phase 2 — Cleanup.
-            hud.show(.thinking, onCancel: makeCancelAction(), onPrimary: makeCancelAction())
-            await makeCleanupPhase(bundleID: appBundleID).run(&ctx)
+            hud.show(
+                .transcribing(.cleanup(progress: 0)),
+                onCancel: makeCancelAction(),
+                onPrimary: makeCancelAction()
+            )
+            await makeCleanupPhase(bundleID: appBundleID, generation: generation).run(&ctx)
             guard checkpoint(generation) else { return }
             guard let cleanupResult = ctx.cleanupResult, !cleanupResult.cleanedText.isEmpty else {
                 log.error("processCapturedAudio: cleaned text was empty")
@@ -314,15 +322,10 @@ final class VoiceCoordinator {
             // Phase 3 — Paste (also saves transcript + training example).
             state = .pasting
             try await makePastePhase().run(&ctx)
-            if let pasteResult = ctx.pasteResult {
-                hud.show(pasteResult.didPostPasteEvent ? .pasted : .copied,
-                         onPrimary: makeDismissAction())
-            }
 
             // Phase 4 — Learning monitor (fire-and-forget).
             makeLearningPhase().run(ctx)
 
-            try? await Task.sleep(for: .milliseconds(1200))
             guard isCurrentOperation(generation) else { return }
             state = .idle
             undoBookkeeping.clearInflight()
@@ -344,7 +347,11 @@ final class VoiceCoordinator {
 
     /// Builds a CleanupPhase wired to the current personalization context for
     /// `bundleID`. Extracted so processCapturedAudio stays orchestration-only.
-    private func makeCleanupPhase(bundleID: String?) -> CleanupPhase {
+    private func makeCleanupPhase(bundleID: String?, generation: Int) -> CleanupPhase {
+        let onThinkingProgress: (Double) -> Void = { [weak self] progress in
+            guard let self, self.isCurrentOperation(generation) else { return }
+            self.hud.updateThinkingProgress(progress)
+        }
         let (appCtx, globalCtx) = loadContexts(bundleID: bundleID)
         let recentExamplesContext = (appCtx?.enabled == false) ? nil : (appCtx ?? globalCtx)
         let dictionaryEntries = (try? dictionary?.list()) ?? []
@@ -360,6 +367,7 @@ final class VoiceCoordinator {
                 recentExamples: recentExamples
             ),
             observer: cleanupObserver,
+            onThinkingProgress: onThinkingProgress,
             log: log
         )
     }

@@ -22,7 +22,7 @@ struct AdvancedSettingsView: View {
                     title: "Install pack from file…",
                     subtitle: "Side-load a feature pack zip. You will be asked for the zip's published SHA-256."
                 ) {
-                    MAYNButton("Install…") {
+                    MAYNButton("Install") {
                         Task { await controller.sideloadController.presentInstallPanel(featureID: .downloader) }
                     }
                 }
@@ -59,7 +59,7 @@ struct AdvancedSettingsView: View {
                     title: "Onboarding",
                     subtitle: "Show the feature setup wizard again from the beginning."
                 ) {
-                    MAYNButton("Re-run onboarding…") {
+                    MAYNButton("Re-run onboarding") {
                         controller.resetOnboarding()
                         controller.onboardingWindow.show()
                     }
@@ -69,7 +69,7 @@ struct AdvancedSettingsView: View {
                     title: "Reset all data",
                     subtitle: "Remove local databases, blobs, thumbnails, and downloader checkpoints."
                 ) {
-                    MAYNButton("Reset…", role: .destructive) { confirmingReset = true }
+                    MAYNButton("Reset", role: .destructive) { confirmingReset = true }
                 }
 #if DEBUG
                 MAYNDivider()
@@ -77,7 +77,7 @@ struct AdvancedSettingsView: View {
                     title: "Reset migration sentinel",
                     subtitle: "Clears the one-time upgrade sentinel so the What's New sheet and Migrator run again on next launch. Debug only."
                 ) {
-                    MAYNButton("Reset migration…", role: .destructive) { confirmingMigrationReset = true }
+                    MAYNButton("Reset migration", role: .destructive) { confirmingMigrationReset = true }
                 }
 #endif
             }
@@ -87,7 +87,7 @@ struct AdvancedSettingsView: View {
                     title: "Reset all features",
                     subtitle: "Disable every feature and remove downloaded asset packs. Your user data is preserved."
                 ) {
-                    MAYNButton("Reset…", role: .destructive) { confirmingFeatureReset = true }
+                    MAYNButton("Reset", role: .destructive) { confirmingFeatureReset = true }
                 }
             }
         }

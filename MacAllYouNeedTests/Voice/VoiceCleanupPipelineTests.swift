@@ -3,6 +3,19 @@ import Core
 import XCTest
 
 final class VoiceCleanupPipelineTests: XCTestCase {
+    func testStripReasoningArtifactsRemovesClosedBlocks() {
+        let raw = "<think>secret</think>\nHello"
+        XCTAssertEqual(
+            VoiceCleanupPipeline.stripReasoningArtifacts(from: raw).trimmingCharacters(in: .whitespacesAndNewlines),
+            "Hello"
+        )
+    }
+
+    func testStripReasoningArtifactsHidesIncompleteBlock() {
+        let raw = "Before <think>partial"
+        XCTAssertEqual(VoiceCleanupPipeline.stripReasoningArtifacts(from: raw), "Before")
+    }
+
     func testUsesLocalCleanupWhenProviderIsMissing() async {
         let pipeline = VoiceCleanupPipeline(provider: nil)
 
@@ -111,6 +124,30 @@ final class VoiceCleanupPipelineTests: XCTestCase {
         XCTAssertTrue(result.deadlineExceeded)
         XCTAssertGreaterThanOrEqual(result.cleanupMs, 0)
     }
+
+    func testThinkingStreamProgressHintIsMonotonicAndCapped() {
+        let zero = VoiceCleanupPipeline.thinkingStreamProgressHint(strippedCharCount: 0)
+        let mid = VoiceCleanupPipeline.thinkingStreamProgressHint(strippedCharCount: 40)
+        let large = VoiceCleanupPipeline.thinkingStreamProgressHint(strippedCharCount: 10_000)
+        XCTAssertLessThanOrEqual(zero, 0.0001)
+        XCTAssertGreaterThan(mid, zero)
+        XCTAssertLessThanOrEqual(large, 0.95)
+        XCTAssertGreaterThan(large, mid)
+    }
+
+    func testThinkingProgressCallbackFiresDuringStreamingChunks() async {
+        let provider = ChunkedStreamingVoiceLLMProvider()
+        let pipeline = VoiceCleanupPipeline(provider: provider)
+        var samples: [Double] = []
+        let request = VoiceCleanupRequest(
+            rawText: "我今天要 deploy 这个 service。然后通知 product owner。",
+            appBundleID: "com.apple.TextEdit",
+            language: .mixed
+        )
+        _ = await pipeline.clean(request) { samples.append($0) }
+        XCTAssertGreaterThanOrEqual(samples.count, 1)
+        XCTAssert(samples.allSatisfy { $0 >= 0 && $0 <= 0.95 + 1e-9 })
+    }
 }
 
 private actor SpyVoiceLLMProvider: VoiceLLMProvider {
@@ -134,6 +171,26 @@ private struct SlowVoiceLLMProvider: VoiceLLMProvider {
     func clean(_: VoiceLLMRequest) async throws -> String {
         try await Task.sleep(for: .milliseconds(200))
         return "late output"
+    }
+}
+
+/// Yields multiple chunks so `onThinkingProgress` can observe more than one value.
+private struct ChunkedStreamingVoiceLLMProvider: VoiceLLMProvider {
+    let providerIdentifier = "chunked-stream"
+
+    func clean(_: VoiceLLMRequest) async throws -> String {
+        "unused"
+    }
+
+    func cleanStreaming(_: VoiceLLMRequest) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                continuation.yield("Hel")
+                continuation.yield("lo wor")
+                continuation.yield("ld")
+                continuation.finish()
+            }
+        }
     }
 }
 

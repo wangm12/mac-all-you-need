@@ -9,7 +9,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
     case hotkeys
     case search
     case permissions
-    case storage
     case general
     case advanced
 
@@ -25,7 +24,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
         case .hotkeys: "Hotkeys"
         case .search: "Search"
         case .permissions: "Permissions"
-        case .storage: "Storage"
         case .general: "General"
         case .advanced: "Advanced"
         }
@@ -41,7 +39,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
         case .hotkeys: "Global and in-dock keyboard control"
         case .search: "History ranking and matching"
         case .permissions: "macOS access required by features"
-        case .storage: "Retention and maintenance"
         case .general: "Launch, menu bar, and app behavior"
         case .advanced: "Diagnostics, sync, and reset actions"
         }
@@ -57,7 +54,6 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
         case .hotkeys: "keyboard"
         case .search: "magnifyingglass"
         case .permissions: "checkmark.shield"
-        case .storage: "internaldrive"
         case .general: "gearshape"
         case .advanced: "wrench.and.screwdriver"
         }
@@ -83,9 +79,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
             .permissions
         case "privacy":
             .clipboard
-        case SettingsDestination.storage.rawValue, "storage":
-            .storage
-        case SettingsDestination.general.rawValue, "general", "appearance":
+        case SettingsDestination.general.rawValue, "general", "appearance", "storage":
             .general
         case SettingsDestination.advanced.rawValue, "advanced", "sync":
             .advanced
@@ -117,7 +111,7 @@ struct SettingsSidebarGroup: Identifiable {
         SettingsSidebarGroup(
             id: "system",
             title: "System",
-            destinations: [.permissions, .storage, .general, .advanced]
+            destinations: [.permissions, .general, .advanced]
         )
     ]
 
@@ -125,7 +119,7 @@ struct SettingsSidebarGroup: Identifiable {
         SettingsSidebarGroup(
             id: "system",
             title: "System",
-            destinations: [.general, .permissions, .storage, .advanced]
+            destinations: [.general, .permissions, .advanced]
         )
     ]
 }

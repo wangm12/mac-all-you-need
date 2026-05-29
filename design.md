@@ -342,9 +342,11 @@ This is the map. When working on any surface, conform to this structure.
 - Use `SetupWizardShell` for step chrome. Permission steps use `PermissionCard` + `InstructionStrip`. Choice steps use `FunctionSegmentedTabStrip`.
 
 ### 7.5 Voice HUD
-- File: `MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift`
+- File: `MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift` (`MiniVoiceHUD` — the floating voice HUD pill, v8 fixed 144×32 chrome).
 - Borderless non-activating `NSPanel`, presented with `MAYNMotion.toastIn/toastOut` timing.
-- States: idle (hidden) → recording (waveform + timer + cancel/stop) → transcribing (spinner) → pasted (success flash) → error.
+- Anchored near the bottom of the active screen’s `visibleFrame` (`MiniVoiceHUDLayout.bottomInsetAboveDock`).
+- Happy path: idle (hidden) → **Listening** (recording: waveform + stop) → **Transcribing** (AI sparkle + stop for the whole ASR + LLM cleanup span; during cleanup the pill adds a gray **track** with **black** fill wiping left→right from streamed progress, optional short boot sweep before the first token, then snap to full black when cleanup completes) → dismiss when paste finishes (no Applied/Copied success pill, no inline transcript preview on the HUD).
+- Terminals still used when needed: **Cancelled** (with Undo), **No speech**, **Failed**.
 - Waveform amplitudes must respect Reduce Motion (collapse to a flat bar or static peak).
 
 ### 7.6 Clipboard dock

@@ -90,6 +90,65 @@ final class VoiceCleanupSettingsTests: XCTestCase {
         XCTAssertEqual(provider?.providerIdentifier, "openai-compatible")
     }
 
+    func testDecodesNewCleanupProviders() throws {
+        for raw in ["groq", "gemini", "omlx"] {
+            let data = Data("""
+            {
+              "isEnabled": false,
+              "provider": "\(raw)",
+              "model": "",
+              "baseURLString": "",
+              "timeoutSeconds": 7
+            }
+            """.utf8)
+            let settings = try JSONDecoder().decode(VoiceCleanupSettings.self, from: data)
+            XCTAssertEqual(settings.provider.rawValue, raw)
+        }
+    }
+
+    func testKeyStoreUsesDistinctAccountsPerProvider() throws {
+        let keychain = InMemoryKeychain()
+        let store = VoiceCleanupKeyStore(keychain: keychain)
+        try store.saveAPIKey("groq-cleanup", for: .groq)
+        try store.saveAPIKey("gemini-cleanup", for: .gemini)
+        XCTAssertEqual(try store.apiKey(for: .groq), "groq-cleanup")
+        XCTAssertEqual(try store.apiKey(for: .gemini), "gemini-cleanup")
+    }
+
+    func testProviderFactoryBuildsGroqWhenKeyExists() throws {
+        let keychain = InMemoryKeychain()
+        let keyStore = VoiceCleanupKeyStore(keychain: keychain)
+        try keyStore.saveAPIKey("secret", for: .groq)
+        let settings = VoiceCleanupSettings(
+            isEnabled: true,
+            provider: .groq,
+            model: "llama-test",
+            baseURLString: "https://api.groq.com/openai/v1",
+            timeoutSeconds: 7
+        )
+
+        let provider = try VoiceCleanupProviderFactory.makeProvider(settings: settings, keyStore: keyStore)
+
+        XCTAssertEqual(provider?.providerIdentifier, "openai-compatible")
+    }
+
+    func testProviderFactoryBuildsOmlxWithoutKey() throws {
+        let settings = VoiceCleanupSettings(
+            isEnabled: true,
+            provider: .omlx,
+            model: "m",
+            baseURLString: "http://127.0.0.1:8000/v1",
+            timeoutSeconds: 7
+        )
+
+        let provider = try VoiceCleanupProviderFactory.makeProvider(
+            settings: settings,
+            keyStore: VoiceCleanupKeyStore(keychain: InMemoryKeychain())
+        )
+
+        XCTAssertEqual(provider?.providerIdentifier, "openai-compatible")
+    }
+
     func testProviderFactoryBuildsDraftProviderFromUnsavedAPIKey() throws {
         let settings = VoiceCleanupSettings(
             isEnabled: true,

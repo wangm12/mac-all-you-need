@@ -20,10 +20,7 @@ struct FolderPreviewDestinationView: View {
         FunctionPageShell(
             title: "Folder Preview",
             subtitle: "Configure the Finder Space preview for folders and archives.",
-            selection: selectedTab,
-            toolbar: {
-                StatusPill(text: "Quick Look", kind: .neutral)
-            }
+            selection: selectedTab
         ) {
             FunctionPageScrollContent {
                 folderSettingsSection

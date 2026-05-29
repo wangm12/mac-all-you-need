@@ -122,10 +122,10 @@ struct ClipboardDestinationView: View {
                     }
 
                     MAYNDivider()
-                    ClipboardHistoryPaginationFooter(
-                        state: state,
-                        previous: { historyPage = max(0, historyPage - 1) },
-                        next: { historyPage = min(state.totalPages - 1, historyPage + 1) }
+                    MAYNListPaginationFooter(
+                        state: state.pagination,
+                        visibleItemCount: state.visibleItems.count,
+                        goToPage: { historyPage = $0 }
                     )
                 }
             }
@@ -582,36 +582,6 @@ private struct ClipboardHistorySearchBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct ClipboardHistoryPaginationFooter: View {
-    let state: MainClipboardHistoryPageState
-    let previous: () -> Void
-    let next: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Text(state.rangeText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Spacer(minLength: 12)
-
-            MAYNButton("Previous", action: previous)
-                .disabled(!state.canGoPrevious)
-
-            Text("Page \(state.currentPage + 1) of \(state.totalPages)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 86)
-
-            MAYNButton("Next", action: next)
-                .disabled(!state.canGoNext)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

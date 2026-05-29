@@ -23,7 +23,25 @@ struct CleanupPhase {
     /// pipeline runs. Tests use this to assert what the LLM would have been
     /// asked. Production wires nil so this is a no-op.
     let observer: ((VoiceCleanupRequest) -> Void)?
+    /// Optional HUD progress during LLM streaming (0…1); coordinator sets this to
+    /// drive the thinking pill’s gray→black fill. Always receives `1` when
+    /// cleanup finishes (including local-only fast paths).
+    let onThinkingProgress: ((Double) -> Void)?
     let log: Logger
+
+    init(
+        makePipeline: @escaping (TimeInterval) -> VoiceCleanupPipeline,
+        personalization: PersonalizationInputs,
+        observer: ((VoiceCleanupRequest) -> Void)?,
+        onThinkingProgress: ((Double) -> Void)? = nil,
+        log: Logger
+    ) {
+        self.makePipeline = makePipeline
+        self.personalization = personalization
+        self.observer = observer
+        self.onThinkingProgress = onThinkingProgress
+        self.log = log
+    }
 
     func run(_ ctx: inout VoicePipelineContext) async {
         guard let asrResult = ctx.asrResult else { return }
@@ -42,7 +60,8 @@ struct CleanupPhase {
         let pipeline = makePipeline(elapsedBeforeCleanup)
         log.info("LLM cleanup start — text length: \(asrResult.text.count, privacy: .public) chars")
         let cleanupStart = Date()
-        let raw = await pipeline.clean(cleanupRequest)
+        let raw = await pipeline.clean(cleanupRequest, onThinkingProgress: onThinkingProgress)
+        onThinkingProgress?(1.0)
         let cleanupMs = Int(Date().timeIntervalSince(cleanupStart) * 1000)
         let totalMs = Int(Date().timeIntervalSince(ctx.operationStartedAt) * 1000)
         let timed = raw.withTimings(

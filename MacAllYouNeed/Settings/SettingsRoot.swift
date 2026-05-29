@@ -103,7 +103,7 @@ private struct SettingsContainer: View {
                 selected: $selected,
                 groups: groups,
                 title: "System",
-                subtitle: "Global app behavior, permissions, storage, and diagnostics."
+                subtitle: "Global app behavior, permissions, and diagnostics."
             )
 
             Rectangle()
@@ -256,8 +256,6 @@ private struct SettingsDetailContent: View {
             SearchSettingsView()
         case .permissions:
             PermissionsSettingsView()
-        case .storage:
-            StorageSettingsView()
         case .general:
             GeneralSettingsView(controller: controller)
         case .advanced:

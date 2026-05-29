@@ -13,8 +13,10 @@ seven first-class tool surfaces:
   FluidAudio, optional Groq Whisper cloud ASR, optional LLM cleanup, transcript
   history, dictionary replacements, personalization profiles, post-edit
   learning, and a v8 mini HUD (voice-reactive Listening waveform, AI sparkle
-  Transcribing, dot-spinner Thinking, check/X/triangle terminals) with stop
-  button = cancel and a 5-second Cancelled + Undo affordance.
+  **Transcribing** for the whole ASR + LLM cleanup span — cleanup adds a gray-track
+  black wipe; HUD dismisses after paste — no Applied/
+  Copied pill) with stop button = cancel and a 5-second Cancelled + Undo
+  affordance; No speech / Failed use warning terminals.
 - **Downloads** - yt-dlp + ffmpeg downloader with queue/completed views, browser
   cookie import, pause/resume, browser-extension dispatch server, auto video URL
   detection from clipboard, metadata thumbnails, and Dock progress.
@@ -106,8 +108,8 @@ Main-app source layout:
   Languages, Try it, Done.
 - `MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift` - v8 floating pill (universal
   144x32, three slots: left status icon at x=20, centered label, right action
-  at x=124). State machine: Listening / Transcribing / Thinking / Applied /
-  Copied / Cancelled / No speech / Failed.
+  at x=124). Happy path: Listening → Transcribing (through cleanup) then dismiss;
+  Cancelled / No speech / Failed when needed.
 - `MacAllYouNeed/Voice/VoiceCoordinator.swift` - dictation state machine,
   ASR/cleanup pipeline (`processCapturedAudio`), inflight + pendingUndo
   bookkeeping, global NSEvent monitor for Esc/Return/numpad-Enter dispatch.
@@ -129,27 +131,31 @@ Main-app source layout:
   (x=72), action button (right, x=124). The pill does not resize between
   states.
 - Listening: voice-reactive waveform driven by `audio.peakLevel`; bars react to
-  amplitude with a per-bar phase stagger. Transcribing: AI sparkle icon with
-  subtle 1200ms pulse (no more waveform — transcribing is system work, not live
-  audio). Thinking: 8-dot spinner rotating in 1100ms.
-- Terminal pills: Applied / Copied use check-in-circle; Cancelled uses
-  X-in-circle and exposes a right-slot Undo button; No speech / Failed use a
-  warning triangle.
+  amplitude with a per-bar phase stagger. **Transcribing** (entire post-commit
+  span): AI sparkle with subtle 1200ms pulse (no waveform — not live mic audio).
+  During LLM cleanup the same pill adds a gray **track** with a **black** fill
+  wiping left→right from streamed cleanup progress (short boot sweep before the
+  first token when progress stays at zero), then snaps to full black when cleanup
+  completes.
+- Cancelled uses X-in-circle and exposes a right-slot Undo button; No speech /
+  Failed use a warning triangle (success path dismisses the HUD with no
+  checkmark pill).
 - Stop button always cancels — it never advances to transcribe. The hotkey
   (PTT release in `.hold`, second press in `.toggle`) is the only commit path.
-- Cancelling during Listening / Transcribing / Thinking always offers Undo for
+- Cancelling during Listening or Transcribing always offers Undo for
   5 seconds. `processCapturedAudio(captured:presetASRResult:)` is shared
   between the live entry (`stopRecordingAndPaste`) and the undo replay
   (`undoLastCancel`); if ASR completed before the cancel, the replay skips ASR.
 - Keyboard model — global + local `NSEvent.keyDown` monitor installed by
   `VoiceCoordinator.installEscKeyMonitor`:
   - Esc: stoppable -> cancel; undoable -> dismiss undo; visible terminal pill
-    -> dismiss; otherwise ignored (don't interfere with other apps' Esc).
+    (No speech / Failed) -> dismiss; otherwise ignored (don't interfere with
+    other apps' Esc).
   - Return / numpad Enter: undo, but only while the Cancelled pill is up. Keeps
     us from intercepting newlines in the user's editor.
 - Cursor-screen lock (`targetScreen`) captured on first show; HUD stays on one
-  screen for the whole Listening -> Transcribing -> Thinking -> Cancelled /
-  Applied lifecycle.
+  screen for the whole Listening → Transcribing (ASR + cleanup) → dismiss (or
+  Cancelled / error terminal) lifecycle.
 
 ### Main menu and window shortcuts
 
@@ -228,9 +234,10 @@ Main-app source layout:
   draft in the in-panel snippet editor.
 - Voice dictation flow, microphone/Accessibility setup, local/cloud ASR
   selection, transcript history, dictionary, personalization, and v8 mini HUD
-  with voice-reactive Listening waveform, AI sparkle Transcribing, dot-spinner
-  Thinking, and 5-second Cancelled + Undo on every mid-stream cancel (stop
-  button, Esc, or pill-body tap; Return / numpad Enter re-runs the undo).
+  with voice-reactive Listening waveform, AI sparkle Transcribing through cleanup
+  (then dismiss after paste), and 5-second Cancelled + Undo on every
+  mid-stream cancel (stop button, Esc, or pill-body tap; Return / numpad Enter
+  re-runs the undo).
 - Downloader queue/completed views, cookies, metadata, pause/resume, browser
   extension dispatch, and clipboard video URL badge / enqueue flow.
 - Folder Preview Quick Look extension, archive listing, Browse Folder window,
@@ -255,6 +262,24 @@ Main-app source layout:
 - Plan 2 Sync Engine is skipped indefinitely.
 - Public release automation, Sparkle appcast, GitHub Actions notarized release,
   and paid Developer ID distribution remain Plan 7 territory.
+
+## Typeless history import
+
+One-time migration from Typeless dictation history into MAYN voice transcripts and
+training examples (`model_identifier = typeless-import`). Reads Typeless at
+`~/Library/Application Support/Typeless/typeless.db` and `Recordings/*.ogg`
+(not `com.typeless.macos`). Converts OGG to encrypted WAV via vendored ffmpeg.
+
+1. Quit Mac All You Need (Cmd+Q).
+2. `make bootstrap` if `Vendored/binaries/ffmpeg` is missing.
+3. `./scripts/import-typeless-history.sh` or `make import-typeless` (supports
+   `--dry-run`, `--skip-audio`, `--limit N`). Re-runs skip existing transcript IDs.
+   The script always targets `~/Library/Group Containers/group.com.macallyouneed.shared`.
+   Verify with:
+   `sqlite3 ~/Library/Group\ Containers/group.com.macallyouneed.shared/databases/clipboard.sqlite \
+   "SELECT COUNT(*) FROM voice_transcripts WHERE model_identifier='typeless-import';"`
+
+Implementation: `Shared/Sources/Core/Voice/Import/`, CLI target `TypelessImport`.
 
 ## Build Requirements
 

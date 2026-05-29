@@ -117,7 +117,7 @@ struct VoicePopoverView: View {
             .text(MainVoiceTranscriptHistoryPresentation.displayText(transcript), monospaced: false),
             metadata: PreviewPanelMetadata(
                 title: "Voice transcript",
-                subtitle: "\(CompactTimestamp.format(transcript.endedAt)) · \(transcript.language.rawValue)",
+                subtitle: VoiceTranscriptHistoryMetadata.line(for: transcript),
                 badge: "\(transcript.durationMs) ms",
                 symbol: "waveform"
             ),

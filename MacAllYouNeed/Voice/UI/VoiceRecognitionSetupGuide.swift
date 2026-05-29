@@ -121,7 +121,7 @@ struct VoiceRecognitionSetupGuide: View {
                 searchText: $pickerSearchText,
                 currentEngineID: currentEngineID,
                 entries: VoiceEngineCatalogPresentation.pickerEntries(),
-                onDone: { isShowingEnginePicker = false }
+                onClose: { isShowingEnginePicker = false }
             ) { engineID in
                 detailPane(for: engineID)
             }

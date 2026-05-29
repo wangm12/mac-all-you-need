@@ -8,7 +8,7 @@ PKG_CONFIG_PATH := /opt/homebrew/opt/libarchive/lib/pkgconfig
 DERIVED_DATA ?= $(CURDIR)/.build/DerivedData
 DEBUG_APP := $(DERIVED_DATA)/Build/Products/Debug/MacAllYouNeed.app
 
-.PHONY: help bootstrap generate test build run open-app release dmg clean clean-cache clean-dist
+.PHONY: help bootstrap generate test build run open-app release dmg clean clean-cache clean-dist import-typeless
 
 help:
 	@echo "Targets:"
@@ -23,6 +23,7 @@ help:
 	@echo "  make clean       Remove local build caches and dist output"
 	@echo "  make clean-cache Remove local build caches only"
 	@echo "  make clean-dist  Remove dist output only"
+	@echo "  make import-typeless  Import Typeless voice history (quit the app first)"
 
 bootstrap: generate
 	./scripts/fetch-binaries.sh
@@ -39,6 +40,7 @@ build:
 		-configuration Debug \
 		-destination "$(DESTINATION)" \
 		-derivedDataPath "$(DERIVED_DATA)" \
+		-allowProvisioningUpdates \
 		build
 
 run: build
@@ -53,6 +55,9 @@ release:
 	./scripts/package-dmg.sh
 
 dmg: release
+
+import-typeless:
+	./scripts/import-typeless-history.sh
 
 clean: clean-cache clean-dist
 

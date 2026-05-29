@@ -11,7 +11,7 @@ final class SettingsDestinationTests: XCTestCase {
         XCTAssertEqual(SettingsDestination.legacySelection("hotkeys"), .hotkeys)
         XCTAssertEqual(SettingsDestination.legacySelection("shortcuts"), .snippets)
         XCTAssertEqual(SettingsDestination.legacySelection("privacy"), .clipboard)
-        XCTAssertEqual(SettingsDestination.legacySelection("storage"), .storage)
+        XCTAssertEqual(SettingsDestination.legacySelection("storage"), .general)
         XCTAssertEqual(SettingsDestination.legacySelection("search"), .search)
         XCTAssertEqual(SettingsDestination.legacySelection("appearance"), .general)
         XCTAssertEqual(SettingsDestination.legacySelection("advanced"), .advanced)
@@ -30,7 +30,7 @@ final class SettingsDestinationTests: XCTestCase {
     func testSystemOnlySettingsGroupKeepsOnlySystemDestinations() {
         let destinations = SettingsSidebarGroup.systemOnly.flatMap(\.destinations)
 
-        XCTAssertEqual(destinations, [.general, .permissions, .storage, .advanced])
+        XCTAssertEqual(destinations, [.general, .permissions, .advanced])
     }
 
     func testSettingsGroupsDoNotExposePrivacyAsASeparateDestination() {

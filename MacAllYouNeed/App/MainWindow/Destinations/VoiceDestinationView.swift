@@ -32,6 +32,16 @@ struct VoiceDestinationView: View {
     @State private var cleanupTimeoutSeconds: Int
     @State private var cleanupLatencyPolicy: VoiceCleanupLatencyPolicy
     @State private var cleanupStatusMessage: String?
+    @State private var isShowingCleanupPicker = false
+    @State private var cleanupPickerSelectedProvider: VoiceCleanupProviderKind = .anthropic
+    @State private var cleanupPickerFilter: VoiceCleanupPickerFilter = .all
+    @State private var cleanupPickerSearchText = ""
+    @State private var cleanupPickerDraftModel = ""
+    @State private var cleanupPickerDraftBaseURL = ""
+    @State private var cleanupPickerDraftAPIKey = ""
+    @State private var cleanupPickerDraftTimeout = 7
+    @State private var cleanupPickerDraftLatency: VoiceCleanupLatencyPolicy = .balanced2s
+    @State private var cleanupPickerPreloadedAPIKeys: [VoiceCleanupProviderKind: String] = [:]
     @State private var onboardingProgress: VoiceOnboardingProgress
     @State private var errorMessage: String?
     @State private var transcripts: [VoiceTranscript] = []
@@ -161,10 +171,8 @@ struct VoiceDestinationView: View {
         .onReceive(microphoneRefreshTimer) { _ in
             refreshMicrophoneOptions()
         }
-        .onChange(of: cleanupProvider) { _, provider in
-            cleanupModel = provider.defaultModel
-            cleanupBaseURLString = provider.defaultBaseURLString
-            cleanupAPIKey = controller.voiceCleanupAPIKey(for: provider)
+        .onChange(of: cleanupEnabled) { _, _ in
+            applyCleanupSettings()
         }
         .onChange(of: languageHint) { _, hint in
             cloudLanguageHint = hint
@@ -180,6 +188,9 @@ struct VoiceDestinationView: View {
         }
         .sheet(isPresented: $isShowingEnginePicker) {
             voiceEnginePickerSheet
+        }
+        .sheet(isPresented: $isShowingCleanupPicker) {
+            voiceCleanupPickerSheet
         }
     }
 
@@ -224,22 +235,16 @@ struct VoiceDestinationView: View {
     private var voiceRecognitionModelsSection: some View {
         MAYNSection(
             title: "Recognition",
-            subtitle: "Choose your current recognition engine or open the exact engine picker for local, cloud, and experimental options."
+            subtitle: "Pick your recognition engine and language; tap the engine row to open the full picker."
         ) {
             MAYNSettingsRow(
                 title: "Recognition engine",
-                subtitle: recognitionModelSummary
+                subtitle: recognitionEngineRowSubtitle,
+                belowSubtitle: {
+                    AnyView(StatusPill(text: recognitionEngineSingleTag, kind: .neutral))
+                }
             ) {
                 MAYNButton("Change...") {
-                    openVoiceEnginePicker()
-                }
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Exact selection",
-                subtitle: "Advanced selection for exact local, cloud, and experimental recognizers."
-            ) {
-                MAYNButton("Choose exact engine...") {
                     openVoiceEnginePicker()
                 }
             }
@@ -284,16 +289,12 @@ struct VoiceDestinationView: View {
                         )
                     }
 
-                    if page.totalPages > 1 {
+                    if page.pagination.totalPages > 1 {
                         MAYNDivider()
-                        VoiceTranscriptPaginationFooter(
-                            rangeText: page.rangeText,
-                            currentPage: page.currentPage,
-                            totalPages: page.totalPages,
-                            canGoPrevious: page.canGoPrevious,
-                            canGoNext: page.canGoNext,
-                            previous: { transcriptPage = max(0, transcriptPage - 1) },
-                            next: { transcriptPage = min(page.totalPages - 1, transcriptPage + 1) }
+                        MAYNListPaginationFooter(
+                            state: page.pagination,
+                            visibleItemCount: page.visible.count,
+                            goToPage: { transcriptPage = $0 }
                         )
                     }
                 }
@@ -325,31 +326,19 @@ struct VoiceDestinationView: View {
 
     private struct VoiceTranscriptPageState {
         let visible: [VoiceTranscript]
-        let currentPage: Int
-        let totalPages: Int
-        let totalItems: Int
-        let pageSize: Int
-        var canGoPrevious: Bool { currentPage > 0 }
-        var canGoNext: Bool { currentPage < totalPages - 1 }
-        var rangeText: String {
-            guard totalItems > 0 else { return "0 of 0" }
-            let start = currentPage * pageSize + 1
-            let end = min(start + visible.count - 1, totalItems)
-            return "\(start)–\(end) of \(totalItems)"
-        }
+        let pagination: MAYNListPaginationState
     }
 
+    private static let voiceTranscriptPageSize = 15
+
     private var voiceTranscriptPageState: VoiceTranscriptPageState {
-        let size = 15
-        let total = transcripts.count
-        let pages = max(1, Int(ceil(Double(total) / Double(size))))
-        let page = min(max(0, transcriptPage), pages - 1)
-        let start = page * size
-        let end = min(start + size, total)
-        let visible = start < end ? Array(transcripts[start ..< end]) : []
-        return VoiceTranscriptPageState(
-            visible: visible, currentPage: page, totalPages: pages, totalItems: total, pageSize: size
+        let pagination = MAYNListPagination.make(
+            totalItems: transcripts.count,
+            requestedPage: transcriptPage,
+            pageSize: Self.voiceTranscriptPageSize
         )
+        let visible = MAYNListPagination.slice(transcripts, pagination: pagination)
+        return VoiceTranscriptPageState(visible: visible, pagination: pagination)
     }
 
     private var voiceActivationSection: some View {
@@ -398,7 +387,10 @@ struct VoiceDestinationView: View {
         MAYNSection(title: "Recognition") {
             MAYNSettingsRow(
                 title: "Recognition engine",
-                subtitle: recognitionModelSummary
+                subtitle: recognitionEngineRowSubtitle,
+                belowSubtitle: {
+                    AnyView(StatusPill(text: recognitionEngineSingleTag, kind: .neutral))
+                }
             ) {
                 MAYNButton("Choose recognition engine") {
                     selectedTabRaw = VoiceFunctionTab.models.rawValue
@@ -407,10 +399,17 @@ struct VoiceDestinationView: View {
             MAYNDivider()
             MAYNSettingsRow(
                 title: "Cleanup model",
-                subtitle: cleanupModelSummary
+                subtitle: cleanupRowSubtitle,
+                belowSubtitle: {
+                    AnyView(StatusPill(text: cleanupSavedSelectionLine, kind: .neutral))
+                }
             ) {
-                StatusPill(text: cleanupEnabled ? cleanupProvider.label : "Off", kind: .neutral)
+                MAYNButton("Change...") {
+                    openCleanupPicker()
+                }
             }
+            .accessibilityLabel("Cleanup model")
+            .accessibilityValue(cleanupAccessibilitySummary)
         }
     }
 
@@ -421,7 +420,7 @@ struct VoiceDestinationView: View {
             searchText: $pickerSearchText,
             currentEngineID: currentEngineID,
             entries: voiceEnginePickerEntries,
-            onDone: { isShowingEnginePicker = false }
+            onClose: { isShowingEnginePicker = false }
         ) { engineID in
             voiceEngineDetailPane(for: engineID)
         }
@@ -444,6 +443,89 @@ struct VoiceDestinationView: View {
         pickerFilter = .all
         pickerSearchText = ""
         isShowingEnginePicker = true
+    }
+
+    private var voiceCleanupPickerSheet: some View {
+        VoiceCleanupPickerSheet(
+            selectedProvider: $cleanupPickerSelectedProvider,
+            filter: $cleanupPickerFilter,
+            searchText: $cleanupPickerSearchText,
+            currentProvider: cleanupProvider,
+            showsAppliedProviderCheckmark: cleanupEnabled,
+            controller: controller,
+            draftModel: $cleanupPickerDraftModel,
+            draftBaseURL: $cleanupPickerDraftBaseURL,
+            draftAPIKey: $cleanupPickerDraftAPIKey,
+            draftTimeout: $cleanupPickerDraftTimeout,
+            draftLatency: $cleanupPickerDraftLatency,
+            cleanupEnabled: cleanupEnabled,
+            statusMessage: $cleanupStatusMessage,
+            onClose: { isShowingCleanupPicker = false },
+            onSelect: { useCleanupModelFromPicker() }
+        ) { provider in
+            VoiceCleanupPickerDetailView(
+                controller: controller,
+                savedProvider: cleanupProvider,
+                selectedProvider: provider,
+                draftModel: $cleanupPickerDraftModel,
+                draftBaseURL: $cleanupPickerDraftBaseURL,
+                draftAPIKey: $cleanupPickerDraftAPIKey,
+                draftTimeout: $cleanupPickerDraftTimeout,
+                draftLatency: $cleanupPickerDraftLatency,
+                cleanupEnabled: cleanupEnabled,
+                statusMessage: $cleanupStatusMessage
+            )
+        }
+        .onChange(of: cleanupPickerSelectedProvider) { _, newValue in
+            syncCleanupPickerDraftForSelection(newValue)
+        }
+        .onChange(of: cleanupPickerDraftAPIKey) { _, newValue in
+            cleanupPickerPreloadedAPIKeys[cleanupPickerSelectedProvider] = newValue
+        }
+    }
+
+    private func openCleanupPicker() {
+        cleanupPickerPreloadedAPIKeys = Dictionary(
+            uniqueKeysWithValues: VoiceCleanupProviderKind.allCases
+                .filter(\.requiresAPIKey)
+                .map { ($0, controller.voiceCleanupAPIKey(for: $0)) }
+        )
+        cleanupPickerSelectedProvider = cleanupProvider
+        cleanupPickerDraftModel = cleanupModel
+        cleanupPickerDraftBaseURL = cleanupBaseURLString
+        cleanupPickerDraftAPIKey = cleanupAPIKey
+        cleanupPickerDraftTimeout = cleanupTimeoutSeconds
+        cleanupPickerDraftLatency = cleanupLatencyPolicy
+        cleanupPickerFilter = .all
+        cleanupPickerSearchText = ""
+        isShowingCleanupPicker = true
+    }
+
+    /// When the user selects a list row, load defaults for other providers or the saved values when the row matches the applied provider.
+    private func syncCleanupPickerDraftForSelection(_ provider: VoiceCleanupProviderKind) {
+        if provider == cleanupProvider {
+            cleanupPickerDraftModel = cleanupModel
+            cleanupPickerDraftBaseURL = cleanupBaseURLString
+            cleanupPickerDraftAPIKey = cleanupAPIKey
+            cleanupPickerDraftTimeout = cleanupTimeoutSeconds
+            cleanupPickerDraftLatency = cleanupLatencyPolicy
+        } else {
+            cleanupPickerDraftModel = provider.defaultModel
+            cleanupPickerDraftBaseURL = provider.defaultBaseURLString
+            cleanupPickerDraftAPIKey = cleanupPickerPreloadedAPIKeys[provider]
+                ?? controller.voiceCleanupAPIKey(for: provider)
+        }
+    }
+
+    private func useCleanupModelFromPicker() {
+        cleanupProvider = cleanupPickerSelectedProvider
+        cleanupModel = cleanupPickerDraftModel
+        cleanupBaseURLString = cleanupPickerDraftBaseURL
+        cleanupAPIKey = cleanupPickerDraftAPIKey
+        cleanupTimeoutSeconds = cleanupPickerDraftTimeout
+        cleanupLatencyPolicy = cleanupPickerDraftLatency
+        applyCleanupSettings()
+        isShowingCleanupPicker = false
     }
 
     @ViewBuilder
@@ -716,65 +798,19 @@ struct VoiceDestinationView: View {
                     .labelsHidden()
             }
             MAYNDivider()
-            MAYNSettingsRow(title: "Provider") {
-                MAYNDropdown(
-                    selection: $cleanupProvider,
-                    options: Array(VoiceCleanupProviderKind.allCases),
-                    title: { $0.label }
-                )
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Model") {
-                MAYNTextField(text: $cleanupModel)
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Base URL") {
-                MAYNTextField(text: $cleanupBaseURLString)
-            }
-            if cleanupProvider == .ollama {
-                MAYNDivider()
-                VoiceOllamaCleanupControls(
-                    controller: controller,
-                    model: $cleanupModel,
-                    baseURLString: $cleanupBaseURLString,
-                    statusMessage: $cleanupStatusMessage
-                )
-            }
-            if cleanupProvider.requiresAPIKey {
-                MAYNDivider()
-                MAYNSettingsRow(title: "API key") {
-                    MAYNSecureField(text: $cleanupAPIKey)
-                }
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Timeout") {
-                MAYNNumericStepper(
-                    text: "\(cleanupTimeoutSeconds)s",
-                    value: $cleanupTimeoutSeconds,
-                    range: 1...30,
-                    presets: [3, 5, 7, 10, 15, 30],
-                    suffix: "s"
-                )
-            }
-            MAYNDivider()
             MAYNSettingsRow(
-                title: "Latency policy",
-                subtitle: cleanupLatencyPolicy.subtitle
+                title: "Cleanup model",
+                subtitle: cleanupRowSubtitle,
+                belowSubtitle: {
+                    AnyView(StatusPill(text: cleanupSavedSelectionLine, kind: .neutral))
+                }
             ) {
-                MAYNDropdown(
-                    selection: $cleanupLatencyPolicy,
-                    options: Array(VoiceCleanupLatencyPolicy.allCases),
-                    title: { $0.label },
-                    width: MAYNControlMetrics.widePickerWidth
-                )
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Cleanup actions") {
-                HStack(spacing: 8) {
-                    MAYNButton("Test") { testCleanupSettings() }
-                    MAYNButton("Apply", role: .primary) { applyCleanupSettings() }
+                MAYNButton("Change...") {
+                    openCleanupPicker()
                 }
             }
+            .accessibilityLabel("Cleanup model")
+            .accessibilityValue(cleanupAccessibilitySummary)
 
             if let cleanupStatusMessage {
                 MAYNDivider()
@@ -805,6 +841,14 @@ struct VoiceDestinationView: View {
                 .map { ($0, controller.cloudASRAPIKey(for: $0)) }
         )
         cloudSetupProviderKind = asrSettings.providerKind.isCloud ? asrSettings.providerKind : cloudSettings.modelID.providerKind
+        let cleanupSettings = controller.voiceCleanupSettings()
+        cleanupEnabled = cleanupSettings.isEnabled
+        cleanupProvider = cleanupSettings.provider
+        cleanupModel = cleanupSettings.model
+        cleanupBaseURLString = cleanupSettings.baseURLString
+        cleanupAPIKey = controller.voiceCleanupAPIKey(for: cleanupSettings.provider)
+        cleanupTimeoutSeconds = cleanupSettings.timeoutSeconds
+        cleanupLatencyPolicy = cleanupSettings.latencyPolicy
         transcripts = controller.listRecentVoiceTranscripts(limit: 500)
         transcriptPage = 0
         pruneVoiceTranscriptSelection()
@@ -983,7 +1027,7 @@ struct VoiceDestinationView: View {
             .text(MainVoiceTranscriptHistoryPresentation.displayText(transcript), monospaced: false),
             metadata: PreviewPanelMetadata(
                 title: "Voice transcript",
-                subtitle: "\(CompactTimestamp.format(transcript.endedAt)) · \(transcript.language.rawValue)",
+                subtitle: VoiceTranscriptHistoryMetadata.line(for: transcript),
                 badge: "\(transcript.durationMs) ms",
                 symbol: "waveform"
             ),
@@ -1227,13 +1271,6 @@ struct VoiceDestinationView: View {
         }
     }
 
-    private func testCleanupSettings() {
-        cleanupStatusMessage = controller.validateVoiceCleanupSettings(
-            cleanupSettingsDraft,
-            apiKey: cleanupAPIKey
-        )
-    }
-
     private var canToggleVoice: Bool {
         switch controller.voiceCoordinator.state {
         case .idle, .recording:
@@ -1284,7 +1321,7 @@ struct VoiceDestinationView: View {
         }
     }
 
-    private var recognitionModelSummary: String {
+    private var recognitionEngineSingleTag: String {
         switch asrProviderKind {
         case .local:
             selectedASRModelID.title
@@ -1293,15 +1330,22 @@ struct VoiceDestinationView: View {
         }
     }
 
-    private var cleanupModelSummary: String {
-        guard cleanupEnabled else {
-            return "AI cleanup is off; local cleanup and dictionary still apply."
+    private var recognitionEngineRowSubtitle: String {
+        switch asrProviderKind {
+        case .local:
+            selectedASRModelID.subtitle
+        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+            cloudModelID.subtitle
         }
-        let model = cleanupModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        return model.isEmpty ? cleanupProvider.label : "\(cleanupProvider.label) · \(model)"
     }
 
-    private var cleanupSettingsDraft: VoiceCleanupSettings {
+    /// Saved cleanup provider and resolved model name (uses defaults when the model field is empty).
+    private var cleanupSavedSelectionLine: String {
+        let settings = cleanupVoiceSettingsSnapshot
+        return "\(cleanupProvider.label) · \(settings.effectiveModel)"
+    }
+
+    private var cleanupVoiceSettingsSnapshot: VoiceCleanupSettings {
         VoiceCleanupSettings(
             isEnabled: cleanupEnabled,
             provider: cleanupProvider,
@@ -1310,6 +1354,22 @@ struct VoiceDestinationView: View {
             timeoutSeconds: cleanupTimeoutSeconds,
             latencyPolicy: cleanupLatencyPolicy
         )
+    }
+
+    private var cleanupRowSubtitle: String {
+        if cleanupEnabled {
+            "Tap the row to pick provider, model, keys, and timeout. Runs after recognition while AI cleanup is on."
+        } else {
+            "AI cleanup is off; local cleanup and dictionary still apply."
+        }
+    }
+
+    private var cleanupAccessibilitySummary: String {
+        "\(cleanupSavedSelectionLine). \(cleanupRowSubtitle)"
+    }
+
+    private var cleanupSettingsDraft: VoiceCleanupSettings {
+        cleanupVoiceSettingsSnapshot
     }
 
     private var currentAppliedASRSettings: VoiceASRSettings {
@@ -1341,40 +1401,6 @@ struct VoiceDestinationView: View {
 
     private func hasUsableCloudAPIKey(for providerKind: VoiceASRProviderKind) -> Bool {
         VoiceASRModelSelectionState.canSelectCloudModel(apiKey: cloudAPIKeys[providerKind] ?? "")
-    }
-}
-
-private struct VoiceTranscriptPaginationFooter: View {
-    let rangeText: String
-    let currentPage: Int
-    let totalPages: Int
-    let canGoPrevious: Bool
-    let canGoNext: Bool
-    let previous: () -> Void
-    let next: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Text(rangeText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Spacer(minLength: 12)
-
-            MAYNButton("Previous", action: previous)
-                .disabled(!canGoPrevious)
-
-            Text("Page \(currentPage + 1) of \(totalPages)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 86)
-
-            MAYNButton("Next", action: next)
-                .disabled(!canGoNext)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

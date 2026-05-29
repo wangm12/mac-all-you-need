@@ -207,9 +207,24 @@ struct MAYNSettingsRow<Trailing: View>: View {
     let title: String
     var subtitle: String?
     var minHeight: CGFloat = MAYNControlMetrics.rowMinHeight
+    private let belowSubtitle: (() -> AnyView)?
     @ViewBuilder let trailing: Trailing
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        minHeight: CGFloat = MAYNControlMetrics.rowMinHeight,
+        belowSubtitle: (() -> AnyView)? = nil,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.minHeight = minHeight
+        self.belowSubtitle = belowSubtitle
+        self.trailing = trailing()
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
@@ -221,6 +236,10 @@ struct MAYNSettingsRow<Trailing: View>: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let belowSubtitle {
+                    belowSubtitle()
+                        .padding(.top, 4)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -285,13 +304,21 @@ struct MAYNButton<Label: View>: View {
     }
 
     private var foreground: Color {
+        if !isEnabled {
+            switch role {
+            case .primary, .secondary:
+                return Color.primary.opacity(0.42)
+            case .destructive:
+                return MAYNTheme.danger.opacity(0.42)
+            }
+        }
         switch role {
         case .primary:
-            Color(nsColor: .controlBackgroundColor)
+            return Color(nsColor: .controlBackgroundColor)
         case .secondary:
-            .primary
+            return Color.primary
         case .destructive:
-            MAYNTheme.danger
+            return MAYNTheme.danger
         }
     }
 

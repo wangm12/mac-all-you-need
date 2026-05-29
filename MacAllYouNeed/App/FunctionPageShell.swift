@@ -207,6 +207,7 @@ struct FunctionSegmentedTabStrip<Tab: SegmentedTabDestination>: View {
     let tabs: [Tab]
     let selection: Tab
     let fillsAvailableWidth: Bool
+    let equalSegmentWidths: Bool
     let size: Size
     let onSelect: (Tab) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -216,12 +217,14 @@ struct FunctionSegmentedTabStrip<Tab: SegmentedTabDestination>: View {
         tabs: [Tab] = Array(Tab.allCases),
         selection: Tab,
         fillsAvailableWidth: Bool = true,
+        equalSegmentWidths: Bool = false,
         size: Size = .header,
         onSelect: @escaping (Tab) -> Void
     ) {
         self.tabs = tabs
         self.selection = selection
         self.fillsAvailableWidth = fillsAvailableWidth
+        self.equalSegmentWidths = equalSegmentWidths
         self.size = size
         self.onSelect = onSelect
     }
@@ -229,8 +232,17 @@ struct FunctionSegmentedTabStrip<Tab: SegmentedTabDestination>: View {
     var body: some View {
         strip
             .frame(maxWidth: fillsAvailableWidth ? .infinity : nil, alignment: .leading)
-            .fixedSize(horizontal: !fillsAvailableWidth, vertical: false)
+            .frame(width: intrinsicEqualWidthStripWidth)
+            .fixedSize(horizontal: !fillsAvailableWidth && !equalSegmentWidths, vertical: false)
             .animation(MAYNMotion.tabAnimation(reduceMotion: reduceMotion), value: selection.rawValue)
+    }
+
+    /// Fixed width when segments share space equally but the strip does not fill the row.
+    private var intrinsicEqualWidthStripWidth: CGFloat? {
+        guard equalSegmentWidths, !fillsAvailableWidth else { return nil }
+        let segmentWidth: CGFloat = size == .header ? 88 : 76
+        let spacing = CGFloat(max(0, tabs.count - 1)) * 4
+        return CGFloat(tabs.count) * segmentWidth + spacing + size.outerPadding * 2
     }
 
     private var strip: some View {
@@ -240,6 +252,7 @@ struct FunctionSegmentedTabStrip<Tab: SegmentedTabDestination>: View {
                     tab: tab,
                     isSelected: selection.rawValue == tab.rawValue,
                     size: size,
+                    expandsToFillSegment: equalSegmentWidths || fillsAvailableWidth,
                     namespace: selectionNamespace
                 ) {
                     onSelect(tab)
@@ -257,6 +270,7 @@ private struct FunctionSegmentedTabButton<Tab: SegmentedTabDestination>: View {
     let tab: Tab
     let isSelected: Bool
     let size: FunctionSegmentedTabStrip<Tab>.Size
+    let expandsToFillSegment: Bool
     let namespace: Namespace.ID
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -271,6 +285,7 @@ private struct FunctionSegmentedTabButton<Tab: SegmentedTabDestination>: View {
                     .font(size.font)
                     .lineLimit(1)
             }
+            .frame(maxWidth: expandsToFillSegment ? .infinity : nil)
             .foregroundStyle(isSelected ? .primary : .secondary)
             .padding(.horizontal, size.horizontalPadding)
             .frame(height: size.innerHeight)
@@ -278,6 +293,7 @@ private struct FunctionSegmentedTabButton<Tab: SegmentedTabDestination>: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: expandsToFillSegment ? .infinity : nil)
         .onHover { isHovering = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .animation(MAYNMotion.tabAnimation(reduceMotion: reduceMotion), value: isSelected)

@@ -46,7 +46,7 @@ struct ClipboardSettingsView: View {
             MAYNSection(title: "History") {
                 MAYNSettingsRow(
                     title: "History window",
-                    subtitle: "Only browse items newer than this in the main Clipboard page. Same setting as Storage → History size → Maximum age."
+                    subtitle: "Only browse items newer than this in the main Clipboard page."
                 ) {
                     MAYNDropdown(
                         selection: $maxAgeDays,

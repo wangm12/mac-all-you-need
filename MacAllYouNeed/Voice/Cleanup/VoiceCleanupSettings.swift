@@ -4,20 +4,30 @@ import Foundation
 enum VoiceCleanupProviderKind: String, CaseIterable, Codable, Equatable, Identifiable {
     case anthropic
     case openAICompatible
+    case groq
+    case gemini
     case ollama
+    case omlx
 
     var id: String {
         rawValue
     }
 
+    /// Provider name for pickers, settings summaries, and validation copy (not a specific model ID).
     var label: String {
         switch self {
         case .anthropic:
             "Anthropic"
         case .openAICompatible:
-            "OpenAI compatible"
+            "OpenAI"
+        case .groq:
+            "Groq"
+        case .gemini:
+            "Google"
         case .ollama:
             "Ollama"
+        case .omlx:
+            "oMLX"
         }
     }
 
@@ -27,8 +37,14 @@ enum VoiceCleanupProviderKind: String, CaseIterable, Codable, Equatable, Identif
             "claude-haiku-4-5"
         case .openAICompatible:
             "gpt-5-nano"
+        case .groq:
+            "llama-3.1-8b-instant"
+        case .gemini:
+            "gemini-2.5-flash"
         case .ollama:
             "qwen2.5:3b-instruct"
+        case .omlx:
+            "qwen2.5-3b-instruct"
         }
     }
 
@@ -38,16 +54,22 @@ enum VoiceCleanupProviderKind: String, CaseIterable, Codable, Equatable, Identif
             "https://api.anthropic.com"
         case .openAICompatible:
             "https://api.openai.com/v1"
+        case .groq:
+            "https://api.groq.com/openai/v1"
+        case .gemini:
+            "https://generativelanguage.googleapis.com/v1beta/openai/"
         case .ollama:
             "http://localhost:11434/v1"
+        case .omlx:
+            "http://127.0.0.1:8000/v1"
         }
     }
 
     var requiresAPIKey: Bool {
         switch self {
-        case .anthropic, .openAICompatible:
+        case .anthropic, .openAICompatible, .groq, .gemini:
             true
-        case .ollama:
+        case .ollama, .omlx:
             false
         }
     }
@@ -246,15 +268,15 @@ enum VoiceCleanupProviderFactory {
                   let baseURL = URL(string: settings.effectiveBaseURLString)
             else { return nil }
             return AnthropicVoiceProvider(apiKey: apiKey, model: settings.effectiveModel, baseURL: baseURL)
-        case .openAICompatible:
-            guard let apiKey = try keyStore.apiKey(for: .openAICompatible),
+        case .openAICompatible, .groq, .gemini:
+            guard let apiKey = try keyStore.apiKey(for: settings.provider),
                   let baseURL = URL(string: settings.effectiveBaseURLString)
             else { return nil }
             return OpenAICompatibleVoiceProvider(apiKey: apiKey, model: settings.effectiveModel, baseURL: baseURL)
-        case .ollama:
+        case .ollama, .omlx:
             guard let baseURL = URL(string: settings.effectiveBaseURLString) else { return nil }
             return OpenAICompatibleVoiceProvider(
-                apiKey: try keyStore.apiKey(for: .ollama) ?? "",
+                apiKey: try keyStore.apiKey(for: settings.provider) ?? "",
                 model: settings.effectiveModel,
                 baseURL: baseURL
             )
@@ -280,8 +302,8 @@ enum VoiceCleanupProviderFactory {
                 baseURL: baseURL
             )
 
-        case .openAICompatible:
-            guard let apiKey = try apiKeyForProvider(.openAICompatible),
+        case .openAICompatible, .groq, .gemini:
+            guard let apiKey = try apiKeyForProvider(settings.provider),
                   let baseURL = URL(string: settings.effectiveBaseURLString)
             else {
                 return nil
@@ -292,12 +314,12 @@ enum VoiceCleanupProviderFactory {
                 baseURL: baseURL
             )
 
-        case .ollama:
+        case .ollama, .omlx:
             guard let baseURL = URL(string: settings.effectiveBaseURLString) else {
                 return nil
             }
             return try OpenAICompatibleVoiceProvider(
-                apiKey: apiKeyForProvider(.ollama) ?? "",
+                apiKey: apiKeyForProvider(settings.provider) ?? "",
                 model: settings.effectiveModel,
                 baseURL: baseURL
             )
