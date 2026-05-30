@@ -53,8 +53,28 @@ final class AppController {
 
     let voiceCoordinator: VoiceCoordinator
     let voiceRetentionRunner: VoiceTranscriptRetentionRunner
+
+    // Plan 03: Voice → Reminders. EventKit service + dedicated reminder hotkey.
+    // The service backs the coordinator's RemindersServiceWriter so spoken
+    // reminders are saved to Apple Reminders instead of being pasted.
+    let remindersService = RemindersService()
+    private var reminderHotkey: GlobalHotkey?
+
+    /// Retains the reminder hotkey registered by `registerReminderHotkey()`
+    /// (defined in the AppControllerVoice extension).
+    func setReminderHotkey(_ hotkey: GlobalHotkey) {
+        reminderHotkey?.unregister()
+        reminderHotkey = hotkey
+    }
     let windowControl: WindowControlCoordinator
     private let windowControlAccessibilityTrustMonitor: WindowControlAccessibilityTrustMonitor
+
+    // Plan 02: Finder Folder History runtime (AX recorder + switcher + hotkey).
+    // Nil only if the folder-history database cannot be opened.
+    private let folderHistory: FolderHistoryRuntime?
+
+    // Plan 06: Dock-Hover Window Previews runtime (AX hover observer + panel).
+    private let dockPreviews: DockPreviewRuntime
 
     // Phase 7 W1: hotkey registry + action dispatch table extracted to
     // HotkeyOrchestrator. AppController forwards `performHotkeyAction` to it.
@@ -147,6 +167,9 @@ final class AppController {
         clipboardReader.blobsRef = stores.blob
         snippetExpander = Self.makeSnippetExpander(store: stores.snippet)
 
+        folderHistory = FolderHistoryRuntime()
+        dockPreviews = DockPreviewRuntime()
+
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
         folderCoordinator = coordinator
@@ -204,6 +227,8 @@ final class AppController {
 
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()
+        voiceCoordinator.reminderWriterOverride = RemindersServiceWriter(service: remindersService)
+        registerReminderHotkey()
         voiceRetentionRunner.start()
         windowControl.start()
         windowControlAccessibilityTrustMonitor.start()
@@ -258,6 +283,10 @@ final class AppController {
                 await self.refreshWindowControlFeatureAvailability()
             }
             await rt.activateAllEnabled()
+            if let self {
+                await self.refreshFolderHistoryFeatureAvailability()
+                await self.refreshDockPreviewsFeatureAvailability()
+            }
 
             // Surface the What's New sheet on first window appearance (upgrade only).
             if report.didRun {
@@ -409,6 +438,8 @@ final class AppController {
             showMainWindow(destination: .settings)
         case .featureRuntimeStateChanged:
             Task { await self.refreshWindowControlFeatureAvailability() }
+            Task { await self.refreshFolderHistoryFeatureAvailability() }
+            Task { await self.refreshDockPreviewsFeatureAvailability() }
         case .hotkeyRecordingStarted:
             suspendShortcutTriggersForHotkeyRecording()
         case .hotkeyRecordingStopped:
@@ -423,6 +454,16 @@ final class AppController {
             windowLayoutsEnabled: layoutsState.activationState == .enabled,
             windowGrabEnabled: grabState.activationState == .enabled
         ))
+    }
+
+    private func refreshFolderHistoryFeatureAvailability() async {
+        let state = await featureManager.state(for: .folderHistory)
+        folderHistory?.applyEnabled(state.activationState == .enabled)
+    }
+
+    private func refreshDockPreviewsFeatureAvailability() async {
+        let state = await featureManager.state(for: .dockPreviews)
+        dockPreviews.applyEnabled(state.activationState == .enabled)
     }
 
     private func suspendShortcutTriggersForHotkeyRecording() {
@@ -595,7 +636,8 @@ private func makeVoiceCoordinator(
         engine: engine,
         cleanupKeyStore: cleanupKeyStore,
         summarizer: summarizer,
-        historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) }
+        historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) },
+        reminderSettings: { ReminderSettingsStore.load() }
     )
 }
 

@@ -52,6 +52,13 @@ enum CommandCenterFooterPresentation {
                 openButtonTitle: "Open Snippets",
                 showsCapturePause: false
             )
+        case .reminders:
+            CommandCenterFooterModel(
+                shortcutText: "⌘⇧R",
+                label: "spoken reminders",
+                openButtonTitle: "Open Voice",
+                showsCapturePause: false
+            )
         }
     }
 }

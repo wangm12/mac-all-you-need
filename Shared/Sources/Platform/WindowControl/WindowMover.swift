@@ -326,6 +326,27 @@ public final class WindowMover {
     }
 }
 
+public extension WindowMover {
+    /// Computes the target frame for an action without applying it. Returns the
+    /// same rect `move(_:action:)` would write, or `nil` when no window/display
+    /// is available. Used by the radial menu live preview.
+    func proposedFrame(
+        for action: WindowAction,
+        element: any WindowMovableElement
+    ) -> CGRect? {
+        let originalFrame = element.frame
+        guard element.isSupportedForWindowControl, element.isMovable, isValid(frame: originalFrame) else {
+            return nil
+        }
+        return targetFrame(
+            for: action,
+            currentFrame: originalFrame,
+            preserveSize: !element.isResizable,
+            previousResult: nil
+        )
+    }
+}
+
 private extension WindowMover {
     func approximatelyEqual(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
         abs(lhs.width - rhs.width) < 0.5 && abs(lhs.height - rhs.height) < 0.5
@@ -359,40 +380,6 @@ private extension WindowMover {
 
         if clamped.origin != actual.origin {
             _ = element.setPosition(clamped.origin)
-        }
-    }
-}
-
-private extension CGRect {
-    func preservingSize(_ size: CGSize, clampedTo bounds: CGRect, when shouldPreserveSize: Bool) -> CGRect {
-        guard shouldPreserveSize else {
-            return self
-        }
-        let maxX = max(bounds.minX, bounds.maxX - size.width)
-        let maxY = max(bounds.minY, bounds.maxY - size.height)
-        return CGRect(
-            x: min(max(origin.x, bounds.minX), maxX),
-            y: min(max(origin.y, bounds.minY), maxY),
-            width: size.width,
-            height: size.height
-        )
-    }
-}
-
-private extension WindowAction {
-    var repeatedDisplayTargetAction: WindowAction? {
-        switch self {
-        case .leftHalf:
-            .rightHalf
-        case .rightHalf:
-            .leftHalf
-        case .topHalf:
-            .bottomHalf
-        case .bottomHalf:
-            .topHalf
-        case .topLeft, .topRight, .bottomLeft, .bottomRight,
-             .maximize, .almostMaximize, .center, .restore, .nextDisplay, .previousDisplay:
-            nil
         }
     }
 }

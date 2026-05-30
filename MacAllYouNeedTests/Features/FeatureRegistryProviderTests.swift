@@ -6,7 +6,7 @@ final class FeatureRegistryProviderTests: XCTestCase {
     func testProviderReturnsAllProductFeatures() {
         let registry = FeatureRegistryProvider.makeRegistry()
         let ids = registry.descriptors.map(\.id)
-        XCTAssertEqual(ids, [.clipboard, .folderPreview, .downloader, .voice, .windowLayouts, .windowGrab],
+        XCTAssertEqual(ids, [.clipboard, .clipboardSmartText, .folderPreview, .downloader, .voice, .windowLayouts, .windowGrab, .folderHistory],
                        "Registry order is contractual; UI iterates this order.")
     }
 

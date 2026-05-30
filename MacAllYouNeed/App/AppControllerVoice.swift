@@ -1,7 +1,20 @@
 import Core
 import Foundation
+import Platform
 
 extension AppController {
+    /// Plan 03 — registers the dedicated reminder hotkey (Cmd+Shift+R). When
+    /// fired it toggles a recording with the reminder intent so the spoken text
+    /// is saved to Apple Reminders instead of pasted. Best-effort: a conflicting
+    /// registration is logged via the coordinator and otherwise ignored.
+    func registerReminderHotkey() {
+        let hotkey = GlobalHotkey(descriptor: .defaultVoiceReminder) { [weak self] in
+            Task { @MainActor in await self?.voiceCoordinator.toggleReminderRecording() }
+        }
+        try? hotkey.register()
+        setReminderHotkey(hotkey)
+    }
+
     func applyVoiceActivationSettings(_ settings: VoiceActivationSettings) throws {
         try voiceCoordinator.applyActivationSettings(settings)
         VoiceActivationSettingsStore.save(settings)

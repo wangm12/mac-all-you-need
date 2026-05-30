@@ -28,5 +28,7 @@
 	<string>$(DEVELOPMENT_TEAM)</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MacAllYouNeed needs microphone access for voice dictation.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>MacAllYouNeed saves spoken reminders to Apple Reminders.</string>
 </dict>
 </plist>

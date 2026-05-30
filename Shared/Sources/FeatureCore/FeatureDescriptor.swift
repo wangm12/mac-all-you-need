@@ -6,6 +6,8 @@ public enum Permission: String, Sendable, Codable, Hashable {
     case fullDiskAccess
     case microphone
     case notifications
+    case screenRecording
+    case reminders
 }
 
 public struct HotkeyDescriptor: Sendable, Equatable {

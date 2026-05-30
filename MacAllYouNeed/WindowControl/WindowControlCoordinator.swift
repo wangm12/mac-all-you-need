@@ -85,6 +85,20 @@ final class WindowControlCoordinator {
     private var axTrusted: Bool
     private var suspendedForHotkeyRecording = false
 
+    /// Radial window-management menu coordinator. Lazily constructed so it can
+    /// reference `self` as both action performer and frame resolver.
+    @ObservationIgnored
+    lazy var radialMenuCoordinator: RadialMenuCoordinator = .init(
+        actionPerformer: self,
+        frameResolver: self
+    )
+
+    @ObservationIgnored let radialFrameMover = WindowMover()
+    @ObservationIgnored let radialMenuViewModel = RadialMenuViewModel()
+    @ObservationIgnored let radialPreviewViewModel = RadialPreviewViewModel()
+    @ObservationIgnored lazy var radialMenuController = RadialMenuController(viewModel: radialMenuViewModel)
+    @ObservationIgnored lazy var radialPreviewController = RadialPreviewController(viewModel: radialPreviewViewModel)
+
     init(
         settings: WindowControlSettings = WindowControlSettingsStore.load(),
         featureAvailability: WindowControlFeatureAvailability = .enabled,
@@ -115,6 +129,9 @@ final class WindowControlCoordinator {
             )
             eventTap.restoreFrameLookup = { [weak self] identity in
                 self?.restoreHistory.restoreFrame(for: identity)
+            }
+            eventTap.radialPhaseHandler = { [weak self] phase in
+                self?.handleRadialPhase(phase)
             }
         }
     }
@@ -160,7 +177,14 @@ final class WindowControlCoordinator {
     func applySettings(_ next: WindowControlSettings) {
         let wasAvailable = windowActionPerformerAvailable
         let layoutsRuntimeChanged = layoutsRuntimeEnabled != (featureAvailability.windowLayoutsEnabled && next.enabled)
+        let radialChanged = settings.radialMenuEnabled != next.radialMenuEnabled
         settings = next
+        if radialChanged {
+            // The CGEvent tap mask can only be set at creation, so flipping the
+            // radial setting requires recreating the tap; stop it here and let
+            // reconcileLifecycle restart it with the updated mask.
+            (tap as? WindowControlEventTap)?.updateRuntime(radialMenuEnabled: next.radialMenuEnabled)
+        }
         reconcileLifecycle()
         if layoutsRuntimeChanged || wasAvailable != windowActionPerformerAvailable {
             onHotkeyRegistrationNeedsRefresh()
@@ -310,90 +334,5 @@ private final class WindowControlInactiveTap: WindowControlTapLifecycle {
 
     func stop() {
         isRunning = false
-    }
-}
-
-@MainActor
-private final class WindowKeyboardActionPerformer: WindowControlActionPerforming {
-    private struct ResolvedWindow {
-        let element: WindowAccessibilityElement
-        let identity: WindowIdentity
-    }
-
-    private let mover: WindowMover
-    private var pendingWindow: ResolvedWindow?
-    private var previousResult: WindowMovementResult?
-    private var previousIdentity: WindowIdentity?
-
-    init(mover: WindowMover = WindowMover()) {
-        self.mover = mover
-    }
-
-    var currentIdentity: WindowIdentity? {
-        let resolved = resolveFocusedWindow()
-        pendingWindow = resolved
-        return resolved?.identity
-    }
-
-    func perform(_ action: WindowAction, restoreFrame: CGRect?) -> WindowMovementResult? {
-        let resolved = pendingWindow ?? resolveFocusedWindow()
-        pendingWindow = nil
-        guard let resolved else { return nil }
-        if action == .restore, let restoreFrame {
-            let result = mover.move(resolved.element, to: restoreFrame, action: action)
-            previousResult = result
-            previousIdentity = resolved.identity
-            return result
-        }
-        let result = mover.move(
-            resolved.element,
-            action: action,
-            previousResult: resolved.identity.matchesSameWindow(as: previousIdentity) ? previousResult : nil
-        )
-        previousResult = result
-        previousIdentity = resolved.identity
-        return result
-    }
-
-    private func resolveFocusedWindow() -> ResolvedWindow? {
-        guard let app = NSWorkspace.shared.frontmostApplication else {
-            return nil
-        }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
-              let axWindow = value
-        else {
-            return nil
-        }
-
-        let element = WindowAccessibilityElement(axWindow as! AXUIElement)
-        guard element.isSupportedForWindowControl else {
-            return nil
-        }
-        return ResolvedWindow(
-            element: element,
-            identity: WindowIdentity(
-                pid: element.processIdentifier,
-                cgWindowID: nil,
-                titleHash: element.windowTitleHash,
-                frameFingerprint: element.frameFingerprint
-            )
-        )
-    }
-}
-
-private extension WindowIdentity {
-    func matchesSameWindow(as other: WindowIdentity?) -> Bool {
-        guard let other, pid == other.pid else {
-            return false
-        }
-        if let cgWindowID, let otherCGWindowID = other.cgWindowID {
-            return cgWindowID == otherCGWindowID
-        }
-        if let titleHash, let otherTitleHash = other.titleHash {
-            return titleHash == otherTitleHash
-        }
-        return frameFingerprint == other.frameFingerprint
     }
 }

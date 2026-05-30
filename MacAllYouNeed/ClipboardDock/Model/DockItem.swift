@@ -20,6 +20,11 @@ struct DockItem: Identifiable, Hashable {
     let customLabel: String?
     let sourceApp: SourceApp?
     let isPinned: Bool
+    /// Smart Text detection JSON from the store (migration 008). Nil when the
+    /// record predates Smart Text or the feature was disabled at capture.
+    let detectedTypeJSON: String?
+    /// Background Vision OCR text for image records, when available.
+    let ocrText: String?
 
     /// What the card should actually show — user-set rename takes precedence
     /// over the auto-generated preview when present.
@@ -28,11 +33,43 @@ struct DockItem: Identifiable, Hashable {
         return preview
     }
 
+    /// Decoded Smart Text detection, lazily parsed from `detectedTypeJSON`.
+    var detection: Detection? {
+        guard let json = detectedTypeJSON else { return nil }
+        return try? Detection.decode(json: json)
+    }
+
+    /// Inline calculation result, when the detection found one.
+    var calculation: CalculationResult? { detection?.calculation }
+
+    /// Number of tracking parameters that would be stripped by the link cleaner.
+    var trackerCount: Int { detection?.linkClean?.removedCount ?? 0 }
+
+    /// Whether this record has indexable OCR text.
+    var hasOCRText: Bool { !(ocrText ?? "").isEmpty }
+
+    /// Lowercased detected type name for `/type:` filtering (e.g. "url",
+    /// "email", "code"). Nil when no detection is present.
+    var detectedTypeName: String? {
+        guard let type = detection?.type else { return nil }
+        switch type {
+        case .plain: return "plain"
+        case .email: return "email"
+        case .url: return "url"
+        case .phone: return "phone"
+        case .jwt: return "jwt"
+        case .color: return "color"
+        case .code: return "code"
+        }
+    }
+
     init(from meta: ClipboardXPCMeta, sourceApp: SourceApp?, isPinned: Bool) {
         id = meta.id
         modified = meta.modified
         preview = meta.preview
         customLabel = meta.customLabel
+        detectedTypeJSON = meta.detectedTypeJSON
+        ocrText = meta.ocrText
         self.sourceApp = sourceApp
         self.isPinned = isPinned
 

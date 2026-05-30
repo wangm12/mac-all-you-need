@@ -36,6 +36,10 @@ struct WindowControlSettingsView: View {
             switch scope {
             case .layoutsShortcuts:
                 shortcutsSection
+                RadialMenuSettingsSection(settings: $settings) { next in
+                    WindowControlSettingsStore.save(next)
+                    controller.applyWindowControlSettings(next)
+                }
             case .layoutsSnap:
                 edgeSnapSection
             case .layoutsApps:

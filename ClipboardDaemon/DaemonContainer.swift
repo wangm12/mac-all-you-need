@@ -78,29 +78,22 @@ final class DaemonContainer {
     }
 
     func persist(item: PasteboardItem, source: String?) throws {
-        let rules = observer.rules
-        switch item {
-        case let .text(text):
-            if rules.shouldExcludeText(text) { return }
-        case let .html(text):
-            if rules.shouldExcludeText(text) { return }
-        case let .rtf(data):
-            let text = NSAttributedString(rtf: data, documentAttributes: nil)?.string ?? ""
-            if rules.shouldExcludeText(text) { return }
-        default:
-            break
-        }
+        if isExcludedByRules(item) { return }
 
         switch item {
         case let .text(s):
-            let meta = try clip.append(.text(s), sourceAppBundleID: source)
-            try search.upsert(kind: .clipboardItem, id: meta.id, text: s)
+            guard let (text, json) = smartTextDecision(for: s) else { return }
+            let meta = try clip.append(.text(text), sourceAppBundleID: source, detectedTypeJSON: json)
+            try search.upsert(kind: .clipboardItem, id: meta.id, text: text)
         case let .rtf(d):
+            let plain = NSAttributedString(rtf: d, documentAttributes: nil)?.string ?? ""
+            guard smartTextDecision(for: plain) != nil else { return }
             let meta = try clip.append(.rtf(d), sourceAppBundleID: source)
-            if let s = NSAttributedString(rtf: d, documentAttributes: nil)?.string {
-                try search.upsert(kind: .clipboardItem, id: meta.id, text: s)
+            if !plain.isEmpty {
+                try search.upsert(kind: .clipboardItem, id: meta.id, text: plain)
             }
         case let .html(s):
+            guard smartTextDecision(for: s) != nil else { return }
             let meta = try clip.append(.html(s), sourceAppBundleID: source)
             try search.upsert(kind: .clipboardItem, id: meta.id, text: s)
         case let .png(d), let .tiff(d):
@@ -126,6 +119,49 @@ final class DaemonContainer {
         case .unknown:
             break
         }
+    }
+
+    /// Applies the user's text exclusion rules to text-like clips. Image and
+    /// file clips are never excluded by these rules.
+    private func isExcludedByRules(_ item: PasteboardItem) -> Bool {
+        let rules = observer.rules
+        switch item {
+        case let .text(text), let .html(text):
+            return rules.shouldExcludeText(text)
+        case let .rtf(data):
+            let text = NSAttributedString(rtf: data, documentAttributes: nil)?.string ?? ""
+            return rules.shouldExcludeText(text)
+        default:
+            return false
+        }
+    }
+
+    /// Applies the Smart Text capture policy to a text-like clip. Returns nil when
+    /// the clip should be skipped entirely (sensitive content); otherwise returns
+    /// the text to store (possibly auto-cleaned) and the detection JSON to persist.
+    /// When the Smart Text feature is disabled, the original text is kept verbatim
+    /// with no detection JSON, preserving prior capture behavior exactly.
+    private func smartTextDecision(for text: String) -> (text: String, detectedTypeJSON: String?)? {
+        guard isSmartTextEnabled() else { return (text, nil) }
+        let defaults = AppGroupSettings.defaults
+        let decision = SmartCapturePolicy.decideText(
+            text,
+            windowTitle: nil,
+            pasteboardTypes: NSPasteboard.general.types?.map(\.rawValue) ?? [],
+            sensitiveEnabled: SmartTextSettings.sensitiveEnabled(defaults),
+            autoCleanLinks: SmartTextSettings.linkMode(defaults) == .auto
+        )
+        switch decision {
+        case .skip:
+            return nil
+        case let .keep(json, autoCleaned):
+            return (autoCleaned ?? text, json)
+        }
+    }
+
+    private func isSmartTextEnabled() -> Bool {
+        FeatureStateReader.read(for: .clipboardSmartText, defaults: AppGroupSettings.defaults)
+            .activationState == .enabled
     }
 
     func isCaptureSuspended(now: Date = Date()) -> Bool {

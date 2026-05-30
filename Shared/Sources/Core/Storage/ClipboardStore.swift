@@ -53,7 +53,9 @@ private enum ClipboardVoiceMigration {
 }
 
 public final class ClipboardStore {
-    private let db: Database
+    /// Package-internal so Smart Text enrichment helpers can live in a separate
+    /// extension file (`ClipboardStore+SmartText.swift`) without bloating this type.
+    let db: Database
     private let key: SymmetricKey
     private let deviceID: DeviceID
     private let log = Logging.logger(for: "storage", category: "clipboard")
@@ -108,11 +110,21 @@ public final class ClipboardStore {
         },
         Migration(identifier: "006-voice-training-examples") { conn in
             try conn.execute(sql: VoiceTrainingExampleMigration.sql)
+        },
+        Migration(identifier: "008-smart-text") { conn in
+            try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN detected_type TEXT;")
+            try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN ocr_text TEXT;")
+            try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN embedding BLOB;")
+            try conn.execute(sql: "CREATE INDEX IF NOT EXISTS idx_records_detected_type ON clipboard_records(detected_type);")
         }
     ]
 
     @discardableResult
-    public func append(_ record: ClipboardRecord, sourceAppBundleID: String? = nil) throws -> ClipboardItemMeta {
+    public func append(
+        _ record: ClipboardRecord,
+        sourceAppBundleID: String? = nil,
+        detectedTypeJSON: String? = nil
+    ) throws -> ClipboardItemMeta {
         let id = RecordID.generate()
         let now = Date()
         let preview = Self.preview(for: record)
@@ -132,8 +144,9 @@ public final class ClipboardStore {
             )
             insertedLamport = UInt64(next)
             try conn.execute(sql: """
-                INSERT INTO clipboard_records (id, created, modified, device_id, lamport, kind, preview, source_app, envelope)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO clipboard_records
+                    (id, created, modified, device_id, lamport, kind, preview, source_app, envelope, detected_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 id.rawValue,
                 Int(now.timeIntervalSince1970 * 1000),
@@ -143,7 +156,8 @@ public final class ClipboardStore {
                 RecordKind.clipboardItem.rawValue,
                 preview,
                 sourceAppBundleID,
-                envelope.combined
+                envelope.combined,
+                detectedTypeJSON
             ])
         }
         return ClipboardItemMeta(
@@ -152,9 +166,15 @@ public final class ClipboardStore {
             preview: preview,
             sourceAppBundleID: sourceAppBundleID,
             frequency: 0,
-            lastAccessed: nil
+            lastAccessed: nil,
+            detectedTypeJSON: detectedTypeJSON
         )
     }
+
+    // MARK: - Smart Text enrichment
+    //
+    // Read/write helpers for the migration-008 columns (detected_type, ocr_text,
+    // embedding) live in `ClipboardStore+SmartText.swift`.
 
     public func list(limit: Int, offset: Int = 0, modifiedOnOrAfter: Date? = nil) throws -> [ClipboardItemMeta] {
         try listRows(limit: limit, offset: offset, modifiedOnOrAfter: modifiedOnOrAfter)
@@ -171,7 +191,7 @@ public final class ClipboardStore {
                 let ms = Int(modifiedOnOrAfter.timeIntervalSince1970 * 1000)
                 return try Row.fetchAll(conn, sql: """
                     SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
-                           frequency, last_accessed, custom_label
+                           frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
                     FROM clipboard_records
                     WHERE modified >= ?
                     ORDER BY modified DESC, lamport DESC LIMIT ? OFFSET ?
@@ -179,7 +199,7 @@ public final class ClipboardStore {
             }
             return try Row.fetchAll(conn, sql: """
                 SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
-                       frequency, last_accessed, custom_label
+                       frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
                 FROM clipboard_records ORDER BY modified DESC, lamport DESC LIMIT ? OFFSET ?
                 """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
         }
@@ -191,7 +211,7 @@ public final class ClipboardStore {
         let rows = try db.queue.read { conn in
             try Row.fetchAll(conn, sql: """
                 SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
-                       frequency, last_accessed, custom_label
+                       frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
                 FROM clipboard_records WHERE id IN (\(placeholders))
             """, arguments: StatementArguments(ids.map(\.rawValue)))
         }
@@ -249,7 +269,7 @@ public final class ClipboardStore {
                 let ms = Int(modifiedOnOrAfter.timeIntervalSince1970 * 1000)
                 return try Row.fetchAll(conn, sql: """
                     SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
-                           frequency, last_accessed, custom_label
+                           frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
                     FROM clipboard_records
                     WHERE modified >= ?
                     ORDER BY frequency DESC, modified DESC
@@ -258,7 +278,7 @@ public final class ClipboardStore {
             }
             return try Row.fetchAll(conn, sql: """
                 SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
-                       frequency, last_accessed, custom_label
+                       frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
                 FROM clipboard_records
                 ORDER BY frequency DESC, modified DESC
                 LIMIT ? OFFSET ?
@@ -272,7 +292,7 @@ public final class ClipboardStore {
                 let ms = Int(modifiedOnOrAfter.timeIntervalSince1970 * 1000)
                 return try Row.fetchAll(conn, sql: """
                     SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
-                           frequency, last_accessed, custom_label
+                           frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
                     FROM clipboard_records
                     WHERE last_accessed IS NOT NULL AND modified >= ?
                     ORDER BY last_accessed DESC
@@ -281,7 +301,7 @@ public final class ClipboardStore {
             }
             return try Row.fetchAll(conn, sql: """
                 SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
-                       frequency, last_accessed, custom_label
+                       frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
                 FROM clipboard_records
                 WHERE last_accessed IS NOT NULL
                 ORDER BY last_accessed DESC
@@ -349,7 +369,10 @@ public final class ClipboardStore {
             sourceAppBundleID: row["source_app"],
             frequency: Int(row["frequency"] as Int64? ?? 0),
             lastAccessed: lastAccessedMs.map { Date(timeIntervalSince1970: Double($0) / 1000) },
-            customLabel: row["custom_label"] as String?
+            customLabel: row["custom_label"] as String?,
+            detectedTypeJSON: row["detected_type"] as String?,
+            ocrText: row["ocr_text"] as String?,
+            embedding: row["embedding"] as Data?
         )
     }
 }

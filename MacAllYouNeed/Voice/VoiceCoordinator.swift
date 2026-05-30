@@ -29,7 +29,7 @@ final class VoiceCoordinator {
     private let summarizer: VoicePersonalizationSummarizer?
     private let hud = MiniVoiceHUD()
     private let activation = VoiceActivationMonitor()
-    private let log = Logger(subsystem: "com.macallyouneed.voice", category: "coordinator")
+    let log = Logger(subsystem: "com.macallyouneed.voice", category: "coordinator")
     private var levelTask: Task<Void, Never>?
     private var monitorTask: Task<Void, Never>?
     private var cleanupSettings: VoiceCleanupSettings
@@ -60,6 +60,16 @@ final class VoiceCoordinator {
     private(set) var state: State = .idle
     private(set) var lastTranscript: VoiceCleanupResult?
 
+    /// Voice → Reminders (Plan 03). When `activeIntent == .reminder` and a
+    /// `reminderWriterOverride` (or the production writer) is present, the
+    /// pipeline writes to Apple Reminders instead of pasting. The dictation
+    /// path is unchanged when `activeIntent == .dictation`.
+    var activeIntent: VoiceIntent = .dictation
+    var reminderWriterOverride: (any RemindersWriter)?
+    let reminderSettings: () -> ReminderSettings
+    /// The reminder created on the most recent `.reminder` run, for UI/tests.
+    var lastCreatedReminder: CreatedReminder?
+
     convenience init(
         transcripts: VoiceTranscriptStore,
         dictionary: VoiceDictionaryStore? = nil,
@@ -71,7 +81,8 @@ final class VoiceCoordinator {
         cleanupKeyStore: VoiceCleanupKeyStore = VoiceCleanupKeyStore(keychain: SystemKeychain()),
         learningMonitor: VoicePostEditLearningMonitor? = nil,
         summarizer: VoicePersonalizationSummarizer? = nil,
-        historySettings: @escaping () -> VoiceHistorySettings = { .init() }
+        historySettings: @escaping () -> VoiceHistorySettings = { .init() },
+        reminderSettings: @escaping () -> ReminderSettings = { ReminderSettings.default }
     ) {
         self.init(
             transcripts: transcripts,
@@ -85,6 +96,7 @@ final class VoiceCoordinator {
             learningMonitor: learningMonitor,
             summarizer: summarizer,
             historySettings: historySettings,
+            reminderSettings: reminderSettings,
             cleanupPipelineFactory: nil,
             paster: nil,
             snapshotFocused: nil,
@@ -111,6 +123,7 @@ final class VoiceCoordinator {
         learningMonitor: VoicePostEditLearningMonitor? = nil,
         summarizer: VoicePersonalizationSummarizer? = nil,
         historySettings: @escaping () -> VoiceHistorySettings = { .init() },
+        reminderSettings: @escaping () -> ReminderSettings = { ReminderSettings.default },
         cleanupPipelineFactory: ((TimeInterval) -> VoiceCleanupPipeline)?,
         paster: ((String) async -> CursorPaster.Result)?,
         snapshotFocused: (() -> AXTargetSnapshot?)?,
@@ -128,6 +141,7 @@ final class VoiceCoordinator {
         self.learningMonitor = learningMonitor ?? VoicePostEditLearningMonitor()
         self.summarizer = summarizer
         self.historySettings = historySettings
+        self.reminderSettings = reminderSettings
         cleanupPipelineFactoryOverride = cleanupPipelineFactory
         pasterOverride = paster
         snapshotFocusedOverride = snapshotFocused
@@ -303,6 +317,11 @@ final class VoiceCoordinator {
                 undoBookkeeping.setInflightASRResult(asr)
             }
 
+            // Plan 03 — promote to reminder intent when the transcript opens
+            // with a spoken reminder prefix (gated by settings; hotkey intent
+            // is never demoted). See VoiceCoordinator+Reminders.
+            maybePromoteToReminderIntent(rawText: ctx.asrResult?.text)
+
             // Phase 2 — Cleanup.
             hud.show(
                 .transcribing(.cleanup(progress: 0)),
@@ -319,6 +338,15 @@ final class VoiceCoordinator {
             }
             lastTranscript = cleanupResult
 
+            // Plan 03 — reminder terminal phase replaces paste for the reminder
+            // intent (never injects into the focused app). See the extension.
+            if activeIntent == .reminder, let writer = resolveReminderWriter() {
+                try await finishReminderRun(
+                    cleanedText: cleanupResult.cleanedText, writer: writer, generation: generation
+                )
+                return
+            }
+
             // Phase 3 — Paste (also saves transcript + training example).
             state = .pasting
             try await makePastePhase().run(&ctx)
@@ -333,6 +361,7 @@ final class VoiceCoordinator {
         } catch {
             guard isCurrentOperation(generation) else { return }
             undoBookkeeping.clearInflight()
+            activeIntent = .dictation
             fail(error.localizedDescription)
         }
     }
@@ -754,6 +783,9 @@ final class VoiceCoordinator {
         if state == .recording {
             await stopRecordingAndPaste()
         } else {
+            // The dictation hotkey always dictates — never inherits a stale
+            // reminder intent from a previously cancelled reminder run.
+            activeIntent = .dictation
             await startRecording()
         }
     }
@@ -789,8 +821,17 @@ final class VoiceCoordinator {
         }
     }
 
-    private func isCurrentOperation(_ generation: Int) -> Bool {
+    func isCurrentOperation(_ generation: Int) -> Bool {
         generation == operationGeneration
+    }
+
+    /// Plan 03 — terminal teardown shared by the reminder path (see
+    /// VoiceCoordinator+Reminders). Mirrors the dictation happy-path teardown.
+    func teardownAfterReminderRun() {
+        state = .idle
+        undoBookkeeping.clearInflight()
+        hud.dismiss()
+        activeIntent = .dictation
     }
 
     private func makeCancelAction() -> () -> Void {

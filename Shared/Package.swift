@@ -53,7 +53,7 @@ let package = Package(
             .product(name: "Splash", package: "Splash")
         ], path: "Sources/UI"),
         .target(name: "Platform", dependencies: ["Core", "CLibArchive"], path: "Sources/Platform"),
-        .testTarget(name: "CoreTests", dependencies: ["Core"], path: "Tests/CoreTests"),
+        .testTarget(name: "CoreTests", dependencies: ["Core", "Platform"], path: "Tests/CoreTests"),
         .testTarget(name: "UITests", dependencies: ["UI"], path: "Tests/UITests"),
         .testTarget(name: "PlatformTests", dependencies: ["Platform"], path: "Tests/PlatformTests"),
         .target(

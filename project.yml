@@ -38,6 +38,7 @@ targets:
         MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
         MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
         NSMicrophoneUsageDescription: MacAllYouNeed needs microphone access for voice dictation.
+        NSRemindersFullAccessUsageDescription: MacAllYouNeed saves spoken reminders to Apple Reminders.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app
@@ -59,6 +60,12 @@ targets:
         embed: false
         copy: false
       - target: FolderPreview
+        embed: true
+        codeSign: true
+      - target: FinderHistoryExtension
+        embed: true
+        codeSign: true
+      - target: RemindersWidget
         embed: true
         codeSign: true
     postBuildScripts:
@@ -172,6 +179,52 @@ targets:
         product: Platform
       - package: Shared
         product: FeatureCore
+
+  FinderHistoryExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FinderHistoryExtension
+    info:
+      path: FinderHistoryExtension/Info.plist
+      properties:
+        CFBundleName: FinderHistoryExtension
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.FinderSync
+          NSExtensionPrincipalClass: FinderSyncExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.finderhistory
+        CODE_SIGN_ENTITLEMENTS: FinderHistoryExtension/FinderHistoryExtension.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 2N55H39FC4
+    dependencies:
+      - package: Shared
+        product: Core
+
+  RemindersWidget:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: RemindersWidget
+    info:
+      path: RemindersWidget/Info.plist
+      properties:
+        CFBundleName: RemindersWidget
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.reminderswidget
+        CODE_SIGN_ENTITLEMENTS: RemindersWidget/RemindersWidget.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 2N55H39FC4
+    dependencies:
+      - package: Shared
+        product: Core
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
 
 schemes:
   TypelessImport:
