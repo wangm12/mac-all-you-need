@@ -129,6 +129,25 @@ public final class WindowMover {
         )
     }
 
+    /// Computes the target frame for an action without applying it. Returns the
+    /// same rect `move(_:action:)` would write, or `nil` when no window/display
+    /// is available. Used by the radial menu live preview.
+    public func proposedFrame(
+        for action: WindowAction,
+        element: any WindowMovableElement
+    ) -> CGRect? {
+        let originalFrame = element.frame
+        guard element.isSupportedForWindowControl, element.isMovable, isValid(frame: originalFrame) else {
+            return nil
+        }
+        return targetFrame(
+            for: action,
+            currentFrame: originalFrame,
+            preserveSize: !element.isResizable,
+            previousResult: nil
+        )
+    }
+
     private func moveValidated(
         _ element: any WindowMovableElement,
         action: WindowAction,
