@@ -56,6 +56,10 @@ final class AppController {
     let windowControl: WindowControlCoordinator
     private let windowControlAccessibilityTrustMonitor: WindowControlAccessibilityTrustMonitor
 
+    // Plan 02: Finder Folder History runtime (AX recorder + switcher + hotkey).
+    // Nil only if the folder-history database cannot be opened.
+    private let folderHistory: FolderHistoryRuntime?
+
     // Phase 7 W1: hotkey registry + action dispatch table extracted to
     // HotkeyOrchestrator. AppController forwards `performHotkeyAction` to it.
     private let hotkeys: HotkeyOrchestrator
@@ -146,6 +150,8 @@ final class AppController {
         clipboardReader = LocalClipboardReader(store: stores.clipboard)
         clipboardReader.blobsRef = stores.blob
         snippetExpander = Self.makeSnippetExpander(store: stores.snippet)
+
+        folderHistory = FolderHistoryRuntime()
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
@@ -258,6 +264,9 @@ final class AppController {
                 await self.refreshWindowControlFeatureAvailability()
             }
             await rt.activateAllEnabled()
+            if let self {
+                await self.refreshFolderHistoryFeatureAvailability()
+            }
 
             // Surface the What's New sheet on first window appearance (upgrade only).
             if report.didRun {
@@ -409,6 +418,7 @@ final class AppController {
             showMainWindow(destination: .settings)
         case .featureRuntimeStateChanged:
             Task { await self.refreshWindowControlFeatureAvailability() }
+            Task { await self.refreshFolderHistoryFeatureAvailability() }
         case .hotkeyRecordingStarted:
             suspendShortcutTriggersForHotkeyRecording()
         case .hotkeyRecordingStopped:
@@ -423,6 +433,11 @@ final class AppController {
             windowLayoutsEnabled: layoutsState.activationState == .enabled,
             windowGrabEnabled: grabState.activationState == .enabled
         ))
+    }
+
+    private func refreshFolderHistoryFeatureAvailability() async {
+        let state = await featureManager.state(for: .folderHistory)
+        folderHistory?.applyEnabled(state.activationState == .enabled)
     }
 
     private func suspendShortcutTriggersForHotkeyRecording() {
