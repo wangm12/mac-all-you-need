@@ -97,4 +97,23 @@ final class AXObserverCoordinatorTests: XCTestCase {
         XCTAssertEqual(engine.subscriptions.count, 1)
         XCTAssertEqual(engine.torndown, 0)
     }
+
+    func testSystemEngineConstructs() {
+        let engine = SystemAXObserverEngine()
+        XCTAssertNotNil(engine as AXObserverEngine)
+    }
+
+    @MainActor
+    func testChildElementSubscriptionRoutesEvents() {
+        let engine = FakeAXObserverEngine()
+        let coordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 999)
+        let dockList = AXUIElementCreateApplication(0)
+        var received: [String] = []
+        coordinator.start(pid: 99, targetElement: dockList, notifications: ["AXSelectedChildrenChanged"]) { notification, _ in received.append(notification) }
+        XCTAssertEqual(engine.created, [99])
+        XCTAssertEqual(engine.subscriptions.count, 1)
+        XCTAssertEqual(engine.subscriptions.first?.notification, "AXSelectedChildrenChanged")
+        coordinator.dispatch(notification: "AXSelectedChildrenChanged")
+        XCTAssertEqual(received, ["AXSelectedChildrenChanged"])
+    }
 }

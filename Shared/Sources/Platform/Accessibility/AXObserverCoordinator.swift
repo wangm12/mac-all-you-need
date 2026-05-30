@@ -60,7 +60,8 @@ public final class AXObserverCoordinator {
 
     private func subscribeAll() {
         guard let pid else { return }
-        guard let newHandle = engine.makeObserver(pid: pid) else { handle = nil; return }
+        guard var newHandle = engine.makeObserver(pid: pid) else { handle = nil; return }
+        if let targetElement { newHandle.targetElement = targetElement }
         var allOK = true
         for notification in notifications where !engine.subscribe(newHandle, notification: notification) { allOK = false }
         handle = newHandle
