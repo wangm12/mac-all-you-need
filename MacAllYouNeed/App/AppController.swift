@@ -73,6 +73,9 @@ final class AppController {
     // Nil only if the folder-history database cannot be opened.
     private let folderHistory: FolderHistoryRuntime?
 
+    // Plan 06: Dock-Hover Window Previews runtime (AX hover observer + panel).
+    private let dockPreviews: DockPreviewRuntime
+
     // Phase 7 W1: hotkey registry + action dispatch table extracted to
     // HotkeyOrchestrator. AppController forwards `performHotkeyAction` to it.
     private let hotkeys: HotkeyOrchestrator
@@ -165,6 +168,7 @@ final class AppController {
         snippetExpander = Self.makeSnippetExpander(store: stores.snippet)
 
         folderHistory = FolderHistoryRuntime()
+        dockPreviews = DockPreviewRuntime()
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
@@ -281,6 +285,7 @@ final class AppController {
             await rt.activateAllEnabled()
             if let self {
                 await self.refreshFolderHistoryFeatureAvailability()
+                await self.refreshDockPreviewsFeatureAvailability()
             }
 
             // Surface the What's New sheet on first window appearance (upgrade only).
@@ -434,6 +439,7 @@ final class AppController {
         case .featureRuntimeStateChanged:
             Task { await self.refreshWindowControlFeatureAvailability() }
             Task { await self.refreshFolderHistoryFeatureAvailability() }
+            Task { await self.refreshDockPreviewsFeatureAvailability() }
         case .hotkeyRecordingStarted:
             suspendShortcutTriggersForHotkeyRecording()
         case .hotkeyRecordingStopped:
@@ -453,6 +459,11 @@ final class AppController {
     private func refreshFolderHistoryFeatureAvailability() async {
         let state = await featureManager.state(for: .folderHistory)
         folderHistory?.applyEnabled(state.activationState == .enabled)
+    }
+
+    private func refreshDockPreviewsFeatureAvailability() async {
+        let state = await featureManager.state(for: .dockPreviews)
+        dockPreviews.applyEnabled(state.activationState == .enabled)
     }
 
     private func suspendShortcutTriggersForHotkeyRecording() {

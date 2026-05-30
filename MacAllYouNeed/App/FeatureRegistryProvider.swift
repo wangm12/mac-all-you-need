@@ -14,6 +14,7 @@ enum FeatureRegistryProvider {
             FinderHistoryDescriptor.descriptor(),
             RemindersFeatureDescriptor.descriptor(),
             FileOrganizerDescriptor.descriptor(),
+            DockPreviewsDescriptor.descriptor(),
         ])
     }
 }
