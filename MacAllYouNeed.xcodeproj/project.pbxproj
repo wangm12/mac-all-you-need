@@ -24,7 +24,6 @@
 		0B287A48E697DDA9E389DD33 /* FeatureCore in Frameworks */ = {isa = PBXBuildFile; productRef = 342234C4D95175B8FC64834F /* FeatureCore */; };
 		0B61491655249A4A37AA06F2 /* SnippetsDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9339EB99FAB520EDFB56671 /* SnippetsDestinationView.swift */; };
 		0C2CE74D668CE2D5A56BB4E6 /* MainStartupSurfaceRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94862C64006135C4345DE6F1 /* MainStartupSurfaceRouterTests.swift */; };
-		0CADCC9166B9BFC5EACA2E2A /* FinderHistoryExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B8B1680BCA3A7BF158655C1C /* FinderHistoryExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		0D40B080E9BE668CE1D74238 /* QuickLookOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62E23F77F9EA9B403DEF485D /* QuickLookOverlay.swift */; };
 		0DB42172A7C47E64048284F6 /* CLAUDE.md in Resources */ = {isa = PBXBuildFile; fileRef = B5EC1BD6ED8299D6F3F00D84 /* CLAUDE.md */; };
 		0E162C1CC3B41CA9F22C39EC /* VoicePostEditLearningMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57E1D571BD0D16BAABE8A14 /* VoicePostEditLearningMonitorTests.swift */; };
@@ -506,7 +505,6 @@
 		F58246B262BB6AC5E76647AE /* SideloadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E67B8274004E0F4709F8B36 /* SideloadController.swift */; };
 		F5A04D53A3E77C19484F28D6 /* VoiceActivationMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43807BDAF3B94EC1A857C5C8 /* VoiceActivationMonitor.swift */; };
 		F5D1754CA3D5E5AA6A8E9960 /* PermissionStepViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7E844406A10FA770722A46 /* PermissionStepViews.swift */; };
-		F6115F1D7715FA5E0D5E6A6E /* RemindersWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6BC86E8FA32A8D7562F77C0B /* RemindersWidget.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F783295239B9353247B64E4F /* CardContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 837289CB6522B643D1E95BDC /* CardContextMenu.swift */; };
 		F836E34A7DBD02A630B0D1DC /* MicrophoneStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3975F96989EF6A534D8B932E /* MicrophoneStepView.swift */; };
 		F9842F4B8DD839A746B8D386 /* DockPreviewSeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A5450FD0AB505516C9E775F /* DockPreviewSeeder.swift */; };
@@ -545,20 +543,6 @@
 			remoteGlobalIDString = 5BD88869F3EB83788E866E4F;
 			remoteInfo = MacAllYouNeed;
 		};
-		4A833B17DFF36665A2DD89E9 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = E66B6891310EDBB726ABA1AA /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 700895EC300D214DFDB8E391;
-			remoteInfo = RemindersWidget;
-		};
-		6190BFCAEC1ED55873E09DDD /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = E66B6891310EDBB726ABA1AA /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = A7EB642217DB2BC2A158DAE4;
-			remoteInfo = FinderHistoryExtension;
-		};
 		CE0AFF96E756A69D9D00A1CF /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = E66B6891310EDBB726ABA1AA /* Project object */;
@@ -576,8 +560,6 @@
 			dstSubfolderSpec = 13;
 			files = (
 				87182AE75AA7D6DA36BD0DAE /* FolderPreview.appex in Embed Foundation Extensions */,
-				0CADCC9166B9BFC5EACA2E2A /* FinderHistoryExtension.appex in Embed Foundation Extensions */,
-				F6115F1D7715FA5E0D5E6A6E /* RemindersWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2439,8 +2421,6 @@
 			dependencies = (
 				73FD7D4DF1DC4766C88F7B27 /* PBXTargetDependency */,
 				557A84BD35CFA39D4C3A6325 /* PBXTargetDependency */,
-				1E83F18FC93CCDBF37BEAFEB /* PBXTargetDependency */,
-				C80C01927906B9D237D07C71 /* PBXTargetDependency */,
 			);
 			name = MacAllYouNeed;
 			packageProductDependencies = (
@@ -3261,11 +3241,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		1E83F18FC93CCDBF37BEAFEB /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = A7EB642217DB2BC2A158DAE4 /* FinderHistoryExtension */;
-			targetProxy = 6190BFCAEC1ED55873E09DDD /* PBXContainerItemProxy */;
-		};
 		557A84BD35CFA39D4C3A6325 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 58E172D57CB23EA5F7CB76DE /* FolderPreview */;
@@ -3280,11 +3255,6 @@
 			isa = PBXTargetDependency;
 			target = 5BD88869F3EB83788E866E4F /* MacAllYouNeed */;
 			targetProxy = 450357D02D76537F1BF9E7CA /* PBXContainerItemProxy */;
-		};
-		C80C01927906B9D237D07C71 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 700895EC300D214DFDB8E391 /* RemindersWidget */;
-			targetProxy = 4A833B17DFF36665A2DD89E9 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 

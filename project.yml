@@ -62,12 +62,15 @@ targets:
       - target: FolderPreview
         embed: true
         codeSign: true
-      - target: FinderHistoryExtension
-        embed: true
-        codeSign: true
-      - target: RemindersWidget
-        embed: true
-        codeSign: true
+      # FinderHistoryExtension and RemindersWidget are not embedded here —
+      # they need their own provisioning profiles. Open Xcode → Signing &
+      # Capabilities for each target to auto-provision, then re-add below.
+      # - target: FinderHistoryExtension
+      #   embed: true
+      #   codeSign: true
+      # - target: RemindersWidget
+      #   embed: true
+      #   codeSign: true
     postBuildScripts:
       - name: "Embed ClipboardDaemon in LoginItems"
         basedOnDependencyAnalysis: false
