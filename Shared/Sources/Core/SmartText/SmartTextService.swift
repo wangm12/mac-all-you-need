@@ -124,3 +124,29 @@ enum ExpressionEvaluator {
         }
     }
 }
+
+extension SmartTextService {
+    public static let trackingParameters: Set<String> = [
+        "fbclid", "gclid", "gclsrc", "dclid", "msclkid", "mc_eid", "mc_cid",
+        "igshid", "si", "ref", "ref_src", "_hsenc", "_hsmi", "vero_id",
+        "oly_enc_id", "oly_anon_id", "yclid", "twclid", "wickedid", "_openstat"
+    ]
+    public static func isTracking(_ key: String) -> Bool {
+        let k = key.lowercased()
+        return k.hasPrefix("utm_") || trackingParameters.contains(k)
+    }
+    public static func cleanLink(_ raw: String) -> LinkCleanResult? {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.contains("\n"), !s.contains(" "),
+              var comps = URLComponents(string: s),
+              let scheme = comps.scheme, scheme == "http" || scheme == "https",
+              comps.host != nil, let items = comps.queryItems, !items.isEmpty
+        else { return nil }
+        let kept = items.filter { !isTracking($0.name) }
+        let removed = items.count - kept.count
+        guard removed > 0 else { return nil }
+        comps.queryItems = kept.isEmpty ? nil : kept
+        guard let cleaned = comps.string else { return nil }
+        return LinkCleanResult(cleaned: cleaned, removedCount: removed, original: s)
+    }
+}
