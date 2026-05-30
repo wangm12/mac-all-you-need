@@ -85,4 +85,21 @@ final class SmartTextServiceTests: XCTestCase {
         XCTAssertEqual(SmartTextService.analyze(text: "2+2").calculation?.value, "4")
         XCTAssertEqual(SmartTextService.analyze(text: "https://x.com/?utm_source=a").linkClean?.removedCount, 1)
     }
+
+    func testCapturePolicySkipsSensitive() {
+        let d = SmartCapturePolicy.decideText("4242 4242 4242 4242", windowTitle: nil, pasteboardTypes: [], sensitiveEnabled: true, autoCleanLinks: false)
+        XCTAssertEqual(d, .skip(.paymentCard))
+    }
+    func testCapturePolicyAutoCleans() {
+        let d = SmartCapturePolicy.decideText("https://x.com/?utm_source=a", windowTitle: nil, pasteboardTypes: [], sensitiveEnabled: false, autoCleanLinks: true)
+        if case let .keep(_, cleaned) = d { XCTAssertEqual(cleaned, "https://x.com/") } else { XCTFail() }
+    }
+    func testCapturePolicySensitiveDisabledKeepsCard() {
+        let d = SmartCapturePolicy.decideText("4242 4242 4242 4242", windowTitle: nil, pasteboardTypes: [], sensitiveEnabled: false, autoCleanLinks: false)
+        if case .keep = d {} else { XCTFail("expected keep when sensitive filter disabled") }
+    }
+    func testCapturePolicyNoAutoCleanWhenDisabled() {
+        let d = SmartCapturePolicy.decideText("https://x.com/?utm_source=a", windowTitle: nil, pasteboardTypes: [], sensitiveEnabled: false, autoCleanLinks: false)
+        if case let .keep(_, cleaned) = d { XCTAssertNil(cleaned) } else { XCTFail() }
+    }
 }
