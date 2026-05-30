@@ -85,6 +85,20 @@ final class WindowControlCoordinator {
     private var axTrusted: Bool
     private var suspendedForHotkeyRecording = false
 
+    /// Radial window-management menu coordinator. Lazily constructed so it can
+    /// reference `self` as both action performer and frame resolver.
+    @ObservationIgnored
+    lazy var radialMenuCoordinator: RadialMenuCoordinator = .init(
+        actionPerformer: self,
+        frameResolver: self
+    )
+
+    @ObservationIgnored private let radialFrameMover = WindowMover()
+    @ObservationIgnored private let radialMenuViewModel = RadialMenuViewModel()
+    @ObservationIgnored private let radialPreviewViewModel = RadialPreviewViewModel()
+    @ObservationIgnored private lazy var radialMenuController = RadialMenuController(viewModel: radialMenuViewModel)
+    @ObservationIgnored private lazy var radialPreviewController = RadialPreviewController(viewModel: radialPreviewViewModel)
+
     init(
         settings: WindowControlSettings = WindowControlSettingsStore.load(),
         featureAvailability: WindowControlFeatureAvailability = .enabled,
@@ -116,7 +130,54 @@ final class WindowControlCoordinator {
             eventTap.restoreFrameLookup = { [weak self] identity in
                 self?.restoreHistory.restoreFrame(for: identity)
             }
+            eventTap.radialPhaseHandler = { [weak self] phase in
+                self?.handleRadialPhase(phase)
+            }
         }
+    }
+
+    /// Handles radial trigger phases from the event tap. Locations arrive in CG
+    /// display coordinates (top-left origin); panels need AppKit coordinates.
+    private func handleRadialPhase(_ phase: WindowControlEventTap.RadialPhase) {
+        switch phase {
+        case let .open(center):
+            let appKitCenter = Self.appKitPoint(fromCG: center)
+            radialMenuCoordinator.open(at: center)
+            radialMenuViewModel.update(from: radialMenuCoordinator)
+            radialPreviewViewModel.update(from: radialMenuCoordinator)
+            radialMenuController.show(at: appKitCenter)
+            if let screen = Self.screen(containingAppKit: appKitCenter) {
+                radialPreviewController.show(on: screen)
+            }
+        case let .update(cursor):
+            radialMenuCoordinator.update(cursorAt: cursor)
+            radialMenuViewModel.update(from: radialMenuCoordinator)
+            radialPreviewViewModel.update(from: radialMenuCoordinator)
+        case .commit:
+            radialMenuCoordinator.commit()
+            radialMenuViewModel.update(from: radialMenuCoordinator)
+            radialMenuController.dismiss()
+            radialPreviewController.dismiss()
+            radialMenuCoordinator.reset()
+        case .cancel:
+            radialMenuCoordinator.cancel()
+            radialMenuController.dismiss()
+            radialPreviewController.dismiss()
+            radialMenuCoordinator.reset()
+        }
+    }
+
+    private static func appKitPoint(fromCG point: CGPoint) -> NSPoint {
+        guard let primaryHeight = NSScreen.screens.first?.frame.maxY else {
+            return NSPoint(x: point.x, y: point.y)
+        }
+        // CGEvent locations use a top-left origin on the primary display; flip Y.
+        let globalHeight = NSScreen.screens.map(\.frame.maxY).max() ?? primaryHeight
+        return NSPoint(x: point.x, y: globalHeight - point.y)
+    }
+
+    private static func screen(containingAppKit point: NSPoint) -> NSScreen? {
+        NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
     }
 
     var windowActionPerformerAvailable: Bool {
@@ -160,7 +221,14 @@ final class WindowControlCoordinator {
     func applySettings(_ next: WindowControlSettings) {
         let wasAvailable = windowActionPerformerAvailable
         let layoutsRuntimeChanged = layoutsRuntimeEnabled != (featureAvailability.windowLayoutsEnabled && next.enabled)
+        let radialChanged = settings.radialMenuEnabled != next.radialMenuEnabled
         settings = next
+        if radialChanged {
+            // The CGEvent tap mask can only be set at creation, so flipping the
+            // radial setting requires recreating the tap; stop it here and let
+            // reconcileLifecycle restart it with the updated mask.
+            (tap as? WindowControlEventTap)?.updateRuntime(radialMenuEnabled: next.radialMenuEnabled)
+        }
         reconcileLifecycle()
         if layoutsRuntimeChanged || wasAvailable != windowActionPerformerAvailable {
             onHotkeyRegistrationNeedsRefresh()
@@ -297,6 +365,28 @@ final class WindowControlCoordinator {
         if action != .restore, let identity, result.status == .moved {
             restoreHistory.store(result.originalFrame, for: identity)
         }
+    }
+}
+
+// MARK: - Radial menu integration
+
+extension WindowControlCoordinator: RadialActionPerforming {
+    // `perform(action:)` is already defined above and satisfies the protocol.
+}
+
+extension WindowControlCoordinator: ProposedFrameResolving {
+    func proposedFrame(for action: WindowAction) -> CGRect? {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
+              let axWindow = value
+        else {
+            return nil
+        }
+        let element = WindowAccessibilityElement(axWindow as! AXUIElement)
+        guard element.isSupportedForWindowControl else { return nil }
+        return radialFrameMover.proposedFrame(for: action, element: element)
     }
 }
 
