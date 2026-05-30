@@ -141,11 +141,51 @@ final class LocalClipboardReader {
             if currentQuery.isEmpty {
                 items = deduped
             } else {
-                let lower = currentQuery.lowercased()
-                items = deduped.filter { $0.preview.lowercased().contains(lower) }
+                items = Self.applyQuery(currentQuery, to: deduped)
             }
         case .failure:
             items = []
+        }
+    }
+
+    /// Applies the smart search query to popover items, matching the dock's
+    /// predicate semantics: app include/exclude, type (OR), date lower bound,
+    /// and free-text / regex over preview + OCR text. Falls back to a plain
+    /// substring match when no smart operators are present.
+    nonisolated static func applyQuery(_ query: String, to metas: [ClipboardItemMeta]) -> [ClipboardItemMeta] {
+        let smart = SmartSearchQuery(query)
+        guard smart.hasOperators else {
+            let lower = query.lowercased()
+            return metas.filter { $0.preview.lowercased().contains(lower) }
+        }
+        return metas.filter { meta in
+            let appID = (meta.sourceAppBundleID ?? "").lowercased()
+            if !smart.appFilters.isEmpty {
+                guard smart.appFilters.contains(where: appID.contains) else { return false }
+            }
+            if !smart.negatedApps.isEmpty {
+                if smart.negatedApps.contains(where: appID.contains) { return false }
+            }
+            if !smart.typeFilters.isEmpty {
+                let type = Self.detectedTypeName(meta) ?? "plain"
+                guard smart.typeFilters.contains(type) else { return false }
+            }
+            if let lower = smart.dateOnOrAfter, meta.modified < lower { return false }
+            return smart.matchesText(meta.preview, ocrText: meta.ocrText)
+        }
+    }
+
+    nonisolated private static func detectedTypeName(_ meta: ClipboardItemMeta) -> String? {
+        guard let json = meta.detectedTypeJSON,
+              let detection = try? Detection.decode(json: json) else { return nil }
+        switch detection.type {
+        case .plain: return "plain"
+        case .email: return "email"
+        case .url: return "url"
+        case .phone: return "phone"
+        case .jwt: return "jwt"
+        case .color: return "color"
+        case .code: return "code"
         }
     }
 

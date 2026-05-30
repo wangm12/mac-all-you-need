@@ -331,6 +331,7 @@
 		CD40A62ED46A9861889050C4 /* ClipboardDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF936AB17DE2D696916C1ED5 /* ClipboardDestinationView.swift */; };
 		CDB5DE6551B634BE6DEC92E7 /* VoiceSettingsSectionRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687DE59A1A2F72106F2D248 /* VoiceSettingsSectionRegistryTests.swift */; };
 		CE5988BCECE0B86E99A9E68C /* HotkeyMapStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B945F20C749B8FE7E2336A32 /* HotkeyMapStore.swift */; };
+		CE8C48869CCEF59C6D1FE72E /* DockItemSmartTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3952D79CC854EE1D018FA8 /* DockItemSmartTextTests.swift */; };
 		CEF5CC33BFD976BEC08B7A05 /* UIAuditGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 497402F2A0F7C283ED32340A /* UIAuditGalleryView.swift */; };
 		CF1B65106562CA2B93CB0D86 /* FeatureSetupContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186FCC573C8067017CF8531C /* FeatureSetupContainerView.swift */; };
 		D02E087F979CEF23A1A47CDA /* ClipboardFeatureActivatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3860B4EE5F43A41C3E71257 /* ClipboardFeatureActivatorTests.swift */; };
@@ -511,6 +512,7 @@
 		1BA75F9EA2A47773237346AE /* DockSearchInputController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSearchInputController.swift; sourceTree = "<group>"; };
 		1C48CA7B357190CBD6D68BCD /* VoiceFeatureActivator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceFeatureActivator.swift; sourceTree = "<group>"; };
 		1C51FD0F039999C99D523F48 /* StorageSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageSettingsView.swift; sourceTree = "<group>"; };
+		1D3952D79CC854EE1D018FA8 /* DockItemSmartTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockItemSmartTextTests.swift; sourceTree = "<group>"; };
 		1E444AD4FF1939B4AE78A34D /* FunctionTabsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FunctionTabsTests.swift; sourceTree = "<group>"; };
 		1ECB27CB5E779C51222A756D /* VoiceCleanupPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCleanupPipeline.swift; sourceTree = "<group>"; };
 		1ED440FF24BD0A2A5D26298F /* VoiceLocalASREngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLocalASREngine.swift; sourceTree = "<group>"; };
@@ -1772,6 +1774,7 @@
 				174EE714902EF18583421162 /* ClipboardDockModelSpineSnapshotTests.swift */,
 				2B70AD9C6C31FDFAAEFED2F3 /* ClipboardDockModelTests.swift */,
 				A1BF4801151876CA6539892A /* DockGlobalKeyEventRouterTests.swift */,
+				1D3952D79CC854EE1D018FA8 /* DockItemSmartTextTests.swift */,
 				C0AD9146D00B55140B9A154C /* DockItemTests.swift */,
 				FBEF9A12A21FFD9AD3F3CCBA /* DockListTabReorderTests.swift */,
 				E34530A6DB2F817A48ACD440 /* DockOutsideClickPolicyTests.swift */,
@@ -2166,6 +2169,7 @@
 				FAE641BD49AEB2B896905CDF /* ClipboardEnrichmentCoordinatorTests.swift in Sources */,
 				D02E087F979CEF23A1A47CDA /* ClipboardFeatureActivatorTests.swift in Sources */,
 				5F5E9787A970C0FCBAE6B88F /* DockGlobalKeyEventRouterTests.swift in Sources */,
+				CE8C48869CCEF59C6D1FE72E /* DockItemSmartTextTests.swift in Sources */,
 				99F9679CA4CEBCDC5A076E4C /* DockItemTests.swift in Sources */,
 				7F76697BFCA8242EF3CC64D8 /* DockListTabReorderTests.swift in Sources */,
 				AB4A33D939A0CF7983C797F5 /* DockOutsideClickPolicyTests.swift in Sources */,
