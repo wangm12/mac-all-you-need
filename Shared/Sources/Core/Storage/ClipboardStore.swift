@@ -111,6 +111,9 @@ public final class ClipboardStore {
         Migration(identifier: "006-voice-training-examples") { conn in
             try conn.execute(sql: VoiceTrainingExampleMigration.sql)
         },
+        Migration(identifier: "007-personalization-pinned-examples") { conn in
+            try conn.execute(sql: VoicePersonalizationPinnedMigration.sql)
+        },
         Migration(identifier: "008-smart-text") { conn in
             try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN detected_type TEXT;")
             try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN ocr_text TEXT;")

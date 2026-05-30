@@ -25,6 +25,44 @@ enum WindowControlSettingsPresentation {
     static func seedDescriptor(for action: HotkeyAction) -> Platform.HotkeyDescriptor {
         action.primaryDefaultDescriptor ?? customShortcutSeedDescriptor
     }
+
+    /// True when the user tapped + but the shortcut is not saved in the hotkey map yet.
+    static func isPendingShortcutOnly(
+        storedDescriptors: [Platform.HotkeyDescriptor],
+        pendingDescriptor: Platform.HotkeyDescriptor?
+    ) -> Bool {
+        pendingDescriptor != nil && storedDescriptors.isEmpty
+    }
+
+    /// Baseline for the Reset button enabled/disabled state in `HotkeyRecorderControl`.
+    static func resetBaselineDescriptor(
+        for action: HotkeyAction,
+        current: Platform.HotkeyDescriptor,
+        isPendingOnly: Bool
+    ) -> Platform.HotkeyDescriptor? {
+        if let primary = action.primaryDefaultDescriptor {
+            return primary
+        }
+        if isPendingOnly {
+            return seedDescriptor(for: action)
+        }
+        return current
+    }
+
+    static func resetHelp(for action: HotkeyAction, isPendingOnly: Bool) -> String {
+        if isPendingOnly {
+            return action.primaryDefaultDescriptor == nil
+                ? "Revert to starter shortcut"
+                : "Use default shortcut"
+        }
+        return action.primaryDefaultDescriptor == nil
+            ? "Turn off shortcut"
+            : "Reset to default"
+    }
+
+    static func closeHelp(isPendingOnly: Bool) -> String {
+        isPendingOnly ? "Cancel" : "Turn off shortcut"
+    }
 }
 
 struct DashboardToolTileItem: Equatable, Identifiable {

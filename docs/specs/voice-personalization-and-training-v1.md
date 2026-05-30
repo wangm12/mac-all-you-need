@@ -137,14 +137,16 @@ In `VoicePromptBuilder.systemPrompt`, after base cleanup rules:
 
 ### 4.4 External fine-tune (out of app)
 
-**Deliverable:** `scripts/finetune-whisper-lora/` (or doc pointing to Listenr) — not required in app bundle.
+**Deliverable:** [`scripts/voice-finetune-mac/`](../../scripts/voice-finetune-mac/) (MLX-first on Apple Silicon) — not required in app bundle.
+
+**Mac path (recommended):** Export from MAYN → `prepare-dataset.py` → [mlx-tune](https://github.com/ARahim3/mlx-tune) examples for **Qwen3-ASR** (17) or **Parakeet** (50–53). M4 Max 64 GB is adequate for personal LoRA pilots. Whisper-only paths (HF PEFT / Listenr CUDA) are optional fallbacks.
 
 **Minimum dataset guidance (informative):**
 
 - Pilot LoRA: ≥ 30 minutes speech, ≥ 50 verified (`high`) utterances, single primary language.  
 - Diminishing returns below ~10 minutes; domain terms need manual dictionary + examples.
 
-**Optional future:** Select exported adapter in ASR settings (v2); not v1.
+**Optional future:** Select exported adapter in ASR settings (v2); not v1. See [`docs/research/voice-personalization-backlog.md`](../research/voice-personalization-backlog.md) §4 for requirements and go/no-go gate.
 
 ---
 

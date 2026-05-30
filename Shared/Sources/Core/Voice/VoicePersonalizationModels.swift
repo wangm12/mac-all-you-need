@@ -97,6 +97,48 @@ public struct VoicePersonalizationContextDraft: Equatable, Sendable {
     }
 }
 
+public struct VoicePinnedExample: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let contextID: String
+    public let before: String
+    public let after: String
+    public let isStarred: Bool
+    public let sortOrder: Int
+    public let createdAt: Date
+
+    public init(
+        id: String,
+        contextID: String,
+        before: String,
+        after: String,
+        isStarred: Bool,
+        sortOrder: Int,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.contextID = contextID
+        self.before = before
+        self.after = after
+        self.isStarred = isStarred
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+    }
+}
+
+public struct VoicePinnedExampleDraft: Equatable, Sendable {
+    public var contextID: String
+    public var before: String
+    public var after: String
+    public var isStarred: Bool
+
+    public init(contextID: String, before: String, after: String, isStarred: Bool = false) {
+        self.contextID = contextID
+        self.before = before
+        self.after = after
+        self.isStarred = isStarred
+    }
+}
+
 public struct VoicePersonalizationSample: Identifiable, Equatable, Sendable {
     public let id: String
     public let contextID: String
@@ -191,4 +233,6 @@ public enum VoicePersonalizationStoreError: Error, Equatable {
     case contextNotFound
     case payloadDecodeFailed
     case unsupportedSchemaVersion(Int)
+    case emptyPinnedExample
+    case pinnedExampleNotFound
 }

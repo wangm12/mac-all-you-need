@@ -300,6 +300,32 @@ final class VoicePersonalizationStoreTests: XCTestCase {
         XCTAssertEqual(refreshed?.summarySourceCount, 0)
         XCTAssertNil(refreshed?.summaryGeneratedAt)
     }
+
+    func testPinnedExampleCRUD() throws {
+        let ctx = try store.upsertContext(VoicePersonalizationContextDraft(
+            bundleID: VoicePersonalizationContext.globalBundleID,
+            displayName: VoicePersonalizationContext.globalDisplayName
+        ))
+
+        let added = try store.addPinnedExample(VoicePinnedExampleDraft(
+            contextID: ctx.id,
+            before: "gonna",
+            after: "going to",
+            isStarred: true
+        ))
+        XCTAssertTrue(added.isStarred)
+
+        var listed = try store.listPinnedExamples(contextID: ctx.id)
+        XCTAssertEqual(listed.count, 1)
+
+        try store.updatePinnedExample(id: added.id, before: "wanna", after: "want to", isStarred: false)
+        listed = try store.listPinnedExamples(contextID: ctx.id)
+        XCTAssertEqual(listed.first?.before, "wanna")
+
+        try store.deletePinnedExample(id: added.id)
+        listed = try store.listPinnedExamples(contextID: ctx.id)
+        XCTAssertTrue(listed.isEmpty)
+    }
 }
 
 // Test helpers ---------------------------------------------------------------

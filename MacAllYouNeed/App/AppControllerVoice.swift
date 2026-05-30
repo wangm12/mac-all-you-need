@@ -77,6 +77,52 @@ extension AppController {
         try voiceTrainingExampleStore.clearAll()
     }
 
+    func listVoiceTrainingExamples(limit: Int = 200) -> [VoiceTrainingExample] {
+        (try? voiceTrainingExampleStore.listRecent(limit: limit)) ?? []
+    }
+
+    func deleteVoiceTrainingExample(id: String) throws {
+        try voiceTrainingExampleStore.delete(id: id)
+    }
+
+    func listPinnedExamples(contextID: String) -> [VoicePinnedExample] {
+        (try? voicePersonalizationStore.listPinnedExamples(contextID: contextID)) ?? []
+    }
+
+    @discardableResult
+    func addPinnedExample(_ draft: VoicePinnedExampleDraft) throws -> VoicePinnedExample {
+        try voicePersonalizationStore.addPinnedExample(draft)
+    }
+
+    func updatePinnedExample(id: String, before: String, after: String, isStarred: Bool) throws {
+        try voicePersonalizationStore.updatePinnedExample(
+            id: id,
+            before: before,
+            after: after,
+            isStarred: isStarred
+        )
+    }
+
+    func deletePinnedExample(id: String) throws {
+        try voicePersonalizationStore.deletePinnedExample(id: id)
+    }
+
+    func globalPersonalizationContextID() throws -> String {
+        let draft = VoicePersonalizationContextDraft(
+            bundleID: VoicePersonalizationContext.globalBundleID,
+            displayName: VoicePersonalizationContext.globalDisplayName
+        )
+        return try voicePersonalizationStore.upsertContext(draft).id
+    }
+
+    func exportVoiceTrainingData(
+        to archiveURL: URL,
+        options: VoiceTrainingExportOptions = .default
+    ) throws -> VoiceTrainingExportSummary {
+        let exporter = VoiceTrainingExporter(store: voiceTrainingExampleStore)
+        return try exporter.export(to: archiveURL, options: options)
+    }
+
     func voicePersonalizationSettings() -> VoicePersonalizationSettings {
         VoicePersonalizationSettingsStore.load()
     }

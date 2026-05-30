@@ -557,8 +557,11 @@ final class VoiceCoordinator {
 
     private func loadRecentExamples(context: VoicePersonalizationContext?) -> [(before: String, after: String)] {
         guard let ctxID = context?.id, let store = personalizationStore else { return [] }
+        let pinned = (try? store.listPinnedExamples(contextID: ctxID)) ?? []
+        let pinnedPairs = pinned.map { ($0.before, $0.after) }
         let samples = (try? store.listRecentSamples(contextID: ctxID, limit: 10)) ?? []
-        return samples.map { ($0.before, $0.after) }
+        let autoPairs = samples.map { ($0.before, $0.after) }
+        return VoicePromptBuilder.cappedExamples(pinned: pinnedPairs, autoLearnedNewestFirst: autoPairs)
     }
 
     /// Builds the cleanup request, honoring disabled-app-context as a full personalization

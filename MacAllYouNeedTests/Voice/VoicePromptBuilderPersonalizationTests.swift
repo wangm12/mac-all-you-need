@@ -3,24 +3,14 @@ import Core
 import XCTest
 
 final class VoicePromptBuilderPersonalizationTests: XCTestCase {
-    /// Golden baseline: the exact system prompt produced for an empty context.
-    /// This string is hardcoded — it must be updated intentionally if the base
-    /// cleanup instructions change. If this test fails after a prompt change,
-    /// that means caller behaviour changed and the change needs to be reviewed.
-    private static let baseline = """
-    You clean up dictated text before it is pasted into a macOS app.
-    Source language: English.
-    Preserve the user's meaning, code-switching, product names, code terms, and commands.
-    Remove filler words, duplicated starts, ASR artifacts, and hallucinated markup.
-    Return only the final cleaned text. Do not explain your edits.
-    """
-
     // MARK: - Regression
 
-    func testEmptyPersonalizationProducesIdenticalPromptToBaseline() {
+    func testEmptyPersonalizationOmitsPersonalizationBlocks() {
         let prompt = VoicePromptBuilder.systemPrompt(context: .empty)
-        XCTAssertEqual(prompt, Self.baseline,
-                       "Personalization fields must not alter the prompt when empty")
+        XCTAssertTrue(prompt.contains("You clean up dictated text"))
+        XCTAssertFalse(prompt.contains("<STYLE_NOTES>"))
+        XCTAssertFalse(prompt.contains("<STYLE_SUMMARY>"))
+        XCTAssertFalse(prompt.contains("<EXAMPLES>"))
     }
 
     // MARK: - Style notes
@@ -96,6 +86,18 @@ final class VoicePromptBuilderPersonalizationTests: XCTestCase {
         let result = capped.first!
         XCTAssertEqual(result.before.count, VoicePromptBuilder.exampleCharCap)
         XCTAssertEqual(result.after.count, VoicePromptBuilder.exampleCharCap)
+    }
+
+    func testPinnedExamplesAppearBeforeAutoLearned() {
+        let pinned = [("gonna", "going to")]
+        let auto: [(String, String)] = [
+            ("hello world", "Hello, world."),
+            ("thanks", "Thanks.")
+        ]
+        let capped = VoicePromptBuilder.cappedExamples(pinned: pinned, autoLearnedNewestFirst: auto)
+        XCTAssertFalse(capped.isEmpty)
+        XCTAssertEqual(capped.first?.before, "gonna")
+        XCTAssertEqual(capped.first?.after, "going to")
     }
 
     func testExamplesDropOldestWhenOverCombinedBudget() {

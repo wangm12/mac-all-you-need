@@ -94,8 +94,9 @@ struct VoiceLLMStepView: View {
                     Text("Improve cleanup over time by learning from your edits")
                         .font(.body)
                     Text(
-                        "Edit samples are stored locally and encrypted. Older samples are summarized "
-                            + "via your selected cleanup LLM provider to refine your style profile."
+                        "After paste, Mac All You Need reads your focused text field (Accessibility), "
+                            + "stores encrypted before/after samples locally, and may summarize older edits "
+                            + "using your selected cleanup provider to refine style notes."
                     )
                         .font(.caption)
                         .foregroundStyle(.secondary)

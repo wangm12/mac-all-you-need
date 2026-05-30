@@ -1,5 +1,6 @@
 @testable import MacAllYouNeed
 import AppKit
+import Carbon.HIToolbox
 import Core
 import Platform
 import XCTest
@@ -35,6 +36,70 @@ final class WindowControlPresentationTests: XCTestCase {
             WindowControlSettingsPresentation.customShortcutSeedDescriptor
         )
         XCTAssertFalse(HotkeyAction.windowTopLeft.windowControlSubtitle.contains("Global Hotkeys"))
+    }
+
+    func testWindowControlShortcutResetBaselinePendingVsRegistered() {
+        let seed = WindowControlSettingsPresentation.seedDescriptor(for: .windowTopLeft)
+        let changed = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_B), modifiers: [.control])
+
+        XCTAssertTrue(
+            WindowControlSettingsPresentation.isPendingShortcutOnly(
+                storedDescriptors: [],
+                pendingDescriptor: seed
+            )
+        )
+        XCTAssertFalse(
+            WindowControlSettingsPresentation.isPendingShortcutOnly(
+                storedDescriptors: [changed],
+                pendingDescriptor: nil
+            )
+        )
+
+        XCTAssertEqual(
+            WindowControlSettingsPresentation.resetBaselineDescriptor(
+                for: .windowTopLeft,
+                current: changed,
+                isPendingOnly: true
+            ),
+            seed
+        )
+        XCTAssertEqual(
+            WindowControlSettingsPresentation.resetBaselineDescriptor(
+                for: .windowTopLeft,
+                current: changed,
+                isPendingOnly: false
+            ),
+            changed
+        )
+
+        let leftDefault = HotkeyAction.windowLeftHalf.primaryDefaultDescriptor!
+        XCTAssertEqual(
+            WindowControlSettingsPresentation.resetBaselineDescriptor(
+                for: .windowLeftHalf,
+                current: leftDefault,
+                isPendingOnly: true
+            ),
+            leftDefault
+        )
+    }
+
+    func testWindowControlShortcutControlHelpCopy() {
+        XCTAssertEqual(
+            WindowControlSettingsPresentation.closeHelp(isPendingOnly: true),
+            "Cancel"
+        )
+        XCTAssertEqual(
+            WindowControlSettingsPresentation.closeHelp(isPendingOnly: false),
+            "Turn off shortcut"
+        )
+        XCTAssertEqual(
+            WindowControlSettingsPresentation.resetHelp(for: .windowTopLeft, isPendingOnly: true),
+            "Revert to starter shortcut"
+        )
+        XCTAssertEqual(
+            WindowControlSettingsPresentation.resetHelp(for: .windowLeftHalf, isPendingOnly: false),
+            "Reset to default"
+        )
     }
 
     func testWindowGestureModifierPickerExposesFnAndSideSpecificModifiers() {

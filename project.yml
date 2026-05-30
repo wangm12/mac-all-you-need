@@ -107,6 +107,22 @@ targets:
       - package: Shared
         product: Core
 
+  VoiceTrainingExport:
+    type: tool
+    platform: macOS
+    sources:
+      - Tools/VoiceTrainingExport
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.voice-training-export
+        CODE_SIGN_ENTITLEMENTS: Tools/VoiceTrainingExport/VoiceTrainingExport.entitlements
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
+        INFOPLIST_KEY_MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
+    dependencies:
+      - package: Shared
+        product: Core
+
   MacAllYouNeedTests:
     type: bundle.unit-test
     platform: macOS
@@ -231,3 +247,7 @@ schemes:
     build:
       targets:
         TypelessImport: all
+  VoiceTrainingExport:
+    build:
+      targets:
+        VoiceTrainingExport: all

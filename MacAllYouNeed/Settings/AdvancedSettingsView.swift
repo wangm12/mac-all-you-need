@@ -1,8 +1,9 @@
 import AppKit
-import FeatureCore
 import Core
+import FeatureCore
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AdvancedSettingsView: View {
     let controller: AppController
@@ -51,6 +52,15 @@ struct AdvancedSettingsView: View {
                     subtitle: "Export sanitized settings to a zip file for troubleshooting."
                 ) {
                     MAYNButton("Export") { exportDiagnostics() }
+                }
+            }
+
+            MAYNSection(title: "Voice training") {
+                MAYNSettingsRow(
+                    title: "Export training data",
+                    subtitle: "High-quality examples with audio as JSONL + WAV (.tar.gz) for mlx-tune on Apple Silicon."
+                ) {
+                    MAYNButton("Export…") { exportVoiceTrainingData() }
                 }
             }
 
@@ -160,6 +170,35 @@ struct AdvancedSettingsView: View {
             try? process.run()
             process.waitUntilExit()
             try? FileManager.default.removeItem(at: temp)
+        }
+    }
+
+    private func exportVoiceTrainingData() {
+        let panel = NSSavePanel()
+        panel.title = "Export Voice Training Data"
+        panel.nameFieldStringValue = "mayn-voice-training.tar.gz"
+        panel.allowedContentTypes = [.gzip]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let summary = try controller.exportVoiceTrainingData(to: url)
+            let alert = NSAlert()
+            alert.messageText = "Export complete"
+            alert.informativeText =
+                "Exported \(summary.exportedCount) examples. Skipped \(summary.skippedCount) by filter."
+            alert.runModal()
+        } catch VoiceTrainingExporterError.noEligibleExamples {
+            let alert = NSAlert()
+            alert.messageText = "Nothing to export"
+            alert.informativeText =
+                "No high-quality examples with 1–30s audio matched. Dictate with “Save training examples” on, then edit."
+            alert.runModal()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Export failed"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
         }
     }
 

@@ -272,7 +272,7 @@ struct VoiceSettingsView: View {
 
             VoicePersonalizationSection()
 
-            VoiceTrainingExamplesSection()
+            VoiceTrainingExamplesSection(controller: controller)
 
             // App-specific overrides are now configured in the Personalization tab.
 

@@ -70,7 +70,7 @@ Each entry: claim → method → data needed → MAYN applicability → risk.
 | ID | Reference | Claim / method | Data needed | MAYN track | Risk / note |
 |----|-----------|----------------|-------------|------------|-------------|
 | P7 | Radford et al., Whisper (2022) | General ASR; domain adaptation via fine-tune | Audio + transcript, 16 kHz, segment limits | **Offline** | Base reference |
-| P8 | Hu et al., LoRA (2021); HF PEFT Whisper examples | LoRA adapts Whisper with ~1% trainable params | Hours of paired audio-text | **Offline** | Consumer Mac may need external GPU or batch job |
+| P8 | Hu et al., LoRA (2021); HF PEFT; mlx-tune on Apple Silicon | LoRA adapts ASR with ~1% trainable params | Hours of paired audio-text | **Offline** | **M4 Max 64 GB is sufficient** via MLX (Qwen3-ASR / Parakeet / Whisper); discrete GPU optional |
 | P9 | Diabolocom Whisper LoRA tutorial (2024) | Practical recipe: 1–30 s clips, LoRA on encoder/decoder projections | Domain conversational speech | **Offline** | Matches `TrainingExporter` segment guidance |
 | P10 | S2-LoRA on Whisper for child speech, arXiv 2023 | PEFT for low-resource speaker/domain adaptation | Domain audio | **Offline** | Theoretical backing for personal ASR adapter |
 | P11 | Neural Base, continuous improvement pipeline (blog) | Log predictions + user corrections → JSONL → periodic fine-tune | `audio_id`, `corrected_text` | **Offline** | Maps 1:1 to `voice_training_examples.finalText` |
@@ -126,13 +126,21 @@ Each entry: claim → method → data needed → MAYN applicability → risk.
 - Typeless import → transcripts + optional training rows (`typeless_import`); **no** personalization samples
 - History retention, retry, download (audio-dependent)
 
-### Not built
+### Shipped in v1 adoption (2026-05)
 
-- `TrainingExporter` (Plan 8f)
-- Training examples list UI (`VoiceTrainingExamplesSection` placeholder)
-- Auto-learned dictionary from history diffs (design doc v2)
-- In-app fine-tune or model picker for personal Whisper
-- Retrieval-based example selection (paper P3)
+- `VoiceTrainingExporter` + export UI (Personalization / Advanced)
+- Training examples list UI (`VoiceTrainingExamplesSection`)
+- Pinned cleanup examples + enhancement presets per app
+- Offline training: [`docs/voice-training/README.md`](../voice-training/README.md) (`make voice-training-*`)
+
+### Not built (see backlog)
+
+**Canonical deferred list + v2 adapter spec:** [`voice-personalization-backlog.md`](voice-personalization-backlog.md)
+
+- **In-app personal adapter loading** (use mlx-tune LoRA during dictation) — v2
+- Auto-learned dictionary from history diffs (A4)
+- In-app fine-tune / training UI (O5)
+- Retrieval-based example selection (A3, paper P3)
 
 ### vs industry
 
@@ -188,11 +196,12 @@ flowchart TB
 | Phase | Inference track | Offline track |
 |-------|-----------------|---------------|
 | **Now (shipped)** | Post-edit learning, summarizer, prompt injection | Training row + WAV capture, Typeless import |
-| **Next** | Superwhisper-style **example editor** in Personalization; optional retrieval for examples (P3) | **TrainingExporter** + quality filter export; training examples list UI |
-| **Later** | Wispr-like **auto-dictionary** from high-confidence proper nouns (v2) | Documented `scripts/finetune-whisper-lora.sh`; optional MLX path for Apple Silicon |
-| **Defer** | Multi-sample voting (P4) | In-app training UI; cleanup model fine-tune (P5) |
+| **v1 adoption (done)** | Pinned examples, copy, per-app presets | Exporter, training list UI, MLX Mac scripts |
+| **Next** | Retrieval for examples (A3) | **O3b** dogfood on M4 Max; then **v2 adapter loading** if O3b passes gate |
+| **Later** | Auto-dictionary (A4) | — |
+| **Defer** | Multi-sample voting (P4) | In-app training UI (O5); cleanup model fine-tune (P5) |
 
-Implementation plans: Plan **8f** (export), new spec tasks, optional follow-up plan for dictionary auto-learn.
+Backlog todos and v2 adapter requirements: [`voice-personalization-backlog.md`](voice-personalization-backlog.md).
 
 ---
 

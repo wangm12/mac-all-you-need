@@ -207,6 +207,42 @@ public final class VoiceTrainingExampleStore: @unchecked Sendable {
         }
     }
 
+    public func fetch(id: String) throws -> VoiceTrainingExample? {
+        try db.queue.read { conn in
+            try Row.fetchOne(conn, sql: Self.selectSQL + " WHERE id = ?", arguments: [id])
+                .map { try self.example(from: $0) }
+        }
+    }
+
+    public func listRecent(limit: Int = 200) throws -> [VoiceTrainingExample] {
+        let normalizedLimit = Swift.max(1, limit)
+        return try db.queue.read { conn in
+            let rows = try Row.fetchAll(
+                conn,
+                sql: Self.selectSQL + " ORDER BY created_at DESC LIMIT ?",
+                arguments: [normalizedLimit]
+            )
+            return try rows.map { try self.example(from: $0) }
+        }
+    }
+
+    public func delete(id: String) throws {
+        let audioPath = try db.queue.write { conn -> String? in
+            let row = try Row.fetchOne(
+                conn,
+                sql: "SELECT audio_path FROM voice_training_examples WHERE id = ?",
+                arguments: [id]
+            )
+            let path: String? = row?["audio_path"]
+            try conn.execute(sql: "DELETE FROM voice_training_examples WHERE id = ?", arguments: [id])
+            return path
+        }
+
+        if let audioPath {
+            try? FileManager.default.removeItem(atPath: audioPath)
+        }
+    }
+
     public func allAudioPaths() throws -> [String] {
         try db.queue.read { conn in
             let rows = try Row.fetchAll(

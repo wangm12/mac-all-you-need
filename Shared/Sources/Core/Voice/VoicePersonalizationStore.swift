@@ -112,8 +112,102 @@ public final class VoicePersonalizationStore: @unchecked Sendable {
 
     public func clearAll() throws {
         try db.queue.write { conn in
+            try conn.execute(sql: "DELETE FROM voice_personalization_pinned_examples")
             try conn.execute(sql: "DELETE FROM voice_personalization_samples")
             try conn.execute(sql: "DELETE FROM voice_personalization_contexts")
+        }
+    }
+
+    // MARK: - Pinned examples
+
+    @discardableResult
+    public func addPinnedExample(_ draft: VoicePinnedExampleDraft) throws -> VoicePinnedExample {
+        let before = draft.before.trimmingCharacters(in: .whitespacesAndNewlines)
+        let after = draft.after.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !before.isEmpty, !after.isEmpty else {
+            throw VoicePersonalizationStoreError.emptyPinnedExample
+        }
+
+        let id = UUID().uuidString
+        let nowMs = Self.millis(now())
+        try db.queue.write { conn in
+            let nextOrder: Int = try Int.fetchOne(conn, sql: """
+                SELECT COALESCE(MAX(sort_order), -1) + 1
+                FROM voice_personalization_pinned_examples
+                WHERE context_id = ?
+            """, arguments: [draft.contextID]) ?? 0
+
+            try conn.execute(sql: """
+                INSERT INTO voice_personalization_pinned_examples (
+                    id, context_id, before_text, after_text, is_starred, sort_order, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, arguments: [
+                id,
+                draft.contextID,
+                before,
+                after,
+                draft.isStarred ? 1 : 0,
+                nextOrder,
+                nowMs
+            ])
+        }
+
+        guard let example = try fetchPinnedExample(id: id) else {
+            throw VoicePersonalizationStoreError.pinnedExampleNotFound
+        }
+        return example
+    }
+
+    public func listPinnedExamples(contextID: String) throws -> [VoicePinnedExample] {
+        try db.queue.read { conn in
+            let rows = try Row.fetchAll(conn, sql: """
+                SELECT id, context_id, before_text, after_text, is_starred, sort_order, created_at
+                FROM voice_personalization_pinned_examples
+                WHERE context_id = ?
+                ORDER BY sort_order ASC, created_at ASC
+            """, arguments: [contextID])
+            return try rows.map { try pinnedExample(from: $0) }
+        }
+    }
+
+    public func fetchPinnedExample(id: String) throws -> VoicePinnedExample? {
+        try db.queue.read { conn in
+            try Row.fetchOne(conn, sql: """
+                SELECT id, context_id, before_text, after_text, is_starred, sort_order, created_at
+                FROM voice_personalization_pinned_examples
+                WHERE id = ?
+            """, arguments: [id]).map { try pinnedExample(from: $0) }
+        }
+    }
+
+    public func updatePinnedExample(
+        id: String,
+        before: String,
+        after: String,
+        isStarred: Bool
+    ) throws {
+        let trimmedBefore = before.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAfter = after.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBefore.isEmpty, !trimmedAfter.isEmpty else {
+            throw VoicePersonalizationStoreError.emptyPinnedExample
+        }
+
+        try db.queue.write { conn in
+            try conn.execute(sql: """
+                UPDATE voice_personalization_pinned_examples
+                SET before_text = ?, after_text = ?, is_starred = ?
+                WHERE id = ?
+            """, arguments: [trimmedBefore, trimmedAfter, isStarred ? 1 : 0, id])
+        }
+    }
+
+    public func deletePinnedExample(id: String) throws {
+        try db.queue.write { conn in
+            try conn.execute(
+                sql: "DELETE FROM voice_personalization_pinned_examples WHERE id = ?",
+                arguments: [id]
+            )
         }
     }
 
@@ -435,5 +529,17 @@ public final class VoicePersonalizationStore: @unchecked Sendable {
 
     private static func date(from millis: Int64) -> Date {
         Date(timeIntervalSince1970: Double(millis) / 1000)
+    }
+
+    private func pinnedExample(from row: Row) throws -> VoicePinnedExample {
+        VoicePinnedExample(
+            id: row["id"],
+            contextID: row["context_id"],
+            before: row["before_text"],
+            after: row["after_text"],
+            isStarred: (row["is_starred"] as Int64) != 0,
+            sortOrder: Int(row["sort_order"] as Int64),
+            createdAt: Self.date(from: row["created_at"] as Int64)
+        )
     }
 }

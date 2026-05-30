@@ -173,21 +173,45 @@ enum VoicePromptBuilder {
     /// keeps the newest examples that fit within the combined budget, and returns them in
     /// oldest-first order for the prompt (more natural reading order).
     static func cappedExamples(_ examples: [(before: String, after: String)]) -> [(before: String, after: String)] {
+        cappedExamples(pinned: [], autoLearnedNewestFirst: examples)
+    }
+
+    /// Merges user-pinned pairs (first in prompt) with auto-learned samples (newest-first input).
+    static func cappedExamples(
+        pinned: [(before: String, after: String)],
+        autoLearnedNewestFirst: [(before: String, after: String)]
+    ) -> [(before: String, after: String)] {
         var result: [(before: String, after: String)] = []
         var combined = 0
 
-        // Iterate newest-first; collect until budget or max count exceeded.
-        for ex in examples.prefix(maxExamples) {
+        func tryAppend(_ ex: (before: String, after: String)) {
+            guard result.count < maxExamples else { return }
             let b = String(ex.before.prefix(exampleCharCap))
             let a = String(ex.after.prefix(exampleCharCap))
             let cost = b.count + a.count
-            guard combined + cost <= maxExamplesCombinedChars else { break }
+            guard combined + cost <= maxExamplesCombinedChars else { return }
             combined += cost
             result.append((b, a))
         }
 
-        // Reverse to oldest-first for the prompt.
-        return result.reversed()
+        for ex in pinned {
+            tryAppend(ex)
+        }
+
+        var autoSelected: [(before: String, after: String)] = []
+        for ex in autoLearnedNewestFirst.prefix(maxExamples) {
+            let b = String(ex.before.prefix(exampleCharCap))
+            let a = String(ex.after.prefix(exampleCharCap))
+            let cost = b.count + a.count
+            guard autoSelected.count + result.count < maxExamples,
+                  combined + cost <= maxExamplesCombinedChars
+            else { break }
+            combined += cost
+            autoSelected.append((b, a))
+        }
+
+        result.append(contentsOf: autoSelected.reversed())
+        return result
     }
 
     private static func label(for language: VoiceLanguage) -> String {

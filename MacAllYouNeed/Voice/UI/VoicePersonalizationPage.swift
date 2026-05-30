@@ -1,6 +1,7 @@
 import AppKit
 import Core
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct VoicePersonalizationPage: View {
     let controller: AppController
@@ -12,17 +13,33 @@ struct VoicePersonalizationPage: View {
     @State private var showManageApps = false
     @State private var errorMessage: String?
     @State private var showWritingStyle = false
+    @State private var exportStatusMessage: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
+            if settings.learnFromEditsEnabled, appContexts.isEmpty {
+                MAYNSection(title: "") {
+                    Text(
+                        "Personalization starts after you paste dictation, edit the text in your app, "
+                            + "and wait about two seconds. macOS Accessibility permission is required to read "
+                            + "your edits; samples stay encrypted on this Mac."
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+                    .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
+                }
+            }
+
             MAYNSection(
                 title: "Personalization",
                 subtitle: "Let the app learn how you clean up dictation."
             ) {
                 MAYNSettingsRow(
                     title: "Learn from edits",
-                    subtitle: "After you paste dictation and edit it, patterns are stored locally and encrypted."
+                    subtitle: "Reads the focused text field after paste (Accessibility). Samples are encrypted and never uploaded."
                 ) {
                     Toggle("", isOn: $settings.learnFromEditsEnabled)
                         .labelsHidden()
@@ -33,6 +50,8 @@ struct VoicePersonalizationPage: View {
                 MAYNDivider()
                 writingStyleRow
             }
+
+            VoicePinnedExamplesSection(controller: controller)
 
             MAYNSection(
                 title: "Apps",
@@ -53,7 +72,7 @@ struct VoicePersonalizationPage: View {
             ) {
                 MAYNSettingsRow(
                     title: "Save training examples",
-                    subtitle: "Stores encrypted audio and text on this Mac. Also enables Retry and Download in Voice History."
+                    subtitle: "Stores encrypted audio and text on this Mac for export and offline ASR fine-tuning. Enables Retry and Download in Voice History."
                 ) {
                     Toggle("", isOn: $settings.saveTrainingExamplesEnabled)
                         .labelsHidden()
@@ -69,6 +88,14 @@ struct VoicePersonalizationPage: View {
                     MAYNButton("Clear", role: .destructive) { showClearTrainingConfirm = true }
                         .disabled(trainingExampleCount == 0)
                 }
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: "Export training data",
+                    subtitle: "High-quality rows with audio, as JSONL + WAV (.tar.gz) for mlx-tune on your Mac."
+                ) {
+                    MAYNButton("Export…") { exportTrainingData() }
+                        .disabled(trainingExampleCount == 0)
+                }
             }
 
             MAYNSection(title: "Reset") {
@@ -77,6 +104,14 @@ struct VoicePersonalizationPage: View {
                     subtitle: "Delete stored samples, summaries, app preferences, and writing notes."
                 ) {
                     MAYNButton("Reset", role: .destructive) { showClearConfirm = true }
+                }
+            }
+
+            if let exportStatusMessage {
+                MAYNSection(title: "") {
+                    Text(exportStatusMessage)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -91,7 +126,8 @@ struct VoicePersonalizationPage: View {
             VoicePersonalizationAppsSheet(
                 contexts: appContexts,
                 onToggle: toggleContext,
-                onForget: resetContext
+                onForget: resetContext,
+                onPreset: applyEnhancementPreset
             )
         }
         .alert("Reset learned style?", isPresented: $showClearConfirm) {
@@ -233,6 +269,24 @@ struct VoicePersonalizationPage: View {
         }
     }
 
+    private func applyEnhancementPreset(_ ctx: VoicePersonalizationContext, prompt: String?) {
+        let draft = VoicePersonalizationContextDraft(
+            bundleID: ctx.bundleID,
+            displayName: ctx.displayName,
+            enabled: ctx.enabled,
+            asrModelID: ctx.asrModelID,
+            autoSubmitKey: ctx.autoSubmitKey,
+            customPromptOverride: prompt,
+            styleNotes: ctx.styleNotes
+        )
+        do {
+            try controller.upsertPersonalizationContext(draft)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func clearAll() {
         do {
             try controller.clearPersonalizationData()
@@ -257,12 +311,39 @@ struct VoicePersonalizationPage: View {
         trainingExampleCount = controller.voiceTrainingExampleCount()
         errorMessage = nil
     }
+
+    private func exportTrainingData() {
+        let panel = NSSavePanel()
+        panel.title = "Export Voice Training Data"
+        panel.nameFieldStringValue = "mayn-voice-training-\(exportDateStamp()).tar.gz"
+        panel.allowedContentTypes = [.gzip]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let summary = try controller.exportVoiceTrainingData(to: url)
+            exportStatusMessage =
+                "Exported \(summary.exportedCount) example\(summary.exportedCount == 1 ? "" : "s") "
+                + "(\(summary.skippedCount) skipped by filter)."
+        } catch VoiceTrainingExporterError.noEligibleExamples {
+            exportStatusMessage = "No high-quality examples with audio (1–30s) matched the export filter."
+        } catch {
+            exportStatusMessage = "Export failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func exportDateStamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
 }
 
 private struct VoicePersonalizationAppsSheet: View {
     let contexts: [VoicePersonalizationContext]
     let onToggle: (VoicePersonalizationContext, Bool) -> Void
     let onForget: (VoicePersonalizationContext) -> Void
+    let onPreset: (VoicePersonalizationContext, String?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
 
@@ -331,6 +412,15 @@ private struct VoicePersonalizationAppsSheet: View {
             ))
             .labelsHidden()
             .help(ctx.enabled ? "Pause personalization for this app" : "Use learned style in this app")
+
+            Menu("Preset") {
+                Button("None") { onPreset(ctx, nil) }
+                ForEach(VoiceEnhancementPresets.all) { item in
+                    Button(item.title) { onPreset(ctx, item.prompt) }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
 
             MAYNButton("Forget data", role: .destructive, height: 24) {
                 onForget(ctx)

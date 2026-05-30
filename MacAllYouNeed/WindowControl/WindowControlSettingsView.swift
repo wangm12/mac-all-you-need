@@ -131,39 +131,42 @@ struct WindowControlSettingsView: View {
                     subtitle: action.windowControlSubtitle
                 ) {
                     if let descriptor = displayedShortcutDescriptor(for: action) {
-                        HStack(alignment: .top, spacing: 8) {
+                        let pendingOnly = isPendingShortcutOnly(for: action)
+                        HStack(alignment: shortcutRowControlAlignment(for: action), spacing: 8) {
                             HotkeyRecorderControl(
                                 descriptor: hotkeyBinding(for: action, fallback: descriptor),
                                 issueMessage: hotkeyIssueMessage(for: action),
                                 candidateIssueMessage: { hotkeyCandidateIssueMessage($0, for: action) },
-                                defaultDescriptor: action.primaryDefaultDescriptor ?? descriptor,
+                                defaultDescriptor: WindowControlSettingsPresentation.resetBaselineDescriptor(
+                                    for: action,
+                                    current: descriptor,
+                                    isPendingOnly: pendingOnly
+                                ),
                                 recorderWidth: 112,
                                 errorWidth: 260,
-                                reset: {
-                                    if let defaultDescriptor = action.primaryDefaultDescriptor {
-                                        setHotkey(defaultDescriptor, for: action)
-                                    }
-                                }
+                                reset: { performShortcutReset(for: action, pendingOnly: pendingOnly) }
                             )
                             Button {
                                 removeHotkey(for: action)
                             } label: {
-                                Image(systemName: "delete.left")
+                                Image(systemName: "xmark.circle")
                             }
                             .buttonStyle(.plain)
-                            .help("Turn off shortcut")
+                            .frame(
+                                width: HotkeyRecorderControlPresentation.defaultRecorderHeight,
+                                height: HotkeyRecorderControlPresentation.defaultRecorderHeight
+                            )
+                            .contentShape(Rectangle())
+                            .help(WindowControlSettingsPresentation.closeHelp(isPendingOnly: pendingOnly))
                         }
                     } else {
-                        HStack(spacing: 8) {
-                            StatusPill(text: "Off", kind: .neutral)
-                            Button {
-                                pendingShortcutDescriptors[action] = WindowControlSettingsPresentation.seedDescriptor(for: action)
-                            } label: {
-                                Image(systemName: "plus.circle")
-                            }
-                            .buttonStyle(.plain)
-                            .help("Add shortcut")
+                        Button {
+                            pendingShortcutDescriptors[action] = WindowControlSettingsPresentation.seedDescriptor(for: action)
+                        } label: {
+                            Image(systemName: "plus.circle")
                         }
+                        .buttonStyle(.plain)
+                        .help("Add shortcut")
                     }
                 }
             }
@@ -251,9 +254,35 @@ struct WindowControlSettingsView: View {
         }
     }
 
+    private func shortcutRowControlAlignment(for action: HotkeyAction) -> VerticalAlignment {
+        hotkeyIssueMessage(for: action) == nil ? .center : .top
+    }
+
+    private func storedDescriptors(for action: HotkeyAction) -> [HotkeyDescriptor] {
+        hotkeyMap[action] ?? []
+    }
+
+    private func isPendingShortcutOnly(for action: HotkeyAction) -> Bool {
+        WindowControlSettingsPresentation.isPendingShortcutOnly(
+            storedDescriptors: storedDescriptors(for: action),
+            pendingDescriptor: pendingShortcutDescriptors[action]
+        )
+    }
+
     private func displayedShortcutDescriptor(for action: HotkeyAction) -> HotkeyDescriptor? {
-        let descriptors = hotkeyMap[action] ?? action.defaultDescriptors
-        return descriptors.first ?? pendingShortcutDescriptors[action]
+        storedDescriptors(for: action).first ?? pendingShortcutDescriptors[action]
+    }
+
+    private func performShortcutReset(for action: HotkeyAction, pendingOnly: Bool) {
+        if let defaultDescriptor = action.primaryDefaultDescriptor {
+            setHotkey(defaultDescriptor, for: action)
+            return
+        }
+        if pendingOnly {
+            pendingShortcutDescriptors[action] = WindowControlSettingsPresentation.seedDescriptor(for: action)
+            return
+        }
+        removeHotkey(for: action)
     }
 
     private func hotkeyBinding(for action: HotkeyAction, fallback: HotkeyDescriptor) -> Binding<HotkeyDescriptor> {
@@ -265,7 +294,7 @@ struct WindowControlSettingsView: View {
     }
 
     private func setHotkey(_ descriptor: HotkeyDescriptor, for action: HotkeyAction) {
-        var descriptors = hotkeyMap[action] ?? action.defaultDescriptors
+        var descriptors = storedDescriptors(for: action)
         if descriptors.isEmpty {
             descriptors = [descriptor]
         } else {
@@ -278,9 +307,7 @@ struct WindowControlSettingsView: View {
     }
 
     private func removeHotkey(for action: HotkeyAction) {
-        if pendingShortcutDescriptors[action] != nil,
-           (hotkeyMap[action] ?? action.defaultDescriptors).isEmpty
-        {
+        if isPendingShortcutOnly(for: action) {
             pendingShortcutDescriptors[action] = nil
             return
         }
@@ -292,8 +319,7 @@ struct WindowControlSettingsView: View {
     }
 
     private func hotkeyIssueMessage(for action: HotkeyAction) -> String? {
-        let descriptors = hotkeyMap[action] ?? action.defaultDescriptors
-        guard let descriptor = descriptors.first ?? action.primaryDefaultDescriptor else {
+        guard let descriptor = displayedShortcutDescriptor(for: action) else {
             return nil
         }
         let validationIssue = HotkeyValidation.issue(
