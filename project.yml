@@ -192,6 +192,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.finderhistory
         CODE_SIGN_ENTITLEMENTS: FinderHistoryExtension/FinderHistoryExtension.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 2N55H39FC4
     dependencies:
       - package: Shared
         product: Core
