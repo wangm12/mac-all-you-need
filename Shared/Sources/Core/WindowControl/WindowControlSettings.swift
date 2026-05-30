@@ -14,6 +14,9 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
     public var debugLoggingEnabled: Bool
     public var showSyntheticClickMarker: Bool
     public var defaultsSeededVersion: Int
+    public var radialMenuEnabled: Bool
+    public var radialLockToCenter: Bool
+    public var radialCursorSelectionEnabled: Bool
 
     public init(
         enabled: Bool = false,
@@ -28,7 +31,10 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         titleBarYOffset: Double = 0,
         debugLoggingEnabled: Bool = false,
         showSyntheticClickMarker: Bool = false,
-        defaultsSeededVersion: Int = 0
+        defaultsSeededVersion: Int = 0,
+        radialMenuEnabled: Bool = false,
+        radialLockToCenter: Bool = false,
+        radialCursorSelectionEnabled: Bool = false
     ) {
         self.enabled = enabled
         self.dragAnywhereEnabled = dragAnywhereEnabled
@@ -43,6 +49,31 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         self.debugLoggingEnabled = debugLoggingEnabled
         self.showSyntheticClickMarker = showSyntheticClickMarker
         self.defaultsSeededVersion = defaultsSeededVersion
+        self.radialMenuEnabled = radialMenuEnabled
+        self.radialLockToCenter = radialLockToCenter
+        self.radialCursorSelectionEnabled = radialCursorSelectionEnabled
+    }
+
+    // Custom decoder so legacy payloads without the radial keys decode with
+    // safe `false` defaults instead of failing.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        dragAnywhereEnabled = try container.decode(Bool.self, forKey: .dragAnywhereEnabled)
+        dragModifier = try container.decode(WindowGestureModifier.self, forKey: .dragModifier)
+        edgeSnapEnabled = try container.decode(Bool.self, forKey: .edgeSnapEnabled)
+        edgeSnapRequiresModifier = try container.decode(Bool.self, forKey: .edgeSnapRequiresModifier)
+        edgeSnapModifier = try container.decode(WindowGestureModifier.self, forKey: .edgeSnapModifier)
+        doubleClickEnabled = try container.decode(Bool.self, forKey: .doubleClickEnabled)
+        doubleClickModifier = try container.decode(WindowGestureModifier.self, forKey: .doubleClickModifier)
+        ignoredBundleIDs = try container.decode([String].self, forKey: .ignoredBundleIDs)
+        titleBarYOffset = try container.decode(Double.self, forKey: .titleBarYOffset)
+        debugLoggingEnabled = try container.decode(Bool.self, forKey: .debugLoggingEnabled)
+        showSyntheticClickMarker = try container.decode(Bool.self, forKey: .showSyntheticClickMarker)
+        defaultsSeededVersion = try container.decode(Int.self, forKey: .defaultsSeededVersion)
+        radialMenuEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialMenuEnabled) ?? false
+        radialLockToCenter = try container.decodeIfPresent(Bool.self, forKey: .radialLockToCenter) ?? false
+        radialCursorSelectionEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialCursorSelectionEnabled) ?? false
     }
 
     public static let `default` = WindowControlSettings()
