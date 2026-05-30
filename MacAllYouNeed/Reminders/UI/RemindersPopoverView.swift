@@ -1,3 +1,4 @@
+import Combine
 import Core
 import EventKit
 import SwiftUI
@@ -34,6 +35,11 @@ struct RemindersPopoverView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MAYNTheme.window)
         .task { await model.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .voiceReminderCreated)) { note in
+            if let created = note.object as? CreatedReminder {
+                model.record(created)
+            }
+        }
     }
 
     @ViewBuilder

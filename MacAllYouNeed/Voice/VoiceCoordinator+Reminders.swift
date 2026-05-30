@@ -51,7 +51,14 @@ extension VoiceCoordinator {
         let created = try await phase.execute(cleanedText: cleanedText)
         lastCreatedReminder = created
         log.info("reminder written — list: \(created.listName, privacy: .public) hasDue: \(created.dueDate != nil, privacy: .public)")
+        NotificationCenter.default.post(name: .voiceReminderCreated, object: created)
         guard isCurrentOperation(generation) else { return }
         teardownAfterReminderRun()
     }
+}
+
+extension Notification.Name {
+    /// Posted with a `CreatedReminder` object after a spoken reminder is written
+    /// to Apple Reminders. The Command Center popover listens to refresh.
+    static let voiceReminderCreated = Notification.Name("com.macallyouneed.voiceReminderCreated")
 }
