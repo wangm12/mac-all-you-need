@@ -26,3 +26,9 @@ DerivedData/
 
 # Vendored binary outputs (Plan 5 will populate)
 Vendored/build/
+
+# Voice cloning reference audio (regenerate via scripts/voice-cloning/curate-reference-pack.sh)
+docs/voice-cloning/reference-pack/**/*.wav
+docs/voice-cloning/reference-pack/instant-concat.txt
+.build/voice-cloning-eval/
+.worktrees/
