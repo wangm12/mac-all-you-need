@@ -44,7 +44,11 @@ final class VoiceCoordinatorReminderIntentTests: XCTestCase {
             result = VoiceTranscriptionResult(text: text, language: .english, modelIdentifier: "stub-asr")
         }
 
-        func transcribe(samples _: [Float], sampleRate _: Double, options _: VoiceTranscriptionOptions) async throws -> VoiceTranscriptionResult {
+        func transcribe(
+            samples _: [Float],
+            sampleRate _: Double,
+            options _: VoiceTranscriptionOptions
+        ) async throws -> VoiceTranscriptionResult {
             result
         }
     }

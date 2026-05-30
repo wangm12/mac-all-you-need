@@ -29,7 +29,7 @@ final class VoiceCoordinator {
     private let summarizer: VoicePersonalizationSummarizer?
     private let hud = MiniVoiceHUD()
     private let activation = VoiceActivationMonitor()
-    private let log = Logger(subsystem: "com.macallyouneed.voice", category: "coordinator")
+    let log = Logger(subsystem: "com.macallyouneed.voice", category: "coordinator")
     private var levelTask: Task<Void, Never>?
     private var monitorTask: Task<Void, Never>?
     private var cleanupSettings: VoiceCleanupSettings
@@ -66,9 +66,9 @@ final class VoiceCoordinator {
     /// path is unchanged when `activeIntent == .dictation`.
     var activeIntent: VoiceIntent = .dictation
     var reminderWriterOverride: (any RemindersWriter)?
-    private let reminderSettings: () -> ReminderSettings
+    let reminderSettings: () -> ReminderSettings
     /// The reminder created on the most recent `.reminder` run, for UI/tests.
-    private(set) var lastCreatedReminder: CreatedReminder?
+    var lastCreatedReminder: CreatedReminder?
 
     convenience init(
         transcripts: VoiceTranscriptStore,
@@ -228,19 +228,6 @@ final class VoiceCoordinator {
         hud.dismiss()
     }
 
-    /// Plan 03 — entry point for the reminder hotkey. Sets the reminder intent
-    /// for the next run, then starts recording exactly like dictation. When a
-    /// recording is already in flight, this commits it (the hotkey is a toggle).
-    func toggleReminderRecording() async {
-        if state == .recording {
-            await stopRecordingAndPaste()
-            return
-        }
-        guard state == .idle else { return }
-        activeIntent = .reminder
-        await startRecording()
-    }
-
     func startRecording() async {
         // Cancel any in-flight post-edit monitor from the previous dictation.
         monitorTask?.cancel()
@@ -330,16 +317,10 @@ final class VoiceCoordinator {
                 undoBookkeeping.setInflightASRResult(asr)
             }
 
-            // Plan 03 — spoken-prefix reminder detection. Only promotes to the
-            // reminder intent; an intent already forced by the hotkey is never
-            // demoted. Gated by the spokenPrefixEnabled setting.
-            if activeIntent == .dictation,
-               reminderSettings().spokenPrefixEnabled,
-               let rawText = ctx.asrResult?.text,
-               SpokenReminderPrefixDetector.isReminder(rawText) {
-                activeIntent = .reminder
-                log.info("reminder intent — promoted from spoken prefix")
-            }
+            // Plan 03 — promote to reminder intent when the transcript opens
+            // with a spoken reminder prefix (gated by settings; hotkey intent
+            // is never demoted). See VoiceCoordinator+Reminders.
+            maybePromoteToReminderIntent(rawText: ctx.asrResult?.text)
 
             // Phase 2 — Cleanup.
             hud.show(
@@ -357,17 +338,12 @@ final class VoiceCoordinator {
             }
             lastTranscript = cleanupResult
 
-            // Plan 03 — reminder terminal phase. For the `.reminder` intent we
-            // write to Apple Reminders instead of pasting. This bypasses paste,
-            // transcript save, training example, and learning entirely — a
-            // reminder is never injected into the focused app.
+            // Plan 03 — reminder terminal phase replaces paste for the reminder
+            // intent (never injects into the focused app). See the extension.
             if activeIntent == .reminder, let writer = resolveReminderWriter() {
-                try await runReminderWrite(cleanedText: cleanupResult.cleanedText, writer: writer)
-                guard isCurrentOperation(generation) else { return }
-                state = .idle
-                undoBookkeeping.clearInflight()
-                hud.dismiss()
-                activeIntent = .dictation
+                try await finishReminderRun(
+                    cleanedText: cleanupResult.cleanedText, writer: writer, generation: generation
+                )
                 return
             }
 
@@ -388,21 +364,6 @@ final class VoiceCoordinator {
             activeIntent = .dictation
             fail(error.localizedDescription)
         }
-    }
-
-    /// Resolves the reminder writer for the current run. Tests inject via
-    /// `reminderWriterOverride`; production wires `RemindersServiceWriter`.
-    private func resolveReminderWriter() -> (any RemindersWriter)? {
-        reminderWriterOverride
-    }
-
-    /// Runs the reminder write phase and records the result. Throws on failure
-    /// so the surrounding catch surfaces an error terminal in the HUD.
-    private func runReminderWrite(cleanedText: String, writer: any RemindersWriter) async throws {
-        let phase = ReminderWritePhase(writer: writer, settings: reminderSettings)
-        let created = try await phase.execute(cleanedText: cleanedText)
-        lastCreatedReminder = created
-        log.info("reminder written — list: \(created.listName, privacy: .public) hasDue: \(created.dueDate != nil, privacy: .public)")
     }
 
     /// Returns false (and clears the inflight context) when this operation has
@@ -860,8 +821,17 @@ final class VoiceCoordinator {
         }
     }
 
-    private func isCurrentOperation(_ generation: Int) -> Bool {
+    func isCurrentOperation(_ generation: Int) -> Bool {
         generation == operationGeneration
+    }
+
+    /// Plan 03 — terminal teardown shared by the reminder path (see
+    /// VoiceCoordinator+Reminders). Mirrors the dictation happy-path teardown.
+    func teardownAfterReminderRun() {
+        state = .idle
+        undoBookkeeping.clearInflight()
+        hud.dismiss()
+        activeIntent = .dictation
     }
 
     private func makeCancelAction() -> () -> Void {

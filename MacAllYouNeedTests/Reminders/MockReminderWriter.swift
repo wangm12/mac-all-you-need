@@ -1,6 +1,6 @@
 @testable import Core
-@testable import MacAllYouNeed
 import Foundation
+@testable import MacAllYouNeed
 
 /// Shared in-memory writer used by reminder phase + coordinator intent tests.
 final class MockReminderWriter: RemindersWriter, @unchecked Sendable {
