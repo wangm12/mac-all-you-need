@@ -12,6 +12,8 @@ import Foundation
     @objc public let imageHeight: Int
     @objc public let imageBlobID: String?
     @objc public let customLabel: String?
+    @objc public let detectedTypeJSON: String?
+    @objc public let ocrText: String?
 
     public init(
         id: String,
@@ -22,7 +24,9 @@ import Foundation
         imageWidth: Int = 0,
         imageHeight: Int = 0,
         imageBlobID: String? = nil,
-        customLabel: String? = nil
+        customLabel: String? = nil,
+        detectedTypeJSON: String? = nil,
+        ocrText: String? = nil
     ) {
         self.id = id
         self.modified = modified
@@ -33,6 +37,8 @@ import Foundation
         self.imageHeight = imageHeight
         self.imageBlobID = imageBlobID
         self.customLabel = customLabel
+        self.detectedTypeJSON = detectedTypeJSON
+        self.ocrText = ocrText
     }
 
     public required init?(coder: NSCoder) {
@@ -50,6 +56,8 @@ import Foundation
         imageHeight = coder.decodeInteger(forKey: "imageHeight")
         imageBlobID = coder.decodeObject(of: NSString.self, forKey: "imageBlobID") as String?
         customLabel = coder.decodeObject(of: NSString.self, forKey: "customLabel") as String?
+        detectedTypeJSON = coder.decodeObject(of: NSString.self, forKey: "detectedTypeJSON") as String?
+        ocrText = coder.decodeObject(of: NSString.self, forKey: "ocrText") as String?
     }
 
     public func encode(with coder: NSCoder) {
@@ -67,6 +75,12 @@ import Foundation
         }
         if let customLabel {
             coder.encode(customLabel as NSString, forKey: "customLabel")
+        }
+        if let detectedTypeJSON {
+            coder.encode(detectedTypeJSON as NSString, forKey: "detectedTypeJSON")
+        }
+        if let ocrText {
+            coder.encode(ocrText as NSString, forKey: "ocrText")
         }
     }
 }

@@ -303,7 +303,9 @@ import Foundation
             imageWidth: imgWidth,
             imageHeight: imgHeight,
             imageBlobID: imgBlobID,
-            customLabel: meta.customLabel
+            customLabel: meta.customLabel,
+            detectedTypeJSON: meta.detectedTypeJSON,
+            ocrText: meta.ocrText
         )
     }
 

@@ -300,6 +300,7 @@
 		BC573F19859982CF112D4F33 /* HotkeyRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D466608D108E842617513BB /* HotkeyRecorderView.swift */; };
 		BD4926E6D5917FFC508B8509 /* VoicePersonalizationPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3D5A34DBBE574D545D8D80 /* VoicePersonalizationPage.swift */; };
 		BDA6F830C372C4BDD6E2BCE0 /* DockPositioner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B98284AE81DC4FFEFD98CA38 /* DockPositioner.swift */; };
+		BDF3C673F3B5146E61F10520 /* SearchFilterRankingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040F9F39FE2B4A7A5D0845CC /* SearchFilterRankingTests.swift */; };
 		BE1591EA70368E44700D9128 /* VoiceEnginePickerPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 190E67B3D6B85C0E2256436C /* VoiceEnginePickerPresentation.swift */; };
 		BEACB98FF6CF97A84878266D /* DockTopBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2EA7485787D8573BAF5914 /* DockTopBar.swift */; };
 		BF2FE67769BA290A188D4C52 /* OnboardingWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D3189EA90B56114283E8400 /* OnboardingWizardView.swift */; };
@@ -469,6 +470,7 @@
 		02ECAE4FA3AC4620DF9901CA /* DockPasteCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPasteCoordinator.swift; sourceTree = "<group>"; };
 		03A77819F7CDA7E2AAA93679 /* VoiceCoordinatorRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCoordinatorRetryTests.swift; sourceTree = "<group>"; };
 		03B66900D0C2D832A255638D /* WindowLayoutsDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayoutsDestinationView.swift; sourceTree = "<group>"; };
+		040F9F39FE2B4A7A5D0845CC /* SearchFilterRankingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchFilterRankingTests.swift; sourceTree = "<group>"; };
 		044427E436B002B16EDA1075 /* HotkeyMapStoreMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyMapStoreMigrationTests.swift; sourceTree = "<group>"; };
 		046FB7EE3DE19E5111E957E4 /* VoicePersonalizationPrivacyFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePersonalizationPrivacyFilter.swift; sourceTree = "<group>"; };
 		055CC0AC88D562BDEB2C19B4 /* FeatureRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureRuntimeTests.swift; sourceTree = "<group>"; };
@@ -1779,6 +1781,7 @@
 				35CCD3199FCB0B2E2F29F18D /* FuzzyMatcherTests.swift */,
 				73EAEF685647289BB98087D3 /* ImageBlobLoaderTests.swift */,
 				0E038A4E6CC29C570612D2AB /* ImageOCRServiceTests.swift */,
+				040F9F39FE2B4A7A5D0845CC /* SearchFilterRankingTests.swift */,
 				50A3E7E5516C334DCBD9E018 /* SelectionStateTests.swift */,
 				50545FE544D056C78A9B29BA /* ShortcutRegistryTests.swift */,
 				9F8EF44716294C9A461142E4 /* SmartSearchQueryTests.swift */,
@@ -2202,6 +2205,7 @@
 				0585329FE3280A9B5B12698D /* OllamaServiceClientTests.swift in Sources */,
 				99E5B96D839110B0E01AFC24 /* PermissionStatusDisplayTests.swift in Sources */,
 				A96A2818262ADCF234D8CC58 /* PermissionsRowFactoryTests.swift in Sources */,
+				BDF3C673F3B5146E61F10520 /* SearchFilterRankingTests.swift in Sources */,
 				6EE8AB0956D577CEADD18E96 /* SelectionStateTests.swift in Sources */,
 				A1A90D9D6AE0CF8FD88BF3BC /* SettingsDestinationTests.swift in Sources */,
 				1CC2750E2C94C46BA01C293C /* SettingsExclusionListTests.swift in Sources */,

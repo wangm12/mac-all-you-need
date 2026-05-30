@@ -124,8 +124,14 @@ final class SearchFilterSubModel {
 
     func loadFromXPC(query: String?) async -> [DockItem] {
         let fuzzyEnabled = isFuzzyEnabled()
-        let effectiveQuery = fuzzyEnabled ? nil : query
-        let limit = fuzzyEnabled ? 200 : 50
+        // Smart-operator queries (/app:, /type:, /date:, /regex/) need the full
+        // candidate set so structured predicates can filter post-load — a naive
+        // DB-level preview substring match on the raw query would discard all
+        // rows. Treat them like fuzzy: load broadly, filter in memory.
+        let smartOperators = query.map { SmartSearchQuery($0).hasOperators } ?? false
+        let loadBroadly = fuzzyEnabled || smartOperators
+        let effectiveQuery = loadBroadly ? nil : query
+        let limit = loadBroadly ? 200 : 50
 
         let xpcItems: [ClipboardXPCMeta]
         if let clip = model.clip {
@@ -281,7 +287,9 @@ final class SearchFilterSubModel {
             imageWidth: imgWidth,
             imageHeight: imgHeight,
             imageBlobID: imgBlobID,
-            customLabel: meta.customLabel
+            customLabel: meta.customLabel,
+            detectedTypeJSON: meta.detectedTypeJSON,
+            ocrText: meta.ocrText
         )
     }
 
@@ -305,6 +313,13 @@ final class SearchFilterSubModel {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return items }
 
+        let smart = SmartSearchQuery(trimmed)
+        if smart.hasOperators {
+            // Smart operators present: apply structured predicates + text/regex
+            // match. Skip fuzzy ranking (the operators are the intent).
+            return Self.applySmartPredicates(items, query: smart)
+        }
+
         if isFuzzyEnabled() {
             let rankedPreviews = FuzzyMatcher.rank(candidates: items.map(\.preview), query: trimmed)
             guard !rankedPreviews.isEmpty else { return [] }
@@ -325,5 +340,27 @@ final class SearchFilterSubModel {
 
         let lower = trimmed.lowercased()
         return items.filter { $0.preview.lowercased().contains(lower) }
+    }
+
+    /// Filters dock items against the structured Smart Text predicates: app
+    /// include/exclude, type (OR), date lower bound, and free-text / regex match
+    /// over preview + OCR text. Pure and `nonisolated` so it can be unit-tested
+    /// and run off the main actor.
+    nonisolated static func applySmartPredicates(_ items: [DockItem], query: SmartSearchQuery) -> [DockItem] {
+        items.filter { item in
+            let appID = (item.sourceApp?.bundleID ?? "").lowercased()
+            if !query.appFilters.isEmpty {
+                guard query.appFilters.contains(where: appID.contains) else { return false }
+            }
+            if !query.negatedApps.isEmpty {
+                if query.negatedApps.contains(where: appID.contains) { return false }
+            }
+            if !query.typeFilters.isEmpty {
+                let type = item.detectedTypeName ?? "plain"
+                guard query.typeFilters.contains(type) else { return false }
+            }
+            if let lower = query.dateOnOrAfter, item.modified < lower { return false }
+            return query.matchesText(item.displayLabel, ocrText: item.ocrText)
+        }
     }
 }
