@@ -65,6 +65,9 @@ targets:
       - target: FinderHistoryExtension
         embed: true
         codeSign: true
+      - target: RemindersWidget
+        embed: true
+        codeSign: true
     postBuildScripts:
       - name: "Embed ClipboardDaemon in LoginItems"
         basedOnDependencyAnalysis: false
@@ -198,6 +201,30 @@ targets:
     dependencies:
       - package: Shared
         product: Core
+
+  RemindersWidget:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: RemindersWidget
+    info:
+      path: RemindersWidget/Info.plist
+      properties:
+        CFBundleName: RemindersWidget
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.reminderswidget
+        CODE_SIGN_ENTITLEMENTS: RemindersWidget/RemindersWidget.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 2N55H39FC4
+    dependencies:
+      - package: Shared
+        product: Core
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
 
 schemes:
   TypelessImport:

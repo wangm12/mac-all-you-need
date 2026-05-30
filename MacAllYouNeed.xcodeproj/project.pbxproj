@@ -18,6 +18,7 @@
 		066578EA69E2EC36995B907E /* WindowControlAccessibilityTrustMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440B93CF73472061631521A9 /* WindowControlAccessibilityTrustMonitor.swift */; };
 		0692CF13BE93A3BD35C7B1E4 /* FullDiskAccessProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A98DBAEE8E14FA47E8D030A /* FullDiskAccessProbe.swift */; };
 		06FEB52778246C05E3946A3F /* AppWindowsCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D842B377D9899D4210A474A1 /* AppWindowsCoordinatorTests.swift */; };
+		07368ADEB3E215E498AE5A63 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AC5853E1DB99A8D497A72543 /* SwiftUI.framework */; };
 		091C3405B43D06740BE92799 /* ShortcutBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173493C07247517CB2D6B31F /* ShortcutBinding.swift */; };
 		0AB5D8CE10D2D591E3F8BC9E /* VoiceLocalTextCleanerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 960E01127DA93FF593F89958 /* VoiceLocalTextCleanerTests.swift */; };
 		0B287A48E697DDA9E389DD33 /* FeatureCore in Frameworks */ = {isa = PBXBuildFile; productRef = 342234C4D95175B8FC64834F /* FeatureCore */; };
@@ -97,6 +98,7 @@
 		3406B479C9E6DA9820EB1E61 /* VoicePickerRowIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13E726FBC5D5653D7FE3C4D3 /* VoicePickerRowIcon.swift */; };
 		3487D0F073C757E7064A3CF3 /* DockItemRef.swift in Sources */ = {isa = PBXBuildFile; fileRef = F532DF6285CA55E9EEA34A64 /* DockItemRef.swift */; };
 		34CE0BCFF533F173B0330B30 /* ClipboardSmartTextDescriptorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13DBB6621DA3EF569301AFAB /* ClipboardSmartTextDescriptorTests.swift */; };
+		3526F8130F3EE746F5B8A473 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 1E7BCB149ACFDC85A5B77CF7 /* Core */; };
 		3563A185D8F1C447CDB8D562 /* ShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CCA70B0DA4F78E83997AF1 /* ShortcutsSettingsView.swift */; };
 		35B99DE672072C2043C81628 /* RemindersWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FC5A4737B23BCE65506C417 /* RemindersWriter.swift */; };
 		35F5B0786C06C35B96673B3F /* MAYNListPaginationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70314EC1BB1F8F76B8D99FE /* MAYNListPaginationTests.swift */; };
@@ -119,6 +121,7 @@
 		3F122217C5388A44457FF8AB /* PinnedPinboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE771B99CDE6B59A90029E0 /* PinnedPinboard.swift */; };
 		3F852164212DD74454B77367 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = F623884AB04D9C3922B8C8D2 /* Core */; };
 		40441BD43CB620F691CB7CEE /* FeatureRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F45BD65EB650D54B16D0C2 /* FeatureRuntime.swift */; };
+		405DDB781F5F139D3F99C05E /* RemindersWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D42CB7CCE0608358F05CFD /* RemindersWidgetBundle.swift */; };
 		422510DFC18A55D3AD1B48CD /* AppStoreContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE89B386CE85CED3BE669B52 /* AppStoreContainer.swift */; };
 		4294C3F6EA15DC416260B620 /* AccessibilityStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820ECD258A03D97F5A7586CE /* AccessibilityStepView.swift */; };
 		4314A2FB9FCBAEBA25BECF34 /* DockPasteCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02ECAE4FA3AC4620DF9901CA /* DockPasteCoordinator.swift */; };
@@ -131,6 +134,7 @@
 		44B82325AFDDF31D9EA7FDE5 /* DaemonContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C1BCF56E3A50FC6E2C0377 /* DaemonContainer.swift */; };
 		4552C2D7313B312E982B8938 /* ASRPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A7489DD8F697837D440584 /* ASRPhase.swift */; };
 		45AA208663B18E82E99927D3 /* RenameCardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74030FDCDBC824E3B0F5DF93 /* RenameCardSheet.swift */; };
+		4727B5700DA7B5CA601C199B /* RemindersWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9BD2796896257F9AF67442 /* RemindersWidget.swift */; };
 		47FC6162EEBD0BCB89ABF476 /* AdvancedSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35637426A62149C687DE169 /* AdvancedSettingsView.swift */; };
 		493B06B4F6B86ACA098B84C8 /* Platform in Frameworks */ = {isa = PBXBuildFile; productRef = C90EF9C0B92791031982E209 /* Platform */; };
 		4ADE70D526EF7E5E7AB9C43C /* NotificationsPermissionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9621C784D1902388B0CE04A /* NotificationsPermissionRow.swift */; };
@@ -199,6 +203,7 @@
 		6EE1B72EB9F8987DF48F1284 /* FinderHistoryDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07B07A2FF63A8ADD3DD8D492 /* FinderHistoryDescriptor.swift */; };
 		6EE8AB0956D577CEADD18E96 /* SelectionStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A3E7E5516C334DCBD9E018 /* SelectionStateTests.swift */; };
 		702D40B241159F618BFDC96C /* UIAuditHarnessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF87D820C0A9E78F7FC7098A /* UIAuditHarnessTests.swift */; };
+		706236B71BED67300F6828B0 /* CompleteReminderIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50514B8E58E5577FA4CC20D6 /* CompleteReminderIntent.swift */; };
 		728EB405E01F13171E166B53 /* FeatureSetupDownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC98D803E51E894BD3045F98 /* FeatureSetupDownloadView.swift */; };
 		72A5A4D324B76FF6A001BA53 /* FinderSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78756489B3126422926ECE5 /* FinderSync.swift */; };
 		73D07BF9291EC12A33EA983E /* MiniVoiceHUDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 526CB0A5555D860A2711277B /* MiniVoiceHUDTests.swift */; };
@@ -318,6 +323,7 @@
 		B8B4A2F104B8BB3159E12DF0 /* AppIconResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07D9491FEF0B4BA6626760F8 /* AppIconResolverTests.swift */; };
 		B93E709E15493BC769DC34A0 /* DisabledPlaceholderRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39EE6924544B31AAAF1C2243 /* DisabledPlaceholderRenderer.swift */; };
 		B94A9A907877BAE04A278C77 /* FileThumbnailLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 936D125A1E5785B4C3BBA80D /* FileThumbnailLoader.swift */; };
+		BA1E0073A0647A5187A70546 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E685435B21A5988630FC9114 /* WidgetKit.framework */; };
 		BAB11CE90AD4E9225962E59F /* VoiceCleanupPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECB27CB5E779C51222A756D /* VoiceCleanupPipeline.swift */; };
 		BB3F916DDD9845C2752F35CC /* AppDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A2C8634B13A5A9A7BFC6D8 /* AppDependencies.swift */; };
 		BC573F19859982CF112D4F33 /* HotkeyRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D466608D108E842617513BB /* HotkeyRecorderView.swift */; };
@@ -440,6 +446,7 @@
 		F58246B262BB6AC5E76647AE /* SideloadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E67B8274004E0F4709F8B36 /* SideloadController.swift */; };
 		F5A04D53A3E77C19484F28D6 /* VoiceActivationMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43807BDAF3B94EC1A857C5C8 /* VoiceActivationMonitor.swift */; };
 		F5D1754CA3D5E5AA6A8E9960 /* PermissionStepViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D7E844406A10FA770722A46 /* PermissionStepViews.swift */; };
+		F6115F1D7715FA5E0D5E6A6E /* RemindersWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6BC86E8FA32A8D7562F77C0B /* RemindersWidget.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F783295239B9353247B64E4F /* CardContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 837289CB6522B643D1E95BDC /* CardContextMenu.swift */; };
 		F836E34A7DBD02A630B0D1DC /* MicrophoneStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3975F96989EF6A534D8B932E /* MicrophoneStepView.swift */; };
 		F997C992BEB9AF60212FA720 /* DownloadsPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774A65584FE2D9BB4FC31B63 /* DownloadsPopoverView.swift */; };
@@ -473,6 +480,13 @@
 			remoteGlobalIDString = 5BD88869F3EB83788E866E4F;
 			remoteInfo = MacAllYouNeed;
 		};
+		4A833B17DFF36665A2DD89E9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E66B6891310EDBB726ABA1AA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 700895EC300D214DFDB8E391;
+			remoteInfo = RemindersWidget;
+		};
 		6190BFCAEC1ED55873E09DDD /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = E66B6891310EDBB726ABA1AA /* Project object */;
@@ -498,6 +512,7 @@
 			files = (
 				87182AE75AA7D6DA36BD0DAE /* FolderPreview.appex in Embed Foundation Extensions */,
 				0CADCC9166B9BFC5EACA2E2A /* FinderHistoryExtension.appex in Embed Foundation Extensions */,
+				F6115F1D7715FA5E0D5E6A6E /* RemindersWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -544,6 +559,7 @@
 		1421C63022A375856B7768E8 /* ColorCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorCard.swift; sourceTree = "<group>"; };
 		14BEAB3D929E01E8D046D269 /* VoiceTwoPanePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTwoPanePickerSheet.swift; sourceTree = "<group>"; };
 		14D47887E4DADFEC02BF2CB7 /* AutoDownloadHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoDownloadHUD.swift; sourceTree = "<group>"; };
+		15D42CB7CCE0608358F05CFD /* RemindersWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersWidgetBundle.swift; sourceTree = "<group>"; };
 		173493C07247517CB2D6B31F /* ShortcutBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutBinding.swift; sourceTree = "<group>"; };
 		174EE714902EF18583421162 /* ClipboardDockModelSpineSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDockModelSpineSnapshotTests.swift; sourceTree = "<group>"; };
 		17916C82D632BB1C226AE2B1 /* WindowControlCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowControlCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -567,6 +583,7 @@
 		1FC5A4737B23BCE65506C417 /* RemindersWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersWriter.swift; sourceTree = "<group>"; };
 		1FD6E040F3D59D75457BA942 /* DockRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockRootView.swift; sourceTree = "<group>"; };
 		209C2A22A65635AC298E6CC0 /* SnippetsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsListView.swift; sourceTree = "<group>"; };
+		2138B64B7CBA7E4016747A14 /* RemindersWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RemindersWidget.entitlements; sourceTree = "<group>"; };
 		2272B2E654945F8E41447EE3 /* VoiceTranscriptHistoryRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTranscriptHistoryRowView.swift; sourceTree = "<group>"; };
 		2284C4D37037A68FF65EDA9A /* FeatureSetupPermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureSetupPermissionsView.swift; sourceTree = "<group>"; };
 		22CEDC346A888223ABD8ADA1 /* PastePhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastePhase.swift; sourceTree = "<group>"; };
@@ -647,6 +664,7 @@
 		4E19A163466CB888C368A496 /* OnboardingDoneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingDoneView.swift; sourceTree = "<group>"; };
 		4E80BBE0E31916E3ECA7BD81 /* MacAllYouNeedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAllYouNeedApp.swift; sourceTree = "<group>"; };
 		4F584B87D7F58AE5B83FADC1 /* DockListTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockListTabs.swift; sourceTree = "<group>"; };
+		50514B8E58E5577FA4CC20D6 /* CompleteReminderIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompleteReminderIntent.swift; sourceTree = "<group>"; };
 		50545FE544D056C78A9B29BA /* ShortcutRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRegistryTests.swift; sourceTree = "<group>"; };
 		50A3E7E5516C334DCBD9E018 /* SelectionStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionStateTests.swift; sourceTree = "<group>"; };
 		51B0AD792F22E95A7E450973 /* HotkeysSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeysSettingsView.swift; sourceTree = "<group>"; };
@@ -682,6 +700,7 @@
 		6ACC57B1DF2998DD88110D9B /* VoiceLLMProviderError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLLMProviderError.swift; sourceTree = "<group>"; };
 		6BAD5EE0CD434AD49C499D65 /* WindowLayoutsDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayoutsDescriptor.swift; sourceTree = "<group>"; };
 		6BC48168DB6EB1529C64CEDF /* AppMenuBarContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBarContent.swift; sourceTree = "<group>"; };
+		6BC86E8FA32A8D7562F77C0B /* RemindersWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RemindersWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		6C2E6B5AFA441139380518E7 /* GroqASRKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqASRKeyStore.swift; sourceTree = "<group>"; };
 		6E1A984A7EE9AEB13955E475 /* AppIconColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconColor.swift; sourceTree = "<group>"; };
 		6F1AA10BC029C6182FEA023F /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
@@ -745,6 +764,7 @@
 		91B9F9F6403ACC97A9E1E6D8 /* OnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindowController.swift; sourceTree = "<group>"; };
 		9359980341E75DB1881FB82D /* VoicePromptBuilderPersonalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptBuilderPersonalizationTests.swift; sourceTree = "<group>"; };
 		936D125A1E5785B4C3BBA80D /* FileThumbnailLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileThumbnailLoader.swift; sourceTree = "<group>"; };
+		93CE0B2B5450A5A3A77DC82F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		93E380E3A1BBCAAF0B9FEA6E /* WindowControlSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowControlSettingsStore.swift; sourceTree = "<group>"; };
 		945817754014596BA81A17E1 /* FolderHistoryOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderHistoryOnboardingView.swift; sourceTree = "<group>"; };
 		9459F61BDFC30BD30903E17B /* AXFocusedTextReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AXFocusedTextReader.swift; sourceTree = "<group>"; };
@@ -798,6 +818,7 @@
 		AB8CE7FE6CCC6092249E565E /* DashboardDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardDestinationView.swift; sourceTree = "<group>"; };
 		ABF6466E93D9092EAED357FA /* CompactTimestamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactTimestamp.swift; sourceTree = "<group>"; };
 		AC457C1856583EC4590A7EAD /* SettingsDestinationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDestinationTests.swift; sourceTree = "<group>"; };
+		AC5853E1DB99A8D497A72543 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		ACC75C98DB1F63F882D5C087 /* ShortcutDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutDefaults.swift; sourceTree = "<group>"; };
 		ADFF290F1DBB0DF5D983F9FA /* SettingsDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDestination.swift; sourceTree = "<group>"; };
 		AE89B386CE85CED3BE669B52 /* AppStoreContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStoreContainer.swift; sourceTree = "<group>"; };
@@ -828,6 +849,7 @@
 		BAC00452FFF0F520177349C5 /* FeaturePackManifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = FeaturePackManifest.json; sourceTree = "<group>"; };
 		BB29D3B079F5A834A5364DEA /* DownloaderDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloaderDescriptor.swift; sourceTree = "<group>"; };
 		BB3E15B164F5F227BAA37A6C /* VoiceASRSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceASRSettings.swift; sourceTree = "<group>"; };
+		BB9BD2796896257F9AF67442 /* RemindersWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersWidget.swift; sourceTree = "<group>"; };
 		BBC2C2559930CFCE92EC0DEB /* ClipboardDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDock.swift; sourceTree = "<group>"; };
 		BBEA3A3707166DF71CB4E58D /* FolderPreviewDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderPreviewDestinationView.swift; sourceTree = "<group>"; };
 		BBFBBFA019D2B9355FAD4624 /* MAYNComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MAYNComponents.swift; sourceTree = "<group>"; };
@@ -912,6 +934,7 @@
 		E429AE3EDA7784266AB29250 /* FolderHistoryRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderHistoryRecorder.swift; sourceTree = "<group>"; };
 		E45387FD5E35665BFAC722B6 /* EscKeyMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EscKeyMonitorTests.swift; sourceTree = "<group>"; };
 		E621AC01E8FDD9D6F4AF61FB /* UndoContextBookkeeping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UndoContextBookkeeping.swift; sourceTree = "<group>"; };
+		E685435B21A5988630FC9114 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		E698DACB526F887522CD22A0 /* AudioCaptureServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureServiceTests.swift; sourceTree = "<group>"; };
 		E70314EC1BB1F8F76B8D99FE /* MAYNListPaginationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MAYNListPaginationTests.swift; sourceTree = "<group>"; };
 		E7303E284C1DB48EA16DBEE5 /* DockOutsideClickPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockOutsideClickPolicy.swift; sourceTree = "<group>"; };
@@ -972,6 +995,16 @@
 				8A3A0E666C7E365F80A867DF /* Core in Frameworks */,
 				A567CD5D7FD1A31E246AA644 /* Platform in Frameworks */,
 				CA13BFDDB3C9D25BC0F598C2 /* FeatureCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6C1F76A11E70A582D1C87565 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3526F8130F3EE746F5B8A473 /* Core in Frameworks */,
+				BA1E0073A0647A5187A70546 /* WidgetKit.framework in Frameworks */,
+				07368ADEB3E215E498AE5A63 /* SwiftUI.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1339,6 +1372,7 @@
 				0609CA287B0A7CEE2980AD7A /* FolderPreview.appex */,
 				0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */,
 				407ECF5B94C9578CD9D79532 /* MacAllYouNeedTests.xctest */,
+				6BC86E8FA32A8D7562F77C0B /* RemindersWidget.appex */,
 				BDDE624F136005A87C73AAB0 /* TypelessImport */,
 			);
 			name = Products;
@@ -1377,12 +1411,33 @@
 			path = UI;
 			sourceTree = "<group>";
 		};
+		4BB7B433A605967F0378E0E7 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				AC5853E1DB99A8D497A72543 /* SwiftUI.framework */,
+				E685435B21A5988630FC9114 /* WidgetKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		4C0C8B6EC8A0F2797FF27F18 /* PowerMode */ = {
 			isa = PBXGroup;
 			children = (
 				73B1517F63F170D70C33EE22 /* VoiceAutoSubmitService.swift */,
 			);
 			path = PowerMode;
+			sourceTree = "<group>";
+		};
+		4DCF5EE731F6C111A8F8B34A /* RemindersWidget */ = {
+			isa = PBXGroup;
+			children = (
+				50514B8E58E5577FA4CC20D6 /* CompleteReminderIntent.swift */,
+				93CE0B2B5450A5A3A77DC82F /* Info.plist */,
+				2138B64B7CBA7E4016747A14 /* RemindersWidget.entitlements */,
+				BB9BD2796896257F9AF67442 /* RemindersWidget.swift */,
+				15D42CB7CCE0608358F05CFD /* RemindersWidgetBundle.swift */,
+			);
+			path = RemindersWidget;
 			sourceTree = "<group>";
 		};
 		53BD58B91616A365F10F74C5 /* Personalization */ = {
@@ -1499,8 +1554,10 @@
 				3A19DB45CB8F1F6EF52975DC /* MacAllYouNeed */,
 				236F834E88CC4594FA4E40D5 /* MacAllYouNeedTests */,
 				84B8A48C3BDF35E36D0354BC /* Packages */,
+				4DCF5EE731F6C111A8F8B34A /* RemindersWidget */,
 				050A7E2CC1DB44A21AC4D084 /* Resources */,
 				C1EE91C40B7CD2E7A005AF45 /* Tools */,
+				4BB7B433A605967F0378E0E7 /* Frameworks */,
 				446F5E20EE01D39FFCAC4076 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -2122,6 +2179,7 @@
 				73FD7D4DF1DC4766C88F7B27 /* PBXTargetDependency */,
 				557A84BD35CFA39D4C3A6325 /* PBXTargetDependency */,
 				1E83F18FC93CCDBF37BEAFEB /* PBXTargetDependency */,
+				C80C01927906B9D237D07C71 /* PBXTargetDependency */,
 			);
 			name = MacAllYouNeed;
 			packageProductDependencies = (
@@ -2135,6 +2193,25 @@
 			productName = MacAllYouNeed;
 			productReference = 0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */;
 			productType = "com.apple.product-type.application";
+		};
+		700895EC300D214DFDB8E391 /* RemindersWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1E4065A5937015823FA0FAB4 /* Build configuration list for PBXNativeTarget "RemindersWidget" */;
+			buildPhases = (
+				47020E77A402A3D757BF5920 /* Sources */,
+				6C1F76A11E70A582D1C87565 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RemindersWidget;
+			packageProductDependencies = (
+				1E7BCB149ACFDC85A5B77CF7 /* Core */,
+			);
+			productName = RemindersWidget;
+			productReference = 6BC86E8FA32A8D7562F77C0B /* RemindersWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		A0B97515571841FED0A486F3 /* ClipboardDaemon */ = {
 			isa = PBXNativeTarget;
@@ -2230,6 +2307,10 @@
 						DevelopmentTeam = 2N55H39FC4;
 						ProvisioningStyle = Automatic;
 					};
+					700895EC300D214DFDB8E391 = {
+						DevelopmentTeam = 2N55H39FC4;
+						ProvisioningStyle = Automatic;
+					};
 					A0B97515571841FED0A486F3 = {
 						DevelopmentTeam = 2N55H39FC4;
 						ProvisioningStyle = Automatic;
@@ -2271,6 +2352,7 @@
 				58E172D57CB23EA5F7CB76DE /* FolderPreview */,
 				5BD88869F3EB83788E866E4F /* MacAllYouNeed */,
 				D5A712BD2830BC82AD0D5EDA /* MacAllYouNeedTests */,
+				700895EC300D214DFDB8E391 /* RemindersWidget */,
 				E2E4E4BEBB049551BC0660CE /* TypelessImport */,
 			);
 		};
@@ -2457,6 +2539,16 @@
 				B8A30C60297D7C9FA60F6D3C /* WindowControlCoordinatorTests.swift in Sources */,
 				B0438D7CE9200925C2EC239D /* WindowControlPresentationTests.swift in Sources */,
 				97512930991E8A90EF596363 /* WindowControlSettingsStoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		47020E77A402A3D757BF5920 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				706236B71BED67300F6828B0 /* CompleteReminderIntent.swift in Sources */,
+				4727B5700DA7B5CA601C199B /* RemindersWidget.swift in Sources */,
+				405DDB781F5F139D3F99C05E /* RemindersWidgetBundle.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2833,6 +2925,11 @@
 			target = 5BD88869F3EB83788E866E4F /* MacAllYouNeed */;
 			targetProxy = 450357D02D76537F1BF9E7CA /* PBXContainerItemProxy */;
 		};
+		C80C01927906B9D237D07C71 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 700895EC300D214DFDB8E391 /* RemindersWidget */;
+			targetProxy = 4A833B17DFF36665A2DD89E9 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -2944,6 +3041,25 @@
 				SDKROOT = macosx;
 			};
 			name = Debug;
+		};
+		518BAF4D96C17E322D857BF2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RemindersWidget/RemindersWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 2N55H39FC4;
+				INFOPLIST_FILE = RemindersWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.macallyouneed.app.reminderswidget;
+				SDKROOT = macosx;
+			};
+			name = Release;
 		};
 		55EC7FBD2738EE6800E32ED5 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -3077,6 +3193,25 @@
 			};
 			name = Release;
 		};
+		914607584F3F620F09442799 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RemindersWidget/RemindersWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 2N55H39FC4;
+				INFOPLIST_FILE = RemindersWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.macallyouneed.app.reminderswidget;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
 		A559442C658E9E4ABE68DD60 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -3164,6 +3299,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1E4065A5937015823FA0FAB4 /* Build configuration list for PBXNativeTarget "RemindersWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				914607584F3F620F09442799 /* Debug */,
+				518BAF4D96C17E322D857BF2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		3F1FA0A3C5DD1D646EE6ABAF /* Build configuration list for PBXNativeTarget "MacAllYouNeed" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -3248,6 +3392,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1E7BCB149ACFDC85A5B77CF7 /* Core */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Core;
+		};
 		342234C4D95175B8FC64834F /* FeatureCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = FeatureCore;
