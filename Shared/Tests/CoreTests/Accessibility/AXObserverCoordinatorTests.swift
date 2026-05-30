@@ -37,4 +37,15 @@ final class AXObserverCoordinatorTests: XCTestCase {
         XCTAssertEqual(handle?.pid, 42)
         XCTAssertEqual(engine.created, [42])
     }
+
+    @MainActor
+    func testStartSubscribesToEveryNotification() {
+        let engine = FakeAXObserverEngine()
+        let coordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 999, now: { Date() })
+        var received: [String] = []
+        coordinator.start(pid: 7, notifications: ["AXWindowCreated", "AXFocusedWindowChanged"]) { notification, _ in received.append(notification) }
+        XCTAssertEqual(engine.created, [7])
+        XCTAssertEqual(engine.subscriptions, [.init(pid: 7, notification: "AXWindowCreated"), .init(pid: 7, notification: "AXFocusedWindowChanged")])
+        XCTAssertTrue(received.isEmpty)
+    }
 }
