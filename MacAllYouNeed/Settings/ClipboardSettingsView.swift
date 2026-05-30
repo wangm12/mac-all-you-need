@@ -1,6 +1,7 @@
 import AppKit
 import Core
 import CoreFoundation
+import FeatureCore
 import SwiftUI
 
 enum ClipboardDockHeightSetting {
@@ -95,6 +96,8 @@ struct ClipboardSettingsView: View {
             SearchPreferencesSection()
 
             ClipboardDockHeightSection(controller: controller)
+
+            SmartTextEnableSection(controller: controller)
         }
         .onChange(of: maxAgeDays) { _, _ in
             postRetentionSettingsChangedDarwin()
@@ -226,6 +229,50 @@ private struct ClipboardDockHeightWindowReader: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
             onWindowChange(nsView.window)
+        }
+    }
+}
+
+// MARK: - Smart Text enable section
+
+/// Surfaces Clipboard Smart Text as an opt-in enhancement inside the Clipboard Settings tab.
+/// Reads / writes feature enabled state via FeatureRuntime through the shared controller.
+struct SmartTextEnableSection: View {
+    let controller: AppController
+    @State private var isEnabled: Bool = false
+    @State private var statePublisher: FeatureStatePublisher
+
+    init(controller: AppController) {
+        self.controller = controller
+        self._statePublisher = State(initialValue: controller.featureStatePublisher)
+    }
+
+    var body: some View {
+        MAYNSection(title: "Smart Text") {
+            MAYNSettingsRow(
+                title: "Clipboard Smart Text",
+                subtitle: "Calculations, link cleaning, type detection, OCR, and semantic search."
+            ) {
+                Toggle("", isOn: $isEnabled)
+                    .labelsHidden()
+                    .onChange(of: isEnabled) { _, enabled in
+                        Task {
+                            let transition: FeatureManager.Transition = enabled ? .enable : .disable
+                            try? await controller.runtime.applyTransition(transition, for: .clipboardSmartText)
+                            await statePublisher.refresh()
+                        }
+                    }
+            }
+            if isEnabled {
+                MAYNDivider()
+                ClipboardSmartTextSettingsSection()
+            }
+        }
+        .onAppear {
+            isEnabled = statePublisher.state(for: .clipboardSmartText).activationState == .enabled
+        }
+        .onChange(of: statePublisher.states) { _, _ in
+            isEnabled = statePublisher.state(for: .clipboardSmartText).activationState == .enabled
         }
     }
 }
