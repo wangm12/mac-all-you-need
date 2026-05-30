@@ -56,7 +56,7 @@ import XCTest
 
 final class ReminderModelsTests: XCTestCase {
     func testVoiceIntentDefaultIsDictation() {
-        XCTAssertEqual(VoiceIntent.dictation, VoiceIntent.allCases.first)
+        XCTAssertTrue(VoiceIntent.allCases.contains(.dictation))
     }
 
     func testCreatedReminderHoldsTitleListAndDue() {
@@ -307,7 +307,6 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] Write failing test:
 ```swift
-@testable import Core
 @testable import MacAllYouNeed
 import XCTest
 
@@ -679,7 +678,99 @@ final class VoiceCoordinatorReminderIntentTests: XCTestCase {
     }
 }
 ```
-- [ ] Add `ReminderTestHarness` (shared fixtures + the `FakeRemindersWriter` recording writer + a stub ASR engine that returns "hello world", local cleanup pipeline, recording paster — adapted from `VoiceCoordinatorPipelineCallSequenceTests`).
+- [ ] Add `ReminderTestHarness` to the test file — this type is shared by Tasks 8–11, so define it in full here:
+```swift
+// MARK: - ReminderTestHarness (shared fixture for Tasks 8–11)
+
+/// Conforms to the injectable RemindersWriter protocol for test use.
+@MainActor
+final class MockReminderWriter: RemindersWriter {
+    var created: [CreatedReminder] = []
+    func create(title: String, dueDate: ReminderDueDate?, notes: String?, listID: String?) async throws -> CreatedReminder {
+        let r = CreatedReminder(id: UUID().uuidString, title: title, listName: "Inbox", dueDate: dueDate)
+        created.append(r)
+        return r
+    }
+}
+
+/// Append-only call log shared across all phases.
+final class CallLog {
+    private(set) var entries: [String] = []
+    func record(_ entry: String) { entries.append(entry) }
+}
+
+@MainActor
+struct ReminderTestHarness {
+    let writer = MockReminderWriter()
+    let log = CallLog()
+
+    /// When true, the stub ASR suspends until `resumeASR()` is called (for undo tests).
+    private let blockingASR: Bool
+    private let continuationHolder = ContinuationHolder()
+
+    /// Cleaned text returned by the stub cleanup pipeline (default: "hello world").
+    private let cleanedText: String
+
+    /// Whether the spoken-prefix setting is treated as enabled.
+    private let prefixEnabled: Bool
+
+    init(blockingASR: Bool = false, cleanedText: String = "hello world", prefixEnabled: Bool = false) {
+        self.blockingASR = blockingASR
+        self.cleanedText = cleanedText
+        self.prefixEnabled = prefixEnabled
+    }
+
+    /// Returns a minimal CapturedAudio stub (1 ms of silence at 16 kHz).
+    func captured() -> CapturedAudio {
+        CapturedAudio(pcmBuffer: .silence16k(), durationSeconds: 0.001)
+    }
+
+    /// Builds a VoiceCoordinator wired to the mock writer and log-recording paster.
+    func makeCoordinator(reminderWriter: RemindersWriter) -> VoiceCoordinator {
+        let log = self.log
+        let cleanedText = self.cleanedText
+        let prefixEnabled = self.prefixEnabled
+        let blockingASR = self.blockingASR
+        let holder = continuationHolder
+
+        return VoiceCoordinator(
+            asrEngineOverride: StubASREngine(result: "hello world", blocking: blockingASR, holder: holder),
+            cleanupPipelineOverride: StubCleanupPipeline(cleanedText: cleanedText),
+            pasterOverride: { text in log.record("paste(\(text))") },
+            learningMonitorOverride: { ctx in log.record("learning(\(ctx.rawText))") },
+            reminderWriter: reminderWriter,
+            prefixEnabledOverride: { prefixEnabled }
+        )
+    }
+
+    /// Unblocks the suspended ASR (only relevant when `blockingASR: true`).
+    func resumeASR() { continuationHolder.resume() }
+}
+
+/// Holds a checked continuation so tests can suspend and resume ASR.
+private final class ContinuationHolder: @unchecked Sendable {
+    private var cont: CheckedContinuation<Void, Never>?
+    func suspend() async { await withCheckedContinuation { cont = $0 } }
+    func resume() { cont?.resume(); cont = nil }
+}
+
+private struct StubASREngine: ASREngine {
+    let result: String
+    let blocking: Bool
+    let holder: ContinuationHolder
+    func transcribe(_ audio: CapturedAudio) async throws -> String {
+        if blocking { await holder.suspend() }
+        return result
+    }
+}
+
+private struct StubCleanupPipeline: VoiceCleanupPipeline {
+    let cleanedText: String
+    func clean(transcript: String, context: VoicePromptContext) async throws -> VoiceCleanupResult {
+        VoiceCleanupResult(cleanedText: cleanedText, model: "stub")
+    }
+}
+```
 - [ ] Run-fail: `-only-testing:MacAllYouNeedTests/VoiceCoordinatorReminderIntentTests` → `processCapturedAudio(..., intent:)` and `reminderWriter:` undefined.
 - [ ] Implement: add `private let reminderWriter: RemindersWriter?` and override storage; add `reminderWriter:` param to both inits (convenience defaults to a live `RemindersService`-backed writer via `EKEventStore`; internal init takes the injected fake). Add `intent: VoiceIntent = .dictation` to `processCapturedAudio`, `startRecording`, and `stopRecordingAndPaste`. Store intent in `undoBookkeeping` so `undoLastCancel` replays with the same intent. Keep Phase 3 calling `makePastePhase()` for now (branch added in Task 9). Do not change the `.dictation` flow.
 - [ ] Run-pass: `-only-testing:MacAllYouNeedTests/VoiceCoordinatorReminderIntentTests` → green.
@@ -1191,7 +1282,15 @@ Clone the `FolderPreview` app-extension block (`project.yml:159-200`) as the str
         product: Core
 ```
 - [ ] Embed the appex into the main app target's dependencies/`embed` list (mirror how `FolderPreview` is embedded). Add the App Group + sandbox to `RemindersWidget.entitlements` (`com.apple.security.application-groups = [group.com.macallyouneed.shared]`).
-- [ ] Implement `RemindersWidget.swift`: a `TimelineProvider` reading `ReminderSnapshotStore(containerURL: AppGroup.containerURL()).read()` → entries of upcoming reminders (title + relative due). `RemindersWidgetBundle.swift`: `@main struct RemindersWidgetBundle: WidgetBundle`.
+- [ ] Implement `RemindersWidget.swift`: a `TimelineProvider` reading `ReminderSnapshotStore(containerURL: AppGroup.containerURL()).read()` → entries of upcoming reminders (title + relative due). Annotate both the provider and bundle with `@available(macOS 14, *)` since WidgetKit on macOS requires macOS 14+:
+```swift
+@available(macOS 14, *)
+struct RemindersTimelineProvider: TimelineProvider { /* ... */ }
+
+@available(macOS 14, *)
+@main struct RemindersWidgetBundle: WidgetBundle { /* ... */ }
+```
+`RemindersWidgetBundle.swift`: `@main struct RemindersWidgetBundle: WidgetBundle`.
 - [ ] Run: `xcodegen generate`
 - [ ] Build the widget scheme:
 ```

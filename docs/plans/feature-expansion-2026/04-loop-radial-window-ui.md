@@ -260,6 +260,9 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 `targetFrame(for:currentFrame:preserveSize:previousResult:)` (`WindowMover.swift:188-234`) is already pure; expose a thin public read-only entry that calls it without `moveValidated`.
 
 - [ ] Write failing XCTest asserting the proposed frame equals what `move(...)` proposes, for on-screen actions, using a fake element (mirror existing mover/`WindowControlPresentationTests` fakes):
+
+  > **API verification:** `WindowMover.move(_:action:previousResult:)` returns `WindowMovementResult` which has a `proposedFrame: CGRect?` field — this is the real, existing API. The test calling `.move(element, action: action).proposedFrame` is correct. `WindowMover.init(screenDetector:)` accepts `any WindowScreenDetecting`, matching `FixedScreenDetector`. `FakeWindowMovableElement` and `FixedScreenDetector` do not yet exist in the test target; create minimal conformances in the test file (see note below the test).
+
 ```swift
 @testable import MacAllYouNeed
 import Core
@@ -282,6 +285,8 @@ final class RadialProposedFrameParityTests: XCTestCase {
     }
 }
 ```
+
+  > `FakeWindowMovableElement` must conform to `WindowMovableElement` (return a fixed `frame`, no-op on `setPosition`/`setSize`/`setFrame`, `isResizable = true`, `processIdentifier = 0`). `FixedScreenDetector` must conform to `WindowScreenDetecting` (return a single fake `WindowScreen` whose `visibleFrame` equals the given rect for `screen(containing:)`; `screens`, `nextScreen`, `previousScreen` return sensible stubs). Create both in the test file if absent.
 - [ ] Run-fail: `xcodebuild test -project MacAllYouNeed.xcodeproj -scheme MacAllYouNeed -destination 'platform=macOS,arch=arm64' -only-testing:MacAllYouNeedTests/RadialProposedFrameParityTests` → no `proposedFrame`. (If `FakeWindowMovableElement`/`FixedScreenDetector` don't already exist in the test target, reuse the existing mover-test fakes; create minimal conformances in this file only if absent.)
 - [ ] Minimal impl: add `public func proposedFrame(for action: WindowAction, element: WindowMovableElement, previousResult: WindowMovementResult?) -> CGRect?` that resolves `currentFrame = element.frame` and returns `targetFrame(for: action, currentFrame:, preserveSize: <same value move() uses>, previousResult:)`. Read `move(...)` to match its `preserveSize` derivation exactly so parity holds. Do **not** call any AX write.
 - [ ] Run-pass: same `-only-testing` → green.
@@ -572,6 +577,23 @@ final class RadialEventTapGatingTests: XCTestCase {
 - [ ] Minimal impl:
   - Add `radialMenuEnabled` to the tap's `Runtime` (sourced from `settings.radialMenuEnabled` in `updateRuntime`; `WindowControlCoordinator.updateTapRuntime` already passes `settings`).
   - Add `static func shouldArmRadial(radialEnabled:axTrusted:anyRuntimeEnabled:) -> Bool` and `static func eventMask(includeRadialKeys:) -> CGEventMask` (existing mouse+recovery mask, OR-ing `keyDown|keyUp|flagsChanged` when `includeRadialKeys`). Build `mask` in `start()` from `eventMask(includeRadialKeys: runtime.settings.radialMenuEnabled)`.
+
+  > ⚠️ **CGEvent tap mask recreation required.** CGEvent taps cannot have their event mask changed while running — the tap must be stopped and recreated with the new mask. `WindowControlEventTap` has no `restart()` or `updateMask()` path; `updateRuntime(...)` only updates the `Runtime` struct and calls `stateMachine.updateAccessibilityTrust`, it does NOT touch the running tap or its mask. Therefore, when `radialMenuEnabled` changes, `updateRuntime` must detect the mask change and trigger a full stop+recreate cycle. The `WindowControlCoordinator.reconcileLifecycle()` path already calls `tap.stop()` then `tap.start()`, so the correct approach is: in `updateRuntime(radialMenuEnabled:)` on the coordinator, compare the old and new `radialMenuEnabled` values; if they differ, call `tap.stop()` before `updateTapRuntime(...)` so that the next `reconcileLifecycle()` call (or explicit `tap.start()`) picks up the new mask from `eventMask(includeRadialKeys:)`. Implement `updateRuntime(radialMenuEnabled:)` on `WindowControlCoordinator` as:
+  > ```swift
+  > func updateRuntime(radialMenuEnabled: Bool) {
+  >     let maskWillChange = settings.radialMenuEnabled != radialMenuEnabled
+  >     settings.radialMenuEnabled = radialMenuEnabled
+  >     if maskWillChange && tap.isRunning {
+  >         tap.stop()          // teardown — invalidates the existing CGEventTap
+  >     }
+  >     updateTapRuntime(coordinatorActive: state == .active)
+  >     if maskWillChange {
+  >         reconcileLifecycle() // recreates tap via tap.start() with the updated mask
+  >     }
+  > }
+  > ```
+  > This must be implemented; otherwise the radial trigger never fires after enabling the toggle without a full app restart.
+
   - In `handle(type:event:)`, **before** the mouse switch, add a `case .keyDown, .keyUp, .flagsChanged:` branch that returns early (passes the event through) unless radial is armed; when armed and the trigger transitions, forward open/update/commit/cancel to the injected `radialCoordinator` closures and respect the synthetic-event marker + `tapDisabledBy*` early-outs (`:137-151`). When a mouse gesture is already active (`gestureMode != .none`), suppress radial open. Guard the trigger key against bare `dragModifier`/`edgeSnapModifier`/`doubleClickModifier` reuse (cancel collision).
   - Inject radial intents from the coordinator the same way as `setSnapOverlay` (`:86-92`), constructing the `RadialMenuCoordinator` in `WindowControlCoordinator.init` (`:110-119`).
   - **Never** add the key mask when `radialMenuEnabled` is false (risk mitigation §11): pass-through discipline preserved.
@@ -592,6 +614,9 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Files:** `MacAllYouNeed/WindowControl/WindowControlSettingsView.swift`, settings presentation source (the type backing `WindowControlSettingsPresentation`), `MacAllYouNeed/WindowControl/Radial/RadialSettingsPreview.swift`; test additions in `MacAllYouNeedTests/WindowControl/WindowControlPresentationTests.swift`
 
 - [ ] Write failing XCTest extending the presentation test to include the new section + that sub-options are gated on the toggle:
+
+  > ⚠️ **Before writing this test, verify `WindowControlSettingsPresentation` has the surface you need.** `grep -rn "WindowControlSettingsPresentation" MacAllYouNeed/ --include="*.swift"` confirms the type exists in `WindowControlSettingsView.swift` and is used in `FunctionDestinationRegistry.swift`. However, it may not currently expose `sectionTitles` or `showsRadialSubOptions` as static members — check the type's actual API before adding these properties. If `WindowControlSettingsPresentation` is a pure static-function helper without a `sectionTitles` array, add the `sectionTitles: [String]` static property as part of the minimal impl step. If the type's shape makes a string-array test awkward, move the settings-section test to assert a `WindowControlSettingsStore` key round-trips correctly (e.g., `store.settings.radialMenuEnabled` persists) and a `WindowControlSettingsView` snapshot confirms the section renders when the toggle is on — document the substitution here.
+
 ```swift
 extension WindowControlPresentationTests {
     func testRadialSettingsSectionPresent() {
@@ -622,6 +647,52 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 15 — FeatureDescriptor gate + full-suite green
 
 **Files:** the relevant `MacAllYouNeed/App/Descriptors/` Window Layouts descriptor (gate the radial capability as a sub-capability of Window Layouts per spec §12 Q4 default — no separate card unless decided otherwise); no new test file (covered by settings round-trip + gating tests)
+
+- [ ] **Wire `RadialMenuCoordinator` in `WindowControlCoordinator`.** The coordinator is constructed in `WindowControlCoordinator.init` (`:110-119`), mirroring the snap overlay pattern. Add it as a stored property and connect the settings toggle sink:
+
+```swift
+// In WindowControlCoordinator — stored properties
+private var radialCoordinator: RadialMenuCoordinator?
+private var radialSettingsCancellable: AnyCancellable?
+
+// In init, after the existing snap overlay wiring (line ~119)
+if let eventTap = self.tap as? WindowControlEventTap {
+    let radial = RadialMenuCoordinator(
+        performer: self,           // WindowControlCoordinator: RadialActionPerforming
+        frameResolver: self,       // WindowControlCoordinator: ProposedFrameResolving
+        overlay: RadialOverlayPresenter()
+    )
+    self.radialCoordinator = radial
+    eventTap.setRadialCoordinator(radial)
+}
+
+// Propagate radialMenuEnabled changes from the store to the event tap.
+// WindowControlSettingsStore.$settings is a @Published property; sink
+// fires on the main actor because the store is @MainActor-isolated.
+radialSettingsCancellable = settingsStore.$settings
+    .map(\.radialMenuEnabled)
+    .removeDuplicates()
+    .sink { [weak self] enabled in
+        self?.updateRuntime(radialMenuEnabled: enabled)
+    }
+```
+
+```swift
+// updateRuntime(radialMenuEnabled:) on WindowControlCoordinator
+func updateRuntime(radialMenuEnabled: Bool) {
+    let maskWillChange = settings.radialMenuEnabled != radialMenuEnabled
+    settings.radialMenuEnabled = radialMenuEnabled
+    if maskWillChange && tap.isRunning {
+        tap.stop()   // forces CGEventTap teardown so next start() uses updated mask
+    }
+    updateTapRuntime(coordinatorActive: state == .active)
+    if maskWillChange {
+        reconcileLifecycle()  // recreates tap with the new eventMask(includeRadialKeys:)
+    }
+}
+```
+
+`WindowControlCoordinator.setEnabled(_:)` is the public entry point called by the sink; it delegates to `updateRuntime(radialMenuEnabled:)` above, which stops the tap when the mask changes and calls `reconcileLifecycle()` to recreate it — ensuring key events are intercepted immediately after the toggle is turned on without requiring an app restart.
 
 - [ ] Confirm radial behavior is reachable only when both the Window Layouts feature is enabled *and* `radialMenuEnabled` is on (the tap's `shouldArmRadial` + coordinator guards already enforce AX trust + layouts runtime). Add the settings surface under the existing Window Layouts descriptor; do not introduce a new permission.
 - [ ] Run the full Shared suite: `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test` → green.

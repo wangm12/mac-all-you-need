@@ -198,6 +198,8 @@ public enum SmartTextService {
 
 (Note: `NSExpression(format:)` supports `**` via `raise:toPower:`; verify with `2^3 = 8` test added below.)
 
+> ⚠️ **Safety:** `NSExpression(format:)` understands keypaths, function expressions (e.g. `@count`, `sum:`), and other non-arithmetic constructs. The character-set safelist (`0123456789.+-*/%^() ,`) is the primary defence. Verify in tests that inputs like `@count`, `objcKeyPath:foo`, `foo:bar` are rejected by the safelist before evaluation. If additional confidence is needed, replace `NSExpression` with a simple recursive-descent parser for `+`, `-`, `*`, `/`, parentheses — it is ~30 lines and eliminates this concern entirely.
+
 - [ ] Add `func testCalculatePower() { XCTAssertEqual(SmartTextService.calculate("2^3")?.value, "8") }`.
 - [ ] Run to pass: same command → calculation tests pass.
 - [ ] Commit:
@@ -684,12 +686,10 @@ final class SmartTextMigrationTests: XCTestCase {
 
 ```swift
         ,Migration(identifier: "008-smart-text") { conn in
-            try conn.execute(sql: """
-                ALTER TABLE clipboard_records ADD COLUMN detected_type TEXT;
-                ALTER TABLE clipboard_records ADD COLUMN ocr_text TEXT;
-                ALTER TABLE clipboard_records ADD COLUMN embedding BLOB;
-                CREATE INDEX IF NOT EXISTS idx_records_detected_type ON clipboard_records(detected_type);
-            """)
+            try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN detected_type TEXT;")
+            try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN ocr_text TEXT;")
+            try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN embedding BLOB;")
+            try conn.execute(sql: "CREATE INDEX IF NOT EXISTS idx_records_detected_type ON clipboard_records(detected_type);")
         }
 ```
 
@@ -1031,6 +1031,8 @@ func testCapturePolicyAutoCleans() {
 - [ ] Run to fail: `... swift test --filter testCapturePolicy`.
 - [ ] Implement `CaptureDecision.swift`. Then wire `DaemonContainer.persist` text/rtf/html branches: read `sensitiveEnabled`/`linkMode` from `AppGroupSettings.defaults`, read frontmost window title from the daemon's existing source context, call `SmartCapturePolicy.decideText`, `return` on `.skip` (increment skip counter), pass `detectedTypeJSON` into `clip.append`, and substitute `autoCleanedText` when present.
 - [ ] Run to pass (Core test) + build daemon: `xcodebuild build -project MacAllYouNeed.xcodeproj -scheme MacAllYouNeed -destination 'platform=macOS,arch=arm64'`. **Manual verification:** copy a Luhn card number while feature on → no record; copy a UTM URL in auto mode → stored URL is cleaned.
+
+> **Note:** There is no automated test proving the daemon's `persist` call path invokes `SmartCapturePolicy` — only the policy itself is unit-tested above. This is an accepted integration gap; manual verification (run the app and copy a card number) is required to close it. Add this to the manual QA checklist.
 - [ ] Commit:
 
 ```
@@ -1202,6 +1204,8 @@ final class ClipboardSmartTextDescriptorTests: XCTestCase {
 - [ ] Run to fail: `... -only-testing:MacAllYouNeedTests/App/ClipboardSmartTextDescriptorTests`.
 - [ ] Implement the descriptor mirroring `ClipboardDescriptor` (off by default, `requiredPermissions: []`, activator starts/stops `ClipboardEnrichmentCoordinator`). Register it where the others are registered. Build `ClipboardSmartTextSettingsView` with `MAYNSettingsPage`/`MAYNSection`/`MAYNSettingsRow`/`MAYNDivider`: inline calc on/off; link cleaner `FunctionSegmentedTabStrip` Off/Manual/Auto-apply; smart detection on/off; OCR on/off + "indexed N images"; sensitive filter on/off (default on) + "skipped N today"; semantic ranking on/off; regex-by-default on/off. All persisted in `AppGroupSettings.defaults`.
 - [ ] Run to pass + app build. **Manual verification:** toggle each setting; confirm daemon (sensitive/auto-clean) and main app (OCR/semantic) honor the keys.
+
+> **Note:** The daemon process (`ClipboardDaemon`) reads `sensitiveEnabled`, `linkMode`, and other feature-toggle keys to gate capture behaviour. This only works if `AppGroupSettings.defaults` is backed by the shared App Group `UserDefaults` suite (identifier `group.com.macallyouneed.shared`), not the standard `UserDefaults`. Verify this before marking this task complete — check `AppGroupSettings.swift` or equivalent for the suite name.
 - [ ] Commit:
 
 ```

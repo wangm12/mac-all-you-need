@@ -54,7 +54,7 @@ Test commands:
 - App: `xcodebuild test -project MacAllYouNeed.xcodeproj -scheme MacAllYouNeed -destination 'platform=macOS,arch=arm64'`
 - After `project.yml` changes: `xcodegen generate`
 
-> S1 dependency: `AXObserverCoordinator` (roadmap §S1) is assumed to exist. Tasks below reference its callback surface (`onFocusedWindowChanged` / `onTitleChanged` per target PID) and never re-implement `AXObserverCreate`.
+> S1 dependency: `AXObserverCoordinator` (roadmap §S1) is assumed to exist. Tasks below reference its callback surface via `coordinator.start(pid:notifications:onEvent:)` (returns `Void`; the coordinator owns the observer internally — no `Subscription` token). The coordinator must be owned by the app composition root (e.g. `AppController`), not by `FolderHistoryRecorder`.
 
 ---
 
@@ -310,6 +310,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"`
 
 **Files:** `Shared/Sources/Core/Storage/FolderHistoryStore.swift`; tests appended to `Shared/Tests/CoreTests/Storage/FolderHistoryStoreTests.swift`. Store shape follows `DownloadStore` (`Shared/Sources/Core/Storage/DownloadStore.swift:5-49`), DB opener `Database.swift:8-28`.
 
+> ⚠️ Verify the `Envelope` type (or equivalent `Data` wrapper) in `Shared/Sources/Core/Storage/` before writing this code. The clipboard store uses AES-GCM encryption via `Cipher.seal` / `Cipher.open` and `Envelope(combined:)` — match whatever sealed-box type `ClipboardStore` uses (confirmed: `Cipher.seal(payload, with: key)` returns a value with `.combined: Data`, and `Envelope(combined: row["envelope"])` + `Cipher.open(envelope, with: key)` are the read path). If `FolderHistoryStore` stores plain paths with no sensitive content, encryption may be omitted entirely (paths are not secrets in the same way clipboard content is) — confirm with the spec's privacy requirements before implementing.
+
 - [ ] Write failing test (append):
 ```swift
     private func makeStore() throws -> FolderHistoryStore {
@@ -487,6 +489,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"`
 ### Task 7 — Retention eviction (pinned-exempt, pure)
 
 **Files:** `Shared/Sources/Core/Storage/FolderHistoryRetention.swift`; test `Shared/Tests/CoreTests/Storage/FolderHistoryRetentionTests.swift`. Mirrors `RetentionPolicy.enforceItemCap`/`enforceMaxAge` (`RetentionPolicy.swift:15-46`) and pinned-exempt semantics (`:98-104`). Pure decision over rows so it is unit-testable; the store applies the result.
+
+> ⚠️ Before implementing: verify `RetentionPolicy`'s actual struct fields in `Shared/Sources/Core/Storage/`. The plan assumes `maxItems: Int?`, `maxAgeSeconds: TimeInterval?`, `maxImageBytes: Int?`. If the real fields differ, update the test and struct usage here to match. (Confirmed as of current codebase: the fields are exactly `maxItems: Int?`, `maxAgeSeconds: TimeInterval?`, `maxImageBytes: Int?` — but re-verify if `RetentionPolicy.swift` has changed since this plan was written.)
 
 - [ ] Write failing test:
 ```swift
@@ -872,7 +876,9 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"`
     func setActive(_ active: Bool) { isActive = active; active ? attach() : detach() }
 
     // --- S1 wiring (manual-verified) ---
-    private var finderObservation: AXObserverCoordinator.Subscription?
+    // NOTE: The coordinator must be owned by the app composition root (e.g. `AppController`),
+    // NOT by `FolderHistoryRecorder`, to ensure it outlives the recorder. The recorder
+    // holds only a weak or unowned back-reference.
     func start(axCoordinator: AXObserverCoordinator) {
         self.axCoordinator = axCoordinator
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -888,16 +894,21 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"`
         guard isActive, let coordinator = axCoordinator,
               let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first
         else { return }
-        finderObservation = coordinator.observe(
+        // S1 actual API: coordinator.start(pid:notifications:onEvent:) returns Void.
+        // The coordinator owns the observer internally; no Subscription token is stored here.
+        coordinator.start(
             pid: finder.processIdentifier,
-            notifications: [kAXFocusedWindowChangedNotification, kAXTitleChangedNotification]) { [weak self] in
-                self?.handleSignal(pid: finder.processIdentifier)
+            targetElement: nil, // subscribe on the app element (correct for Finder focused-window notifications)
+            notifications: [kAXFocusedWindowChangedNotification, kAXTitleChangedNotification]) { [weak self] notification, pid in
+                self?.handleSignal(pid: pid)
         }
     }
-    private func detach() { finderObservation = nil }
+    private func detach() {
+        axCoordinator?.stop()
+    }
 ```
 Add `private func handleSignal(pid:)` overload defaulting `at: Date()` (already present). Guard `handleSignal` body with `guard isActive else { return }`.
-> `AXObserverCoordinator.observe(pid:notifications:onEvent:)` and `.Subscription` are S1's API (plan 00). If S1's signature differs, adapt the call but keep the same start/attach/detach lifecycle.
+> S1's actual API (plan 00, Task 2): `coordinator.start(pid:notifications:onEvent:)` returns `Void`. There is no `Subscription` token — the coordinator owns the observer internally. Do NOT store a `Subscription` return value. The `targetElement: nil` parameter subscribes on the app element, which is correct for Finder's focused-window notifications. Call `coordinator.stop()` in `detach()` to tear down.
 - [ ] Run-pass: same `-only-testing` → green.
 - [ ] Manual verification: with the feature enabled and Accessibility granted, navigate several Finder folders and confirm rows appear; revoke Accessibility mid-session and confirm the recorder detaches (no crash); re-grant and confirm re-attach.
 - [ ] Commit: `git add MacAllYouNeed/FinderHistory/FolderHistoryRecorder.swift MacAllYouNeedTests/Features/FinderHistory/FolderHistoryRecorderTests.swift && git commit -m "Wire FolderHistoryRecorder to S1 AX coordinator and pause gate
@@ -1285,7 +1296,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"`
 
 Spec coverage check against `02-finder-folder-history.md`:
 
-- **FolderHistoryRecorder** — AX capture pipeline (Task 11), S1 wiring + Finder-activation re-attach + pause/trust gate (Task 13), injectable AX seam (Task 10), opt-in lazy Apple Events fallback (Task 12). Debounce/dedup (Task 3), skip rules + exclusions (Task 2), path normalization/canonicalization incl. `/private/var` (Task 1). ✅ (§4.1, §9, open-Q1)
+- **FolderHistoryRecorder** — AX capture pipeline (Task 11), S1 wiring via `coordinator.start(pid:notifications:onEvent:)` (Void return, no Subscription token; coordinator owned by AppController) + Finder-activation re-attach + pause/trust gate (Task 13), injectable AX seam (Task 10), opt-in lazy Apple Events fallback (Task 12). Debounce/dedup (Task 3), skip rules + exclusions (Task 2), path normalization/canonicalization incl. `/private/var` (Task 1). ✅ (§4.1, §9, open-Q1)
 - **FolderHistoryStore** — GRDB store in App Group, `DownloadStore`-shaped (Task 5); schema + `001-folder-history` migration + index + idempotency (Task 5); upsert-by-path with visitCount/lastVisited/firstVisited (Task 5); pin/remove/clear/exists refresh (Task 6); encrypted `displayName` envelope, plaintext queryable `path` (Tasks 4–5); retention pure (Task 7) + wired (Task 8), pinned-exempt. ✅ (§5, §10, §11)
 - **3 interactive surfaces** — hotkey quick-switcher: pure filter (Task 15) + borderless NSPanel UI with open/reveal/pin/remove/stale/Reduce-Motion (Task 16), open/reveal router (Task 14); menu-bar/Command Center dropdown via `menuBarItemFactory` (Task 17); FinderSync `.appex` via project.yml + xcodegen (Task 21) + "Recent Folders" toolbar button reading shared store read-only (Task 22). ✅ (§4.4, §4.5, §8.1–8.3)
 - **Config/guidance-only main page** — `FunctionPageShell`, retention, exclusion editor, Apple-Events toggle, permission status, pause, clear-history, how-to; never lists folders (Task 18). ✅ (§8.4)

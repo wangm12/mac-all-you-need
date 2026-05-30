@@ -468,6 +468,11 @@ final class OrganizerEngineTests: XCTestCase {
                                      maxFolderDepth: 2, maxFolders: 5)
         let proposal = try await engine.plan(contents: [content("a.pdf"), content("b.pdf")],
                                              existingNames: [], recentExamples: [], includeFolders: true)
+        // Depth is measured as the number of path separators (`/`).
+        // "x/y/z/deep" has 3 separators → depth 3 → rejected when maxFolderDepth is 2.
+        // "x/y" has 1 separator → depth 1 → allowed.
+        // "Invoices" has 0 separators → depth 0 → allowed.
+        // Implementation: path.filter { $0 == "/" }.count
         // Over-deep assignment is rejected -> stays in place (nil); valid one kept.
         XCTAssertNil(proposal.operations[0].targetFolder)
         XCTAssertEqual(proposal.operations[1].targetFolder, "Invoices")
@@ -484,7 +489,7 @@ final class OrganizerEngineTests: XCTestCase {
 ```
 
 - [ ] Run (expect FAIL): `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter OrganizerEngineTests`
-- [ ] Implement `OrganizerEngine` (`init(llm:pattern:maxNameLength:maxFolderDepth:maxFolders:)`, depth/folders default 2/12). `plan(...)`: for each content call `llm.proposeName` with `RenameRequest(content:recentExamples:)`, `FilenameSanitizer.sanitizeBase` → `NamingPattern.render` → `FilenameSanitizer.compose(base:ext:)` preserving the original extension, then a single `CollisionResolver(existing: existingNames)` shared across the batch. If `includeFolders`, call `llm.proposeFolders` once; sanitize each folder component with `FilenameSanitizer.sanitizeBase`, reject assignments exceeding `maxFolderDepth` (→ `nil` = stays in place) and cap distinct folders to `maxFolders`. No UI, no file mutation.
+- [ ] Implement `OrganizerEngine` (`init(llm:pattern:maxNameLength:maxFolderDepth:maxFolders:)`, depth/folders default 2/12). `plan(...)`: for each content call `llm.proposeName` with `RenameRequest(content:recentExamples:)`, `FilenameSanitizer.sanitizeBase` → `NamingPattern.render` → `FilenameSanitizer.compose(base:ext:)` preserving the original extension, then a single `CollisionResolver(existing: existingNames)` shared across the batch. If `includeFolders`, call `llm.proposeFolders` once; sanitize each folder component with `FilenameSanitizer.sanitizeBase`, reject assignments exceeding `maxFolderDepth` using `path.filter { $0 == "/" }.count` (e.g. `"x/y/z/deep"` → 3 separators → rejected at maxFolderDepth 2), cap distinct folders to `maxFolders`. No UI, no file mutation.
 - [ ] Run (expect PASS): `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter OrganizerEngineTests`
 - [ ] Commit: `git add Shared/Sources/Core/FileOrganizer/OrganizerEngine.swift Shared/Tests/CoreTests/FileOrganizer/OrganizerEngineTests.swift && git commit -m "Add OrganizerEngine planning with injectable LLM
 
@@ -590,6 +595,8 @@ final class OrganizerManifestStoreTests: XCTestCase {
 
 - [ ] Run (expect FAIL): `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter OrganizerManifestStoreTests`
 - [ ] Implement `OrganizerManifestStore` mirroring `DownloadStore`: `static let migrations` creating `organizer_manifests(id TEXT PRIMARY KEY, state TEXT, created INTEGER, modified INTEGER, root_path TEXT, envelope BLOB)` + `idx_organizer_manifests_state`; `insert`, `fetch(id:)`, `appendOperation(_:to:)` (fetch → append → re-seal), `updateState(id:to:)`, `list()` ordered by `modified DESC`. Encrypt the `[ManifestOperation]` (full `OrganizerManifest`) via `Cipher.seal`/`Cipher.open`.
+
+  > **Performance note:** `appendOperation` reads the entire manifest, appends one op, and re-writes — O(N) per append → O(N²) for a batch. This is acceptable for expected batch sizes (hundreds of files, not millions). If batches grow large, migrate to an append-only log format in a future iteration.
 - [ ] Run (expect PASS): `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter OrganizerManifestStoreTests`
 - [ ] Commit: `git add Shared/Sources/Core/Storage/OrganizerManifestStore.swift Shared/Tests/CoreTests/Storage/OrganizerManifestStoreTests.swift && git commit -m "Add encrypted OrganizerManifestStore
 
@@ -961,22 +968,25 @@ import Core
 
 final class S2OrganizerLLMServiceTests: XCTestCase {
     func testRenamePromptContainsSnippetNotBytes() async throws {
-        var capturedPrompt = ""
-        let service = S2OrganizerLLMService(complete: { prompt, _ in
-            capturedPrompt = prompt; return "Clean Name"
+        var capturedSystemPrompt = ""
+        var capturedUserPrompt = ""
+        // complete: (systemPrompt: String, userPrompt: String) async throws -> String
+        let service = S2OrganizerLLMService(complete: { system, user in
+            capturedSystemPrompt = system; capturedUserPrompt = user; return "Clean Name"
         })
         let content = ExtractedContent(originalURL: URL(fileURLWithPath: "/secret/path/a.pdf"),
             utTypeIdentifier: "com.adobe.pdf", kind: .pdf, snippet: "INVOICE #42", metadata: ["author": "ACME"])
         let name = try await service.proposeName(.init(content: content, recentExamples: []))
         XCTAssertEqual(name, "Clean Name")
-        XCTAssertTrue(capturedPrompt.contains("INVOICE #42"))
-        XCTAssertFalse(capturedPrompt.contains("/secret/path"))  // no raw path/bytes
+        XCTAssertTrue(capturedUserPrompt.contains("INVOICE #42"))
+        XCTAssertFalse(capturedUserPrompt.contains("/secret/path"))  // no raw path/bytes
+        XCTAssertFalse(capturedSystemPrompt.contains("/secret/path"))
     }
 }
 ```
 
 - [ ] Run (expect FAIL): `xcodebuild test ... -only-testing:MacAllYouNeedTests/S2OrganizerLLMServiceTests`
-- [ ] Implement `S2OrganizerLLMService` conforming to `OrganizerLLMService`, injected with `complete: (String, PromptVariant) async throws -> String` from the S2 layer (which carries the user's `VoiceCleanupProviderKind` Groq/local selection). Build prompts from `content.snippet` + sanitized metadata + `recentExamples` few-shot; never include the file path or any bytes. Production constructs `complete` from the shared S2 service; tests inject a stub.
+- [ ] Implement `S2OrganizerLLMService` conforming to `OrganizerLLMService`, injected with `complete: (systemPrompt: String, userPrompt: String) async throws -> String` from the S2 layer (which carries the user's `VoiceCleanupProviderKind` Groq/local selection). Build prompts from `content.snippet` + sanitized metadata + `recentExamples` few-shot; never include the file path or any bytes. Production constructs `complete` from the shared S2 service; tests inject a stub closure matching that same `(systemPrompt: String, userPrompt: String) async throws -> String` signature.
 - [ ] Run (expect PASS): `xcodebuild test ... -only-testing:MacAllYouNeedTests/S2OrganizerLLMServiceTests`
 - [ ] Commit: `git add MacAllYouNeed/FileOrganizer/S2OrganizerLLMService.swift MacAllYouNeedTests/FileOrganizer/S2OrganizerLLMServiceTests.swift && git commit -m "Add S2-backed OrganizerLLMService sending only snippets
 
@@ -988,14 +998,30 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"`
 
 **Files:** `MacAllYouNeed/FileOrganizer/FileOrganizerCoordinator.swift`, test `MacAllYouNeedTests/FileOrganizer/FileOrganizerCoordinatorTests.swift`
 
-- [ ] Write a failing test wiring extractor + engine + stores, asserting an LLM failure for one file leaves it with its original name while others still get proposals (spec §9 "LLM failure", §11). Inject a fake extractor, fake LLM (throws for one), and the in-memory stores from Tasks 8/9.
+- [ ] Write a failing test wiring extractor + engine + stores, asserting an LLM failure for one file leaves it with its original name while others still get proposals (spec §9 "LLM failure", §11). Inject a fake extractor, a `FakeLLM` stub that throws on a specified call index, and the in-memory stores from Tasks 8/9.
 
 ```swift
+// Stub LLM that throws on a specific call index.
+final class FakeLLM: OrganizerLLMService, @unchecked Sendable {
+    var namesByIndex: [String]
+    var throwOnIndex: Int?
+    private var callCount = 0
+    init(names: [String], throwOn: Int? = nil) { namesByIndex = names; throwOnIndex = throwOn }
+    func proposeName(_ request: RenameRequest) async throws -> String {
+        defer { callCount += 1 }
+        if callCount == throwOnIndex { throw OrganizerError.llmFailure("stub") }
+        return namesByIndex[callCount % namesByIndex.count]
+    }
+    func proposeFolders(_ request: FolderPlanRequest) async throws -> [String: String] { [:] }
+}
+
 func testLLMFailureLeavesFileUntouched() async throws {
-    let coordinator = makeCoordinator(names: ["Good", THROW]) // second call throws
+    // FakeLLM: returns "Good" on call 0, throws on call 1.
+    let llm = FakeLLM(names: ["Good", "ignored"], throwOn: 1)
+    let coordinator = makeCoordinator(llm: llm)
     let proposal = try await coordinator.scan(urls: [pdfA, pdfB])
     XCTAssertEqual(proposal.operations[0].proposedName, "Good.pdf")
-    XCTAssertEqual(proposal.operations[1].proposedName, "b.pdf") // original preserved
+    XCTAssertEqual(proposal.operations[1].proposedName, "b.pdf") // original preserved on throw
 }
 ```
 
@@ -1088,7 +1114,7 @@ final class FeatureIDTests: XCTestCase {
 
 - [ ] Run (expect FAIL): `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter FeatureIDTests`
 - [ ] Add `case aiFileOrganizer` to `FeatureID`. Run the Shared test (expect PASS).
-- [ ] Implement `FileOrganizerDescriptor.descriptor()` mirroring `DownloaderDescriptor` (id `.aiFileOrganizer`, displayName "AI File Organizer", icon `wand.and.stars`, summary, `assetPacks: []`, an activator). Register the two new databases in `AppStoreContainer.makeProductionStores` (`databases/organizer.sqlite` with `OrganizerManifestStore.migrations + OrganizerPreferenceStore.migrations`) and expose the stores. Add the `.aiFileOrganizer` `MainAppDestination` case (title/subtitle/icon) and register `FileOrganizerPage` in `FunctionDestinationRegistry`.
+- [ ] Implement `FileOrganizerDescriptor.descriptor()` mirroring `DownloaderDescriptor` (id `.aiFileOrganizer`, displayName "AI File Organizer", icon `wand.and.stars`, summary, `assetPacks: []`, an activator). Register the two new databases in `AppStoreContainer.makeProductionStores` (real file: `MacAllYouNeed/App/Coordinators/AppStoreContainer.swift`, method `static func makeProductionStores(...)`) as `databases/organizer.sqlite` with `OrganizerManifestStore.migrations + OrganizerPreferenceStore.migrations`, and expose the stores. Instantiate `FileOrganizerCoordinator` in `AppController.init` (real file: `MacAllYouNeed/App/AppController.swift`) using the stores from `AppStoreContainer`. Add the `.aiFileOrganizer` `MainAppDestination` case (title/subtitle/icon) and register `FileOrganizerPage` in `FunctionDestinationRegistry`.
 - [ ] Run app build/tests (expect PASS): `xcodebuild test -project MacAllYouNeed.xcodeproj -scheme MacAllYouNeed -destination 'platform=macOS,arch=arm64' -only-testing:MacAllYouNeedTests/FileOrganizerCoordinatorTests`
 - [ ] Commit: `git add Shared/Sources/FeatureCore/FeatureID.swift Shared/Tests/CoreTests/FeatureID/FeatureIDTests.swift MacAllYouNeed/App/Descriptors/FileOrganizerDescriptor.swift MacAllYouNeed/App/Coordinators/AppStoreContainer.swift MacAllYouNeed/App/MainAppDestination.swift MacAllYouNeed/App/FunctionDestinationRegistry.swift && git commit -m "Wire AI File Organizer feature descriptor and stores
 

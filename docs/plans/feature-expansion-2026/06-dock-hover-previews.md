@@ -24,6 +24,7 @@ MacAllYouNeed/DockPreviews/                         # NEW directory
   DockPreviewWindowEntry.swift                     # value model
   DockPreviewWindowCache.swift                     # per-PID cache + diff
   DockPreviewWindowMatcher.swift                   # AX↔SC merge logic (pure)
+  DockPreviewWindowFilter.swift                    # Filters window list by Space, level, and visibility; returns only windows eligible for preview display.
   DockPreviewCaptureScheduler.swift               # concurrency-cap queue (pure-ish)
   DockPreviewThumbnailCache.swift                  # lifespan cache + injected clock
   DockPreviewPanelGeometry.swift                   # Quartz↔Cocoa flip + anchoring (pure)
@@ -77,6 +78,8 @@ MacAllYouNeedTests/DockPreviews/                    # NEW
 ### Task 1 — Add `Permission.screenRecording` case
 
 **Files:** `Shared/Sources/FeatureCore/FeatureDescriptor.swift:4-9`; test `Shared/Tests/FeatureCoreTests/DockPreviewsFeatureCoreTests.swift` (new).
+
+> **Forward-compatibility note:** Adding cases to a `RawRepresentable` `Codable` enum is safe for existing stored data — unknown raw values decode to `nil` / skip. However, `FeatureRuntime` may serialize `FeatureID.allCases` for the feature registry. After adding the new case, verify that users upgrading from a build without this case do not see unexpected state (the feature should appear as disabled/not-installed by default, which is correct behavior for a new feature).
 
 - [ ] Write failing test asserting the new case round-trips through `Codable`:
   ```swift
@@ -736,8 +739,11 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
   ```
 - [ ] Run-fail: `xcodebuild test ... -only-testing:MacAllYouNeedTests/DockPreviewCoordinatorTests` → `cannot find 'DockPreviewPrivateAPI'`.
 - [ ] Minimal impl: single file declaring `@_silgen_name`/`dlsym`-loaded function pointers for `CGSMainConnectionID`, `CGSHWCaptureWindowList`, `_SLPSSetFrontProcessWithOptions`, `SLPSPostEventRecordTo`, `_AXUIElementGetWindow`, `CGSCopySpacesForWindows`, `CGSCopyManagedDisplaySpaces`, `CGSGetWindowLevel`. Load SkyLight lazily from `/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight`; expose `isCaptureAvailable`, `isRaiseAvailable` computed from non-nil symbol pointers. Thin wrappers: `captureImage(windowID:) -> CGImage?`, `axWindowID(_:) -> CGWindowID?`, `raise(psn:windowID:) -> Bool`, `spaces(forWindowIDs:) -> [CGWindowID: [Int]]`. All return nil/false when a symbol fails to load.
+
+  > **Notarization note:** `dlopen` of system PrivateFrameworks (like `SkyLight.framework`) works under Hardened Runtime without `disable-library-validation` — system frameworks are always trusted by the dynamic linker regardless of code-signing state. The relevant entitlement to NOT have is `com.apple.security.cs.allow-unsigned-executable-memory` (which is NOT required and NOT present in `MacAllYouNeed.entitlements`). The existing entitlements (`com.apple.security.application-groups`, `com.apple.security.device.audio-input`, `keychain-access-groups`) do not affect PrivateFramework `dlopen`. No entitlement change is needed for SkyLight access.
+
 - [ ] Run-pass: same `-only-testing` → green (only the loader test runs in CI).
-- [ ] **Manual verification (documented):** on a real machine with Screen Recording granted, confirm `captureImage` returns a non-nil `CGImage` for a known window id and `raise` brings a specific window forward. Note macOS version tested.
+- [ ] **Manual verification (documented):** on a real machine with Screen Recording granted, confirm `captureImage` returns a non-nil `CGImage` for a known window id and `raise` brings a specific window forward. Confirm `dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)` returns a non-nil handle (i.e. Hardened Runtime does not block system framework dlopen without any additional entitlement). Note the macOS version tested.
 - [ ] Commit:
   ```
   git add MacAllYouNeed/DockPreviews/DockPreviewPrivateAPI.swift MacAllYouNeedTests/DockPreviews/DockPreviewCoordinatorTests.swift && git commit -m "feat(dockpreviews): add private CGS/SkyLight API seam
@@ -777,8 +783,51 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
       func stop()
   }
   ```
-  Plus the real `DockHoverObserver: DockHoverObserving` that, on `start()`: resolves `com.apple.dock` PID, asks the injected `AXObserverCoordinator` (S1) to subscribe to `kAXSelectedChildrenChangedNotification` on the Dock `AXList`, and on each callback resolves the hovered `AXApplicationDockItem` → `kAXURLAttribute` → bundle id → `NSRunningApplication` and emits `.appHovered`/`.hoverEnded`. Skips MAYN's own bundle id. Suppresses when `DockUtils`-equivalent reports the Dock hidden.
+  Plus the real `DockHoverObserver: DockHoverObserving` that, on `start()`: resolves `com.apple.dock` PID, obtains the Dock `AXList` child element, and asks the injected `AXObserverCoordinator` (S1) to subscribe to `kAXSelectedChildrenChangedNotification` on that element using the child-element overload added in Plan 00. The `dockAXList` element is resolved as follows:
+  ```swift
+  // Resolve the AXList child of the Dock application element
+  let appEl = AXUIElementCreateApplication(dockPID)
+  var childrenRef: CFTypeRef?
+  AXUIElementCopyAttributeValue(appEl, kAXChildrenAttribute as CFString, &childrenRef)
+  let children = (childrenRef as? [AXUIElement]) ?? []
+  var roleRef: CFTypeRef?
+  let dockAXList = children.first { child in
+      AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRef) == .success
+          && (roleRef as? String) == kAXListRole
+  }
+  ```
+  Then subscribes using the child-element overload:
+  ```swift
+  coordinator.start(
+      pid: dockPID,
+      targetElement: dockAXList,
+      notifications: [kAXSelectedChildrenChangedNotification]
+  ) { notification in
+      // resolve hovered AXApplicationDockItem → kAXURLAttribute → bundle id → NSRunningApplication
+      self.handleSelectionChanged()
+  }
+  ```
+  On each callback resolves the hovered `AXApplicationDockItem` → `kAXURLAttribute` → bundle id → `NSRunningApplication` and emits `.appHovered`/`.hoverEnded`. Skips MAYN's own bundle id. Suppresses when `DockUtils`-equivalent reports the Dock hidden.
 - [ ] Run-pass: same `-only-testing` → green (fake path).
+- [ ] Add test `testChildElementHoverNotificationRouted` using `MockAXObserverEngine` with the child-element call:
+  ```swift
+  func testChildElementHoverNotificationRouted() {
+      let engine = FakeAXObserverEngine()
+      let coordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 999)
+      let dockList = AXUIElementCreateApplication(0) // stand-in for the real AXList
+      var received: [String] = []
+      coordinator.start(
+          pid: 99,
+          targetElement: dockList,
+          notifications: [kAXSelectedChildrenChangedNotification]
+      ) { notification, _ in
+          received.append(notification)
+      }
+      XCTAssertEqual(engine.subscriptions.first?.notification, kAXSelectedChildrenChangedNotification)
+      coordinator.dispatch(notification: kAXSelectedChildrenChangedNotification)
+      XCTAssertEqual(received, [kAXSelectedChildrenChangedNotification])
+  }
+  ```
 - [ ] **Manual verification:** hover bottom/left/right Dock; confirm correct app resolves; relaunch Dock (`killall Dock`) and confirm S1 re-subscribes and hover resumes.
 - [ ] Commit:
   ```
@@ -1112,7 +1161,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] Run `xcodegen generate`.
 - [ ] Run-pass (full suite, confirms project still builds with new sources + plist):
   `xcodebuild test -project MacAllYouNeed.xcodeproj -scheme MacAllYouNeed -destination 'platform=macOS,arch=arm64'`
-- [ ] **Notarization check (manual, documented):** confirm `MacAllYouNeed.entitlements` has **no** App Sandbox key and **no** `com.apple.security.cs.disable-library-validation` that would block `dlopen` of `SkyLight.framework` — the existing entitlements (App Groups, audio-input, keychain) do not block PrivateFramework `dlopen` under Hardened Runtime. No new entitlement key is added for Screen Recording (it is a TCC consent). Note the macOS version verified.
+- [ ] **Notarization check (manual, documented):** confirm `MacAllYouNeed.entitlements` has **no** App Sandbox key and **no** `com.apple.security.cs.allow-unsigned-executable-memory` (which is NOT required and NOT present). `dlopen` of system PrivateFrameworks (like `SkyLight.framework`) works under Hardened Runtime without `disable-library-validation` — system frameworks are always trusted. The existing `disable-library-validation` entitlement already present in `MacAllYouNeed.entitlements` for Homebrew libarchive does not block `dlopen` of system frameworks. No new entitlement key is added for Screen Recording (it is a TCC consent). Note the macOS version verified.
 - [ ] Commit:
   ```
   git add project.yml MacAllYouNeed.xcodeproj/project.pbxproj && git commit -m "build(dockpreviews): add screen recording usage string

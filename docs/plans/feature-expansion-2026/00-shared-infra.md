@@ -327,7 +327,7 @@ git commit -m "$(printf 'S1: AXObserverCoordinator subscribes on start\n\nCo-Aut
 
 - [ ] Run to verify fail. Command:
   `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter AXObserverCoordinatorTests`
-  Expected: `testDispatchAfterStopIsIgnored` fails — after `stop()`, `pid` is nil so `dispatch` returns early and `count == 0`, but `engine.torndown` assertion confirms teardown happened. (If the implementation from Task 2 already passes both, that is acceptable; the new assertions characterize the contract — proceed to commit.) The first run should show a failure only if Task 2's `dispatch`/`stop` differs; if green, treat this task as adding regression coverage and skip straight to the pass step.
+  Expected: `testDispatchAfterStopIsIgnored` fails — after `stop()`, `pid` is nil so `dispatch` returns early and `count == 0`, but `engine.torndown` assertion confirms teardown happened. (If the implementation from Task 2 already passes both, that is acceptable; the new assertions characterize the contract — proceed to commit.) If the test already passes green on first run (because Task 2's implementation already satisfies it), commit it as a regression guard with a comment `// Regression guard — must stay green` and proceed. Do not skip the commit.
 
 - [ ] Run to verify pass. Command:
   `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter AXObserverCoordinatorTests`
@@ -557,6 +557,84 @@ let dockPID = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier
 coord.start(pid: dockPID, notifications: ["AXWindowCreated", "AXUIElementDestroyed"]) { n, _ in print("coord:", n) }
 ```
   Grant Accessibility, run the app, hover the Dock / open Mission Control, and confirm `AX:` / `coord:` lines print. Then quit and relaunch the Dock (`killall Dock`) and confirm events still arrive after ~3s (health-check re-subscribe). Remove the harness before committing.
+
+- [ ] **Add child-element subscription overload.** Append a new failing test to `AXObserverCoordinatorTests`:
+
+```swift
+    @MainActor
+    func testChildElementSubscriptionRoutesEvents() {
+        // Plan 06 (DockHoverObserver) subscribes kAXSelectedChildrenChangedNotification
+        // on the Dock's AXList element, not on the app-level element. This test
+        // proves the targetElement overload routes registrations to the supplied element.
+        let engine = FakeAXObserverEngine()
+        let coordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 999)
+        let dockList = AXUIElementCreateApplication(0) // stand-in element for testing
+        var received: [String] = []
+        coordinator.start(
+            pid: 99,
+            targetElement: dockList,
+            notifications: ["AXSelectedChildrenChanged"]
+        ) { notification, _ in
+            received.append(notification)
+        }
+        XCTAssertEqual(engine.created, [99])
+        XCTAssertEqual(engine.subscriptions.count, 1)
+        XCTAssertEqual(engine.subscriptions.first?.notification, "AXSelectedChildrenChanged")
+        coordinator.dispatch(notification: "AXSelectedChildrenChanged")
+        XCTAssertEqual(received, ["AXSelectedChildrenChanged"])
+    }
+```
+
+- [ ] Run to verify fail. Expected: compile error — `extra argument 'targetElement' in call`.
+
+- [ ] Add the `targetElement` overload. In `AXObserverCoordinator.swift`, add a stored property `private var targetElement: AXUIElement?` alongside the existing stored properties, then add the overload below the existing `start(pid:notifications:onEvent:)`:
+
+```swift
+    /// Overload for subscribing to a specific child element (e.g. `AXList` inside
+    /// the Dock) rather than the app-level element. When `targetElement` is non-nil,
+    /// the engine passes it to `AXObserverAddNotification` instead of the default
+    /// `AXUIElementCreateApplication(pid)`.
+    ///
+    /// Usage example — how a consumer wires its own callback:
+    ///
+    ///     // coordinator.start(pid:targetElement:notifications:onEvent:) wiring
+    ///     coordinator.start(
+    ///         pid: finderPID,
+    ///         targetElement: nil,   // nil = app-level element (Plan 02/B)
+    ///         notifications: [kAXFocusedWindowChangedNotification]
+    ///     ) { notification in self.dispatch(notification: notification) }
+    ///
+    ///     // DockHoverObserver (Plan 06/F) passes the AXList element:
+    ///     coordinator.start(
+    ///         pid: dockPID,
+    ///         targetElement: dockListElement,
+    ///         notifications: [kAXSelectedChildrenChangedNotification]
+    ///     ) { notification in self.dispatch(notification: notification) }
+    public func start(
+        pid: pid_t,
+        targetElement: AXUIElement? = nil,
+        notifications: [String],
+        onEvent: @escaping EventCallback
+    ) {
+        self.targetElement = targetElement
+        start(pid: pid, notifications: notifications, onEvent: onEvent)
+    }
+```
+
+  Also update `AXObserverEngine.subscribe` in `SystemAXObserverEngine` to accept an optional override element — when `AXObserverHandle` carries a non-nil `targetElement`, use it instead of `handle.appElement`:
+
+```swift
+    // In SystemAXObserverEngine.subscribe, replace the element resolution line:
+    // OLD: let element = handle.appElement
+    // NEW:
+    let element = handle.targetElement ?? handle.appElement
+```
+
+  Add `var targetElement: AXUIElement?` to `AXObserverHandle` alongside the existing `appElement` property, and pass `self.targetElement` through `subscribeAll()` → `makeObserver` → `AXObserverHandle` initializer so the element is available in `subscribe`.
+
+- [ ] Run to verify pass. Command:
+  `cd Shared && PKG_CONFIG_PATH="/opt/homebrew/opt/libarchive/lib/pkgconfig" swift test --filter AXObserverCoordinatorTests`
+  Expected: all 8 tests pass (7 prior + `testChildElementSubscriptionRoutesEvents`).
 
 - [ ] Commit. Command:
 ```
@@ -792,6 +870,11 @@ struct LLMIntentService {
 
 > Note on `template`: for `.voiceCleanup` the provider's own `clean` already injects the voice prompt, so `voiceContext` carries the personalization. New non-voice templates added later will route their system/user prompts through `VoiceTextGenerationProvider.generate(systemPrompt:userText:)` instead — that is feature-local work for C/E and out of scope here. This task only proves the provider-selection + injection seam is reusable.
 
+> **Caller convention clarification (IMPORTANT for Plans C and E):**
+> - `LLMIntentService.run(template:input:voiceContext:)` is for **Plan C (Voice Reminders) only**. It requires a `VoicePromptContext` because `.voiceCleanup` delegates directly to `VoicePromptBuilder`.
+> - **Plan E (AI File Organizer) does NOT use `LLMIntentService`**. Plan E calls `VoiceTextGenerationProvider.generate(systemPrompt:userPrompt:)` directly via its own `S2OrganizerLLMService`. This is the correct S2 calling convention for non-voice callers — they own their own system/user prompt construction and call the provider directly.
+> - **Do NOT add new cases to `LLMIntentTemplate`** for non-voice callers (i.e. do not add `.fileOrganizer`, `.reminderExtraction`, etc.). Those callers bypass `LLMIntentTemplate` entirely and own their prompt strings locally.
+
 - [ ] Run to verify pass. Command:
   `xcodebuild test -project MacAllYouNeed.xcodeproj -scheme MacAllYouNeed -destination 'platform=macOS,arch=arm64' -only-testing:MacAllYouNeedTests/LLMIntentServiceTests 2>&1 | tail -20`
   Expected: `** TEST SUCCEEDED **`, both tests pass.
@@ -889,3 +972,9 @@ git commit --allow-empty -m "$(printf 'S2: regression gate — voice tests uncha
 - **Voice behavior unchanged:** characterization baseline captured BEFORE (Task 6) and the identical suite re-run AFTER (Task 10), plus a byte-identical assertion that `.voiceCleanup` equals `VoicePromptBuilder.systemPrompt` (Task 7).
 
 **Known follow-ups (intentionally out of scope, feature-local):** wiring `AXObserverCoordinator` into B/F; adding non-voice `LLMIntentTemplate` cases (reminder extraction, file naming) that route via `VoiceTextGenerationProvider.generate`; these belong to the C/E/B/F plans.
+
+---
+
+## Execution Coordination Note
+
+Plans 01, 02, 03, and 06 all add cases to `Shared/Sources/Core/FeatureCore/FeatureID.swift` and/or `MacAllYouNeed/App/Descriptors/FeatureDescriptor.swift`. If these plans execute concurrently, they will produce merge conflicts on those two files. Recommended: as a final step of Plan 00, add ALL new `FeatureID` cases and `Permission` enum cases as stubs (with `// reserved` comments) before any feature plan begins. Cases to add: `.clipboardSmartText`, `.folderHistory`, `.voiceReminders`, `.dockPreviews`. Permission cases to add: `.screenRecording`, `.reminders`.
