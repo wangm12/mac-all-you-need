@@ -7,4 +7,9 @@ public enum FeatureID: String, CaseIterable, Codable, Sendable, Hashable {
     case voice
     case windowLayouts
     case windowGrab
+    case clipboardSmartText
+    case folderHistory
+    case voiceReminders
+    case aiFileOrganizer
+    case dockPreviews
 }

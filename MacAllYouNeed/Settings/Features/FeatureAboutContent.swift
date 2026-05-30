@@ -90,6 +90,8 @@ struct FeatureAboutContent: View {
         case .fullDiskAccess: return "Full Disk Access"
         case .microphone: return "Microphone"
         case .notifications: return "Notifications"
+        case .screenRecording: return "Screen Recording"
+        case .reminders: return "Reminders"
         }
     }
 

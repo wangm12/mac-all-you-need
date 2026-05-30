@@ -1,6 +1,8 @@
 import AppKit
 import ApplicationServices
 import AVFoundation
+import CoreGraphics
+import EventKit
 import FeatureCore
 import Foundation
 import UserNotifications
@@ -24,6 +26,10 @@ enum PermissionGateProbe {
             // UNNotificationCenter exposes async-only authorization status.
             // Treat as not-granted on cold-launch; presenting code calls requestAuthorization.
             return false
+        case .screenRecording:
+            return CGPreflightScreenCaptureAccess()
+        case .reminders:
+            return EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
         }
     }
 
@@ -38,6 +44,10 @@ enum PermissionGateProbe {
             raw = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
         case .notifications:
             raw = "x-apple.systempreferences:com.apple.preference.notifications"
+        case .screenRecording:
+            raw = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        case .reminders:
+            raw = "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders"
         }
         if let url = URL(string: raw) {
             NSWorkspace.shared.open(url)
@@ -62,6 +72,13 @@ enum PermissionGateProbe {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
                 DispatchQueue.main.async { completion(granted) }
             }
+        case .screenRecording:
+            let granted = CGRequestScreenCaptureAccess()
+            completion(granted)
+        case .reminders:
+            EKEventStore().requestFullAccessToReminders { granted, _ in
+                DispatchQueue.main.async { completion(granted) }
+            }
         }
     }
 
@@ -71,6 +88,8 @@ enum PermissionGateProbe {
         case .fullDiskAccess: return "Full Disk Access"
         case .microphone: return "Microphone"
         case .notifications: return "Notifications"
+        case .screenRecording: return "Screen Recording"
+        case .reminders: return "Reminders"
         }
     }
 

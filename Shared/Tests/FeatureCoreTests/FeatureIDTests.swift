@@ -9,7 +9,12 @@ final class FeatureIDTests: XCTestCase {
             .downloader,
             .voice,
             .windowLayouts,
-            .windowGrab
+            .windowGrab,
+            .clipboardSmartText,
+            .folderHistory,
+            .voiceReminders,
+            .aiFileOrganizer,
+            .dockPreviews
         ]
         XCTAssertEqual(Set(FeatureID.allCases), expected)
     }
