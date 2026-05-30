@@ -13,7 +13,7 @@ public enum RadialMenuLayout {
         .bottomHalf, // 4: bottom
         .bottomLeft, // 5: bottom-left
         .leftHalf, // 6: left
-        .topLeft, // 7: top-left
+        .topLeft // 7: top-left
     ]
 
     /// Action applied when the cursor stays in the center band.
@@ -30,7 +30,7 @@ public enum RadialMenuLayout {
         "a": .leftHalf,
         "q": .topLeft,
         "m": .maximize,
-        "f": .maximize,
+        "f": .maximize
     ]
 
     public static func action(forRingIndex index: Int) -> WindowAction? {

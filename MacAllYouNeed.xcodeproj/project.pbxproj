@@ -124,6 +124,7 @@
 		40441BD43CB620F691CB7CEE /* FeatureRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F45BD65EB650D54B16D0C2 /* FeatureRuntime.swift */; };
 		405DDB781F5F139D3F99C05E /* RemindersWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15D42CB7CCE0608358F05CFD /* RemindersWidgetBundle.swift */; };
 		40C43B176FA259925884D06E /* VoiceCoordinator+Reminders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F75BECA7694599B4F64C629 /* VoiceCoordinator+Reminders.swift */; };
+		40D45B55882A93577A51D643 /* WindowKeyboardActionPerformer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27DC3963B5E628A54F62CD34 /* WindowKeyboardActionPerformer.swift */; };
 		422510DFC18A55D3AD1B48CD /* AppStoreContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE89B386CE85CED3BE669B52 /* AppStoreContainer.swift */; };
 		4294C3F6EA15DC416260B620 /* AccessibilityStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820ECD258A03D97F5A7586CE /* AccessibilityStepView.swift */; };
 		4314A2FB9FCBAEBA25BECF34 /* DockPasteCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02ECAE4FA3AC4620DF9901CA /* DockPasteCoordinator.swift */; };
@@ -220,12 +221,14 @@
 		76E72834DB05A5A4E2888B6D /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 6731B6B0CA4B6CEFF4A313B9 /* Core */; };
 		77EF22454D9346F8333FB377 /* ClipboardDaemonMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD538FBD905EABFD43D81018 /* ClipboardDaemonMain.swift */; };
 		781FF1A46EB255D33FBD1B0F /* DownloaderViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B0AC988278F3B3487E57FCD /* DownloaderViewModel.swift */; };
+		7852321A3E8F6FF91C18AD76 /* WindowControlEventTap+Radial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F119CEF2B95E5AA37F24F76 /* WindowControlEventTap+Radial.swift */; };
 		78C887616C77E85869F25229 /* DownloadsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A320BFFB4CB076E26BB0770C /* DownloadsSettingsView.swift */; };
 		79B0FC2EF33E58EC4694A459 /* GroqASREngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81DD8D6F061705CFB5E3845C /* GroqASREngine.swift */; };
 		7B188A695B5E0D7AA1D31FFA /* DoneStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4B21B7F1864B55010E7AAD3 /* DoneStepView.swift */; };
 		7B1DE4BE4207077CAC76A87E /* MainWindowRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99553B32911A5BFE1237CAEC /* MainWindowRoot.swift */; };
 		7B64FD6DB8062B4F334EB381 /* FeatureSetupPermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2284C4D37037A68FF65EDA9A /* FeatureSetupPermissionsView.swift */; };
 		7BD8BB4FCED736490B6904A6 /* AppStoreContainerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24B069F7AC1FA973F0060110 /* AppStoreContainerTests.swift */; };
+		7C61A27500F2D5004843EB7F /* WindowControlCoordinator+Radial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F00AB1BCCEAE21F478859D /* WindowControlCoordinator+Radial.swift */; };
 		7C76C228FFEB41CC072311C6 /* UninstallConfirmationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67B9F0E5EF9A3843B0E122A4 /* UninstallConfirmationSheet.swift */; };
 		7DF0A1883426A46116723D2A /* TypelessImportCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9AE9F26BE619AC37CEEB4B7 /* TypelessImportCLI.swift */; };
 		7E254FAC6365E40A2B47C1CB /* DockItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193B1C23ED15167FD5274FB8 /* DockItem.swift */; };
@@ -452,6 +455,7 @@
 		F3BCF0DC26E2F7BC5B70FE15 /* LinkCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FC359D212D1313EAD394319 /* LinkCard.swift */; };
 		F4072298D6D21FC5D1FA3226 /* HotkeyOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE476FAE010B0B5C60CB0F2 /* HotkeyOrchestrator.swift */; };
 		F42745D6FEB7DAC1F87F0FD5 /* VoiceHistoryUndoToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05FAF7E33EF79F05F7932ED6 /* VoiceHistoryUndoToken.swift */; };
+		F4A9E13828564794555FBBF1 /* RadialMenuSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B39B874CF9F8103BBCCF7DE /* RadialMenuSettingsSection.swift */; };
 		F56B7042FE5271CDD92D8EFF /* DockSearchInputController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BA75F9EA2A47773237346AE /* DockSearchInputController.swift */; };
 		F58246B262BB6AC5E76647AE /* SideloadController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E67B8274004E0F4709F8B36 /* SideloadController.swift */; };
 		F5A04D53A3E77C19484F28D6 /* VoiceActivationMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43807BDAF3B94EC1A857C5C8 /* VoiceActivationMonitor.swift */; };
@@ -534,6 +538,7 @@
 		00448FD3866F070BC6970AF9 /* RemindersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersService.swift; sourceTree = "<group>"; };
 		0048E0AE4C75E2960CE5EA9C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		01669BBA1C61D611D592A25B /* WindowControlFeatureActivator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowControlFeatureActivator.swift; sourceTree = "<group>"; };
+		01F00AB1BCCEAE21F478859D /* WindowControlCoordinator+Radial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WindowControlCoordinator+Radial.swift"; sourceTree = "<group>"; };
 		02AAF12F66A66BFBCBF53CA3 /* PriorUsageDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PriorUsageDetector.swift; sourceTree = "<group>"; };
 		02ECAE4FA3AC4620DF9901CA /* DockPasteCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPasteCoordinator.swift; sourceTree = "<group>"; };
 		03A77819F7CDA7E2AAA93679 /* VoiceCoordinatorRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCoordinatorRetryTests.swift; sourceTree = "<group>"; };
@@ -608,6 +613,7 @@
 		270A6A75BEBC34BBBB8CA36A /* WindowGestureModifierPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowGestureModifierPicker.swift; sourceTree = "<group>"; };
 		27493E3C355CEDA56F021C41 /* RadialPreviewViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialPreviewViewModel.swift; sourceTree = "<group>"; };
 		278A0CCA816741468E53A2E6 /* ShortcutMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutMatcher.swift; sourceTree = "<group>"; };
+		27DC3963B5E628A54F62CD34 /* WindowKeyboardActionPerformer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowKeyboardActionPerformer.swift; sourceTree = "<group>"; };
 		2876DCA089797AF9F10608C2 /* VoiceTextGenerationProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextGenerationProviderTests.swift; sourceTree = "<group>"; };
 		2A124CC341401989513B5FEC /* WindowControlAccessibilityTrustMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowControlAccessibilityTrustMonitorTests.swift; sourceTree = "<group>"; };
 		2B70AD9C6C31FDFAAEFED2F3 /* ClipboardDockModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardDockModelTests.swift; sourceTree = "<group>"; };
@@ -694,6 +700,7 @@
 		5AFBF96227278B3A65341588 /* MissionControlClamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionControlClamp.swift; sourceTree = "<group>"; };
 		5DE04D12C9DE286CFFDAF02F /* VoiceTranscriptRetentionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTranscriptRetentionRunner.swift; sourceTree = "<group>"; };
 		5E3835E590F0AEE03670F37E /* HotkeyActionFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyActionFeature.swift; sourceTree = "<group>"; };
+		5F119CEF2B95E5AA37F24F76 /* WindowControlEventTap+Radial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WindowControlEventTap+Radial.swift"; sourceTree = "<group>"; };
 		5F6D7B0F394EAFD0746B1085 /* AppIconResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconResolver.swift; sourceTree = "<group>"; };
 		5FC359D212D1313EAD394319 /* LinkCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkCard.swift; sourceTree = "<group>"; };
 		60183A8998B4849B84296225 /* HotkeyRecorderModifierFlagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyRecorderModifierFlagsTests.swift; sourceTree = "<group>"; };
@@ -768,6 +775,7 @@
 		8A98DBAEE8E14FA47E8D030A /* FullDiskAccessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessProbe.swift; sourceTree = "<group>"; };
 		8AC220F91656BAC854FF6C87 /* FunctionDestinationRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FunctionDestinationRegistry.swift; sourceTree = "<group>"; };
 		8AFEAC6BBBD9438A1790B90B /* OnboardingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingState.swift; sourceTree = "<group>"; };
+		8B39B874CF9F8103BBCCF7DE /* RadialMenuSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuSettingsSection.swift; sourceTree = "<group>"; };
 		8B3D26DC785ED24B8C2D441E /* VoiceDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceDescriptor.swift; sourceTree = "<group>"; };
 		8B5A39FD01CC23C1BE9DE623 /* SettingsWindowConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowConfig.swift; sourceTree = "<group>"; };
 		8B926D25D2CAB48EE3CCDBDB /* ClipCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipCarousel.swift; sourceTree = "<group>"; };
@@ -1114,6 +1122,7 @@
 			children = (
 				8C64DAA011BEBAAE3FBC12D7 /* RadialMenuController.swift */,
 				F6D22E58B2D46DB302273F1F /* RadialMenuCoordinator.swift */,
+				8B39B874CF9F8103BBCCF7DE /* RadialMenuSettingsSection.swift */,
 				D7784622D696EB8322DE3E0E /* RadialMenuView.swift */,
 				0D37380E29A7354EAEE26A92 /* RadialMenuViewModel.swift */,
 				0A8BFC6FA5D9B946A58AF206 /* RadialPreviewController.swift */,
@@ -1649,13 +1658,16 @@
 				5AFBF96227278B3A65341588 /* MissionControlClamp.swift */,
 				440B93CF73472061631521A9 /* WindowControlAccessibilityTrustMonitor.swift */,
 				77C7108A5CEEE200BBA94F99 /* WindowControlCoordinator.swift */,
+				01F00AB1BCCEAE21F478859D /* WindowControlCoordinator+Radial.swift */,
 				F7267EF3FFCFF6BD13F17947 /* WindowControlDiagnosticsView.swift */,
 				4A281065F05E4966FD3ADAB2 /* WindowControlEventTap.swift */,
+				5F119CEF2B95E5AA37F24F76 /* WindowControlEventTap+Radial.swift */,
 				01669BBA1C61D611D592A25B /* WindowControlFeatureActivator.swift */,
 				35F3141EF104C06614AB9F32 /* WindowControlMainPage.swift */,
 				93E380E3A1BBCAAF0B9FEA6E /* WindowControlSettingsStore.swift */,
 				4346E5632F4203E659C723D8 /* WindowControlSettingsView.swift */,
 				270A6A75BEBC34BBBB8CA36A /* WindowGestureModifierPicker.swift */,
+				27DC3963B5E628A54F62CD34 /* WindowKeyboardActionPerformer.swift */,
 				3F5E63ABF5E9EDC9B8C43838 /* WindowSnapOverlayPanel.swift */,
 				176B844961D3F0123D06F2D1 /* Radial */,
 			);
@@ -2824,6 +2836,7 @@
 				6DD4F8DCCAC105D573E50A8D /* Qwen3Engine.swift in Sources */,
 				F9A3DD74A73BE10F48326E13 /* RadialMenuController.swift in Sources */,
 				BEF01D6A574ABF4F63567F93 /* RadialMenuCoordinator.swift in Sources */,
+				F4A9E13828564794555FBBF1 /* RadialMenuSettingsSection.swift in Sources */,
 				C2511DB915713E9321709069 /* RadialMenuView.swift in Sources */,
 				E637FD05458CE1BAFE3AEF5E /* RadialMenuViewModel.swift in Sources */,
 				CA5C58E1A0CF4AAADCB05BE2 /* RadialPreviewController.swift in Sources */,
@@ -2937,8 +2950,10 @@
 				021D918759AC48ABC014234E /* WelcomeStepView.swift in Sources */,
 				FDD24C880CD1D46E4AAFE520 /* WhatsNewSheetView.swift in Sources */,
 				066578EA69E2EC36995B907E /* WindowControlAccessibilityTrustMonitor.swift in Sources */,
+				7C61A27500F2D5004843EB7F /* WindowControlCoordinator+Radial.swift in Sources */,
 				A8BD5FD9FB686E0172D8410D /* WindowControlCoordinator.swift in Sources */,
 				33024A3FF865BE033F66CA18 /* WindowControlDiagnosticsView.swift in Sources */,
+				7852321A3E8F6FF91C18AD76 /* WindowControlEventTap+Radial.swift in Sources */,
 				AC31C97D4D6525E481AB8B9D /* WindowControlEventTap.swift in Sources */,
 				273CC03D0B810439A0CF8084 /* WindowControlFeatureActivator.swift in Sources */,
 				90F6AD4659B7FE66F18EBEAB /* WindowControlMainPage.swift in Sources */,
@@ -2947,6 +2962,7 @@
 				57A0D3780189FD2B9902A1EE /* WindowGestureModifierPicker.swift in Sources */,
 				A0206AC7535E4EAAA23F03C7 /* WindowGrabDescriptor.swift in Sources */,
 				D25322FBA7E9736DFB8D044E /* WindowGrabDestinationView.swift in Sources */,
+				40D45B55882A93577A51D643 /* WindowKeyboardActionPerformer.swift in Sources */,
 				AD3959D69980A423BE4800EF /* WindowLayoutsDescriptor.swift in Sources */,
 				68B2B862F1FB48630B93C2D6 /* WindowLayoutsDestinationView.swift in Sources */,
 				33274AB15FC410A630878E5A /* WindowLayoutsPopoverView.swift in Sources */,

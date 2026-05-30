@@ -36,7 +36,10 @@ struct WindowControlSettingsView: View {
             switch scope {
             case .layoutsShortcuts:
                 shortcutsSection
-                radialMenuSection
+                RadialMenuSettingsSection(settings: $settings) { next in
+                    WindowControlSettingsStore.save(next)
+                    controller.applyWindowControlSettings(next)
+                }
             case .layoutsSnap:
                 edgeSnapSection
             case .layoutsApps:
@@ -162,45 +165,6 @@ struct WindowControlSettingsView: View {
                             .help("Add shortcut")
                         }
                     }
-                }
-            }
-        }
-    }
-
-    private var radialMenuSection: some View {
-        MAYNSection(
-            title: "Radial Menu",
-            subtitle: "Hold Control-Option to open a radial layout picker; release over a direction to apply it."
-        ) {
-            MAYNSettingsRow(
-                title: "Radial menu",
-                subtitle: "Show a pie-style window layout picker on the held trigger."
-            ) {
-                Toggle("", isOn: boolBinding(\.radialMenuEnabled))
-                    .labelsHidden()
-            }
-            if settings.radialMenuEnabled {
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Lock to screen center",
-                    subtitle: "Anchor the radial menu to the screen center instead of the cursor."
-                ) {
-                    Toggle("", isOn: boolBinding(\.radialLockToCenter))
-                        .labelsHidden()
-                }
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Cursor selection",
-                    subtitle: "Select a layout by cursor angle while the menu is open."
-                ) {
-                    Toggle("", isOn: boolBinding(\.radialCursorSelectionEnabled))
-                        .labelsHidden()
-                }
-                MAYNDivider()
-                HStack {
-                    Spacer()
-                    RadialSettingsPreview()
-                    Spacer()
                 }
             }
         }

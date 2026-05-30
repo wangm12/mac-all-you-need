@@ -1,6 +1,6 @@
-@testable import MacAllYouNeed
 import Core
 import CoreGraphics
+@testable import MacAllYouNeed
 import XCTest
 
 @MainActor
