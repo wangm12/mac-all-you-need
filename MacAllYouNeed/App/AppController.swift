@@ -53,6 +53,19 @@ final class AppController {
 
     let voiceCoordinator: VoiceCoordinator
     let voiceRetentionRunner: VoiceTranscriptRetentionRunner
+
+    // Plan 03: Voice → Reminders. EventKit service + dedicated reminder hotkey.
+    // The service backs the coordinator's RemindersServiceWriter so spoken
+    // reminders are saved to Apple Reminders instead of being pasted.
+    let remindersService = RemindersService()
+    private var reminderHotkey: GlobalHotkey?
+
+    /// Retains the reminder hotkey registered by `registerReminderHotkey()`
+    /// (defined in the AppControllerVoice extension).
+    func setReminderHotkey(_ hotkey: GlobalHotkey) {
+        reminderHotkey?.unregister()
+        reminderHotkey = hotkey
+    }
     let windowControl: WindowControlCoordinator
     private let windowControlAccessibilityTrustMonitor: WindowControlAccessibilityTrustMonitor
 
@@ -210,6 +223,8 @@ final class AppController {
 
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()
+        voiceCoordinator.reminderWriterOverride = RemindersServiceWriter(service: remindersService)
+        registerReminderHotkey()
         voiceRetentionRunner.start()
         windowControl.start()
         windowControlAccessibilityTrustMonitor.start()
@@ -610,7 +625,8 @@ private func makeVoiceCoordinator(
         engine: engine,
         cleanupKeyStore: cleanupKeyStore,
         summarizer: summarizer,
-        historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) }
+        historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) },
+        reminderSettings: { ReminderSettingsStore.load() }
     )
 }
 

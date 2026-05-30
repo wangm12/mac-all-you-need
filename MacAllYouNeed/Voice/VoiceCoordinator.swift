@@ -81,7 +81,8 @@ final class VoiceCoordinator {
         cleanupKeyStore: VoiceCleanupKeyStore = VoiceCleanupKeyStore(keychain: SystemKeychain()),
         learningMonitor: VoicePostEditLearningMonitor? = nil,
         summarizer: VoicePersonalizationSummarizer? = nil,
-        historySettings: @escaping () -> VoiceHistorySettings = { .init() }
+        historySettings: @escaping () -> VoiceHistorySettings = { .init() },
+        reminderSettings: @escaping () -> ReminderSettings = { ReminderSettings.default }
     ) {
         self.init(
             transcripts: transcripts,
@@ -95,7 +96,7 @@ final class VoiceCoordinator {
             learningMonitor: learningMonitor,
             summarizer: summarizer,
             historySettings: historySettings,
-            reminderSettings: { ReminderSettings.default },
+            reminderSettings: reminderSettings,
             cleanupPipelineFactory: nil,
             paster: nil,
             snapshotFocused: nil,
@@ -225,6 +226,19 @@ final class VoiceCoordinator {
         monitorTask = nil
         _ = audio.stop()
         hud.dismiss()
+    }
+
+    /// Plan 03 — entry point for the reminder hotkey. Sets the reminder intent
+    /// for the next run, then starts recording exactly like dictation. When a
+    /// recording is already in flight, this commits it (the hotkey is a toggle).
+    func toggleReminderRecording() async {
+        if state == .recording {
+            await stopRecordingAndPaste()
+            return
+        }
+        guard state == .idle else { return }
+        activeIntent = .reminder
+        await startRecording()
     }
 
     func startRecording() async {
@@ -808,6 +822,9 @@ final class VoiceCoordinator {
         if state == .recording {
             await stopRecordingAndPaste()
         } else {
+            // The dictation hotkey always dictates — never inherits a stale
+            // reminder intent from a previously cancelled reminder run.
+            activeIntent = .dictation
             await startRecording()
         }
     }

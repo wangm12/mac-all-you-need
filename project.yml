@@ -38,6 +38,7 @@ targets:
         MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
         MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
         NSMicrophoneUsageDescription: MacAllYouNeed needs microphone access for voice dictation.
+        NSRemindersFullAccessUsageDescription: MacAllYouNeed saves spoken reminders to Apple Reminders.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app
