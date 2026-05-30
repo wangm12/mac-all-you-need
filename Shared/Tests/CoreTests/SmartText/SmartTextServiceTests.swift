@@ -62,4 +62,27 @@ final class SmartTextServiceTests: XCTestCase {
     func testDetectPlainProseIsNotCode() {
         XCTAssertNil(SmartTextService.detectCodeLanguage(in: "This is just a plain sentence."))
     }
+
+    func testClassifyColor() { XCTAssertEqual(SmartTextService.analyze(text: "#FF8800").type, .color) }
+    func testClassifyURL() { XCTAssertEqual(SmartTextService.analyze(text: "https://example.com/x").type, .url) }
+    func testClassifyEmail() { XCTAssertEqual(SmartTextService.analyze(text: "user@example.com").type, .email) }
+    func testClassifyPhone() { XCTAssertEqual(SmartTextService.analyze(text: "+1 (415) 555-2671").type, .phone) }
+    func testClassifyPlain() { XCTAssertEqual(SmartTextService.analyze(text: "hello world").type, .plain) }
+    func testClassifyCode() {
+        XCTAssertEqual(SmartTextService.analyze(text: "func f() { }").type, .code(language: .swift))
+    }
+    func testClassifyJWT() {
+        // header {"alg":"HS256","typ":"JWT"} . payload {"a":1} . sig
+        let header = Data("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let payload = Data("{\"a\":1}".utf8).base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+        let jwt = "\(header).\(payload).signature"
+        XCTAssertEqual(SmartTextService.analyze(text: jwt).type, .jwt)
+    }
+    func testAnalyzeAttachesCalculationAndLink() {
+        XCTAssertEqual(SmartTextService.analyze(text: "2+2").calculation?.value, "4")
+        XCTAssertEqual(SmartTextService.analyze(text: "https://x.com/?utm_source=a").linkClean?.removedCount, 1)
+    }
 }

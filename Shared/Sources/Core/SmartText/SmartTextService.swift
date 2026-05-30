@@ -171,3 +171,59 @@ extension SmartTextService {
         return braceDensity ? .unknown : nil
     }
 }
+
+extension SmartTextService {
+    public static func analyze(text raw: String) -> Detection {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let calc = calculate(s)
+        let link = cleanLink(s)
+        let type = classify(s)
+        return Detection(type: type, calculation: calc, linkClean: link)
+    }
+
+    static func classify(_ s: String) -> DetectedType {
+        if isColor(s) { return .color }
+        if isSingleURL(s) { return .url }
+        if isEmail(s) { return .email }
+        if isJWT(s) { return .jwt }
+        if isWholePhone(s) { return .phone }
+        if let lang = detectCodeLanguage(in: s) { return .code(language: lang) }
+        return .plain
+    }
+
+    static func isColor(_ s: String) -> Bool {
+        s.range(of: #"^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"#, options: .regularExpression) != nil
+            || s.range(of: #"^(rgb|rgba|hsl)\([^)]*\)$"#, options: .regularExpression) != nil
+    }
+
+    static func isSingleURL(_ s: String) -> Bool {
+        guard !s.contains(" "), !s.contains("\n"), let u = URLComponents(string: s) else { return false }
+        return (u.scheme == "http" || u.scheme == "https") && (u.host?.isEmpty == false)
+    }
+
+    static func isEmail(_ s: String) -> Bool {
+        s.range(of: #"^[^@\s]+@[^@\s]+\.[^@\s]+$"#, options: .regularExpression) != nil
+    }
+
+    static func isJWT(_ s: String) -> Bool {
+        let parts = s.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return false }
+        guard let header = base64urlDecode(String(parts[0])),
+              let obj = try? JSONSerialization.jsonObject(with: header) as? [String: Any]
+        else { return false }
+        return obj["alg"] != nil || obj["typ"] != nil
+    }
+
+    static func base64urlDecode(_ s: String) -> Data? {
+        var b = s.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b.count % 4 != 0 { b += "=" }
+        return Data(base64Encoded: b)
+    }
+
+    static func isWholePhone(_ s: String) -> Bool {
+        guard let det = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.phoneNumber.rawValue) else { return false }
+        let r = NSRange(s.startIndex..., in: s)
+        guard let m = det.firstMatch(in: s, range: r) else { return false }
+        return m.range == r
+    }
+}
