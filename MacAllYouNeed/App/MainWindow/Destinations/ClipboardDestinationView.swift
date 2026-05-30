@@ -1,6 +1,7 @@
 import AppKit
 import Core
 import CoreFoundation
+import FeatureCore
 import Platform
 import SwiftUI
 
@@ -234,6 +235,8 @@ struct ClipboardDestinationView: View {
             ClipboardDockHeightSection(controller: controller)
 
             SearchPreferencesSection()
+
+            SmartTextEnableSection(controller: controller)
         }
     }
 
