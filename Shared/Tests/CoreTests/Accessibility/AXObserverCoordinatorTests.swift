@@ -72,4 +72,29 @@ final class AXObserverCoordinatorTests: XCTestCase {
         XCTAssertEqual(count, 0)
         XCTAssertEqual(engine.torndown, 1)
     }
+
+    @MainActor
+    func testHealthCheckReSubscribesWhenHandleIsStale() {
+        let engine = FakeAXObserverEngine()
+        let coordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 999)
+        coordinator.start(pid: 5, notifications: ["AXWindowCreated"]) { _, _ in }
+        XCTAssertEqual(engine.created, [5])
+        XCTAssertEqual(engine.subscriptions.count, 1)
+        coordinator.markStaleForTesting()
+        coordinator.healthCheckNow()
+        XCTAssertEqual(engine.created, [5, 5])
+        XCTAssertEqual(engine.subscriptions.count, 2)
+        XCTAssertEqual(engine.torndown, 1)
+    }
+
+    @MainActor
+    func testHealthCheckIsNoOpWhenHandleIsHealthy() {
+        let engine = FakeAXObserverEngine()
+        let coordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 999)
+        coordinator.start(pid: 5, notifications: ["AXWindowCreated"]) { _, _ in }
+        coordinator.healthCheckNow()
+        XCTAssertEqual(engine.created, [5])
+        XCTAssertEqual(engine.subscriptions.count, 1)
+        XCTAssertEqual(engine.torndown, 0)
+    }
 }
