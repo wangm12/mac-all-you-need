@@ -48,4 +48,28 @@ final class AXObserverCoordinatorTests: XCTestCase {
         XCTAssertEqual(engine.subscriptions, [.init(pid: 7, notification: "AXWindowCreated"), .init(pid: 7, notification: "AXFocusedWindowChanged")])
         XCTAssertTrue(received.isEmpty)
     }
+
+    @MainActor
+    func testEngineEventReachesCallbackWithPID() {
+        let engine = FakeAXObserverEngine()
+        let coordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 999, now: { Date() })
+        var received: [(String, pid_t)] = []
+        coordinator.start(pid: 11, notifications: ["AXWindowCreated"]) { n, pid in received.append((n, pid)) }
+        coordinator.dispatch(notification: "AXWindowCreated")
+        XCTAssertEqual(received.count, 1)
+        XCTAssertEqual(received.first?.0, "AXWindowCreated")
+        XCTAssertEqual(received.first?.1, 11)
+    }
+
+    @MainActor
+    func testDispatchAfterStopIsIgnored() {
+        let engine = FakeAXObserverEngine()
+        let coordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 999)
+        var count = 0
+        coordinator.start(pid: 1, notifications: ["AXWindowCreated"]) { _, _ in count += 1 }
+        coordinator.stop()
+        coordinator.dispatch(notification: "AXWindowCreated")
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(engine.torndown, 1)
+    }
 }
