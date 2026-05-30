@@ -78,18 +78,7 @@ final class DaemonContainer {
     }
 
     func persist(item: PasteboardItem, source: String?) throws {
-        let rules = observer.rules
-        switch item {
-        case let .text(text):
-            if rules.shouldExcludeText(text) { return }
-        case let .html(text):
-            if rules.shouldExcludeText(text) { return }
-        case let .rtf(data):
-            let text = NSAttributedString(rtf: data, documentAttributes: nil)?.string ?? ""
-            if rules.shouldExcludeText(text) { return }
-        default:
-            break
-        }
+        if isExcludedByRules(item) { return }
 
         switch item {
         case let .text(s):
@@ -129,6 +118,21 @@ final class DaemonContainer {
             )
         case .unknown:
             break
+        }
+    }
+
+    /// Applies the user's text exclusion rules to text-like clips. Image and
+    /// file clips are never excluded by these rules.
+    private func isExcludedByRules(_ item: PasteboardItem) -> Bool {
+        let rules = observer.rules
+        switch item {
+        case let .text(text), let .html(text):
+            return rules.shouldExcludeText(text)
+        case let .rtf(data):
+            let text = NSAttributedString(rtf: data, documentAttributes: nil)?.string ?? ""
+            return rules.shouldExcludeText(text)
+        default:
+            return false
         }
     }
 
