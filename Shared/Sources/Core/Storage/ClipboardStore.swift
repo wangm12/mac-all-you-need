@@ -53,7 +53,9 @@ private enum ClipboardVoiceMigration {
 }
 
 public final class ClipboardStore {
-    private let db: Database
+    /// Package-internal so Smart Text enrichment helpers can live in a separate
+    /// extension file (`ClipboardStore+SmartText.swift`) without bloating this type.
+    let db: Database
     private let key: SymmetricKey
     private let deviceID: DeviceID
     private let log = Logging.logger(for: "storage", category: "clipboard")
@@ -142,7 +144,8 @@ public final class ClipboardStore {
             )
             insertedLamport = UInt64(next)
             try conn.execute(sql: """
-                INSERT INTO clipboard_records (id, created, modified, device_id, lamport, kind, preview, source_app, envelope, detected_type)
+                INSERT INTO clipboard_records
+                    (id, created, modified, device_id, lamport, kind, preview, source_app, envelope, detected_type)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 id.rawValue,
@@ -168,57 +171,10 @@ public final class ClipboardStore {
         )
     }
 
-    // MARK: - Smart Text enrichment (migration 008-smart-text)
-
-    public func setDetectedType(id: RecordID, json: String?) throws {
-        try db.queue.write { conn in
-            try conn.execute(
-                sql: "UPDATE clipboard_records SET detected_type = ? WHERE id = ?",
-                arguments: [json, id.rawValue]
-            )
-        }
-    }
-
-    public func setOCRText(id: RecordID, text: String?) throws {
-        try db.queue.write { conn in
-            try conn.execute(
-                sql: "UPDATE clipboard_records SET ocr_text = ? WHERE id = ?",
-                arguments: [text, id.rawValue]
-            )
-        }
-    }
-
-    public func setEmbedding(id: RecordID, blob: Data?) throws {
-        try db.queue.write { conn in
-            try conn.execute(
-                sql: "UPDATE clipboard_records SET embedding = ? WHERE id = ?",
-                arguments: [blob, id.rawValue]
-            )
-        }
-    }
-
-    /// Records that have not yet been embedded for semantic search. Only text-bearing
-    /// records (non-empty preview) are worth embedding; ordered newest-first.
-    public func idsMissingEmbedding(limit: Int) throws -> [RecordID] {
-        try db.queue.read { conn in
-            try Row.fetchAll(conn, sql: """
-                SELECT id FROM clipboard_records
-                WHERE embedding IS NULL
-                ORDER BY modified DESC LIMIT ?
-                """, arguments: [limit]).compactMap { RecordID(rawValue: $0["id"]) }
-        }
-    }
-
-    /// Image records whose OCR text has not yet been computed, newest-first.
-    public func idsMissingOCR(limit: Int) throws -> [RecordID] {
-        try db.queue.read { conn in
-            try Row.fetchAll(conn, sql: """
-                SELECT id FROM clipboard_records
-                WHERE ocr_text IS NULL AND preview LIKE '(image %'
-                ORDER BY modified DESC LIMIT ?
-                """, arguments: [limit]).compactMap { RecordID(rawValue: $0["id"]) }
-        }
-    }
+    // MARK: - Smart Text enrichment
+    //
+    // Read/write helpers for the migration-008 columns (detected_type, ocr_text,
+    // embedding) live in `ClipboardStore+SmartText.swift`.
 
     public func list(limit: Int, offset: Int = 0, modifiedOnOrAfter: Date? = nil) throws -> [ClipboardItemMeta] {
         try listRows(limit: limit, offset: offset, modifiedOnOrAfter: modifiedOnOrAfter)
@@ -263,12 +219,6 @@ public final class ClipboardStore {
             (row["id"] as String, Self.metaRow(row))
         })
         return ids.compactMap { byID[$0.rawValue] }
-    }
-
-    /// Single-record metadata fetch. Convenience for enrichment paths that
-    /// process one record id at a time.
-    public func meta(for id: RecordID) throws -> ClipboardItemMeta? {
-        try metas(for: [id]).first
     }
 
     public func body(for id: RecordID) throws -> ClipboardRecord {

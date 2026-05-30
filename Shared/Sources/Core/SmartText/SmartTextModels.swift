@@ -31,6 +31,11 @@ public struct Detection: Codable, Equatable, Sendable {
     public init(type: DetectedType, calculation: CalculationResult? = nil, linkClean: LinkCleanResult? = nil) {
         self.type = type; self.calculation = calculation; self.linkClean = linkClean
     }
-    public func encodedJSON() throws -> String { String(decoding: try JSONEncoder().encode(self), as: UTF8.self) }
-    public static func decode(json: String) throws -> Detection { try JSONDecoder().decode(Detection.self, from: Data(json.utf8)) }
+    public func encodedJSON() throws -> String {
+        let data = try JSONEncoder().encode(self)
+        return String(bytes: data, encoding: .utf8) ?? "{}"
+    }
+    public static func decode(json: String) throws -> Detection {
+        try JSONDecoder().decode(Detection.self, from: Data(json.utf8))
+    }
 }

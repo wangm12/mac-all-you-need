@@ -2,9 +2,9 @@ import Foundation
 import NaturalLanguage
 
 public enum ClipEmbeddingService {
-    public static func encode(_ v: [Float]) -> Data {
-        var le = v.map { $0.bitPattern.littleEndian }
-        return Data(bytes: &le, count: le.count * MemoryLayout<UInt32>.size)
+    public static func encode(_ vector: [Float]) -> Data {
+        var littleEndian = vector.map { $0.bitPattern.littleEndian }
+        return Data(bytes: &littleEndian, count: littleEndian.count * MemoryLayout<UInt32>.size)
     }
 
     public static func decode(_ data: Data) -> [Float]? {
@@ -24,7 +24,7 @@ public enum ClipEmbeddingService {
 
     public static func vector(for text: String, language: NLLanguage = .english) -> [Float]? {
         guard let emb = NLEmbedding.sentenceEmbedding(for: language),
-              let v = emb.vector(for: text) else { return nil }
-        return v.map(Float.init)
+              let vector = emb.vector(for: text) else { return nil }
+        return vector.map(Float.init)
     }
 }

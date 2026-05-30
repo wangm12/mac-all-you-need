@@ -74,18 +74,24 @@ struct SmartSearchQuery: Equatable {
 
         var freeTokens: [String] = []
         for token in trimmed.split(separator: " ").map(String.init) {
-            if let (negated, kind, value) = Self.parseOperator(token) {
-                let v = value.lowercased()
-                switch kind {
-                case "app": negated ? negatedApps.append(v) : appFilters.append(v)
-                case "type": typeFilters.append(v)
+            if let op = Self.parseOperator(token) {
+                let lowered = op.value.lowercased()
+                switch op.kind {
+                case "app":
+                    if op.negated { negatedApps.append(lowered) } else { appFilters.append(lowered) }
+                case "type":
+                    typeFilters.append(lowered)
                 case "date":
-                    if let date = Self.parseDate(value, now: now, calendar: calendar) {
+                    if let date = Self.parseDate(op.value, now: now, calendar: calendar) {
                         // Latest lower bound wins if multiple date filters appear.
-                        if let existing = dateOnOrAfter { dateOnOrAfter = max(existing, date) }
-                        else { dateOnOrAfter = date }
+                        if let existing = dateOnOrAfter {
+                            dateOnOrAfter = max(existing, date)
+                        } else {
+                            dateOnOrAfter = date
+                        }
                     }
-                default: break
+                default:
+                    break
                 }
             } else {
                 freeTokens.append(token)
@@ -94,11 +100,17 @@ struct SmartSearchQuery: Equatable {
         freeText = freeTokens.joined(separator: " ")
     }
 
+    private struct ParsedOperator {
+        let negated: Bool
+        let kind: String
+        let value: String
+    }
+
     private static func looksLikeOperator(_ s: String) -> Bool {
         operatorPattern?.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil
     }
 
-    private static func parseOperator(_ token: String) -> (negated: Bool, kind: String, value: String)? {
+    private static func parseOperator(_ token: String) -> ParsedOperator? {
         guard let re = operatorPattern else { return nil }
         let range = NSRange(token.startIndex..., in: token)
         guard let m = re.firstMatch(in: token, range: range),
@@ -106,17 +118,21 @@ struct SmartSearchQuery: Equatable {
               let kindRange = Range(m.range(at: 2), in: token),
               let valRange = Range(m.range(at: 3), in: token) else { return nil }
         let negated = !token[negRange].isEmpty
-        return (negated, String(token[kindRange]).lowercased(), String(token[valRange]))
+        return ParsedOperator(
+            negated: negated,
+            kind: String(token[kindRange]).lowercased(),
+            value: String(token[valRange])
+        )
     }
 
     /// `today`, `Nd` (last N days), or `YYYY-MM` / `YYYY-MM-DD`.
     static func parseDate(_ raw: String, now: Date, calendar: Calendar) -> Date? {
-        let v = raw.lowercased()
-        if v == "today" {
+        let lowered = raw.lowercased()
+        if lowered == "today" {
             return calendar.startOfDay(for: now)
         }
-        if v.hasSuffix("d"), let n = Int(v.dropLast()), n >= 0 {
-            return calendar.date(byAdding: .day, value: -n, to: calendar.startOfDay(for: now))
+        if lowered.hasSuffix("d"), let days = Int(lowered.dropLast()), days >= 0 {
+            return calendar.date(byAdding: .day, value: -days, to: calendar.startOfDay(for: now))
         }
         let formats = ["yyyy-MM-dd", "yyyy-MM"]
         for fmt in formats {
@@ -125,7 +141,7 @@ struct SmartSearchQuery: Equatable {
             df.calendar = calendar
             df.timeZone = calendar.timeZone
             df.dateFormat = fmt
-            if let d = df.date(from: raw) { return d }
+            if let date = df.date(from: raw) { return date }
         }
         return nil
     }

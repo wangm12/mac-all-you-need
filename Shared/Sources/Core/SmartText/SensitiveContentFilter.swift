@@ -14,8 +14,8 @@ public enum SensitiveContentFilter {
 
     static func containsLuhnRun(_ text: String) -> Bool {
         let stripped = text.replacingOccurrences(of: "[ -]", with: "", options: .regularExpression)
-        for match in stripped.ranges(of: #"\d{13,19}"#) {
-            if luhnValid(String(stripped[match])) { return true }
+        for match in stripped.ranges(of: #"\d{13,19}"#) where luhnValid(String(stripped[match])) {
+            return true
         }
         return false
     }
@@ -24,10 +24,13 @@ public enum SensitiveContentFilter {
         let nums = digits.compactMap(\.wholeNumberValue)
         guard nums.count >= 13 else { return false }
         var sum = 0
-        for (i, d) in nums.reversed().enumerated() {
-            var v = d
-            if i % 2 == 1 { v *= 2; if v > 9 { v -= 9 } }
-            sum += v
+        for (index, digit) in nums.reversed().enumerated() {
+            var value = digit
+            if index % 2 == 1 {
+                value *= 2
+                if value > 9 { value -= 9 }
+            }
+            sum += value
         }
         return sum % 10 == 0
     }

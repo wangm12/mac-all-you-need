@@ -102,13 +102,13 @@ struct ClipboardSmartTextSettingsSection: View {
                 }
             }
         }
-        .onChange(of: calculation) { _, v in SmartTextSettings.setCalculationEnabled(v); notify() }
-        .onChange(of: detection) { _, v in SmartTextSettings.setDetectionEnabled(v); notify() }
-        .onChange(of: ocr) { _, v in SmartTextSettings.setOCREnabled(v); notify() }
-        .onChange(of: sensitive) { _, v in SmartTextSettings.setSensitiveEnabled(v); notify() }
-        .onChange(of: semantic) { _, v in SmartTextSettings.setSemanticEnabled(v); notify() }
-        .onChange(of: linkMode) { _, v in
-            SmartTextSettings.setLinkMode(SmartTextSettings.LinkMode(rawValue: v.rawValue) ?? .auto)
+        .onChange(of: calculation) { _, value in SmartTextSettings.setCalculationEnabled(value); notify() }
+        .onChange(of: detection) { _, value in SmartTextSettings.setDetectionEnabled(value); notify() }
+        .onChange(of: ocr) { _, value in SmartTextSettings.setOCREnabled(value); notify() }
+        .onChange(of: sensitive) { _, value in SmartTextSettings.setSensitiveEnabled(value); notify() }
+        .onChange(of: semantic) { _, value in SmartTextSettings.setSemanticEnabled(value); notify() }
+        .onChange(of: linkMode) { _, value in
+            SmartTextSettings.setLinkMode(SmartTextSettings.LinkMode(rawValue: value.rawValue) ?? .auto)
             notify()
         }
     }

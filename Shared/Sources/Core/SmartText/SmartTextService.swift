@@ -103,8 +103,8 @@ enum ExpressionEvaluator {
         private mutating func parseUnary() -> Double? {
             if let op = peek(), op == "-" || op == "+" {
                 _ = consume(op)
-                guard let v = parseUnary() else { return nil }
-                return op == "-" ? -v : v
+                guard let value = parseUnary() else { return nil }
+                return op == "-" ? -value : value
             }
             return parsePrimary()
         }
@@ -113,8 +113,8 @@ enum ExpressionEvaluator {
         private mutating func parsePrimary() -> Double? {
             skipSpaces()
             if consume("(") {
-                guard let v = parseExpression(), consume(")") else { return nil }
-                return v
+                guard let value = parseExpression(), consume(")") else { return nil }
+                return value
             }
             var digits = ""
             while index < chars.count, chars[index].isNumber || chars[index] == "." {
@@ -132,8 +132,8 @@ extension SmartTextService {
         "oly_enc_id", "oly_anon_id", "yclid", "twclid", "wickedid", "_openstat"
     ]
     public static func isTracking(_ key: String) -> Bool {
-        let k = key.lowercased()
-        return k.hasPrefix("utm_") || trackingParameters.contains(k)
+        let lowered = key.lowercased()
+        return lowered.hasPrefix("utm_") || trackingParameters.contains(lowered)
     }
     public static func cleanLink(_ raw: String) -> LinkCleanResult? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -197,8 +197,8 @@ extension SmartTextService {
     }
 
     static func isSingleURL(_ s: String) -> Bool {
-        guard !s.contains(" "), !s.contains("\n"), let u = URLComponents(string: s) else { return false }
-        return (u.scheme == "http" || u.scheme == "https") && (u.host?.isEmpty == false)
+        guard !s.contains(" "), !s.contains("\n"), let comps = URLComponents(string: s) else { return false }
+        return (comps.scheme == "http" || comps.scheme == "https") && (comps.host?.isEmpty == false)
     }
 
     static func isEmail(_ s: String) -> Bool {

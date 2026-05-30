@@ -109,7 +109,7 @@ struct CardContextMenu: View {
                   let obj = try? JSONSerialization.jsonObject(with: data),
                   let pretty = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
             else { return nil }
-            return String(decoding: pretty, as: UTF8.self)
+            return String(bytes: pretty, encoding: .utf8)
         }
         let alert = NSAlert()
         alert.messageText = "Decoded JWT"
