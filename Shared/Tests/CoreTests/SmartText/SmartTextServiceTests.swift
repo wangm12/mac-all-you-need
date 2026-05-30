@@ -37,4 +37,29 @@ final class SmartTextServiceTests: XCTestCase {
     func testCleanLinkNilForNoQuery() {
         XCTAssertNil(SmartTextService.cleanLink("https://example.com/path"))
     }
+
+    func testDetectSwift() {
+        XCTAssertEqual(SmartTextService.detectCodeLanguage(in: "func add(a: Int, b: Int) -> Int { a + b }"), .swift)
+    }
+    func testDetectJavaScript() {
+        XCTAssertEqual(SmartTextService.detectCodeLanguage(in: "const f = (x) => x * 2"), .javascript)
+    }
+    func testDetectPython() {
+        XCTAssertEqual(SmartTextService.detectCodeLanguage(in: "def greet(name):\n    print(name)"), .python)
+    }
+    func testDetectSQL() {
+        XCTAssertEqual(SmartTextService.detectCodeLanguage(in: "SELECT id, name FROM users WHERE id = 5"), .sql)
+    }
+    func testDetectHTML() {
+        XCTAssertEqual(SmartTextService.detectCodeLanguage(in: "<div class=\"x\">hello</div>"), .html)
+    }
+    func testDetectShell() {
+        XCTAssertEqual(SmartTextService.detectCodeLanguage(in: "#!/bin/bash\necho hi"), .shell)
+    }
+    func testDetectMarkdownIsNotCode() {
+        XCTAssertNil(SmartTextService.detectCodeLanguage(in: "# Title\n- item one\n- item two"))
+    }
+    func testDetectPlainProseIsNotCode() {
+        XCTAssertNil(SmartTextService.detectCodeLanguage(in: "This is just a plain sentence."))
+    }
 }

@@ -150,3 +150,24 @@ extension SmartTextService {
         return LinkCleanResult(cleaned: cleaned, removedCount: removed, original: s)
     }
 }
+
+extension SmartTextService {
+    public static func detectCodeLanguage(in raw: String) -> CodeLanguage? {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A shebang is unambiguous shell; check before the markdown guard, which
+        // would otherwise treat the leading "#!" line as a markdown heading.
+        if s.hasPrefix("#!/") { return .shell }
+        let lines = s.split(separator: "\n")
+        let mdLines = lines.filter { $0.hasPrefix("#") || $0.hasPrefix("- ") || $0.hasPrefix("* ") }
+        if !lines.isEmpty, mdLines.count * 2 >= lines.count, !s.contains("{") { return nil }
+        if s.range(of: #"(?i)\bselect\b[\s\S]+\bfrom\b"#, options: .regularExpression) != nil { return .sql }
+        if s.range(of: #"<[a-zA-Z][^>]*>[\s\S]*</[a-zA-Z]"#, options: .regularExpression) != nil { return .html }
+        if s.contains("func ") || s.contains("let ") || s.contains("var ") || s.contains("guard ") { return .swift }
+        if s.contains("=>") || s.contains("const ") || s.contains("function ") { return .javascript }
+        if s.contains("def ") || (s.contains("import ") && s.contains(":")) { return .python }
+        if s.contains("#include") { return .c }
+        if s.contains("echo ") { return .shell }
+        let braceDensity = (s.contains("{") && s.contains("}")) || s.contains(";\n")
+        return braceDensity ? .unknown : nil
+    }
+}
