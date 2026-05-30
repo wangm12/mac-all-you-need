@@ -24,4 +24,18 @@ final class LLMIntentServiceTests: XCTestCase {
         XCTAssertEqual(result, "CLEANED")
         XCTAssertEqual(fake.lastRequest?.text, "hello world this is a test")
     }
+
+    func testDisabledCleanupSettingsYieldNoProvider() {
+        var settings = VoiceCleanupSettings.default
+        settings.isEnabled = false
+        let provider = try? VoiceCleanupProviderFactory.makeProvider(settings: settings, keyStore: VoiceCleanupKeyStore(keychain: SystemKeychain()))
+        XCTAssertNil(provider ?? nil)
+    }
+
+    // Note: the production default cleanup provider is `.anthropic`, not `.groq`.
+    // The plan's spec assumed `.groq`; the real source default is asserted here so
+    // we lock the actual shipped default without altering voice behavior.
+    func testDefaultCleanupProviderKindIsAnthropic() {
+        XCTAssertEqual(VoiceCleanupSettings.default.provider, .anthropic)
+    }
 }
