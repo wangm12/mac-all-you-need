@@ -23,6 +23,17 @@ public struct ClipboardItemMeta: Equatable, Sendable {
     /// of the auto-generated `preview`. Persisted in `clipboard_records`
     /// (migration 003-custom-label).
     public let customLabel: String?
+    /// Smart Text detection JSON (`Detection.encodedJSON()`). Persisted in
+    /// `clipboard_records.detected_type` (migration 008-smart-text). Nil for
+    /// records captured before Smart Text was enabled.
+    public let detectedTypeJSON: String?
+    /// Background Vision OCR result for image records. Persisted in
+    /// `clipboard_records.ocr_text` (migration 008-smart-text).
+    public let ocrText: String?
+    /// Apple NLEmbedding vector for semantic search, encoded little-endian via
+    /// `ClipEmbeddingService.encode`. Persisted in `clipboard_records.embedding`
+    /// (migration 008-smart-text).
+    public let embedding: Data?
 
     public init(
         id: RecordID,
@@ -35,7 +46,10 @@ public struct ClipboardItemMeta: Equatable, Sendable {
         sourceAppBundleID: String?,
         frequency: Int,
         lastAccessed: Date?,
-        customLabel: String? = nil
+        customLabel: String? = nil,
+        detectedTypeJSON: String? = nil,
+        ocrText: String? = nil,
+        embedding: Data? = nil
     ) {
         self.id = id
         self.created = created
@@ -48,5 +62,8 @@ public struct ClipboardItemMeta: Equatable, Sendable {
         self.frequency = frequency
         self.lastAccessed = lastAccessed
         self.customLabel = customLabel
+        self.detectedTypeJSON = detectedTypeJSON
+        self.ocrText = ocrText
+        self.embedding = embedding
     }
 }
