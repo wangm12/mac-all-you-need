@@ -22,6 +22,8 @@ struct CardContextMenu: View {
             Task { await model.copyToClipboard(itemID: item.id) }
         }
 
+        typeAwareEntries
+
         if let videoURL = URLDetector.videoBearingURL(in: item.preview) {
             Divider()
             Button {
@@ -63,6 +65,56 @@ struct CardContextMenu: View {
         Button("Share…") {
             shareItem()
         }
+    }
+
+    /// Type-aware actions derived from Smart Text detection: email Compose,
+    /// phone Call / Copy digits, JWT Decode. Hidden when detection is absent or
+    /// the type has no specific action.
+    @ViewBuilder
+    private var typeAwareEntries: some View {
+        switch item.detectedTypeName {
+        case "email":
+            Divider()
+            Button("Compose Email") {
+                if let url = URL(string: "mailto:\(item.preview.trimmingCharacters(in: .whitespacesAndNewlines))") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        case "phone":
+            Divider()
+            let digits = item.preview.filter { $0.isNumber || $0 == "+" }
+            Button("Call") {
+                if let url = URL(string: "tel:\(digits)") { NSWorkspace.shared.open(url) }
+            }
+            Button("Copy Digits") {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(digits, forType: .string)
+            }
+        case "jwt":
+            Divider()
+            Button("Decode JWT") { decodeJWT() }
+        default:
+            EmptyView()
+        }
+    }
+
+    private func decodeJWT() {
+        let parts = item.preview.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return }
+        let decoded = parts.prefix(2).compactMap { part -> String? in
+            var b = String(part).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            while b.count % 4 != 0 { b += "=" }
+            guard let data = Data(base64Encoded: b),
+                  let obj = try? JSONSerialization.jsonObject(with: data),
+                  let pretty = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
+            else { return nil }
+            return String(decoding: pretty, as: UTF8.self)
+        }
+        let alert = NSAlert()
+        alert.messageText = "Decoded JWT"
+        alert.informativeText = decoded.joined(separator: "\n\n")
+        alert.runModal()
     }
 
     private var targetAppName: String {
