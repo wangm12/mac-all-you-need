@@ -60,6 +60,16 @@ final class VoiceCoordinator {
     private(set) var state: State = .idle
     private(set) var lastTranscript: VoiceCleanupResult?
 
+    /// Voice → Reminders (Plan 03). When `activeIntent == .reminder` and a
+    /// `reminderWriterOverride` (or the production writer) is present, the
+    /// pipeline writes to Apple Reminders instead of pasting. The dictation
+    /// path is unchanged when `activeIntent == .dictation`.
+    var activeIntent: VoiceIntent = .dictation
+    var reminderWriterOverride: (any RemindersWriter)?
+    private let reminderSettings: () -> ReminderSettings
+    /// The reminder created on the most recent `.reminder` run, for UI/tests.
+    private(set) var lastCreatedReminder: CreatedReminder?
+
     convenience init(
         transcripts: VoiceTranscriptStore,
         dictionary: VoiceDictionaryStore? = nil,
@@ -85,6 +95,7 @@ final class VoiceCoordinator {
             learningMonitor: learningMonitor,
             summarizer: summarizer,
             historySettings: historySettings,
+            reminderSettings: { ReminderSettings.default },
             cleanupPipelineFactory: nil,
             paster: nil,
             snapshotFocused: nil,
@@ -111,6 +122,7 @@ final class VoiceCoordinator {
         learningMonitor: VoicePostEditLearningMonitor? = nil,
         summarizer: VoicePersonalizationSummarizer? = nil,
         historySettings: @escaping () -> VoiceHistorySettings = { .init() },
+        reminderSettings: @escaping () -> ReminderSettings = { ReminderSettings.default },
         cleanupPipelineFactory: ((TimeInterval) -> VoiceCleanupPipeline)?,
         paster: ((String) async -> CursorPaster.Result)?,
         snapshotFocused: (() -> AXTargetSnapshot?)?,
@@ -128,6 +140,7 @@ final class VoiceCoordinator {
         self.learningMonitor = learningMonitor ?? VoicePostEditLearningMonitor()
         self.summarizer = summarizer
         self.historySettings = historySettings
+        self.reminderSettings = reminderSettings
         cleanupPipelineFactoryOverride = cleanupPipelineFactory
         pasterOverride = paster
         snapshotFocusedOverride = snapshotFocused
@@ -303,6 +316,17 @@ final class VoiceCoordinator {
                 undoBookkeeping.setInflightASRResult(asr)
             }
 
+            // Plan 03 — spoken-prefix reminder detection. Only promotes to the
+            // reminder intent; an intent already forced by the hotkey is never
+            // demoted. Gated by the spokenPrefixEnabled setting.
+            if activeIntent == .dictation,
+               reminderSettings().spokenPrefixEnabled,
+               let rawText = ctx.asrResult?.text,
+               SpokenReminderPrefixDetector.isReminder(rawText) {
+                activeIntent = .reminder
+                log.info("reminder intent — promoted from spoken prefix")
+            }
+
             // Phase 2 — Cleanup.
             hud.show(
                 .transcribing(.cleanup(progress: 0)),
@@ -319,6 +343,20 @@ final class VoiceCoordinator {
             }
             lastTranscript = cleanupResult
 
+            // Plan 03 — reminder terminal phase. For the `.reminder` intent we
+            // write to Apple Reminders instead of pasting. This bypasses paste,
+            // transcript save, training example, and learning entirely — a
+            // reminder is never injected into the focused app.
+            if activeIntent == .reminder, let writer = resolveReminderWriter() {
+                try await runReminderWrite(cleanedText: cleanupResult.cleanedText, writer: writer)
+                guard isCurrentOperation(generation) else { return }
+                state = .idle
+                undoBookkeeping.clearInflight()
+                hud.dismiss()
+                activeIntent = .dictation
+                return
+            }
+
             // Phase 3 — Paste (also saves transcript + training example).
             state = .pasting
             try await makePastePhase().run(&ctx)
@@ -333,8 +371,24 @@ final class VoiceCoordinator {
         } catch {
             guard isCurrentOperation(generation) else { return }
             undoBookkeeping.clearInflight()
+            activeIntent = .dictation
             fail(error.localizedDescription)
         }
+    }
+
+    /// Resolves the reminder writer for the current run. Tests inject via
+    /// `reminderWriterOverride`; production wires `RemindersServiceWriter`.
+    private func resolveReminderWriter() -> (any RemindersWriter)? {
+        reminderWriterOverride
+    }
+
+    /// Runs the reminder write phase and records the result. Throws on failure
+    /// so the surrounding catch surfaces an error terminal in the HUD.
+    private func runReminderWrite(cleanedText: String, writer: any RemindersWriter) async throws {
+        let phase = ReminderWritePhase(writer: writer, settings: reminderSettings)
+        let created = try await phase.execute(cleanedText: cleanedText)
+        lastCreatedReminder = created
+        log.info("reminder written — list: \(created.listName, privacy: .public) hasDue: \(created.dueDate != nil, privacy: .public)")
     }
 
     /// Returns false (and clears the inflight context) when this operation has
