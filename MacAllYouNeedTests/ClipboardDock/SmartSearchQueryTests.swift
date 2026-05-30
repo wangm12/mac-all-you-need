@@ -59,4 +59,41 @@ final class SmartSearchQueryTests: XCTestCase {
         XCTAssertEqual(q.typeFilters, ["url"])
         XCTAssertEqual(q.freeText, "query")
     }
+
+    func testRegexDelimiters() {
+        let q = SmartSearchQuery("/inv.*42/")
+        XCTAssertTrue(q.isRegex)
+        XCTAssertEqual(q.regexPattern, "inv.*42")
+        XCTAssertNotNil(q.compiledRegex)
+        XCTAssertTrue(q.hasOperators)
+    }
+
+    func testInvalidRegexFallsBackToFreeText() {
+        let q = SmartSearchQuery("/[unclosed/")
+        XCTAssertFalse(q.isRegex)
+        XCTAssertNil(q.compiledRegex)
+        XCTAssertEqual(q.freeText, "/[unclosed/")
+    }
+
+    func testMatchesTextLiteral() {
+        let q = SmartSearchQuery("invoice")
+        XCTAssertTrue(q.matchesText("Invoice #42", ocrText: nil))
+        XCTAssertFalse(q.matchesText("receipt", ocrText: nil))
+    }
+
+    func testMatchesTextSearchesOCR() {
+        let q = SmartSearchQuery("invoice")
+        XCTAssertTrue(q.matchesText("(image 100×100)", ocrText: "scanned INVOICE document"))
+    }
+
+    func testMatchesTextRegex() {
+        let q = SmartSearchQuery("/inv.*42/")
+        XCTAssertTrue(q.matchesText("invoice 42", ocrText: nil))
+        XCTAssertFalse(q.matchesText("invoice 99", ocrText: nil))
+    }
+
+    func testMatchesTextEmptyMatchesAll() {
+        let q = SmartSearchQuery("/app:Safari")
+        XCTAssertTrue(q.matchesText("anything", ocrText: nil))
+    }
 }

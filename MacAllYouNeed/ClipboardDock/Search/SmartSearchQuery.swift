@@ -26,6 +26,24 @@ struct SmartSearchQuery: Equatable {
             || dateOnOrAfter != nil || isRegex
     }
 
+    /// Whether the free-text / regex portion of the query matches a record's
+    /// visible text (preview) or its background OCR text. Structured operators
+    /// (app/type/date) are applied separately by the predicate filter; this only
+    /// covers the text-match dimension. An empty free-text non-regex query
+    /// matches everything.
+    func matchesText(_ preview: String, ocrText: String?) -> Bool {
+        let haystacks = [preview, ocrText].compactMap { $0 }
+        if isRegex {
+            guard let re = compiledRegex else { return true }
+            return haystacks.contains { hay in
+                re.firstMatch(in: hay, range: NSRange(hay.startIndex..., in: hay)) != nil
+            }
+        }
+        let needle = freeText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return true }
+        return haystacks.contains { $0.lowercased().contains(needle) }
+    }
+
     private static let operatorPattern = try? NSRegularExpression(
         pattern: #"^(-?)/(app|type|date):(.+)$"#, options: [.caseInsensitive]
     )
