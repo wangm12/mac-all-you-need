@@ -210,6 +210,7 @@
 		82B2E08C2233FAE23CB9F96C /* DownloaderFeatureActivatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44AB9CB1E773CA8743DFCAEE /* DownloaderFeatureActivatorTests.swift */; };
 		835661A65B93DBD5882D5F88 /* VoiceASRSettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF23BB95BEC2DDAA69E88DE2 /* VoiceASRSettingsStoreTests.swift */; };
 		840BB752FA12FC68660402E2 /* FeatureStatePublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE62551FB3A7E3E624A243E2 /* FeatureStatePublisher.swift */; };
+		851CDDFE0BE4173EBEE52B21 /* LLMIntentServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DACE547246EC3A47101285F9 /* LLMIntentServiceTests.swift */; };
 		859A360E7C66DA30687E3F3A /* UndoContextBookkeeping.swift in Sources */ = {isa = PBXBuildFile; fileRef = E621AC01E8FDD9D6F4AF61FB /* UndoContextBookkeeping.swift */; };
 		85F75A4267CFE9A02106ABC9 /* CompactTimestamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF6466E93D9092EAED357FA /* CompactTimestamp.swift */; };
 		866F9FA049696515EEE42067 /* UIAuditArtifactWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C358B777C293EBE41F40E8 /* UIAuditArtifactWriter.swift */; };
@@ -308,6 +309,7 @@
 		C3485491828447607006ADF6 /* SettingsDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA26CD96D641197E624D8AD /* SettingsDestinationView.swift */; };
 		C3EF1B71F362965F3108A6E0 /* VoicePersonalizationSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A219C8BAFC244641984E816C /* VoicePersonalizationSettingsTests.swift */; };
 		C40F29EEC986CC9A5C264FAF /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94773D365B35EDB4F478C425 /* ShortcutRecorderView.swift */; };
+		C41D09A370ED8A2FB713B520 /* LLMIntentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79BA94960D5D11E5400BFB49 /* LLMIntentService.swift */; };
 		C422E4B699A248ACC30F939B /* PreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D8A30C84A7A923B6C4A4980 /* PreviewPanel.swift */; };
 		C4269E9119A76C15B4BD26DD /* LanguagesStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81C5B8DD7A84E3C0F5668B4D /* LanguagesStepView.swift */; };
 		C5E493B98F9A139988CEC0FB /* ShortcutMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 278A0CCA816741468E53A2E6 /* ShortcutMatcher.swift */; };
@@ -634,6 +636,7 @@
 		785DD52CE7E2564E48EF1DF0 /* PermissionsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsSettingsView.swift; sourceTree = "<group>"; };
 		789D9719CDE8B2C6B3D14D4B /* TransformMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransformMenu.swift; sourceTree = "<group>"; };
 		79B1A5A9D1E969AC988D3580 /* FeaturePickerCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePickerCard.swift; sourceTree = "<group>"; };
+		79BA94960D5D11E5400BFB49 /* LLMIntentService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMIntentService.swift; sourceTree = "<group>"; };
 		7A8628397431FC8F2D6346D1 /* FolderImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderImageCache.swift; sourceTree = "<group>"; };
 		7B0B0C8F9C8227C552BE45ED /* PackInstallController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackInstallController.swift; sourceTree = "<group>"; };
 		7B44E29D71B4EF1BD0D4EFB2 /* FeatureToolCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureToolCard.swift; sourceTree = "<group>"; };
@@ -805,6 +808,7 @@
 		D8CC72853A346333ED946F84 /* FeatureSetupConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureSetupConfigView.swift; sourceTree = "<group>"; };
 		D9339EB99FAB520EDFB56671 /* SnippetsDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsDestinationView.swift; sourceTree = "<group>"; };
 		D9621C784D1902388B0CE04A /* NotificationsPermissionRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPermissionRow.swift; sourceTree = "<group>"; };
+		DACE547246EC3A47101285F9 /* LLMIntentServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMIntentServiceTests.swift; sourceTree = "<group>"; };
 		DB3113E09553270B55F20199 /* DockListSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockListSelector.swift; sourceTree = "<group>"; };
 		DBD47DDDF10CA07606E8A553 /* DownloadsListSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsListSelectionTests.swift; sourceTree = "<group>"; };
 		DE62551FB3A7E3E624A243E2 /* FeatureStatePublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStatePublisher.swift; sourceTree = "<group>"; };
@@ -989,6 +993,7 @@
 		2237C4230879B05C5EF98792 /* LLM */ = {
 			isa = PBXGroup;
 			children = (
+				DACE547246EC3A47101285F9 /* LLMIntentServiceTests.swift */,
 				E9C5054AA2AAD755D04854B5 /* LLMIntentTemplateTests.swift */,
 			);
 			path = LLM;
@@ -1843,6 +1848,7 @@
 		F16EF75516F97092121C2B22 /* LLM */ = {
 			isa = PBXGroup;
 			children = (
+				79BA94960D5D11E5400BFB49 /* LLMIntentService.swift */,
 				C15A983392141008C23AE672 /* LLMIntentTemplate.swift */,
 			);
 			path = LLM;
@@ -2163,6 +2169,7 @@
 				0E1F4F768C84C12B8DEA2EFF /* HotkeyRecorderModifierFlagsTests.swift in Sources */,
 				E852FAE2BB311E081968E98E /* HotkeyRecorderTests.swift in Sources */,
 				B2D13425C45F611C5106886D /* ImageBlobLoaderTests.swift in Sources */,
+				851CDDFE0BE4173EBEE52B21 /* LLMIntentServiceTests.swift in Sources */,
 				1E69D9BC8D8B38E4F412F226 /* LLMIntentTemplateTests.swift in Sources */,
 				35F5B0786C06C35B96673B3F /* MAYNListPaginationTests.swift in Sources */,
 				36472E9514E689C1FF8D6DD2 /* MacAllYouNeedApplicationDelegateTests.swift in Sources */,
@@ -2382,6 +2389,7 @@
 				0E380A020C014C3E5C75C876 /* KeyboardShortcutRegistrationSummary.swift in Sources */,
 				4F8697032A43D524A4AAE65D /* KeyboardShortcutVisualizer.swift in Sources */,
 				064F7B5F7E256CBEEDDFBDC7 /* KeyboardShortcutVisualizerState.swift in Sources */,
+				C41D09A370ED8A2FB713B520 /* LLMIntentService.swift in Sources */,
 				FC5EB2AA9F6C6826B2092FBC /* LLMIntentTemplate.swift in Sources */,
 				C4269E9119A76C15B4BD26DD /* LanguagesStepView.swift in Sources */,
 				AC1198571046FC309262AB46 /* LearningPhase.swift in Sources */,
