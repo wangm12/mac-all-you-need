@@ -12,6 +12,7 @@ struct AppMenuBarContent: View {
         case downloads = "Downloads"
         case layouts = "Layouts"
         case snippets = "Snippets"
+        case reminders = "Reminders"
 
         var title: String { rawValue }
 
@@ -22,6 +23,7 @@ struct AppMenuBarContent: View {
             case .downloads: "arrow.down.circle"
             case .layouts: "rectangle.3.group"
             case .snippets: "text.quote"
+            case .reminders: "checklist"
             }
         }
 
@@ -72,6 +74,8 @@ struct AppMenuBarContent: View {
                     WindowLayoutsPopoverView(controller: controller)
                 case .snippets:
                     SnippetsListView(model: controller.clipboardDeps.dockModel)
+                case .reminders:
+                    RemindersPopoverView(controller: controller)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -142,6 +146,10 @@ struct AppMenuBarContent: View {
         case .snippets:
             AppGroupSettings.defaults.set(SnippetsFunctionTab.library.rawValue, forKey: SnippetsFunctionTab.storageKey)
             controller.showMainWindow(destination: .snippets)
+        case .reminders:
+            // Reminders has no dedicated main-window destination; Voice is its
+            // closest home (the reminder flow lives in the Voice pipeline).
+            controller.showMainWindow(destination: .voice)
         }
     }
 }

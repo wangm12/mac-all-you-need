@@ -12,6 +12,7 @@ enum FeatureRegistryProvider {
             WindowLayoutsDescriptor.descriptor(),
             WindowGrabDescriptor.descriptor(),
             FinderHistoryDescriptor.descriptor(),
+            RemindersFeatureDescriptor.descriptor(),
         ])
     }
 }
