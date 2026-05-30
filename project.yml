@@ -61,6 +61,9 @@ targets:
       - target: FolderPreview
         embed: true
         codeSign: true
+      - target: FinderHistoryExtension
+        embed: true
+        codeSign: true
     postBuildScripts:
       - name: "Embed ClipboardDaemon in LoginItems"
         basedOnDependencyAnalysis: false
@@ -172,6 +175,26 @@ targets:
         product: Platform
       - package: Shared
         product: FeatureCore
+
+  FinderHistoryExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FinderHistoryExtension
+    info:
+      path: FinderHistoryExtension/Info.plist
+      properties:
+        CFBundleName: FinderHistoryExtension
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.FinderSync
+          NSExtensionPrincipalClass: FinderSyncExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.finderhistory
+        CODE_SIGN_ENTITLEMENTS: FinderHistoryExtension/FinderHistoryExtension.entitlements
+    dependencies:
+      - package: Shared
+        product: Core
 
 schemes:
   TypelessImport:
