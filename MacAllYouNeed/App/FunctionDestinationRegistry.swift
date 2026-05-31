@@ -194,7 +194,7 @@ enum DashboardToolTilePresentation {
                 featureID: .voiceReminders
             ),
             DashboardToolTileItem(
-                destination: .settings,
+                destination: .folderPreview,
                 title: "Finder Folder History",
                 metric: nil,
                 detail: "Jump back to recently visited Finder folders via hotkey.",
@@ -205,7 +205,7 @@ enum DashboardToolTilePresentation {
                 featureID: .folderHistory
             ),
             DashboardToolTileItem(
-                destination: .settings,
+                destination: .downloads,
                 title: "AI File Organizer",
                 metric: nil,
                 detail: "Rename and re-file messy folders using on-device content extraction.",
@@ -216,7 +216,7 @@ enum DashboardToolTilePresentation {
                 featureID: .aiFileOrganizer
             ),
             DashboardToolTileItem(
-                destination: .settings,
+                destination: .windowLayouts,
                 title: "Dock Hover Previews",
                 metric: nil,
                 detail: "See window thumbnails when hovering an app's Dock icon.",
