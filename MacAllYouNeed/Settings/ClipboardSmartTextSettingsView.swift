@@ -111,6 +111,7 @@ struct ClipboardSmartTextSettingsSection: View {
     @Binding var sensitive: Bool
     @Binding var semantic: Bool
     @Binding var linkMode: LinkModeTab
+    @Bindable private var registry = ShortcutRegistry.shared
 
     var body: some View {
         Group {
@@ -174,15 +175,31 @@ struct ClipboardSmartTextSettingsSection: View {
             MAYNSection(title: "Keyboard shortcuts") {
                 MAYNSettingsRow(
                     title: "Copy Smart Text",
-                    subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card. Configurable in Snippets & Shortcuts settings."
+                    subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card.",
+                    minHeight: 58
                 ) {
-                    let bindings = ShortcutRegistry.shared.bindings(for: .copySmartText)
-                    if bindings.isEmpty {
-                        Text("Off").foregroundStyle(.secondary).font(.callout)
-                    } else {
-                        HStack(spacing: 4) {
-                            ForEach(bindings, id: \.self) {
-                                ShortcutChip(text: $0.display(), height: HotkeyChipPresentation.compactHeight)
+                    VStack(alignment: .trailing, spacing: 8) {
+                        HStack(spacing: 6) {
+                            ForEach(registry.bindings(for: .copySmartText), id: \.self) { binding in
+                                ShortcutChip(text: binding.display(), height: HotkeyChipPresentation.compactHeight)
+                                    .contextMenu {
+                                        Button("Remove") {
+                                            registry.removeBinding(binding, for: .copySmartText)
+                                        }
+                                    }
+                            }
+                        }
+                        HStack(spacing: 8) {
+                            ShortcutRecorderView(binding: .constant(nil)) { captured in
+                                do {
+                                    try registry.validate(captured, for: .copySmartText)
+                                    registry.addBinding(captured, for: .copySmartText)
+                                } catch {}
+                            }
+                            .frame(width: 130, height: HotkeyChipPresentation.compactHeight)
+
+                            MAYNButton("Reset", height: HotkeyChipPresentation.compactHeight) {
+                                registry.reset(action: .copySmartText)
                             }
                         }
                     }
