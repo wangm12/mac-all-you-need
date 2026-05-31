@@ -695,6 +695,7 @@ private struct MainPage<Content: View>: View {
             .padding(.horizontal, 32)
             .padding(.vertical, 30)
         }
+        .scrollIndicators(.hidden)
     }
 }
 

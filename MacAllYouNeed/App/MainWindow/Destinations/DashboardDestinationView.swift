@@ -26,6 +26,7 @@ struct DashboardDestinationView: View {
             .padding(.horizontal, 36)
             .padding(.vertical, 30)
         }
+        .scrollIndicators(.hidden)
         .task {
             await controller.downloaderVM.refresh()
         }

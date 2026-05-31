@@ -20,7 +20,9 @@ final class MainWindowController {
         let window = window ?? makeWindow(controller: controller)
         self.window = window
         if window.contentView == nil {
-            window.contentView = NSHostingView(rootView: MainWindowRoot(controller: controller))
+            window.contentView = NSHostingView(
+                rootView: MainWindowRoot(controller: controller).scrollIndicators(.hidden)
+            )
         }
 
         PreviewPanel.dismiss()
@@ -43,7 +45,9 @@ final class MainWindowController {
         window.minSize = NSSize(width: 820, height: 560)
         window.center()
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: MainWindowRoot(controller: controller))
+        window.contentView = NSHostingView(
+            rootView: MainWindowRoot(controller: controller).scrollIndicators(.hidden)
+        )
         return window
     }
 }
