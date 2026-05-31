@@ -14,7 +14,7 @@ final class FakeAXObserverEngine: AXObserverEngine, @unchecked Sendable {
     private(set) var torndown = 0
     var failNextCreate = false
     var failSubscribeForPID: pid_t?
-    func makeObserver(pid: pid_t) -> AXObserverHandle? {
+    func makeObserver(pid: pid_t, onEvent: @escaping (String) -> Void) -> AXObserverHandle? {
         if failNextCreate { return nil }
         created.append(pid)
         return AXObserverHandle(pid: pid, token: created.count)
@@ -33,7 +33,7 @@ final class FakeAXObserverEngine: AXObserverEngine, @unchecked Sendable {
 final class AXObserverCoordinatorTests: XCTestCase {
     func testMakeObserverHandleCarriesPID() {
         let engine = FakeAXObserverEngine()
-        let handle = engine.makeObserver(pid: 42)
+        let handle = engine.makeObserver(pid: 42, onEvent: { _ in })
         XCTAssertEqual(handle?.pid, 42)
         XCTAssertEqual(engine.created, [42])
     }

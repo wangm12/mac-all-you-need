@@ -1,0 +1,322 @@
+{
+  "source_export": "/Users/mingjie.wang/Documents/personal/mac-all-you-need/.build/voice-export/extracted",
+  "total_clips": 39,
+  "instant_clip_count": 9,
+  "instant_total_ms": 124100,
+  "instant_target_ms": 120000,
+  "note": "Instant pack is best-effort until corpus exceeds target; record studio read for pro clone.",
+  "clips": [
+    {
+      "id": "E3092049-EEC8-478F-B74A-09874799704C",
+      "duration_ms": 24100,
+      "quality": "medium",
+      "source_app": "com.todesktop.230313mzl4w4u92",
+      "text_preview": "I believe there should be a command to directly migrate into the local MySQL. Do",
+      "in_instant_pack": true
+    },
+    {
+      "id": "1574B826-BDF5-4B51-99F2-27F65D8D0981",
+      "duration_ms": 17700,
+      "quality": "medium",
+      "source_app": "com.todesktop.230313mzl4w4u92",
+      "text_preview": "This tag position is kind of tall. I want to just be a little bit above the bott",
+      "in_instant_pack": true
+    },
+    {
+      "id": "9DA248BA-AD58-4674-A6C7-1DEA6E68B6CC",
+      "duration_ms": 15300,
+      "quality": "medium",
+      "source_app": "com.google.Chrome",
+      "text_preview": "\u5e2e\u6211\u770b\u4e00\u4e0b\u8fd9\u4e2adesign pack\u786e\u5b9a\u5b83\u5230\u5e95\u6709\u6ca1\u6709\u95ee\u9898\u5982\u679c\u6709\u95ee\u9898\u7684\u8bdd\u5e2e\u6211\u518dupdate\u4e00\u4e0b\u6211\u786e\u4fdd\u5b83\u7684\u5fae\u4fe1\u767b\u5f55\u548c\u5176\u4ed6\u7684\u767b\u5f55\u662f\u90fd\u5728\u7684",
+      "in_instant_pack": true
+    },
+    {
+      "id": "068B1368-BBC9-46EF-8F16-26E96330B510",
+      "duration_ms": 14300,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "I am checking with the what is called, the Q one, A S R model trying to see if t",
+      "in_instant_pack": true
+    },
+    {
+      "id": "39826BD9-EC4E-479B-BF60-3D67E4C1DA2C",
+      "duration_ms": 13200,
+      "quality": "medium",
+      "source_app": "com.google.Chrome.canary",
+      "text_preview": "I'm doing a little test for my voice recognition model. It should be using OpenA",
+      "in_instant_pack": true
+    },
+    {
+      "id": "60059B29-B5C7-4186-A794-4434194CD323",
+      "duration_ms": 11400,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Ah, check ah if we can move the call start ah directly to, either switching the ",
+      "in_instant_pack": true
+    },
+    {
+      "id": "25B83896-A1BB-4B3A-AB78-29EFB18BD843",
+      "duration_ms": 10200,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "I'm testing this. What is called a pill, etc. What do you think? Not.",
+      "in_instant_pack": true
+    },
+    {
+      "id": "DEF83536-F8E9-4465-A24A-59C052CA4CF0",
+      "duration_ms": 9900,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Can we make sure all the pixel size slash the width, of the pixels are the exact",
+      "in_instant_pack": true
+    },
+    {
+      "id": "E6D65255-AE52-439A-AA02-130654EE69C2",
+      "duration_ms": 8000,
+      "quality": "medium",
+      "source_app": "com.google.Chrome",
+      "text_preview": "Ah, I think we might want to see the transfer, the UIUX for the ASU models.",
+      "in_instant_pack": true
+    },
+    {
+      "id": "D4F8625D-43CD-4BC8-BFEC-6B7440AB697C",
+      "duration_ms": 7700,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Testing the the new Mac voice thing.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "D0FF11F8-AF82-4B90-A085-1212755D7D48",
+      "duration_ms": 7400,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Testing the micro or need voice controller.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "784A61C7-509E-45F2-B30D-33F5709A475C",
+      "duration_ms": 7300,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Testing the real, Michael's listening guy.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "D271B6DA-4429-4611-8D58-9127B80C9E31",
+      "duration_ms": 7100,
+      "quality": "medium",
+      "source_app": "com.macallyouneed.app",
+      "text_preview": "Hey, I'm testing this to see if this is accurate or not.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "B37F272D-3B5B-4490-9E0C-0D4ECA13E585",
+      "duration_ms": 7100,
+      "quality": "medium",
+      "source_app": "com.google.Chrome",
+      "text_preview": "I'm testing this, trying to see the accuracy for the existing ASU models.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "4F804BC5-FC41-4C1A-91C5-395CD965ED76",
+      "duration_ms": 6900,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Gotcha. Okay, I am testing the speed right now and then checking the new UI.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "4C3608E2-3B72-4805-BF5E-171F32AF3550",
+      "duration_ms": 6400,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "I am testing this, trying to see if everything is working properly.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "B0843FD2-6DE1-4E09-9547-5F9CBB222E62",
+      "duration_ms": 5900,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Testing the new Mac voice thing. Yeah.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "AC67A153-0AD4-4D2B-B1A1-EED766A26038",
+      "duration_ms": 5600,
+      "quality": "medium",
+      "source_app": "com.google.Chrome.canary",
+      "text_preview": "\u6d4b\u8bd5\u4e00\u4e0b\uff0c\u6211\u60f3\u8981\u5728 Outlook \u5f53\u4e2d\u554a\u53d1\u4e00\u4e2a\u90ae\u4ef6\u3002",
+      "in_instant_pack": false
+    },
+    {
+      "id": "F08866C9-DD06-4FB3-97DB-F463808CFF34",
+      "duration_ms": 5300,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Ah, nothing else. I feel like ah, Baba Baba.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "18ED551F-4AA8-450F-A660-AA84500F15AF",
+      "duration_ms": 5300,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "So that's the major reason I want to check.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "44F02356-0799-437B-BEA7-9280ED74B1C7",
+      "duration_ms": 5700,
+      "quality": "medium",
+      "source_app": "com.todesktop.230313mzl4w4u92",
+      "text_preview": "I'm trying to see what exactly is happening.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "0FE4BE69-61DB-41FA-8B8E-397093BC8367",
+      "duration_ms": 5100,
+      "quality": "medium",
+      "source_app": "com.google.Chrome",
+      "text_preview": "\u5e03\u62c9\u5e03\u62c9\u5e03\u62c9\u5e03\u62c9\u5e03\u62c9\u5e03\u62c9\u5e03\u62c9\u5e03\u62c9\u3002",
+      "in_instant_pack": false
+    },
+    {
+      "id": "A66464AF-B9FC-4281-A892-414A345FC3B1",
+      "duration_ms": 4200,
+      "quality": "medium",
+      "source_app": "com.google.Chrome.canary",
+      "text_preview": "\u54ce\uff0c\u4f60\u597d\uff0c\u6d4b\u8bd5\u4e00\u4e0b\uff0c\u770b\u770b\u8fd9\u4e2a Oculus \u6709\u9999\u3002",
+      "in_instant_pack": false
+    },
+    {
+      "id": "0A30C763-FBF5-4AF1-B016-90EE4A84EADB",
+      "duration_ms": 4100,
+      "quality": "medium",
+      "source_app": "com.todesktop.230313mzl4w4u92",
+      "text_preview": "Hey, testing list, trying to see exactly what's happening.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "3E988439-6060-486C-9D0B-7515AAAACAA4",
+      "duration_ms": 4000,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "I'm trying to make sure testing this.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "CD85B1EF-0C54-4FC4-B6A3-483BB409E965",
+      "duration_ms": 3200,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Did you restart the application?",
+      "in_instant_pack": false
+    },
+    {
+      "id": "FBE29AB8-E1A8-4549-B44A-A898D026A390",
+      "duration_ms": 2700,
+      "quality": "medium",
+      "source_app": "com.todesktop.230313mzl4w4u92",
+      "text_preview": "\u4e0d\uff0c\u4e0d\uff0c\u4e0d\u3002",
+      "in_instant_pack": false
+    },
+    {
+      "id": "FB35C0AE-47F5-4A9F-923B-3C8977670B85",
+      "duration_ms": 2500,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Testing this Mac application.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "9F792826-4BC6-4AA6-9F4C-42C795240A6F",
+      "duration_ms": 2400,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "hey, interesting. What's up?",
+      "in_instant_pack": false
+    },
+    {
+      "id": "356FFF4B-2062-46D9-8ED4-45A144FA241F",
+      "duration_ms": 2300,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Testing.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "72454ACA-5258-4B77-8487-E29FE3231691",
+      "duration_ms": 2200,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "\u4ed6\u4ec0\u4e48\uff1f\u7267\u573a\u3002",
+      "in_instant_pack": false
+    },
+    {
+      "id": "6440A610-D43B-48CB-8862-8C2E7CBE3B94",
+      "duration_ms": 2100,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "\u4ed6\u633a\u7684\u3002",
+      "in_instant_pack": false
+    },
+    {
+      "id": "3720D460-B4CB-4040-B114-55BD1577B8CC",
+      "duration_ms": 1900,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "\u6211\u6578\u3002",
+      "in_instant_pack": false
+    },
+    {
+      "id": "72B24745-E81B-4A81-836D-E56A26F6EB38",
+      "duration_ms": 1900,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "\u9280\u6cf0\u57ce\u5605\u4e8b\u3002",
+      "in_instant_pack": false
+    },
+    {
+      "id": "E41ADB43-A128-42D6-8DD4-AA8CD0D7613F",
+      "duration_ms": 1800,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Testing. Testing.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "E7683DE0-83C7-4541-8465-A47ADEC2175A",
+      "duration_ms": 1500,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "\u4ed6\u7701\uff0c\u4f60\u770b\u7701\u3002",
+      "in_instant_pack": false
+    },
+    {
+      "id": "B3F558EE-9C1F-45FC-A801-57759C658C6A",
+      "duration_ms": 1300,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "Th\u00e1ch th\u1ee9c",
+      "in_instant_pack": false
+    },
+    {
+      "id": "08CECADB-37A3-42EF-8796-FF5B144A0356",
+      "duration_ms": 1000,
+      "quality": "medium",
+      "source_app": "com.todesktop.230313mzl4w4u92",
+      "text_preview": "Gracias.",
+      "in_instant_pack": false
+    },
+    {
+      "id": "41AC89BC-710C-4545-B4A6-023C87AE615F",
+      "duration_ms": 1000,
+      "quality": "medium",
+      "source_app": "com.googlecode.iterm2",
+      "text_preview": "\u0e2d\u0e48\u0e32 \u0e16\u0e49\u0e32\u0e09\u0e31\u0e19",
+      "in_instant_pack": false
+    }
+  ]
+}

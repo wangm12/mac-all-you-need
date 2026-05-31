@@ -13,8 +13,11 @@ final class DockPreviewCoordinator {
     private let raiseService: DockPreviewRaiseService
     private let panel: DockPreviewPanel
     private var currentPID: pid_t?
-    private var panelOrigin: CGPoint = .zero
+    private var currentAppName: String = ""
+    private var currentAppIcon: NSImage?
+    private var panelAnchor: NSPoint = .zero
     private var isRunning = false
+    private var dismissTask: Task<Void, Never>?
 
     init(coordinator axCoordinator: AXObserverCoordinator) {
         observer = DockHoverObserver(coordinator: axCoordinator)
@@ -29,14 +32,13 @@ final class DockPreviewCoordinator {
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        observer.onHoverBegan = { [weak self] pid, _ in
+        observer.onHoverBegan = { [weak self] pid, appName in
             Task { @MainActor [weak self] in
-                await self?.showPreview(for: pid)
+                await self?.showPreview(for: pid, appName: appName)
             }
         }
         observer.onHoverEnded = { [weak self] in
-            self?.panel.dismiss()
-            self?.currentPID = nil
+            self?.scheduleDismiss()
         }
         observer.start()
     }
@@ -47,25 +49,50 @@ final class DockPreviewCoordinator {
         panel.dismiss()
         cache.clearAll()
         currentPID = nil
+        dismissTask?.cancel()
+        dismissTask = nil
     }
 
-    private func showPreview(for pid: pid_t) async {
+    private func scheduleDismiss() {
+        dismissTask?.cancel()
+        dismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            self?.panel.dismiss()
+            self?.currentPID = nil
+        }
+    }
+
+    private func cancelDismiss() {
+        dismissTask?.cancel()
+        dismissTask = nil
+    }
+
+    private func showPreview(for pid: pid_t, appName: String) async {
+        cancelDismiss()
         currentPID = pid
+        currentAppName = appName
+
+        // Resolve the app icon from running applications or workspace.
+        currentAppIcon = NSWorkspace.shared.runningApplications
+            .first { $0.processIdentifier == pid }?
+            .icon
+
         let mode = DockPreviewPermissionGate.currentMode()
 
-        // Enumerate windows.
         var entries = await enumerator.windows(for: pid)
         entries = DockPreviewWindowFilter.filter(entries)
+
+        // If the app is running but has no on-screen windows yet, show a placeholder.
+        if entries.isEmpty && pid != 0 {
+            // Show a minimal panel with just the app header and no windows.
+        }
         guard !entries.isEmpty, currentPID == pid else { return }
         _ = cache.update(entries: entries, for: pid)
 
-        // Anchor the panel near the cursor once, so it does not jump as
-        // thumbnails stream in.
-        let cursor = NSEvent.mouseLocation
-        panelOrigin = CGPoint(x: cursor.x - 100, y: cursor.y + 10)
+        panelAnchor = NSEvent.mouseLocation
         presentPanel(for: pid, mode: mode)
 
-        // Load thumbnails asynchronously when Screen Recording is available.
         guard mode == .fullPreview else { return }
         for entry in entries {
             if let cached = thumbnailCache.get(windowID: entry.id) {
@@ -75,7 +102,7 @@ final class DockPreviewCoordinator {
             }
             Task { @MainActor [weak self] in
                 guard let self, self.currentPID == pid else { return }
-                if let thumb = await self.thumbnailService.capture(windowID: entry.id, scale: 1.5) {
+                if let thumb = await self.thumbnailService.capture(windowID: entry.id, scale: 2.0) {
                     guard self.currentPID == pid else { return }
                     self.thumbnailCache.set(windowID: entry.id, image: thumb)
                     self.cache.setThumbnail(thumb, windowID: entry.id, pid: pid)
@@ -89,7 +116,13 @@ final class DockPreviewCoordinator {
         guard currentPID == pid else { return }
         let entries = DockPreviewWindowFilter.filter(cache.entries(for: pid))
         guard !entries.isEmpty else { return }
-        panel.show(entries: entries, mode: mode, at: panelOrigin) { [weak self] entry in
+        panel.show(
+            appIcon: currentAppIcon,
+            appName: currentAppName,
+            entries: entries,
+            mode: mode,
+            at: panelAnchor
+        ) { [weak self] entry in
             self?.raiseService.raise(entry: entry)
             self?.panel.dismiss()
             self?.currentPID = nil

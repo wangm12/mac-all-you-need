@@ -1,0 +1,4825 @@
+# GitHub Releases 更新日志
+
+本文件由 [release-changelog-bot](.github/workflows/release-changelog-bot.yml) 根据 GitHub Release 自动生成；**请勿手动修改各版本条目**（可修改本说明）。
+
+<!-- release-changelog-bot:auto -->
+
+<!-- release-changelog-bot:tag:v1.4.5 -->
+## v1.4.5 — v1.4.5 | Intermicāns
+
+- **Tag:** `v1.4.5`
+- **Published:** 2026-05-09T11:59:42Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.4.5
+
+<details>
+<summary><strong>SQLite 基准图表</strong> · SQLite benchmark charts</summary>
+
+<p align="center">
+  <img alt="SQLite search latency" src="https://github.com/user-attachments/assets/797a4b8e-7453-4bc7-84ea-fbefc7f7d3b4" width="1100" /><br />
+  <sub>搜索延迟 · Search latency</sub>
+</p>
+
+<p align="center">
+  <img alt="SQLite search speedup" src="https://github.com/user-attachments/assets/e62d7c26-123c-4ba9-929f-7f1bde4ad8e9" width="1100" /><br />
+  <sub>加速比 · Speedup</sub>
+</p>
+
+<p align="center">
+  <img alt="SQLite query health" src="https://github.com/user-attachments/assets/d77fd4f0-fb50-4bb4-8665-67334d819bdf" width="1100" /><br />
+  <sub>查询健康度 · Query health</sub>
+</p>
+
+<p align="center">
+  <img alt="SQLite run profile" src="https://github.com/user-attachments/assets/7d54e3a7-28c9-4df9-9ab5-d13932ae9e81" width="1100" /><br />
+  <sub>整轮运行概况 · Run profile</sub>
+</p>
+
+</details>
+
+### TL;DR
+
+- **剪贴板捕获进入 pboard/XPC 事件驱动时代**  
+  接入 Apple pboard daemon 的私有 invalidation push 链路，复制发生时由 `invalidate-cache` / `invalidate-entries` 直接唤醒 Deck 捕获流水线；常驻高频轮询退场，只保留稀疏健康检查与自动回退。  
+
+- **SQLite 搜索性能炸裂治理**  
+  新增 Deck SQLite Benchmark 基准体系后，锁定 FTS5 搜索里 `bm25 + timestamp` 全量临时排序这一颗大雷；搜索链路改为 `rowid DESC` 有界候选 + 主表过滤排序，medium 25,000 条数据下最坏多条件搜索从 **43.1s 降到 154.6ms**，约 **278.6x**，timeout 从 **5/5 清零**，整轮 benchmark 从 **51.7s 降到 8.7s**。  
+
+- **DeckClip 连接安全与信道性能**  
+  强化防重放与校验顺序，并提升大数据帧下的读取效率。  
+
+- **Deck MCP 进程诊断与清理**  
+  `deckclip mcp serve` 增加初始化超时保护，`mcp doctor` 可列出当前 MCP bridge 进程、父进程与运行时长，并新增 `mcp cleanup` 清理疑似空闲实例。  
+
+- **复制操作反馈更快**  
+  在按下复制/剪切后的短窗口内更快察觉剪贴板变化，音效与状态栏反馈不再拖延；Deck 面板内 `Cmd+C` 成功复制时也会立即播放同一套反馈音效。  
+
+- **思考模式对话更稳定**  
+  正确累积、保存并回传 `reasoning_content`，避免多轮与工具调用时的接口错误。  
+
+-   从 Sublime Text session 与 Zed 剪贴板 `zed-metadata` 捕获文件和行号，复制源码后可从 Deck 直接跳回对应位置。  
+
+- **代码预览高亮更接近编辑器**  
+  代码预览改用轻量单遍 token 扫描与缓存，高亮字符串、注释、关键字、函数、类型、属性、数字等常见语义，同时减少多轮正则扫描开销。  
+
+- **面板与长文本预览更流畅**  
+  基于 `CPU.trace` / `UI.trace` 的热点优化，减少主线程菜单构建、Markdown 检测与长文本系统探测开销。  
+
+- **面板弹出与收起更自然**  
+  面板动画改为更贴近屏幕边缘的完整滑入/滑出路径，并收紧横版底部氛围栏与卡片间距，减少底部裁切感和空洞感。  
+
+- **长文本预览内存暴涨保护**  
+  修复大文本预览触发 TextKit/CoreText 全量排版预热与几何回调复入时，Deck 内存可能异常增长并导致菜单栏面板无响应的问题；超大文本现在使用懒布局路径，并合并尺寸变化触发的重排。  
+
+- **图片预览与缩略图后台解码更稳**  
+  图片预览和列表缩略图加载统一降为后台 utility 优先级，避免高优先级 UI 任务等待默认优先级 ImageIO worker 时触发 priority inversion Hang Risk。  
+
+- **面板关闭后主动回收图片内存**  
+  看过大图后收起面板，Deck 会释放隐藏面板的 SwiftUI 树、图片缩略图、预览大图、PDF 缩略图与链接预览 artwork 缓存；所有内容仍可在下次打开时按原规格重建，不靠削弱功能换内存。  
+
+- **图片粘贴与拖拽兼容性修复**  
+  修复 Claude Code 终端图片粘贴与剪映截图拖入的两个兼容性问题：图片自动粘贴会按目标宿主选择更安全的快捷键，图片拖拽会提供 Deck 管理的临时文件表示，避免接收 App 报无访问权限。  
+
+- **几百个文件的预览不再拖垮 CPU**  
+  基于 `PreviewCPU.trace` / `aitrace` 定位多文件预览切换条热点，预览时改为按水平可视区域懒加载文件入口，避免一次性渲染几百个文件名与图标。  
+
+- **恢复备份与安全模式更可靠**  
+  修复恢复备份、删除全部记录、安全模式切换、FTS/vec 索引与外部 Blob 引用之间的多处边界问题。  
+
+### 优化
+
+- **Deck SQLite Benchmark 基准体系**  
+  建立独立 SQLite benchmark，复刻 Deck 真实主表、复合索引、FTS5 trigram、触发器、WAL/PRAGMA、列表轻量投影，以及 startup / panel / search / write / maintenance 五类核心场景；结果输出 JSON + CSV，并记录 `EXPLAIN QUERY PLAN`、index/full-scan/temp B-tree、timeout、吞吐、DB/WAL/Blob 体积等结构化指标。medium 档固定为 25,000 条混合文本、代码、URL、图片、文件与富文本记录，可用 36 条 read-only 连接并发压测读路径，后续数据库改动不再靠体感判断。  
+
+- **FTS5 搜索 SQL 治理**  
+  搜索 SQL 不再对 FTS 大命中集执行 `ORDER BY bm25(ClipboardHistory_fts), timestamp DESC, id DESC` 全量打分与临时排序；无结构过滤时直接从 FTS virtual table 取 `rowid DESC LIMIT`，带类型/标签过滤时先生成有限 FTS 候选，再 join `ClipboardHistory` 走主表索引过滤与时间排序。medium benchmark 下，普通关键词搜索 **1105.0ms → 60.0ms（18.4x）**，日期过滤 **1125.4ms → 85.8ms（13.1x）**，类型过滤 **452.6ms → 111.8ms（4.0x）**，App 过滤 **825.2ms → 169.5ms（4.9x）**，最坏多条件组合 **43086.4ms → 154.6ms（278.6x）**。这条路径同时减少临时 B-tree、长时间 CPU 空转与并发读竞争，速度、性能和能耗一起收敛。  
+
+-   新增运行时私有事件桥：启动时连接 `com.apple.pasteboard.1`，完成 `com.apple.pboard.create`、`get-counts`、`refresh-cache` 后订阅系统级剪贴板 invalidation；一旦收到 `invalidate-cache` / `invalidate-entries`，立即触发 Deck 原有捕获 pipeline。  
+
+- **事件驱动后的低功耗健康检查**  
+  私有事件在当前 GUI session 中验证成功后，轮询从主触发机制降级为 30s 稀疏 watchdog；既保留复制响应速度，又显著减少后台无意义唤醒。  
+
+- **Unix Socket 读缓冲**  
+  将读缓冲由 8KiB 提升到 64KiB，与核心侧一致，减轻大消息读取时的系统调用压力。  
+
+- **Rust CLI 聊天流解析**  
+  聊天帧在协议层一次性结构化解析，避免多余中间表示，路径更直接、更易维护。  
+
+- **Deck MCP bridge 启动防残留**  
+  `deckclip mcp serve` 启动后若 60 秒内没有收到 MCP `initialize`，会主动退出，避免外部 MCP host 启动失败或握手中断后留下空转 stdio 进程；已初始化的正常会话不会被普通 idle timeout 打断。可通过 `DECKCLIP_MCP_INITIALIZE_TIMEOUT_SECONDS=0` 关闭该保护。  
+
+-   `deckclip mcp doctor` 新增运行中 `deckclip mcp serve` 诊断，输出数量、PID、PPID、父进程名、运行时长与启动命令；新增 `deckclip mcp cleanup --dry-run --idle-hours <hours>` 预览清理，确认后可移除超过阈值的疑似空闲 bridge 进程。  
+
+- **剪贴板触发策略升级**  
+  优先使用 pboard/XPC invalidation 事件；事件链路未验证、断开或系统生命周期切换期间，自动回退到低能耗自适应轮询与复制快捷键短探测窗口，稳定性与省电同时兜住。  
+
+- **私有事件验证 warmup**  
+  pboard/XPC 首次确认可用后，先进入 120 秒、5 秒间隔的健康观察窗口，再降级到 30 秒稀疏 watchdog；避免「首次事件成功、后续投递静默失效」时过早进入低频检查。  
+
+- **pboard 重新订阅合并**  
+  同一次复制常见的 `invalidate-cache` + `invalidate-entries` 不再重复刷新订阅：同 generation 已刷新则跳过，刷新进行中则记录 pending generation，完成后只在确有更新时补跑。  
+
+- **Markdown 智能检测热路径**  
+  表格分隔线与水平分隔线检测改为轻量字符扫描，移除高频正则与字符串替换，降低文本分析时的 CPU 与分配压力。  
+
+- **长文本预览系统检测开销**  
+  长文本 `NSTextView` 关闭自动数据探测、拼写、语法与文本替换检查，保留 Cmd+F，同时避免 DataDetectors 在 UI 路径中反复折叠/扫描字符串。  
+
+- **图片解码 QoS 收敛**  
+  `PreviewOverlayView` 的大图预览解码与 `ClipItemRowView` 的列表缩略图任务改为 utility QoS；保留原有 downsample / cache / fallback 流程，只调整任务优先级，降低 Instruments Hang Risk 中的 QoS 反转噪音。  
+
+- **ImageIO 临时内存收敛**  
+  图片卡片缩略图、列表预览缩略图与写入时预生成缩略图的 ImageIO 路径补充局部 autorelease pool，并显式禁止 source 级缓存；保留即时 downsample 与现有尺寸/格式兜底策略，减少大图解码后的临时对象和脏页滞留。  
+
+- **面板隐藏态视觉缓存释放**  
+  面板收起并保持关闭后，Deck 会卸载隐藏的 `NSHostingView<DeckContentView>`，并清理可重建的 `CGImage` / `NSImage` 视觉缓存：卡片缩略图、预览大图、PDF 首页缩略图、base64 图片缩略图、Link Preview favicon/hero image 等都会在后台态释放，下次打开按原流程重新加载。  
+
+- **多文件预览切换条限流**  
+  几十到几百个文件一起复制时，空格预览仍可逐个前后切换并保持准确计数；顶部切换条改用 viewport 驱动的 `LazyHStack`，只实例化当前水平可见区域附近的文件 chip，箭头切换仅负责滚动定位，不再决定渲染窗口。  
+
+- **卡片右键菜单构建**  
+  缓存高频菜单项的本地化字符串，避免每次构建 `ClipItemCardView` 右键菜单时重复查找 bundle localized string。  
+
+- **aitrace 四 Trace 面板热路径优化**  
+  基于 `DeckGPU.trace`、`DeckLaunch&Pannel.trace`、`DeckOpenPannelDisk.trace` 与 `SwiftAnimation.trace` 的 `aitrace` 取证，收敛 SwiftUI 主线程更新、SmartText 电话检测、右键菜单与首次脚本/模版库加载热路径；电话检测结果缓存并预编译正则，模版库菜单只读取轻量库元数据，脚本插件扫描延后到后台预热，`deck://paste` 参数查找改为一次性索引，保持功能行为不变同时降低面板打开、动画与菜单构建时的 CPU / I/O 抖动。  
+
+- **面板滑入/滑出动画调优**  
+  面板内容现在在透明动画宿主内完成滑动，横版底部与竖版侧边都保留真实屏幕留白，同时让可见圆角面板完整进入和离开；动画时长与 cubic timing curve 也进一步收紧，减少拖沓感。横版底部氛围栏高度和偏移同步下调，卡片尺寸计算略微补偿，使底部视觉更紧凑。  
+
+- **横板卡片层次感微调**  
+  横板模式卡片增加更轻的外阴影，保留顶部信息区原有背景层次；队列模式下的横板卡片角标改为右上角黄色 `#序号`，减少暗色模式下的高亮圆点干扰；竖板模式保持不变。  
+
+- **搜索框凹陷层次微调**  
+  `Search Clipboard` 输入框改为更轻的半透明内凹底色，并用浅色灰描边、深色白描边叠加克制的内侧明暗过渡，让搜索区域从 Liquid Glass 表面轻微下沉但不出现厚重高亮边。  
+
+- **横板卡片删除动画**  
+  横板模式删除卡片时改为两段式收起：卡片内容先轻微模糊、淡出并缩小，再延迟收窄卡片宽度，让相邻卡片自然补位；竖板模式保持原有行为。  
+
+- **aitrace 三 Trace 能耗优化**  
+  基于 `DeckUIMonitorTrace.trace`、`DeckURLNet.trace` 与 `TimeProfile.trace` 的 `aitrace` 取证，新增一组以低回归为前提的能耗补丁：`MultipeerService` 只在真正连接、邀请或发送时懒创建 `MCSession`，空闲时仅释放 session 本身而不触碰 advertiser/browser，减少 `MultipeerConnectivity` 的常驻 send/recv worker 能耗；复制提示音在播放后自动释放 `AVAudioPlayer`，避免 AudioSession 长驻；LAN 发送菜单与脚本插件菜单改为轻量 snapshot，降低列表/右键菜单的 SwiftUI fanout；`SmartTextService` 的 JWT 检测改为单遍字节扫描，减少滚动与智能分析时的 regex 开销；同时补充并通过了最小 LAN lifecycle regression test 与现有 Multipeer stress experiment，确认 idle session release 不会重新 stop/start 整套 LAN discovery 生命周期。  
+
+- **DeckCPU.trace 搜索与 Markdown 热路径优化**  
+  基于 `DeckCPU.trace` / `aitrace 0.2.0` 的 CPU 与 thread-state 取证，确认当前 CPU 低利用率主要来自线程等待与主线程短时 SwiftUI diff/layout burst，而可无损收敛的代码热区集中在 `SearchService.exactSearchIds` 的 Swift `Substring` 索引路径和 `SmartTextService.detectMarkdownSignals` 的普通文本 split/regex 入口。精确搜索的 ID 排序路径改用 `NSString.range(of:options:)` 做 case/diacritic insensitive 存在性判断，避免不需要高亮范围时构造 Swift `Range<String.Index>`；Markdown 检测增加语法标记早退，普通文本不再进入逐行 split 与后续正则检测。功能、排序、匹配语义与 Markdown 能力保持不变。  
+
+-   Sublime Text 复制时读取 `Auto Save Session.sublime_session` / `Session.sublime_session` 中的 selected sheet 与 selection；Zed 复制时直接解析剪贴板私有 `zed-metadata` 的 `file_path` 与 0-based `line_range`，统一写入 Deck 的 `source_anchor`。  
+
+- **源码位置回跳打开方式**  
+  Source Anchor 打开时优先使用对应 IDE CLI（`subl` / `zed`），并保留 URL scheme 或系统打开作为兜底；从 Deck 预览页点击即可回到原文件行号。  
+
+- **代码预览语法高亮管线**  
+  将旧的关键字/字符串/数字/注释多轮正则替换为轻量 capture 风格扫描器：注释和字符串先形成互斥 token，避免在字符串或注释里误染关键字；再按语言识别声明名、调用、类型名、属性、JSON/YAML key、HTML/XML tag/attribute、Shell 变量等常见结构。  
+
+- **iOS 同步快捷指令上传提速**  
+  快捷指令仍保留「上传剪贴板 / 下载剪贴板」两个入口，但上传不再在 iPhone 端反复强转并计数剪贴板类型；统一走二进制上传入口，由 Mac 端判定文本、图片或文件，减少 Shortcuts 动作链开销与传文件时的 frame-stream 中断概率。  
+
+- **iOS 同步服务端响应路径**  
+  iOS 上传写入数据库成功后立即响应，面板刷新、最近同步时间、自动粘贴与 iCloud 同步改为后台收尾；非 multipart 文件上传优先移动临时文件而不是重新复制一份，降低大文件上传延迟。  
+
+- **iOS 下载最近内容查询**  
+  下载端查找最近可同步内容时改为逐行命中即停，不再每批先映射完整 500 条历史记录，降低大历史库或加密模式下的解密与对象构建开销。  
+
+### 修复
+
+- **剪贴板事件桥锁屏/解锁稳定性**  
+  针对锁屏、熄屏、睡眠、唤醒与 pboard daemon 生命周期变化新增 suspend / resume / bootstrap 流程；`connection invalid` 不再被当作普通运行时崩坏，而是清理旧 uuid/connection 后走 graceful retry。  
+
+- **Sleep/Wake 后 pboard `refresh-cache` 协议错误恢复**  
+  针对唤醒后 `refresh-cache` 携带旧 `change` token 返回 `com.apple.pboard.error = -22` 的情况，Deck 会保留已成功完成的 `get-counts` 订阅，并自动不带 `change` 重试一次 `refresh-cache`，避免一次协议抖动让事件桥退化。  
+
+- **pboard generation 单调状态保护**  
+  修复 watchdog / 重新订阅期间 `get-counts` 已前进到新 generation、但随后 `refresh-cache` 返回旧 generation metadata 时，内部状态被回退的问题；Deck 现在以 generation 作为稳定顺序信号，只接受不倒退的 pboard 状态。  
+
+- **剪贴板事件 watchdog 误杀收敛**  
+  Watchdog 不再因一次 missed change 立刻禁用私有事件桥；先执行 fallback poll 并请求 `get-counts` / `refresh-cache` 重新订阅，连续多次 miss 后才回退重启，避免健康检查和事件驱动抢状态。  
+
+- **pboard async invalidation 处理链路**  
+  `com.apple.pboard.invalidate-cache`、`com.apple.pboard.invalidate-entries` 与 `flush-entries` 统一进入私有事件回调，Swift 侧验证后切到 event-driven 模式，并在 debounce 确认 changeCount 变化后触发捕获。  
+
+- **私有事件 debounce 稳定性**  
+  pboard event 到达后不再只采样一次 12ms debounce；现在会在 12ms / 35ms / 75ms 的有限事件触发窗口内等待公开 `NSPasteboard.changeCount` 追上，改善唤醒、promised metadata 或 daemon 状态抖动时的捕获稳定性，同时不恢复常驻高频轮询。  
+
+- **私有事件桥 false validation 防护**  
+  仅「收到 pboard event」不再足以切到 30 秒健康检查；必须在 debounce 后证明该事件对应一次有效 `changeCount` 变化。若 probing 阶段连续 3 次真实剪贴板变化都只能靠 fallback polling 捕获，Deck 会禁用私有事件桥并停留在普通自适应轮询，避免旧系统或协议不兼容时误入 30 秒兜底。  
+
+- **DeckClip Nonce 防重放**  
+  连接内 nonce 与时间戳关联并按时间窗淘汰；容量上限时丢弃最旧项，不再在计数触顶时整表清空导致旧 nonce 可被重放。  
+
+- **Nonce 写入与安全校验顺序**  
+  仅在 HMAC 校验通过后才记录 nonce，避免无效请求污染防重放缓存。  
+
+- **复制音效与状态栏反馈延迟**  
+  在确认剪贴板已变化后立即触发音效与状态栏更新，不再等待后续解析、规则处理或入库完成。  
+
+- **面板内 `Cmd+C` 复制音效缺失**  
+  Deck 面板内执行 `Cmd+C` 复制选中记录或可复制文本时，复制成功后直接触发本地复制反馈；不再依赖系统 pasteboard 事件回流，避免内部写入被跳过时只出现「Updated 1 item」而没有声音。  
+
+- **粘贴入口编译警告清理**  
+  Shortcuts/AppIntent 与 Orbit CLI bridge 的粘贴入口显式处理 `ClipboardService.paste(...)` 返回值，清理 Swift `MainActor.run` unused-result 警告。  
+
+- **思考模式 `reasoning_content` 的传递**  
+  在流式与非流式响应中累积 `reasoning_content`、写入助手消息持久化内容，并在请求 `/chat/completions` 时原样回传，避免「须将 reasoning 传回」类错误。  
+
+- **含工具调用的助手消息**  
+  带有 `tool_calls` 的助手消息在发往模型时同样携带 `reasoning_content`，支持同一会话内多轮工具调用。  
+
+- **YAML 与 Markdown 判定边界**  
+  当 YAML 结构证据明显强于 Markdown 弱信号时不再被 `---` 或列表项误判为 Markdown，保留 YAML 代码识别结果。  
+
+- **长文本预览内存异常增长**  
+  修复大文本 `NSTextView` 在尺寸变化时反复触发 `prewarmScrollableLayout`、`ensureLayout` 与 `usedRect` 全量布局，导致 TextKit/CoreText 缓存和 physical footprint 异常放大的问题；超大文本改为非连续懒布局，并防止 clip view 几何回调重入。  
+
+- **精确搜索结果按复制时间稳定排序**  
+  精确搜索改为真正的字面量匹配：所有命中内容按复制时间从新到旧排列，避免 FTS 相关度或标题置顶把旧记录排到前面；同分模糊搜索也使用稳定的分数优先、时间兜底排序。  
+
+- **标签删除不再误删剪贴板记录**  
+  删除自定义标签现在只会把对应记录移回未分组，不再删除该标签下的剪贴板内容、外部 Blob 或同步数据；同时修复无关键词规则过滤的分页截断、AI Chat 快速连发时旧流清理新状态，以及直接粘贴在面板收起前过早触发的问题。  
+
+- **恢复备份后开启安全模式失败**  
+  修复「创建恢复备份 → 删除全部记录 → 从备份恢复 → 开启安全模式」时，SQLite 连接、sqlite-vec 扩展、FTS 触发器或缺失 Blob 引用导致迁移失败的问题。  
+
+- **恢复失败后的存储重新初始化**  
+  从恢复备份还原失败时也会重新初始化存储层，避免 SQL handle 已关闭但界面继续使用旧状态。  
+
+- **恢复备份 DB/Blob 快照一致性**  
+  数据库备份与 `Blobs` 快照以成对方式提交；若 DB 指向外部 Blob 但文件已缺失，将跳过本次备份，避免覆盖出新的不完整恢复点。  
+
+- **恢复后的 FTS 与 vec 索引状态**  
+  还原恢复备份后会重建 FTS；删除全部记录或安全模式迁移前会清理可能损坏的 FTS/vec 触发器，失败分支也会恢复可用索引。  
+
+- **缺失外部 Blob 引用收敛**  
+  旧版 DB-only 恢复备份中已经无法找回的 `blob_path` 会在恢复后或安全模式迁移中清除，避免后续备份持续跳过或反复打印缺失 Blob 警告。  
+
+- **Deck 自有来源图标**  
+  修复 iOS Sync、Deck WLAN 与 LAN Sharing 等 Deck 自己生成或接收的历史记录在卡片左上角显示为空白或普通文件图标的问题；这些来源现在统一使用 Deck App 图标，列表、卡片与预览信息栏保持一致。  
+
+- **Claude Code / Ghostty 图片粘贴识别**  
+  修复 Claude Code 在 Ghostty 中窗口标题不包含 `Claude Code`、只显示类似 `jerry · 838ff463-eae1-45` 会导致 Deck 误发 `Command+V`、最终只输入一个 `v` 的问题；Deck 现在会用 Claude Code session id 前缀匹配 `~/.claude/session-env`，确认目标会话后才切到 `Ctrl+V` 图片粘贴路径。  
+
+- **剪映截图拖入权限错误**  
+  图片卡片和竖版行视图的拖拽 provider 统一收敛到 `ClipboardItem`，截图/图片拖拽会先物化为 Deck 管理的临时副本并通过 `NSItemProvider` 文件表示交给接收 App，减少剪映等严格沙盒导入路径上的「无访问权限」错误。  
+
+### 说明
+
+- **Biome transport 已移除**  
+  逆向验证中 `BiomeLibrary` / `BiomeStreams` / `BMBiomeScheduler` / `BPSSink` 虽可创建，但第三方 Deck 进程收不到 `Pasteboard.Change` input；本版删除该诊断 transport，避免 bookmark / completion 噪音影响状态机，主路径只保留已验证的 pboard/XPC invalidation。  
+
+- **私有 API 运行时加载与失败回退**  
+  私有 pboard/XPC 链路只作为触发信号使用，真实剪贴板内容仍通过 `NSPasteboard` 读取；若启动检测、运行中连接、系统恢复或重新订阅任何一步失败，Deck 会恢复普通剪贴板工具级别的自适应轮询。  
+
+- **签名字符串与 HMAC 测试向量**  
+  增加跨语言共享的 canonical JSON / HMAC 向量，Rust 集成测试与 Swift 单测对齐签名与序列化结果；应用侧提供仅供测试使用的规范化 JSON 入口以固定行为。  
+
+- **Rust 代码风格检查**  
+  源码排版已与 `cargo fmt` / `rustfmt --check` 预期一致，避免无意义的格式差异。  
+
+- **Trace 覆盖范围**  
+  本轮基于 `CPU.trace`、`UI.trace` 与 `Memory.trace` 做定位；`Memory.trace` 未暴露可操作的应用内存栈，因此只落地有 trace 证据支撑的低风险 CPU/UI 改动。  
+
+- **旧恢复备份中的外部 Blob**  
+  旧版本只包含 `Deck.sqlite3.bak`、不包含 `.bak.blobs` 的恢复备份无法恢复已经被删除的外部大文件；升级后会清理这些失效引用，并保留可用的元数据与预览信息。  
+
+### 兼容性与行为说明
+
+- **剪贴板私有事件不可用时的行为**  
+  如果当前 macOS 版本、会话状态或 pboard daemon 生命周期导致私有 invalidation 链路不可用，Deck 会自动保留或恢复自适应轮询；功能正确性不依赖私有 API，只在可用时获得更低能耗与更快触发。  
+
+- **升级前未持久化思考内容的旧会话**  
+  若历史会话在升级前从未保存过 `reasoning_content`，极少数情况下思考模式模型仍可能报错；新开对话即可规避。  
+
+### 升级建议
+
+- **使用思考模式或依赖 reasoning 回传时**  
+  若遇到与 reasoning 相关的接口错误，优先新开对话；对关键旧线程可先验证一轮再长期使用。  
+
+- **恢复过旧版 DB-only 备份后**  
+  建议在确认记录列表正常后重新创建一次恢复备份，让新的 `.bak` 与 `.bak.blobs` 成对保存，后续恢复会更完整。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.4.5/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.4.4 -->
+## v1.4.4 — v1.4.4 | perlīmātus
+
+- **Tag:** `v1.4.4`
+- **Published:** 2026-05-05T11:29:24Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.4.4
+
+### 优化
+
+- 新增 LaTeX 公式渲染：横板模式的 Markdown 卡片预览与 Markdown/纯文本预览面板会按需渲染行内、块级、常见 equation/align/matrix/cases 环境以及 TeX 源中的公式块；Markdown 的「拷贝纯文本」会把公式导出为可读 Unicode 文本，同时保留行内 code 与代码块原文不被渲染；公式渲染结果增加内存缓存，减少列表卡片与预览切换时的重复计算，并保留预览面板原有滚动逻辑。
+
+- 优化自动检查更新的请求调度：保留原有固定检查时段不变，在客户端为每台设备生成稳定随机延迟，将集中整点请求打散到 30 分钟窗口内，平滑后端并发峰值，降低更新服务在高峰时段的错误率。
+
+- 新增卡片列表内的问卷反馈入口：当历史记录超过 99 条且处于默认全部列表时，自动在最前方展示不可聚焦、不可拖拽、不会进入搜索或标签过滤结果的反馈卡片；支持打开问卷、本次隐藏与永久隐藏，并针对横版/竖版、深色/浅色模式完成视觉适配。
+
+- 优化设置页「统计」页面的打开与刷新性能：统计数据上屏时避免不必要的隐式动画抖动，并在渲染前预热常用应用图标缓存，降低主线程卡顿；页面布局、图表样式与交互保持不变。
+
+- 优化后台数据库维护扫描：文件搜索文本回填、向量索引回填与缺失文件扫描从 OFFSET 分页改为基于 id 的 keyset 分批推进，大数据量下维护耗时更稳定，并避免越往后扫描越慢；不改变前台 UI、搜索语义或清理规则。
+
+- 优化 SQLite 读写调度：新增独立只读连接与 reader 队列，让历史列表、搜索、统计和轻量读取在 WAL 模式下不再排队等待写入、迁移、checkpoint 或后台维护任务；写入与维护仍保留在 writer 串行队列中，reader 不可用时自动回退，保证行为稳定。
+
+- 优化剪贴板解析与数据库写入热路径：剪贴板监听阶段只在主线程读取 NSPasteboard 快照，富文本、缩略图与类型解析移到后台执行；主表插入复用缓存的 SQLite UPSERT statement 并直接绑定 BLOB，减少重复 prepare 和大 payload 拷贝；后台语义 embedding 入库不再绕回 MainActor。
+
+- 优化语义搜索与 sqlite-vec 索引路径：sqlite-vec 向量写入、恢复与查询改用原生 Float32 BLOB，避免 JSON 字符串格式化与解析；向量命中后的回表改为按候选 id 批量读取并由语义距离恢复顺序，不再引入历史时间排序；安全模式下继续禁用向量索引以保持加密语义不变。
+
+- 优化 NL Embedding 语义搜索质量：中文内容统一使用同一 CJK word-embedding 平均向量空间，避免短中文查询与长中文记录在不同 embedding 空间中比较导致漏召回或误排序；同时增加精确/包含命中的召回与排序兜底，不引入任何内置词表或外部向量模型。
+
+- 优化语义 embedding 回填调度：向量缓存模型升级后立即持久化 schema 版本，并将 embedding 回填作为可恢复的后台维护任务分批推进，避免启动时反复 reset 缓存、重复备份或在大历史库上长时间占用 CPU。
+
+- 优化 SQLite WAL 与读路径维护：新增 WAL idle passive checkpoint 和 `journal_size_limit`，在面板空闲后低优先级收敛 WAL 文件大小；列表和导出等读路径不再顺手写回 legacy `unique_id` 或临时标记修复，改由后台维护任务分批处理，降低滚动、搜索和导出时的写放大。
+
+- 优化安全模式下混合搜索性能：复用加密搜索降级路径已经完成的解密精确匹配结果，避免再次构建快照并重复执行 exact ranking，同时跳过对密文字段无效的 SQL LIKE 兜底查询，降低 CPU 与能耗。
+
+- 优化大批量导出与智能文本分析性能：导出 JSON 编码与 U+2028/U+2029 清洗移出主线程，并将清洗流程合并为单次扫描；智能文本的纯文本判定改为一次遍历完成行长、中文比例与代码特征统计，降低导出、搜索和列表滚动场景下的 CPU 占用与卡顿风险。
+
+- 优化 LAN 文件夹 / 应用包传输的 archive 解包安全策略：允许 `.app`、framework 等包内常见的安全相对符号链接，同时继续拒绝绝对路径、`../../` 逃逸路径、重复 archive entry，以及任何 normalize 后会指向解包根目录外的符号链接。
+
+- 优化 LAN / iOS 同步在 VPN、代理增强模式和多网卡环境下的连接策略：仅使用真实局域网 IPv4 候选地址做发现与展示，监听端接受所有可用局域网接口，直连出站只在目标 IP 与物理接口网段匹配时才约束网卡，降低 Surge、VPN 或多 LAN 切换时无法连接的概率。
+
+- 优化 LAN 设备记录与手动直连地址管理：规范化 IPv4 输入，自动合并重复的手动设备和历史发现设备，并清理重复记录对应的凭据与元数据，减少同一设备重复出现、端口记忆错配或旧记录干扰连接的问题。
+
+- 优化脚本插件与智能规则执行性能：脚本超时改为独立调度，避免长脚本阻塞脚本队列或异步调用方；智能规则会复用单次快照、预编译规则信息与搜索文本范围，减少批量剪贴板处理时的重复字符串解析和规则遍历开销。
+
+- 优化脚本插件内存占用：普通非网络脚本转换改为在短生命周期 JavaScriptCore `jsc` 子进程中执行，避免 Deck 主进程因创建 `JSContext` 长期保留 4GB 级 `JS VM Gigacage` 虚拟地址空间；网络脚本仍保留原有授权 `fetch` 路径。
+
+- 优化 AI 聊天附件内存占用：限制 AI 附件保存的完整文本长度，并避免附件型消息把同一份大文本同时写入消息正文和附件内容，降低长文档、OCR 或大文件进入 AI 对话后的内存峰值与历史会话体积。
+
+- 优化搜索框与规则选择器体验：横版搜索框宽度与规则弹窗统一到卡片节奏，规则列表增加更轻量的鼠标悬浮反馈并移除干扰性的说明提示；搜索框新增稳定的 Ctrl+U 清空支持，竖版规则弹窗保持原有停靠距离与手感。
+
+- 优化横板模式 PDF 卡片预览：使用第一页内容铺满卡片预览区，并将文件名居中叠放在底部，去掉独立 PDF 图标，让 PDF 文件在横板列表中更像连续内容预览。
+
+- 优化 PDF 预览窗口底部控制：移除独立缩放工具栏，将缩放按钮移到底部信息栏时间左侧，并保留鼠标悬浮反馈，减少 PDF 内容区底部的视觉分层。
+
+- 优化图片预览窗口底部信息栏：图片预览恢复为实心底栏样式，并在文件大小左侧新增「复制 OCR 文本」按钮；按钮仅在图片已有 OCR 文本时显示，复用右键菜单的复制逻辑与底栏按钮的悬浮反馈。
+
+### 修复
+
+- 修复唤出 Deck 弹出面板时，SwiftUI 异步 DisplayLink 渲染线程解析动态 NSColor provider 可能触发 Swift 6 默认 MainActor 隔离断言并以 `_dispatch_assert_queue_fail` / `EXC_BREAKPOINT` 立即崩溃的问题；动态浅色/深色适配颜色现在统一通过非隔离 helper 创建，保留原有视觉效果。
+
+- 修复历史列表首屏包含 PDF 文件时，QuickLook 缩略图回调在 Swift 6 默认 MainActor 隔离下可能触发 `_dispatch_assert_queue_fail` / `EXC_BREAKPOINT`，导致打开侧边栏后立即崩溃的问题；PDF 缩略图仍由 QuickLook 生成，但回调结果会先安全回到主线程再更新缓存与界面。
+
+- 修复开启「删除确认」后，系统确认删除弹窗出现时主面板四个圆角位置露出淡色直角的问题；删除确认保留系统 NSAlert，但避开 SwiftUI `.alert` 自动添加的矩形遮罩层，保持 Deck 圆角面板视觉一致。
+
+- 修复 LAN 接收包含符号链接的 DMG / 应用包 archive 时，界面提示接收失败但文件内容已经落盘的问题；现在 archive 会先进入事务式 staging 目录，只有解包与完整安全校验全部通过后才提交到最终位置，失败、拒收或确认面板缺失都会自动清理已落盘内容，并在启动时清理历史遗留的 staging 目录。
+
+- 修复 AI 聊天界面中用户消息与 AI 回复首行距离过近的问题，并统一思考圆点、流式首 Token 与普通消息的垂直间距；从「思考中」切换到首次输出时不再出现文本位置突然上跳、贴近输入框的视觉异常。
+
+- 修复在「文件」标签下搜索时，FTS 过滤查询可能因 Swift 6 并发隔离检查触发 `_dispatch_assert_queue_fail` 并崩溃的问题；搜索结果与过滤语义保持不变。
+
+- 修复安全模式启动或迁移窗口中，混合明文/密文历史数据的兼容读取会把预期内的解密探测失败记录为错误日志的问题；真正的迁移、加密文件和云同步解密失败仍会正常报错。
+
+- 修复安全模式下模糊搜索、正则搜索和混合搜索无法稳定命中加密历史的问题：搜索排序使用解密后的轻量快照，并在安全模式 FTS 降级路径中保留类型与标签过滤；不改变搜索 UI 和结果展示样式。
+
+- 修复语义 embedding 回填遇到无文本图片、二进制内容或暂时无法生成向量的历史记录时可能反复调度同一批 pending 行的问题；这些不可嵌入记录现在会写入跳过标记并继续推进，避免阻塞后续文本记录重建向量。
+
+- 修复安全模式下后台 Keychain 解密暂时不可用时，语义 embedding 回填可能把 Base64 密文当作明文索引的问题；解密失败现在会作为可重试状态保留，避免写入不可命中的密文向量，并降低连续重试时的后台 CPU 抖动。
+
+- 修复复制 PNG / TIFF / JPEG 等已提供主图片数据的剪贴板内容时，仍会在主线程额外通过 `NSImage(pasteboard:)` 解码并重编码 PNG 的问题；现在只有主图片数据缺失时才走图片 fallback，减少大图复制时的内存峰值和 UI 卡顿。
+
+- 修复 legacy 空 `unique_id` 行在后台元数据回填时可能生成与当前可见条目不同 UUID 的问题；后台回填会优先复用读路径已经分配的 pending UUID，避免后续按 unique id 删除、同步或查询时命中不一致。
+
+- 修复缓存 UPSERT statement 在 SQLite 返回 `SQLITE_SCHEMA` 时可能先 finalize、随后又在 defer 中 reset / clear 同一 statement 指针的生命周期问题；现在会先完成正常 reset / clear，再释放缓存 statement 并在下一次写入时重新 prepare，避免 schema 变化场景下的未定义行为。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.4.4/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.4.3 -->
+## v1.4.3 — v1.4.3 | herculean
+
+- **Tag:** `v1.4.3`
+- **Published:** 2026-04-26T11:12:36Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.4.3
+
+## 优化
+
+- **SQLite 数据库 P0 写放大与安全模式维护优化**
+  Deck 对剪贴板历史数据库做了一轮最小侵入的 P0 优化：FTS 全文索引现在只会在 `search_text`、来源 App 名称、自定义标题或加密状态真正变化时更新，给历史记录打标签、切换临时状态等轻量操作不再触发全文索引删除与重建，减少 SQLite WAL 写放大、分词开销和后台 checkpoint 压力。安全模式下，Deck 不再维护无法直接搜索的密文 FTS 索引，全文索引重建也会跳过加密记录；批量插入路径去掉了逐条 `SELECT count` 的额外查询，降低导入、同步和恢复时的数据库负载。与此同时，安全模式开启/关闭时的语义向量缓存迁移改为静默探测加密状态，不再把预期中的明文探测失败误报为 `authenticationFailure` 错误刷屏。  
+
+- **Trace 驱动的规则搜索与 SwiftUI 氛围栏性能优化**
+  基于 8 份 Instruments Trace，Deck 优先处理了最重的规则搜索、代码语言规则搜索、加密数据库规则搜索与 SwiftUI 更新风暴热点：语言规则过滤现在会先用类型、App、日期、大小等低成本条件缩小候选范围，再只对真正可能命中的文本条目预热代码语言检测缓存，避免对会被其它规则淘汰的历史记录反复执行 `detectCodeLanguage`；底部氛围栏也减少了每帧字符串分配，并把装饰性动画刷新率降到更克制的 10fps，在不改变交互和功能的前提下降低 SwiftUI 文本排版与 AttributeGraph 更新压力。后台复制/纯后台 Trace 中主要耗时来自 MultipeerConnectivity 系统发送/等待线程，这次保持不改，避免为了不可控系统栈引入回归风险。  
+
+- **冷启动面板查询、CPU 与内存占用优化**
+  根据冷启动面板查询与内存 Trace，Deck 现在会优先提交更小的首屏历史快照，并把总数统计延后到首屏显示之后，避免 `COUNT(*)` 与首屏列表查询在打开面板瞬间争抢 SQLite 队列；历史列表的类型/标签过滤也补充了与 `timestamp DESC, id DESC` 排序匹配的复合索引，减少过滤分页时的额外扫描和排序。与此同时，横板卡片的缩略图缓存容量进一步收紧，图片文件大小、Base64 图片探测、智能文本分析与链接元数据加载都改为更靠后的低优先级路径，避免面板刚打开就同时触发解码、字符串扫描、网络元数据解析和 SwiftUI 布局压力，让冷启动面板更快出现、CPU 峰值更平滑，内存峰值也更可控。  
+
+- **Swift 6 Strict Concurrency Complete 级别并发大扫除**
+  Deck 这次完成了一轮大规模 Swift 6 并发治理：在 `SWIFT_STRICT_CONCURRENCY = complete`、默认 `MainActor` 隔离的最高检查强度下，系统性清掉了 300+ 条 Swift Concurrency 编译诊断，把主线程隔离、`Sendable` 边界、`@Sendable` 闭包捕获、SQLite 后台队列、Socket / LAN / iOS Sync / OCR / Script Plugin / Orbit Bridge 等高风险路径逐一收敛。大量过去“能跑但编译器已经报警”的隐性数据竞争点，现在都改成了更明确的 actor 边界、不可变快照、队列所有权或受控的后台安全入口；最终 clean build 的并发诊断已经归零。
+
+- **Swift 6 运行时隔离崩溃迁移补齐**
+  在完成 Swift 6 语言模式切换后，Deck 又针对默认 `MainActor` 隔离下的运行时断言做了一轮专项迁移：剪贴板轮询、DeckClip socket、SQLite 写入与统计查询、语义向量表恢复、代码高亮、OCR、NSItemProvider 拖拽/分享、iOS Sync、AI OAuth 回调服务、CloudKit 同步、DirectConnect 与 Multipeer 局域网收发等后台队列入口，现在都避免在主 actor 词法环境里直接创建会被 libdispatch / Network.framework / CloudKit 在后台队列执行的闭包。相关路径改为非隔离闭包工厂、不可变快照、显式 `Task { @MainActor ... }` 回跳，或由队列自身持有状态的非隔离 helper 执行，修复 `_dispatch_assert_queue_fail` / `_swift_task_checkIsolatedSwift` 这类 Swift 6 runtime 崩溃；同时修正 DeckClip socket 读事件从异步回跳导致的重复触发与内存暴涨风险。Debug 与 Release 主 target 均已在 Swift 6 下构建通过。  
+
+- **编译警告清理与底层类型转换收敛**
+  继续收敛一批低风险编译警告：Accessibility 相关的 `AXUIElement` / `AXValue` / `CFArray` 类型转换从通用 `unsafeBitCast` 改为更明确的 `unsafeDowncast`，覆盖剪贴板、上下文感知排序、光标助手与 IDE Anchor 路径；同时把进程路径、硬件型号、LAN 地址等固定 C 字符缓冲区的字符串解析改为先按空字符截断、再使用 UTF-8 decoding，替代已废弃的数组版 `String(cString:)`。这些调整不改变功能行为，但能让 Xcode 26 / Swift 编译输出更干净，也让底层桥接边界更清晰。  
+
+- **智能文本识别准确率与能耗优化**
+  Deck 的智能文本识别现在会优先通过标题、列表、任务列表、表格与代码围栏等结构化信号确认 Markdown，避免 Release Notes 这类 Markdown 文档被英文说明里的 `source`、`as`、`done`、`fi` 等弱关键词误判为 Shell 或 TypeScript；同时收紧 Shell 与 TypeScript 的语言判定，只有出现 shebang、命令行结构、`interface {}`、`type =`、`: string;` 等更明确的代码证据时才会进入对应语言。长文本识别也改为更稳定的采样与缓存策略，并在 Markdown 正则检测前加入轻量前置判断，减少滚动、预览与后台分析时的重复字符串扫描、CPU 抖动和能耗。  
+
+- **智能分析缓存与代码识别路径再优化**
+  智能内容分析缓存现在会绑定内容版本、类型与即时计算开关，而不是只按剪贴板条目 ID 复用结果，避免 OCR、规则处理或内容更新后继续显示旧的 Markdown / 代码语言 / 计算结果；分析 Markdown 状态时也会复用同一次代码语言识别结果，减少重复扫描。HTML / XML 识别也增加了结构化标签与属性校验，短片段、Markdown 文档和被尖括号包住的 URL 不再容易被弱 HTML 特征误判，滚动、预览和后台分析时的准确率与 CPU 表现都更稳。  
+
+- **Markdown 预览与横板卡片渲染升级**
+  Markdown 空格键预览现在改为更高效的 TextKit 渲染路径，保留原始换行，并补齐标题、分割线、列表、引用、代码块以及加粗/斜体/链接等常见语法；其中引用段落会以灰色斜体正文展示，不再额外显示左侧引用线或引用标记，避免窄预览中自动折行后出现断裂、重复的视觉噪音。预览区也采用与文本/代码预览一致的铺满布局和底部渐变浮层。横板模式下的 Markdown 卡片会直接渲染 Markdown 内容，不再把 `**` 等语法符号原样露出，同时移除额外的 MD 标签、保留底部字符数信息，让正文位置更靠上、可读区域更多；底部预览栏新增“拷贝纯文本”快捷按钮，并补齐多语言与悬停提示，方便把 Markdown 转成更易读的纯文本再复制。  
+
+- **Markdown 表格渲染与预览排版优化**
+  Markdown 预览现在可以识别并渲染 GitHub 风格表格，支持表头、分隔行、左右/居中对齐、转义竖线以及代码片段里的竖线，并为大表格增加轻量截断保护，隐藏行数与隐藏列数提示也已补齐多语言文案；空格键预览中表格会以更清晰的行列网格、横向滚动和底部滚动留白展示，横板卡片则继续保留原有 Markdown 卡片渲染，不再额外渲染成横排表格卡片，避免列表内容被错误改写。与此同时，分割线渲染改为真正的一行视觉线，修复 `---` 被换行成多行长横线的问题，并微调表格与分割线的上下间距；表格行高也改为按单行内容量自适应，短行保持紧凑、长行适度增高，同时缓存一次表格布局结果，避免重复计算列宽、行高和纯文本回退内容导致预览时 CPU 飙高。  
+
+- **Markdown 转纯文本 CPU 与入库路径优化**
+  Markdown 预览底栏的“拷贝纯文本”现在不再为了得到纯文本而重新走完整的富文本渲染链路，而是使用轻量 Markdown 文本解析路径直接生成可读纯文本，减少字体、段落样式、AttributedString 与表格回退渲染带来的 CPU 抖动。转换结果写入系统剪贴板时会标记为 Deck 内部派生内容，避免剪贴板轮询器再次把它当作外部复制重新做类型识别、智能文本分析和语义向量生成；同时 Deck 会主动把这条纯文本写入历史记录，确保系统剪贴板与 Deck 历史保持一致。  
+
+- **浅色模式悬浮提示描边增强**
+  右上角按钮组和竖版底部按钮组共用的自定义悬浮提示，现在在浅色模式下会增加更明显的灰色描边；当 App 停靠在最顶部、弹窗背景接近纯白时，这个描边能让 tooltip 更有对比度和层次感。深色模式保持原有观感不变。  
+
+- **DeckClip CLI 登录与聊天配置流程优化**
+  DeckClip 终端登录界面的 Provider 配置输入框现在支持 Ctrl+U、Command+Delete / Command+Backspace 快速清空当前行，粘贴错 API Key 或 Base URL 时不再需要逐字删除；同时 AI Chat 的 slash 命令新增 `/login`，可直接从聊天界面进入登录配置，完成或退出后会自动回到 AI Chat 并刷新当前 Provider 状态。  
+
+- **Deck MCP 结构化剪贴板工具**
+  Deck MCP 新增 `deck_list_clipboard_items` 与 `deck_search_clipboard_items`，可以直接返回结构化 `items`，方便 AI 客户端继续引用 `item_id`、类型、来源 App、时间戳、标签与文本片段等元数据；`deck_read_latest_clipboard` 也升级为增强版，读取最新剪贴板时会一并返回完整元数据，而不只是纯文本。相关只读调用统一走轻量列表/搜索路径，并限制返回文本长度，避免大图、大文本或异常 JSON 回包影响 App 稳定性。  
+
+- **Deck MCP 脚本插件自动化工具**
+  Deck MCP 新增 `deck_list_script_plugins`、`deck_read_script_plugin` 与 `deck_run_script_transform`，外部 Agent 现在可以先列出 Deck 里已安装的脚本插件，读取某个插件的 `manifest.json` 与主要文件内容，再安全地调用现有脚本插件对文本做固定转换、清洗、格式化或模板处理。插件读取沿用 Deck 原有的文件数量、大小与总字符上限保护；脚本执行走异步转换路径，不阻塞主线程；未授权的网络插件不会被静默放行，而是返回明确的权限提示，方便 Agent 在可控边界内复用 Deck 的本地自动化能力。  
+
+- **DeckClip AI Chat Agent / YOLO 模式切换**
+  DeckClip AI Chat 现在支持通过 Shift+Tab 在默认 Agent 审批模式与 YOLO 自动审批模式之间切换；顶部会持续显示当前模式，YOLO 模式下工具执行仍沿用普通工具状态展示，只在旋转状态旁标注 “YOLO mode”，避免额外打断对话。  
+
+- **上下文感知排序更聪明了**
+  Deck 的上下文感知排序不再只根据前台 App 做简单的类型偏好重排，而是会先扩大候选范围，再结合内容类型、时间新鲜度、代码语言、来源 App / IDE、source anchor，以及当前活动窗口标题里的任务关键词做加权排序，让更贴近你当前任务的内容更容易被顶到前面。现在面板打开前还会先捕获一次上下文快照，历史列表与 Quick Paste 复用同一份快照，避免 Deck 抢到焦点后窗口标题漂移造成首帧跳序或快捷粘贴顺序不一致；排序中的代码语言加权也改为轻量采样路径，不再为了小幅加分触发完整智能文本分析链路。  
+
+- **列表滚动与智能文本分析能耗优化**
+  针对真实采样中暴露出的列表滚动与文本识别热点，Deck 现在会避免为大段文本反复计算任务 key，改用更稳定的内容版本标记；同时为代码语言检测增加缓存、将代码片段判断改为复用预编译正则，并把长文本的代码判断收敛到采样片段内，减少滚动、预览与快速浏览历史时的重复字符串扫描与 CPU 抖动。  
+
+- **快捷键监听能耗优化**
+  Deck 优化了复制监听、队列粘贴与 Typing Paste 的全局快捷键监听链路：普通打字时不再让 Deck 为每个按键持续唤醒，而是先监听修饰键变化，只在命中可能触发 Deck 操作的组合键期间临时挂载 `keyDown` 监听，并带有当前修饰键状态重建与自动回收保护。App 启动时会打印 `InputMonitoringStartup` 日志，明确当前复制监听和 Deck 快捷键监听策略，方便排查与确认。  
+
+- **大图预览内存与解码优化**
+  针对 Instruments Allocations 中暴露出的大图预览内存尖峰，Deck 现在会避免在主线程提前读取完整图片数据：文件图片与外置 blob 图片会优先在后台按路径或受控的 blob 读取入口生成降采样预览，并收紧 ImageIO 源缓存、预览解码像素上限与全局图片预览缓存容量，减少 CGImage、CG raster、CoreAnimation 与 IOSurface 的瞬时内存占用。这样在查看、缩放或切换大图时，内存增长更可控，预览仍保持清晰，同时降低重复解码带来的 CPU 与能耗抖动。  
+
+- **局域网文件传输 CPU 与能耗优化**
+  根据 WLAN 文件传输 CPU Trace，Deck 现在在通过局域网发送文件 URL 时不会再提前调用完整数据解析路径读取文件内容，而是只快照文件路径并交给后续资源传输链路处理，避免发送前额外触发大文件 IO、内存占用和 CPU 抖动；同时，局域网接收到的文件类记录入库后会跳过语义向量生成，避免把文件路径类内容送进 `NLEmbedding` / CoreNLP 做低收益的后台计算。这样大文件接收完成后的 CPU 峰值和能耗更可控，文件名/路径仍然保留普通关键词搜索能力。  
+
+- **搜索候选物化与 FTS / LIKE 过滤优化**
+  普通关键词、模糊搜索与混合搜索现在会优先用轻量数据库行和搜索快照完成候选排序，只在确定命中顺序后再物化真正需要展示的 `ClipboardItem`，避免为会被 fuzzy scorer 淘汰的候选提前创建完整对象、触发类型/智能分析相关开销。FTS 与 SQL LIKE 查询也会把类型过滤和 Tag 过滤尽量下推到数据库层，并补齐自定义标题的空值处理；搜索解密缓存增加总成本上限，fuzzy lowercased 文本缓存也减少了每次搜索的临时字典分配，让搜索、翻页与快速输入时的内存分配和 CPU 抖动更可控。  
+
+- **加密模式混合搜索与卡片渲染性能优化**
+  根据 Xcode Instruments 中的加密模式混合搜索 Trace，Deck 现在会在历史列表和搜索结果物化时直接复用数据库中已持久化的内容类型，不再为每条记录重复触发代码语言检测、URL 判断和智能文本扫描；安全模式搜索也减少了重复读取偏好与解密分支判断。横板图片卡片不再为了显示尺寸而在 SwiftUI body 中读取或解密完整大图，而是随后台降采样顺手读取像素尺寸，并为图片缩略图解码和智能文本分析增加更保守的并发闸门，降低搜索、滚动和打开面板时的主线程卡顿、内存峰值与能耗抖动。  
+
+- **记录导出、加密迁移与统计页性能优化**
+  根据 Instruments Trace 中暴露出的导出、数据库加解密与统计页热点，Deck 现在会在导出历史记录时直接使用数据库中已经持久化的元数据与完整 payload，不再为每条记录重新构造完整剪贴板对象并触发类型识别、代码语言检测等重复分析；开启或关闭安全模式时，加解密迁移会只处理状态真正需要变化的记录，并复用同一次获取的加密密钥与预编译数据库更新语句，减少 Keychain 访问、SQL 编译与重复检测开销；统计页也改为用更少的聚合 SQL 直接计算总数、今日/本周数量与最近 7 天活动分布，并缓存来源 App 名称解析，减少打开统计页时的数据库扫描、Bundle IO、内存分配与 CPU 抖动。  
+
+- **AI 聊天流式回复性能优化**
+  根据 AI 聊天 SwiftUI Trace 中暴露出的流式回复热点，Deck 现在会降低流式文本刷新与自动滚动触发频率，避免每个小片段都带动画滚到底部，从而减少 `LazyVStack`、根视图几何与 SwiftUI Transaction 的重复布局压力；流式文本累积器也改为增量追加，避免长回复过程中反复 `joined()` 重建整段字符串，并且流式消息视图不再为每次刷新创建临时 `AIMessage`。ChatGPT 订阅模式的 SSE 读取路径也改为边读边解析工具调用，不再完整缓存响应体后再二次解析，让长回复时的内存占用、CPU 抖动和能耗更可控。  
+
+- **启动路径轻量化**
+  Deck 现在会把部分非首帧必需的准备工作延后到真正用到时再初始化，并移除重复的启动清理与冗余事件分发启动，让整体启动过程更轻、更稳。  
+
+- **安装包图标显示更稳定**
+  Deck 的 DMG 安装包现在会为最终安装包文件写入自定义图标，并默认使用浅色安装包图标，避免打包机器处于暗黑模式时把深色安装包外壳发布给所有用户。  
+
+- **竖版模式链接行图标升级**
+  竖版列表中的链接类型条目，现在会先显示复制来源 App 的图标；网站 favicon 加载完成后自动替换为网站图标，加载失败则保留 App 图标。  
+
+- **链接预览占位图标统一**
+  当网站 favicon 没有提取到时，横板卡片中的链接预览现在会使用与预览顶部一致的灰白地球图标，不再显示突兀的蓝色链接占位图，让链接卡片在列表里更统一、更干净。  
+
+- **竖版面板顶部与底部层次感优化**
+  竖版模式下，顶部搜索与标签区域已改为覆盖式三层结构：底层历史记录连续延伸到顶部，中层使用更重的渐变模糊材质做柔和过渡，顶层保留搜索与标签交互；同时底部工具栏也升级为更重的渐变模糊层，并优化队列模式栏的左右对齐、文案密度与按钮 hover 厚度，让整块面板上下更统一、更有连续性。  
+
+- **ASCII 氛围栏动画焕新**
+  Deck 底部的 ASCII 氛围栏已升级为更细腻的 braille 动画风格，并在不同状态下使用不同的动态效果，让整体观感更灵动、更有层次。  
+
+- **文本预览底部模糊效果统一**
+  纯文本预览现在也采用与代码预览一致的底部模糊浮层布局，让预览区的整体视觉风格更统一、更干净。  
+
+- **横板卡片头部信息层级微调**
+  横板模式下，历史卡片头部左侧的来源 App 图标已适度放大，同时 App 名称与时间两行文字的上下间距也略微收紧，让卡片头部的识别性与视觉重心更舒服、更协调。  
+
+- **Tag 右键面板对齐与重命名手感优化**
+  右键点击 Tag 后弹出的操作面板中，底部颜色选择器现在采用更收敛的内边距、间距与按钮尺寸，整体左右边界会与上方菜单项更一致；同时编辑 Tag 标题时，除了按回车保存外，点击输入框外部区域也会自动提交重命名，而按 Esc 仍会直接取消，让这组交互更自然、更精致。  
+
+- **历史条目重命名输入体验优化**
+  历史条目的自定义标题输入框现在支持更长的标题内容，并补齐了编辑时常用的 Command+A / C / V / X 快捷键；同时统一修复了占位文案居中、首次进入重命名时中文输入法首个拼音偶发不可见，以及长标题后输入区域水平偏移的问题，让标题重命名在英文与中文输入法下都更稳定、更自然。  
+
+## 修复
+
+- **模拟键盘输入粘贴失控止损**
+  模拟键盘输入粘贴现在改为可取消的安全会话，并加入多重“失控止损”保护：输入过程中按 Esc、Ctrl+C / Ctrl+X、Command+C / Command+X、Command+.，再次触发模拟输入快捷键，或按下 Deck 主面板 / AI Chat 快捷键，都会立即停止正在进行的模拟输入；鼠标点击、滚轮、锁屏、屏幕睡眠、系统睡眠和会话切换也会触发硬停止。Deck 自己发送的合成输入事件会被标记并排除，避免误把自动输入识别成用户打断；同时超大文本会在启动前被安全拦截，不再因为误触快捷键把系统拖入长时间不可操作状态。  
+
+- **本地自动化协议与剪贴板访问安全加固**
+  DeckClip 的剪贴板历史读取现在会在安全模式下走系统身份验证弹窗，`read`、`clipboard.latest`、`clipboard.list` 与 `clipboard.search` 等只读入口都不再能绕过用户验证直接读取历史内容，相关提示已补齐多语言文案。`deck://paste` 深链粘贴也改为强制身份验证，并修复验证通过后可能回退到旧的前台 App、导致乱跳或粘贴到错误窗口的问题：现在带 `targetBundleId` 时只会粘贴到明确目标 App，目标 App 未运行会返回清晰错误；不带目标的 `deck://paste` 只会把内容复制到系统剪贴板，不再擅自模拟 Cmd+V。与此同时，后台加密密钥读取改为 Keychain 失败时 fail-closed，只有明确不存在时才创建新密钥；上下文感知排序会截断异常超长窗口标题；DeckClip socket 的读写、鉴权与 HMAC 校验也从主线程挪到 socket 队列，避免本地 CLI 高频请求拖慢 Deck UI。DeckClip AI Chat 的流式会话状态也纳入锁保护，断连、写失败、取消与聊天 open/send/close 并发发生时，不再跨队列裸读写当前会话 ID，避免漏关会话或触发并发读写崩溃。  
+
+- **Markdown 超长链接与大文件预览卡死修复**
+  修复 Markdown 文件或 Markdown 文本中包含超长连续链接、超长单词或异常大内容时，预览窗口可能在 CoreText / TextKit 排版阶段长时间占满 CPU、甚至看起来卡死的问题。Markdown 文件预览、横板卡片预览和“拷贝纯文本”现在都使用有上限的文件读取路径；内联链接解析限制标签和 URL 扫描长度；渲染阶段会把超长连续 token 以“头部 + … + 尾部”的形式做显示级截断，避免把几十万字符的 URL 原样交给系统排版。大 Markdown 文档的 TextKit 预览也不再强制主线程全量 layout，而是只预热可见前段并估算滚动高度，让异常 Markdown 仍能打开、滚动和关闭，不再拖垮主界面。  
+
+- **复制后立即打开面板的实时刷新修复**
+  修复复制内容后立刻打开面板，或复制保存完成时面板仍在打开动画中，最新记录可能不会实时出现在列表顶部的问题。Deck 现在会在面板开始展示时就把数据层标记为可见状态；保存完成的新剪贴板记录会立即插入当前 UI，并同步合并到首屏预备快照中，避免动画结束后旧快照覆盖刚复制的新内容。音效触发时序保持不变。  
+
+- **设置页开机自启动抖动与 CPU 占用异常修复**
+  修复替换 `/Applications/Deck.app`、刷新版本号或系统短暂同步登录项状态后，设置页“开机自启动”开关可能左右抖动并伴随 CPU 占用升高的问题。Deck 现在会把开关点击与系统状态同步分离：只有用户主动切换时才调用 `SMAppService` 注册/取消注册，程序化刷新只读取并反映真实登录项状态，避免 SwiftUI `onChange` 反复触发注册/反注册闭环；同时对启动时的辅助功能权限提示增加二次确认，减少 App 刚替换或 LaunchServices / TCC 刷新期间误报“权限丢失”的情况。  
+
+- **DeckClip 流式回复时回车误清空输入修复**
+  修复了 AI 正在流式回复时按 Enter 会误清空输入框草稿的问题；现在只有在非斜杠命令且聊天状态为 Ready 时才允许发送，流式回复未完成时按 Enter 会提示"回复尚未完成，请先等待或按 ESC 停止"，输入内容不再丢失。  
+
+- **DeckClip 客户端连接异常重置与超时控制**
+  DeckClip 客户端现在会在命令执行遇到连接异常（响应 ID 不匹配、读取失败等）时主动重置坏连接，避免后续命令继续使用已损坏的传输通道；同时为普通命令增加了 10 秒快速超时和 30 秒默认超时，防止无限等待无响应的连接，AI 流式回复命令则保持无超时以适配长回复场景。  
+
+- **DeckClip 传输层缓冲区上限防护**
+  传输层接收缓冲区现在增加了 16 MB + 6 字节协议头的最大长度限制，防止异常或恶意超大帧导致内存无限膨胀；超出限制时会返回明确的协议错误并关闭连接。App 端发送帧也同步增加了 16 MB 载荷上限检查，避免发出超出协议定义的帧。  
+
+- **DeckClip 错误信息本地化补齐**
+  为"接收缓冲区过大"等新增协议错误补齐了中英日韩等多语言文案，避免用户看到硬编码中文错误提示。  
+
+- **DeckClip 配置目录 fallback 修复**
+  `app_support_dir` 函数现在会在 `HOME` 环境变量缺失时回退到 `/tmp/deckclip`，避免在特殊环境下因路径为空而崩溃。  
+
+- **AI 与插件网络安全防护收紧**
+  收紧 AI 网页抓取、脚本插件 fetch 与 DeckClip 本地协议的安全边界：插件 ID 不再允许通过 `.` / `..` 归一化逃逸脚本目录，DeckClip 请求签名现在覆盖完整 args 参数，AI web_fetch 与插件 fetch 会阻断 localhost、内网、link-local、`.local` 等本机/局域网地址；相关拒绝提示也补齐了多语言文案。  
+
+- **预览窗口随面板高度实时重定位**
+  现在在横板或竖版模式下调整主面板高度后，已打开的预览窗口会立即跟随新的面板位置重新对齐，不再停留在旧高度导致被面板遮住；如果先关闭再重新打开预览，也会继续保持正确位置。  
+
+- **置顶面板下聚焦卡片拖拽预览裁切修复**
+  当启用“面板始终置顶”并拖拽当前聚焦的剪贴板卡片时，拖拽预览现在会按卡片最外层轮廓完整生成，不再把选中光环错误裁掉，也不会再在四个圆角位置出现多余的边缘残影。  
+
+- **置顶面板下拖拽卡片层级修复**
+  当启用“面板始终置顶”后，拖拽卡片时面板现在会只在拖拽进行期间临时放宽窗口层级，让系统拖拽卡片可以正确显示在面板上方；拖拽结束后会立即恢复原本的置顶层级，因此平时仍然保持 Deck 压住 Dock 与普通窗口的现有行为。  
+
+- **卡片拖拽起始与回弹闪烁修复**
+  修复了历史卡片在开始拖拽时偶发闪一下，以及拖到一半取消后系统将卡片飞回原位时，源卡片区域还会再做一次亮度过渡的问题。Deck 现已移除这层多余的本地透明度变化，让横板卡片与竖版列表项在拖拽预览、取消回弹和最终落位时都更稳定、更自然。  
+
+- **预览底栏高度与快捷操作悬停反馈统一**
+  当预览底部出现“在 IDE 中打开”或“显示二维码”等快捷操作时，底栏高度现在会保持一致，不再因为附加控件出现而把整个底部撑开；这些快捷操作也补上了与面板其他按钮一致的 hover 高亮反馈。  
+
+- **预览底栏信息进一步精简，并补充复制时间**
+  预览底栏不再显示链接、代码等内容的类型信息，非图片内容也不再显示大小；现在只有图片预览会保留大小显示，同时底栏会按系统当前地区与时间偏好显示复制时间，并移除“空格关闭”提示，让整体信息更干净。  
+
+- **空格键链接预览与图片预览底部连续性优化**
+  空格键打开的链接预览现在改为与代码/文本预览一致的底部渐变覆盖层，不再使用灰色硬切底栏；同时图片预览也重构为三层结构：最底层是灰白棋盘格透明背景，中间层显示图片正文，最上层覆盖底部渐变与右上角放大按钮。这样在图片向下滚动或内容贴近底部时，底部露出的区域也会保持连续、柔和，并能更直观地表达透明区域。  
+
+- **预览尺寸切换稳定性修复**
+  当预览在图片、文本等不同尺寸内容之间切换时，现在会统一采用更稳定的直接切换方式，避免出现错误的缩放、位移或残留过渡效果。  
+
+- **图片切换到文本时的底部遮挡修复**
+  修复了从图片预览切换到纯文本预览时，底部信息栏偶发覆盖最后几行文本的问题。现在文本预览会在首帧和后续几何更新中稳定保留底部滚动留白，确保长文本末尾始终可以完整滚动到可视区域。  
+
+- **竖版模式搜索框展开时界面偏移修复**
+  在竖版模式下（左侧或右侧停靠），点击搜索按钮展开后，搜索框不再把整个面板内容横向撑开，屏幕边缘区域也不会再被裁切到可视范围外。  
+
+- **滚动与导航回归修复**
+  修复了布局调整后出现的多个滚动与导航问题：Ctrl+A / Ctrl+E 现在能正确滚动到列表首尾并完全可见；重新打开面板时会自动导航回首项；点击历史项后的自动居中滚动现已改为延迟触发，避免第一下点击立刻位移影响双击手感；横板与竖版模式下的滚轮导航也恢复正常。  
+
+- **布局模式切换后快捷键失效回归修复**
+  修复了切换横板与竖板模式后面板内快捷键失效的问题（例如 Command + , 打开设置）。根因是新旧视图实例在切换时共享同一个事件处理器 key，导致旧实例误删新实例的监听器；现已改为实例级唯一 key 以避免冲突。  
+
+- **AI 发送崩溃修复**
+  修复了所有 AI 模式（助手、订阅、API、一键配置）在发送消息后立即崩溃的问题。根因是在 `AIService.sendUserMessage` 中，`provider.sendMessage(...)` 返回的 `AsyncThrowingStream` 被包裹在 `TaskLocal.withValue` 作用域内创建，导致任务生命周期交错引发 `swift_task_dealloc` 崩溃；现已移除这层不必要的 `withExecutionContext` 包装，同时保留真正工具执行时的执行上下文设置。  
+
+- **AI 面板、预览窗口与局域网提示并发稳定性修复**
+  修复了 AI 聊天浮窗、预览窗口以及局域网分享验证提示中的一组主线程隔离与计时器边界问题，减少了相关 Swift 并发构建告警，并让界面尺寸变化、滚动观察与倒计时更新更稳定。  
+
+- **剪贴板、AI OAuth 与规则导入导出并发稳定性修复**
+  继续修复了一批低风险的 Swift 并发边界问题：收紧了剪贴板服务中的电源状态监听、暂停恢复定时器与提示音播放路径，避免非主线程边界访问；同时移除了 AI 会话存储与 OAuth 持久化中共享 `ISO8601DateFormatter` 的并发风险，并将规则导入导出路径调整为更纯粹的编解码工具边界，减少相关构建告警并提升整体稳定性。  
+
+- **IDE 路径识别逻辑收紧修复**
+  收紧了 IDE 路径识别逻辑，不再将根目录或目录路径误识别为有效文件锚点，避免点击"在 IDE 中打开"时意外打开 Macintosh HD 根目录。  
+
+- **置顶面板下按钮 Tooltip 被遮挡修复**
+  当启用"面板始终置顶"时，主面板按钮上的系统原生 `.help(...)` Tooltip 会被高层级面板窗口遮挡而完全不可见。现已将面板内的操作按钮与预览浮窗快捷按钮的 Tooltip 替换为独立的边框浮层窗口，其窗口层级始终比当前面板高一层，因此不会再被裁切或遮挡；Tooltip 默认显示在按钮正上方并自动避让屏幕边缘，短文案按自然宽度单行展示、长文案自动换行。圆角气泡移除了多余的阴影，去掉了四个角落的灰色直角残留，整体贴边更紧凑。同时补齐了"支持 Deck 开发"等 Tooltip 的多语言词条，使其在英文界面下也能正确显示。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.4.3/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.4.2 -->
+## v1.4.2 — v1.4.2 | Oops
+
+- **Tag:** `v1.4.2`
+- **Published:** 2026-04-18T06:48:36Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.4.2
+
+### 新增
+
+- **Smart Rule AI 管理工具**  
+  Deck AI 现在不仅能创建 Smart Rule，也可以列出、读取、修改和删除已有规则；App 内审批面板与 `deckclip chat`/`deckclip` 终端审批也会显示对应的规则预览、变更摘要和删除警告。  
+
+- **Deck CLI AI 聊天审批**  
+  在 `deckclip chat` 中，遇到脚本插件创建/修改/删除、剪贴板写入/删除、Smart Rule 生成等需要授权的操作时，现在会直接弹出审批面板；你可以在终端里查看摘要与预览，并用 `Y / Enter` 批准、`N / Esc` 拒绝。  
+
+- **审批补丁结构化预览**  
+  修改脚本插件时，补丁现在会按文件、hunk 与增删行数展示；支持普通 diff 与 `*** Begin Patch` 风格补丁，也能识别文件移动（move）并显示旧路径到新路径的变更关系。  
+
+- **审批代码高亮**  
+  审批面板会对 `manifest.json`、JSON 和 JavaScript 代码块做基础语法高亮，长预览也支持独立滚动。  
+
+### 优化
+
+- **Smart Rule 自动删除粒度**  
+  “多久之后自动删除” 现在最低支持 1 分钟；在 5 分钟以内可直接选择 1 / 2 / 3 / 4 / 5 分钟，超过 5 分钟后继续沿用原来的 5 分钟步进逻辑。AI 生成或修改规则时也同步支持 1 分钟的最小自动删除时间。  
+
+- **聊天过程工具状态反馈**  
+  AI 在搜索剪贴板、保存记忆、读写会话上下文、运行脚本插件等阶段时，顶部状态与对话尾部会显示更明确的进行中文案；连续搜索还会带上递增计数，减少“像卡住了一样”的观感。  
+
+- **macOS 审批键盘体验**  
+  审批面板打开时，会临时切到可输入 ASCII 的键盘布局，关闭后再恢复原输入法；在中文输入法等场景下，`Y / N` 快捷批准或拒绝更可靠。  
+
+- **聊天模块结构与可维护性**  
+  `deckclip chat`/`deckclip` 的实现拆分为 `app_impl`、`approval`、`render` 和 `tests` 模块，后续继续迭代聊天与审批功能时更容易维护。  
+
+- **局域网共享后台策略平衡优化**  
+  重新调整了局域网共享在后台、熄屏与连接状态切换时的发现策略：相比频繁暂停、恢复或重建网络对象，Deck 现在更倾向于保持发现链路稳定运行，以优先降低异常退出与崩溃风险，同时减少因重复重建带来的额外开销。  
+
+- **剪贴板后备轮询更省电**  
+  剪贴板监听的后备轮询现在会根据用户空闲状态、低功耗模式和设备热状态动态放宽间隔，并减少无变化时的重复调度，降低后台闲置时的不必要唤醒。  
+
+### 变更
+
+- **局域网共享刷新与设备名生效方式**  
+  运行中的局域网共享设备名称现在会在下次重新开启该功能后再对外生效；同时“刷新搜索”会优先保留当前会话与发现链路，避免为了刷新列表而重建整套局域网共享对象。  
+
+- **二进制瘦身改为启动后自动清理**  
+  App 现在在启动后会自动扫描当前机型不需要的 App 二进制架构，并在发现可清理内容时直接执行清理；不再需要先进入“整理数据库 / 一键整理”再触发。设置页中的相关开关语义也同步调整为“启动时自动清理”，而“一键整理”里的二进制瘦身则改为补做与兜底路径。  
+
+- **AI 工具执行授权策略**  
+  当你已经明确表达“删 / 改 / 写 / 创建”等操作意图时，Deck AI 现在会直接执行对应工具调用，并把最终确认交给系统审批弹窗；不会再要求你重复一句话、输入固定确认短句，或做第二层、第三层口头确认。像删除脚本插件、删除剪贴板内容、覆盖已有插件这类操作，只要目标明确且能唯一定位就会直接继续；只有目标不清楚、存在重名或近似匹配时才会先澄清。  
+
+### 修复
+
+- **快捷指令与 App Intents 并发兼容性**  
+  修复了在开启完整严格并发检查并使用默认 `MainActor` 隔离时，快捷指令 / App Intents 元数据可能失效、消失，甚至在启动时触发注册崩溃的问题。相关静态元数据现已显式声明为非隔离，剪贴板实体映射也仅在真正读取 UI 隔离属性时回到主 actor，兼顾 Swift 6 并发安全与 Shortcuts 注册稳定性。  
+
+- **二进制瘦身设置文案与多语言同步**  
+  补齐并更新了二进制瘦身相关设置文案的多语言资源，确保“启动时自动清理”和“一键整理补做瘦身”的新语义在各语言下保持一致，同时移除了旧的“仅启动扫描 / 整理时包含瘦身”残留文案。  
+
+- **Deck CLI 安全依赖收敛**  
+  修复了 `deckclip` 内部 `rand` / `lru` 相关安全告警，并将终端 UI 依赖从聚合 `ratatui` 拆分为 `ratatui-core`、`ratatui-crossterm` 与 `ratatui-widgets`，移除了旧的 `termwiz` 传递依赖链；此次仅涉及内部安全与兼容性更新，不影响 Swift App 对接协议，也不改变现有行为或 UI。  
+
+- **Deck CLI PATH 安装器误写 Shell 配置**  
+  修复了 Deck CLI 在回退到 `~/.local/bin` 时，可能把 zsh 配置文件路径猜错、误把目录字符串当作“已经配置”，甚至擅自新建 shell 启动文件的问题。现在只会在解析出真实 zsh 启动文件后，对已存在且可写的文件精确追加 Deck 自己管理的 PATH 行；拿不准时会直接跳过，不再碰用户配置。  
+
+- **内存占用异常（56GB+ → 30MB 左右）**  
+  修复了特定SmartRule后台调度场景下的异常内存膨胀问题，内存占用从 56GB+ 降到 30MB 左右。  
+
+- **Smart Rule 自动删除调度稳定性**  
+  修复了自动删除在取消与重新调度过程中可能重复触发的并发问题，避免后台任务风暴与异常资源占用。  
+
+- **更新记录校验稳定性**  
+  进一步稳固了更新哈希记录的写入、读取与篡改校验流程，降低更新校验偶发异常的风险。  
+
+- **Deck CLI 交互式输入删除逻辑**  
+  在 `deckclip chat`/`deckclip` 的交互式输入中，Command + Delete 与 Control + U 现在会按终端常见语义，只删除当前行里光标之前的内容，而不再直接清空整行；当光标已经位于行首时，也不会再误删前一个换行。  
+
+- **中文输入法切换导致的 Slash 面板误粘贴**  
+  修复了在 `deckclip chat`/`deckclip` 中，输入 `/` 打开命令面板后，如果中文输入法候选还未确认就切换输入语言，空的终端 Paste 事件可能误触发“最近剪贴板文本”插入输入框的问题；同时当终端实际粘贴了普通文本时，现在也会优先使用终端真实输入，而不是被内部聊天剪贴板回退文本抢占。Slash 命令候选不会再异常消失，也不会再莫名粘贴最新剪贴板记录。  
+
+- **长粘贴文本折叠为紧凑块显示**  
+  在 `deckclip chat`/`deckclip` 中，超长粘贴文本现在会先折叠为输入区里的紧凑占位块，并在输入框上方显示摘要卡片，避免编辑区被大段内容直接撑满；提交消息时会自动恢复为完整原文发送，因此不会丢失上下文，也不会影响后续继续编辑其它内容。  
+
+- **Deck CLI AI 跟随输出首轮协议稳定性**  
+  修复了 `deckclip chat`/`deckclip` 在本地模型返回很快时，终端“跟随输出”首轮回复偶发报出协议错误并直接中断的问题；现在会先稳定完成会话确认，再继续接收后续流式事件，用 LM Studio 等本地模型时更可靠。  
+
+- **审批补丁预览噪音**  
+  机器生成补丁中的包装标记会被过滤，审批窗口不再直接暴露大段原始 patch 包装文本，整体更易读。  
+
+- **状态尾部布局稳定性**  
+  流式输出、审批等待和短状态提示在底部区域的对齐更稳定；已有会话内容在生成过程中不再被异常顶动。  
+
+- **空格预览代码块滚动与顶部横幅体验**  
+  修复了空格预览中代码内容出现双层滚动条的问题，并重做了顶部语言横幅：代码预览现在改为单一滚动路径，顶部语言条调整为更贴边的毛玻璃长条，模糊覆盖与渐变过渡也更自然；同时微调了 `Swift` 等语言标签的位置，减少顶部硬截断与可见边缘感。  
+
+- **局域网共享后台稳定性**  
+  修复了局域网共享在后台、熄屏、刷新搜索或设备状态变化后，系统网络发现链路可能被频繁取消并重建，从而导致 Deck 异常退出或崩溃的问题；本次更新优先收敛高风险的生命周期抖动。  
+
+### 测试
+
+- **Smart Rule AI 工具与 1 分钟自动删除测试**  
+  新增 Smart Rule AI 工具生命周期测试，覆盖列出、读取、修改、删除规则流程，并补充 `auto_delete` 最小 1 分钟的构建校验，降低规则编辑与自动删除行为的回归风险。  
+
+- **聊天渲染与审批回归测试**  
+  新增渲染性能、输入布局、输入历史、附件恢复、slash 命令归一化、审批覆盖层、流式状态以及删除行为等测试，进一步补强 `deckclip chat`/`deckclip` 的回归覆盖。  
+
+- **中文输入法切换与终端粘贴回归测试**  
+  新增终端粘贴处理回归测试，覆盖中文输入法未完成候选时切换语言所触发的空 Paste 事件不会污染 Slash 查询，以及正常文本粘贴会优先使用终端实际输入而不是内部聊天剪贴板回退文本。  
+
+- **长粘贴折叠与恢复回归测试**  
+  新增 `deckclip chat` 长粘贴处理回归测试，覆盖超长文本折叠为占位块、发送前恢复全文、占位块边界整块删除、输入历史恢复以及输入面板高度变化等行为，降低后续编辑态与提交流程的回归风险。  
+
+- **自动删除与更新记录回归测试**  
+  新增 Smart Rule 自动删除调度回归测试，并补强更新哈希记录读写与篡改校验测试，进一步降低后续回归风险。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.4.2/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.4.1 -->
+## v1.4.1 — v1.4.1 | contrite
+
+- **Tag:** `v1.4.1`
+- **Published:** 2026-04-13T03:38:10Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.4.1
+
+### 新增
+
+- **Deck CLI AI 聊天模型切换**  
+  在 `deckclip chat` 中新增 `/model`，可直接打开当前 Provider 的模型编辑区并修改模型名称；保存后，下一条消息会立即使用新模型。也可以按 `Ctrl+O` 直接打开模型编辑区。  
+
+### 修复
+
+- **Deck CLI AI 聊天 slash 命令列表**  
+  当 slash 命令超过当前可见行数时，命令列表现在会跟随选择滚动，键盘上下键、滚轮和鼠标点击都能稳定选中所有命令。  
+
+- **Deck CLI 安装器 Shell PATH 写入**  
+  CLI 安装器现在只会对现有且可写的 shell 启动文件做安全追加；如果 `.zshrc` 只读，会自动回退到可写的 `.zprofile`；只有文件不存在时才会新建，不再覆盖用户已有的 shell 配置文件。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.4.1/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.4.0 -->
+## v1.4.0 — v1.4.0 | vinculum
+
+- **Tag:** `v1.4.0`
+- **Published:** 2026-04-12T11:43:43Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.4.0
+
+### 新增
+
+- **iOS 同步**  
+  在 Mac 设置中可开启局域网纯文本同步：通过「快捷指令」从 Mac **拉取**最近一条可下载文本到 iPhone，或将 iPhone 剪贴板**上传**到 Mac（写入剪贴板并降低重复入库）。  
+
+- **快捷指令配对**  
+  安装 Deck 提供的「Deck iOS 同步」快捷指令时，系统会**提示输入配对码一次**，之后长期有效。  
+
+- **AI 会话长上下文（加密 + 按需读取）**  
+  AI 助手新增 `save_session_context` / `read_session_context` / `delete_session_context`：每条记录为本地**独立加密文件**（YAML 头 + 长正文），每轮仅向模型注入**标题与源信息索引**；完整正文需通过工具读取，便于控 token。与「跨窗口记忆」（≤30 字短句、全文注入）互补；可在「AI 助手」设置中单独开关，并查看条数与清理过期条目。  
+
+- **Deck CLI（命令行控制）**  
+  在设置中启用「Deck CLI」后，`deckclip` 命令行工具通过 **Unix Domain Socket** 安全地控制面板、剪贴板与 AI 功能——零网络暴露、三层本地验证（二进制哈希 + Token + HMAC-SHA256）。App 启动时自动安装 `/usr/local/bin/deckclip`（或 `~/.local/bin`）。  
+
+- **支持的命令 / Supported commands**  
+  `deckclip health`：检查 App 连接状态。  
+  `deckclip write <text>`：写入剪贴板（支持 stdin 管道与 `--tag`）。  
+  `deckclip read`：读取最近一条剪贴板内容。  
+  `deckclip paste <1-9>`：按序号快速粘贴。  
+  `deckclip panel toggle`：显示/隐藏面板。  
+  `deckclip`（无参）：在交互式终端里直接进入 AI 聊天界面。  
+  `deckclip chat`：进入交互式 AI 聊天，走与 App 一致的真实会话流，并支持 `/cost`、`/compact`、`/copy`、`/resume`、`/clear`。  
+  `deckclip ai run <prompt>`：运行 AI 指令。  
+  `deckclip ai search <query>`：AI 语义搜索。  
+  `deckclip ai transform <prompt>`：AI 转换剪贴板内容。  
+  `deckclip completion <shell>`：生成 Shell 自动补全。  
+  `deckclip login`：在 CLI 中配置 Deck AI 提供商，包括 ChatGPT、OpenAI API、Anthropic API 与 Ollama。  
+  `deckclip version`：显示版本信息与 ASCII Art 图标。  
+  `deckclip mcp serve`：以前台 stdio 方式运行 Deck MCP bridge。  
+  `deckclip mcp tools`：列出首发 MCP tools 与参数。  
+  `deckclip mcp doctor`：检查 Deck App、本地 socket/token 与客户端配置路径。  
+  `deckclip mcp setup --client <claude-desktop|cursor|codex|opencode|all>`：输出或写入 MCP 客户端配置片段。  
+
+- **CLI 语言与输出 / CLI language and output**  
+  所有命令支持 `--json` 全局标志输出 JSON 格式，适合脚本与 AI Agent 集成。CLI 会自动跟随 App 语言（zh-Hans / zh-Hant / en / de / fr / ja / ko），包括所有 `--help` 与子命令帮助文本。  
+
+
+### 优化
+
+- **复制音效**  
+  复制到剪贴板时使用新的音效反馈，听感更清晰、与操作更一致。  
+
+- **AI 助手提供商图标**  
+  「AI 助手」设置里，各提供商选项旁显示对应的品牌图标；ChatGPT 订阅与 OpenAI API 使用同一枚 OpenAI 图标。  
+
+- **ChatGPT 订阅 · Codex 后端请求对齐**  
+  使用 ChatGPT 订阅时，对官方 Codex 接口的请求会携带与 OAuth 一致的客户端标识、结构化 User-Agent、账户与会话相关头字段，并在请求体中附带与对话一致的缓存键；带推理参数时与官方客户端同样请求加密的推理内容字段。  
+
+- **Smart Rule · AI 网页能力**  
+  智能规则触发的 AI 自动化现在可使用 `web_search` 与 `web_fetch`（与 AI 助手一致），便于按链接或关键词检索、抓取公开网页内容；仍仅作用于当前触发条目，不扩大其它剪贴板或本地文件权限。  
+
+- **sqlite-vec（语义向量索引）**  
+  嵌入式 **sqlite-vec** 升级至 **v0.1.9**（含 DELETE 与相关稳定性修复）；仍以静态 amalgamation 编译进应用，无需单独加载扩展。  
+
+- **AI 聊天面板性能与稳定性**  
+  流式输出时减少滚动视图重复解析；长回复累加器降低换行扫描与全文拼接开销；上下文用量估算合并短时重复触发；工具审批在切换会话、新建对话或关闭面板时正确收尾，避免挂起；长会话消息列表采用惰性布局以降低内存压力。  
+
+- **iCloud 同步（编译期开关 + 队列）**  
+  增加 **`DeckBuildFlags.isCloudSyncCompiledIn`**（默认关闭）：未打算开启 CloudKit 时不走同步、不创建 `CKContainer`、不派发后台同步任务；与 `UserDefaults` 双保险。启用后：`CKContainer` 改为不可变实例；待上传项先按 item id 合并再在 flush 前调用 `createRecord`，减少重复加密与临时文件；`syncItem` 与物化任务使用强引用，避免标志位卡死。  
+
+- **搜索与列表**  
+  清空搜索回到默认列表时，若已在默认态则**不再重复** `loadInitialData()`；模糊搜索在候选不足时先扫描行构建 **SearchSnapshot**、再对命中结果物化 `ClipboardItem`，降低主路径与内存峰值；编辑自定义标题时仅**按条失效**搜索预处理缓存，而非全量清空。  
+
+- **链接预览面板**  
+  顶部预览区拆为独立子视图；Apple 流媒体封面**文字对比色**按图像 TIFF 做缓存，减少重复像素采样。  
+
+- **邮件反馈（纯文本）**  
+  移除内置 HTML 工单模板，通过系统邮件撰写反馈时**正文改为纯文本**，便于在邮件客户端中直接编辑；仍自动附带 **Ticket**、来源与设备/应用诊断信息（并本地化提示文案）。  
+
+### 修复
+
+- **AI 聊天全局快捷键**  
+  聊天面板仍处于打开状态、但已切换到其它应用或 Deck 其它窗口时，快捷键会**前置并激活面板**，而不再被误判为「关闭」。再次在聊天已聚焦时按同一快捷键仍可收起。  
+
+- **AI 助手 · Anthropic 兼容接口**  
+  第三方文档若只给出不含 `/v1` 的基址（例如 MiniMax），Deck 会自动补全正确的 Messages 请求路径，避免误配导致的失败；设置中增加简要说明。  
+
+- **iOS 同步与快捷指令兼容性**  
+  修复 Swift 6 编译模式下 iOS 局域网同步、后台拉取与快捷指令导出相关的并发隔离问题，减少构建报错并提升同步稳定性。  
+
+- **CloudSync 与 SQLite 符号**  
+  `CloudSyncService` 引入 `import SQLite` 以读取 `fetchRow` 的 `id`；`Result` 与 SQLite 模块内类型冲突时显式使用 **`Swift.Result`**；物化任务由 `weak self` 改为强引用，避免 **`isMaterializingPendingSync` 永久为 true** 导致后续同步不再执行。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.4.0/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.9 -->
+## v1.3.9 — v1.3.9 | artum
+
+- **Tag:** `v1.3.9`
+- **Published:** 2026-04-02T11:41:12Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.3.9
+
+### TL;DR
+- **长会话自动压缩 / Automatic Long-Session Compaction**  
+  当 AI 对话接近上下文上限时，Deck 现在会自动压缩较早的对话内容，让长会话可以继续推进而不必手动重开。  
+
+- **压缩状态可见 / Visible Compaction Feedback**  
+  压缩进行时，AI 圆点右侧会显示 `Compacting...`；压缩完成后，聊天记录里会出现一条克制的分割线来标记上下文已被压缩。  
+
+- **压缩后状态续接 / Better Post-Compact Continuity**  
+  Deck AI 现在会在压缩后继续带着当前任务方向、关键结果与必要工具线索往下走，减少长会话里的上下文断裂感。  
+
+- **上下文占用指示器 / Context Usage Indicator**  
+  在展开后的 AI 聊天面板中，Deck 现在会显示一个克制的上下文占用指示器，用小环和百分比帮助你快速判断当前会话离上下文上限还有多远。  
+
+- **只读批处理 / Read-Only Batching**  
+  当一次 AI 请求里包含多个彼此独立的只读查询时，Deck 现在会把它们作为同一批次执行，减少等待时间。  
+
+- **更完整的查找覆盖 / Broader Lookup Coverage**  
+  剪贴板搜索、脚本插件列表与读取、技能详情读取，以及网页搜索与抓取现在可以协同运行，帮助 AI 更快收集上下文。  
+
+- **安全边界保持不变 / Safety Boundaries Preserved**  
+  写入、删除、插件修改和其他需要审批的操作仍保持顺序执行，不会因为这次优化而放宽授权流程。  
+
+- **AI 智能体行为增强 / Smarter AI Agent Behavior**  
+  Deck AI 现在在处理多步骤任务时表现更可靠：遇到问题时会先诊断原因再调整策略，对工具结果的汇报更准确，对操作风险的判断更有层次感。  
+
+- **脚本插件原生预检 / Native Script Plugin Preflight**  
+  当 AI 创建或修改 JavaScript 脚本插件时，Deck 现在会在弹出审批前先运行一轮原生 JSON / JavaScript 预检，提前拦截 manifest 错误、语法问题和常见运行时不兼容写法。  
+
+- **AI 可直接生成智能规则 / AI Can Create Smart Rules Directly**  
+  你现在可以直接让 Deck AI 生成 Smart Rule。AI 会把条件、动作和启用状态整理成结构化规则，并走现有的审批流程后再保存。  
+
+- **AI 状态提示更贴手 / More Comfortable AI Status Feedback**  
+  当 Deck AI 正在搜索剪贴板、读取插件、保存记忆或执行其他工具步骤时，左侧状态区现在会显示当前动作提示，让等待过程更直观，整体体感也更顺。  
+
+- **AI 回复收尾更稳 / Smoother AI Reply Handoff**  
+  AI 流式回复现在会从生成开始就占据最终消息的位置，回复完成时不再出现内容往下闪一下、再回弹，或整段文本突然上移的跳动。  
+
+- **AI 输入焦点更稳 / More Stable AI Composer Focus**  
+  收敛 AI 聊天输入框的重复抢焦点行为，减少窗口激活或中文输入法切换时出现的系统输入法告警噪音，让输入体验更稳定。  
+
+- **中文输入法输入更干净 / Cleaner Chinese IME Input**  
+  AI 输入框现在会在中文输入法候选阶段及时隐藏提示文案，并修复个别情况下确认候选时误输入数字的问题，让中文输入过程更干净、更稳定。  
+
+- **AI 输入区发送按钮对齐 / AI Composer Send Button Alignment**  
+  多行输入时发送按钮贴底对齐；无正文时仍与单行输入区垂直居中，保持空输入时的观感一致。  
+
+- **CliperX 迁移与更清晰的迁移列表 / CliperX Migration & Clearer Migration List**  
+  首次引导与设置 → 存储均可从 CliperX（含常见 UsePasteAgain 数据布局）只读迁移历史，并与其它来源并列；列表使用内置品牌图与连续圆角，来源一目了然。  
+
+### 新增
+- **长会话自动压缩 / Automatic Long-Session Compaction**  
+  当 AI 对话接近上下文上限时，Deck 会自动将较早的上下文整理为摘要，让超长会话依然能继续进行。  
+
+- **AI 智能规则生成工具 / AI Smart Rule Generation Tool**  
+  Deck AI 现在新增 `generate_smart_rule` 工具，可以把用户的自动化意图直接落成 Smart Rule，而不再只能生成 Script Plugin。  
+
+- **压缩状态提示与分割线 / Compaction Status and Divider**  
+  压缩进行时会显示 `Compacting...`，完成后会在消息流中插入“已压缩对话上下文”的极简分割线，让用户知道上下文已经被整理。  
+
+- **AI 上下文占用指示器 / AI Context Usage Indicator**  
+  Deck 为 AI 聊天新增了一个轻量的上下文占用显示，在展开面板中会以小环和百分比提示当前会话的大致上下文压力。  
+
+- **CliperX 剪贴板迁移 / CliperX Clipboard Migration**  
+  新增对 CliperX（含常见 UsePasteAgain / `History.sqlite` + `Payloads` 布局）的只读扫描与导入，走与 Maccy 等相同的身份验证与分批写入流程。  
+
+### 优化
+- **长会话续接更自然 / Smoother Long-Session Continuation**  
+  压缩后的上下文会保留当前任务方向、关键结果与必要工具线索，减少 AI 在长对话中“忘了前文”的感觉。  
+
+- **AI 上下文状态更直观 / Clearer AI Context State**  
+  只有在发送消息后或展开聊天面板时，Deck 才会显示上下文占用指示器，让信息更有用，同时保持默认唤出状态的极简观感。  
+
+- **AI 输入区发送按钮对齐 / AI Composer Send Button Alignment**  
+  当输入框因换行而变高时，发送按钮固定在输入区域底部，不再悬停在中间；无正文时仍与单行输入区垂直居中，与空输入时的布局一致。  
+
+- **AI 多查询更快 / Faster Multi-Lookup AI Runs**  
+  对“先查剪贴板、再看插件、再读网页”这类工具密集型请求，Deck AI 现在能更高效地完成前置检索步骤。  
+
+- **AI 当前动作更可见 / Clearer Live AI Action Hints**  
+  当 AI 正在执行工具调用时，聊天面板左侧现在会更明确地提示当前步骤，例如搜索、读取插件、读取技能或保存记忆，让整个过程更容易跟上。  
+
+- **同轮收集上下文 / Same-Turn Context Gathering**  
+  独立的只读工具调用现在可以在同一轮里一起发起，减少不必要的往返。  
+
+- **旧数据维护路径更一致 / More Consistent Legacy Data Handling**  
+  模板库旧数据迁移与修复路径已做收敛，后续维护更直接，也更不容易出现历史数据恢复逻辑分叉。  
+
+- **AI 故障诊断更主动 / More Proactive AI Troubleshooting**  
+  当工具调用失败或搜索结果为空时，AI 现在会先分析失败原因再调整方案，而不是盲目重试或直接放弃。  
+
+- **AI 操作风险分层 / Risk-Aware AI Execution**  
+  AI 对不同工具的操作风险有了更清晰的分层意识，只读操作更果断，不可逆操作更谨慎。  
+
+- **AI 结果汇报更准确 / More Accurate AI Reporting**  
+  AI 不再在工具出错时假装成功，也不会在成功时过度谦虚，汇报更贴合实际。  
+
+- **AI 插件修复闭环 / Better AI Plugin Repair Loop**  
+  `generate_script_plugin` 与 `modify_script_plugin` 现在会先在草稿或临时副本上执行原生预检；若失败，Deck 会把文件名、错误级别、错误码、消息以及行列信息结构化回传给模型，便于它自动修复后重试。  
+
+- **AI 权限弹窗支持智能规则 / AI Approval UI Now Understands Smart Rules**  
+  AI 聊天里的审批弹窗现在可以识别 Smart Rule 创建请求，并用与原有风格一致的极简预览展示规则名、触发逻辑和简短摘要。  
+
+- **迁移列表视觉与资源 / Migration List Presentation & Assets**  
+  欢迎页「迁移剪贴板」与「设置 → 存储」中的迁移入口统一使用打包进 App 的品牌 PNG（`MigrationSourceIcons`），并以 macOS 连续圆角裁剪展示，替代仅靠 SF Symbol 的占位；散图从工程根目录收入资源目录，运行时按 Bundle 文件加载以避免仅认 Asset Catalog 的告警；列表里各来源展示略有取舍，此处不赘述。附带 `scripts/normalize_migration_source_icons.py`，便于后续统一替换或规范化图标素材画布。  
+
+### 变更
+- **完整历史仍会保留 / Full History Still Preserved**  
+  压缩只影响发送给 AI 的运行时上下文；本地会话记录仍保留完整历史，旧消息不会因为压缩而从聊天记录中消失。  
+
+- **仅自动触发 / Automatic Trigger Only**  
+  这项能力会在上下文接近上限时静默触发，不需要手动按钮或额外整理步骤。  
+
+- **剪贴板迁移入口统一到引导与存储 / Clipboard Migration Entry Points**  
+  CliperX 等迁移仅从首次引导与「设置 → 存储」发起，不再误挂到 JSON 导出/导入类流程，避免用户找错入口。  
+
+### 修复
+- **更稳的本地密钥更新 / Safer Local Secret Updates**  
+  对局域网直连配对信息、AI Memory 密钥和共享密钥的本地保存路径做了整理；若本地已存在相关密钥，Deck 现在会优先尝试原位更新，降低极少数写入失败时丢失旧值的风险。  
+
+- **压缩失败时不中断当前请求 / Graceful Fallback on Compaction Failure**  
+  如果压缩未能完成，Deck 会安静地再尝试一次；如果仍失败，会继续正常发送当前请求，避免因为压缩失败直接打断对话。  
+
+- **AI 回复完成瞬间不再跳动 / No More End-of-Reply Jump in AI Chat**  
+  修复 AI 回复从流式状态切换到正式消息时的布局重排；在短回复、窄窗口和贴底查看的场景下，完成瞬间不再把整段内容突然往上顶。  
+
+- **AI 输入框焦点抖动收敛 / Reduced AI Composer Focus Churn**  
+  修复 AI 聊天输入框在窗口激活或恢复时重复请求第一响应者的问题；这会减少中文输入法等组合输入场景下的系统级告警噪音，并让输入焦点表现更稳定。  
+
+- **中文输入法候选与清空更稳定 / More Reliable Chinese IME Composition and Clearing**  
+  修复 AI 输入框在中文输入法候选阶段提示文案可能与组合文字短暂重叠、以及少数情况下确认候选时误写入数字的问题；同时也收敛了发送或清空输入框时的候选态残留。  
+
+- **上下文占用刷新更准确 / More Accurate Context Usage Refresh**  
+  修复了切换聊天或新建对话后上下文占用指示器可能沿用旧值的问题；空对话、不同会话以及恢复后的聊天状态现在都会重新估算并正确更新。  
+
+- **智能规则审批摘要不再撑爆窗口 / Smart Rule Approval Summary No Longer Blows Up the Window**  
+  修复 Smart Rule 审批内容过长时可能把 AI 聊天面板撑到异常高度、甚至触发约束更新死循环的问题；现在规则审批摘要会保持克制。  
+
+- **脚本插件修改预检不再误报目录创建失败 / Script Plugin Modify Preflight No Longer Falsely Fails on Temp Directory**  
+  修复 `modify_script_plugin` 预检阶段先创建临时目录再 `copyItem` 的问题：`FileManager.copyItem` 要求目标路径事先不存在，因而复制会稳定失败并被误报为「创建插件目录失败」（路径常落在 `/var/folders/...`）。现已改为由复制步骤在唯一临时路径上创建目录。  
+
+### 兼容性与行为说明
+- **优先保留最近对话原文 / Recent Turns Stay Verbatim**  
+  Deck 会优先保留最近几轮原始消息，并把更早内容折叠为摘要，因此压缩后的上下文会偏向“保留最近、压缩更早”。  
+
+- **仅限独立只读调用 / Independent Read-Only Calls Only**  
+  这项优化只适用于同一轮里的独立只读工具调用；如果某一步会写入数据、触发审批或依赖前一步结果，仍会按顺序执行。  
+
+- **是否触发取决于请求形态 / Trigger Depends on Request Shape**  
+  当 AI 判断多个查询彼此独立时会进行批处理；如果任务本身需要逐步推理或逐步确认，仍可能保持串行。  
+
+- **插件预检无独立界面 / No Separate UI for Plugin Preflight**  
+  这套检查不提供单独按钮或设置界面，而是作为 AI 插件生成链路的底层步骤自动执行；只有预检通过后，Deck 才会继续进入插件添加或修改的审批流程。  
+
+### 升级建议
+- **推荐给长会话 AI 用户 / Recommended for Long AI Sessions**  
+  如果你经常让 Deck AI 持续处理长任务、连着追问或连续推进同一目标，建议升级到 v1.3.9。  
+
+- **推荐给重度 AI 检索用户 / Recommended for Lookup-Heavy AI Workflows**  
+  如果你经常让 Deck AI 同时查剪贴板、脚本插件、技能信息和网页内容，建议升级到 v1.3.9。  
+
+- **推荐给 CliperX / Recommended for CliperX**  
+  若你此前使用 CliperX 或同类工具并希望把历史迁入 Deck，可在升级后从欢迎流程或「设置 → 存储」发起只读迁移。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.9/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.8 -->
+## v1.3.8 — v1.3.8 | lūcidulus
+
+- **Tag:** `v1.3.8`
+- **Published:** 2026-03-30T03:39:03Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.3.8
+
+### TL;DR
+- 主面板（⌘P）进出场动画改为在固定窗口内滑动内容层，全屏下收起不再在边缘卡顿；弹出时更接近目标尺寸，结束瞬间抖动减轻。  
+- 历史面板现在以完整浮层形式进出场，避免动画过程中被最终矩形范围硬性切掉。  
+- macOS 26 深色模式下的液态玻璃边缘已做柔化，减轻白色粗边与最外层暗边叠加出的双层描边感。  
+- 斜杠搜索支持按「局域网接收」筛选或排除。  
+- 升级后自动回填可识别的历史局域网文件类记录。  
+- 修复同一内容再次写入时局域网标记被误清的问题。  
+- 优化顶部搜索栏主线程调度，减轻 QoS 优先级反转类调试提示与潜在微卡顿。  
+- AI 窗口输入改用更适合 macOS 大文本编辑的原生输入组件，显著减轻超长文本与中文输入法场景下的卡顿。  
+- 解决 [Issue #85](https://github.com/yuzeguitarist/Deck/issues/85)：AI 回复进行中只要你向上滚动一次，本条回复结束前都不会再被自动拉回底部。  
+- 修复窄 AI 窗口在多行输入后收缩异常，避免顶部按钮被挤到中间。  
+- 列表缩略图、局域网接收目录清理与「分享」子菜单在 Swift 6 并发检查下更干净，减少 Xcode 相关告警。  
+- 优化 AI 助手的系统提示词，回复更一致、边界更清晰。  
+- 增强 AI 的自主决策能力，在可用工具与后续步骤上更主动、更少反复确认。  
+- 提升搜索整体性能，查询与索引路径更高效。  
+- 解决 [Issue #89](https://github.com/yuzeguitarist/Deck/issues/89)：光标助手在终端等有输入光标的场景下会优先贴近插入点显示，减少视线在鼠标与输入位置之间来回切换。  
+- 解决 [Issue #82](https://github.com/yuzeguitarist/Deck/issues/82)：竖版模式下按住快捷粘贴修饰键（默认 ⌘）时，列表会显示 1–9 编号提示。  
+- 解决 [Issue #78](https://github.com/yuzeguitarist/Deck/issues/78)：长时间未唤起后重新打开历史面板时，最近记录会更快出现，加载提示也改为更轻量的多语言纯文本样式。  
+- 脚本插件支持一键「上传到商店」：在浏览器打开 [Deck 商店发布页](https://apps.deckclip.app/publish/) 并预填当前插件（不自动提交）。  
+- 已安装脚本插件列表不再展示 `v1.0.0` 类版本号；创建说明中的 manifest 示例与「上传到商店」、发布失败等文案已补全简中、繁中、英、德、法、日、韩。  
+
+### 新增
+- **局域网类型过滤（type:lan）**  
+  在搜索规则中使用 `type:lan` 仅显示本机通过 Deck 局域网共享收到的条目；使用 `-type:lan` 可排除这类记录，并支持与现有类型用 `+` 组合。  
+- **多语言说明与提示**  
+  搜索规则帮助与示例文案已补充 `lan` 类型说明（简中、繁中、英、德、法、日、韩）。  
+- **竖版快捷粘贴序号（#82）**  
+  竖版历史列表在按住快捷粘贴修饰键时，于行副标题展示与竖版「队列模式」相同的 `• #序号` 排版（11pt 粗体），颜色为随外观适配的中性灰，与队列条目的橙色 `#` 区分。  
+- **脚本插件「上传到商店」**  
+  在「设置 → 脚本插件」中为已安装插件提供「上传到商店」：将 manifest 与 UTF-8 文本文件编码进 URL，系统浏览器打开 `apps.deckclip.app/publish/#data=…` 并预填表单；不会自动提交，由你在网页上完成后续步骤。  
+
+### 优化
+- **主面板（⌘P）进出场动画与全屏表现**  
+  收起与弹出改为在固定窗口尺寸下通过内容层滑动完成过渡，避免全屏 Space 中整窗移出屏幕边界时的裁切与吸附卡顿；弹出时面板以目标尺寸呈现，减少结束瞬间的轻微抖动。  
+- **历史面板外轮廓与进出场动画**  
+  历史面板的外轮廓与玻璃材质改为分层处理，进出场动画按整块浮层完成，减少矩形裁切感，让圆角轮廓在出现与消失时更连贯。  
+- **顶部搜索栏焦点与主线程 QoS**  
+  去掉主队列延后任务上多余的 User-interactive QoS 指定，并由 SwiftUI 传入「是否切到标签编辑」状态，避免在 `NSViewRepresentable` 更新路径中重复读取全局模型，从而降低 Xcode 中「User-interactive 等待 Default QoS」类优先级反转日志与相关卡顿风险。  
+- **AI 长文本输入与发送流畅度**  
+  AI 窗口输入区改用更适合 macOS 的原生多行文本组件，并减少输入与发送前整理/保存对主线程的压力；在粘贴超长文本、使用中文输入法和发送大段内容时，响应更稳定。  
+- **列表缩略图与局域网清理的后台路径**  
+  列表行缩略图在后台读取 blob 时使用专用读取路径；局域网接收过期目录在后台清理时，日志改为主线程异步写入，避免与默认主线程隔离冲突。  
+- **AI 系统提示词**  
+  重写并收紧助手侧系统提示：角色、能力边界、输出格式与安全相关约束更明确，减少含糊指令带来的漂移与重复追问。  
+- **AI 自主决策与工具使用**  
+  在允许的场景下更倾向自主选用搜索、读取上下文等能力并推进任务闭环，仅在关键歧义或高风险操作前停顿确认。  
+- **搜索性能**  
+  优化索引更新与查询执行路径，降低常见筛选与全文检索的延迟与主线程占用。  
+- **光标助手更贴近真实输入位置（#89）**  
+  在终端和其他有文本插入点的场景中，光标助手会优先贴近当前输入光标显示，减少视线在鼠标与输入位置之间来回切换；当应用未提供可靠插入点信息时，仍会平滑回退。  
+- **脚本插件设置页与列表**  
+  脚本插件设置沿用 Deck 通用设置页的视觉与组件风格；已安装列表不再展示插件版本号，减少与商店版本混淆；「上传到商店」与帮助文案对齐当前流程。  
+- **脚本插件发布相关本地化**  
+  「上传到商店」、无法打开发布页的提示、发布链接生成失败及各类校验错误说明已覆盖简中、繁中、英、德、法、日、韩。  
+
+### 变更
+- **脚本插件 manifest 与发布约束**  
+  创建指南中的示例与字段说明不再包含 `version` 字段（与列表不展示本地语义化版本一致）；「上传到商店」仅打包 manifest 与 UTF-8 文本文件，单文件体积需落在链接可承载范围内，否则会在 App 内给出可本地化的错误说明。  
+
+### 修复
+- **深色模式下的液态玻璃双边感**  
+  针对 macOS 26 历史面板在深色模式下偏硬的边缘表现做了调整，减轻白色外沿与最外层暗边叠加造成的双层描边观感，同时保持浅色模式下原本较干净的外观。  
+- **重复内容不再抹掉局域网标记**  
+  当与已存在的局域网接收记录具有相同内容指纹（`unique_id`）时，再次从本机剪贴板写入不会把「局域网接收」标记覆盖为否。  
+- **AI 窄窗口多行输入回收异常**  
+  在首次唤出的窄窗口模式下，前四次换行会按预期向下扩展，第五行开始转为输入框内部滚动；删除换行后，外层窗口会同步反向收回，不再留下多余空白或把顶部按钮挤到中间。  
+- **AI 回复期间上滚后不再自动回底（#85）**  
+  当 AI 还在继续生成时，只要你向上滚动查看前文，本条回复剩余阶段的自动跟随就会立即停用，不会再反复把视图拉回底部；下一条新回复开始时会正常恢复自动跟随。  
+- **系统「分享」子菜单与编译告警**  
+  保留菜单内二级分享服务列表与原有分享流程，同时避免直接调用已标记弃用的系统列表 API，消除相关 deprecation 警告。  
+- **历史面板首屏空白（#78）**  
+  长时间未唤起后重新打开历史面板时，最近记录会更快出现；在内容尚未准备好时，界面改用更轻量的多语言纯文本提示过渡，减少先空白后突然出现内容的体感。  
+
+### 兼容性与行为说明
+- **历史数据回填范围**  
+  升级会对未加密且内容中带有 `LANReceived` 存储路径的记录打上局域网标记；从未出现该路径特征的纯文本/内联类旧记录可能仍无法自动识别。  
+- **导出/导入**  
+  导出的 JSON 可选包含 `receivedFromLAN` 字段，旧版导出文件缺少该字段时导入按否处理。  
+
+### 升级建议
+- **常规升级**  
+  正常升级即可；若依赖「局域网接收」筛选覆盖全部旧记录，可结合一次重新从仍保留的设备接收或手动核对。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.8/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.7 -->
+## v1.3.7 — v1.3.7 | fastidious
+
+- **Tag:** `v1.3.7`
+- **Published:** 2026-03-23T13:53:49Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.3.7
+
+### TL;DR
+-   `brew tap yuzeguitarist/deck && brew install --cask deckclip` — 两行命令安装，版本随 GitHub Release 自动更新。  
+- **⌃A / ⌃E**  
+  历史列表支持 Emacs 风格快捷键，一键跳到数据库意义上的最新一页或最旧一页。  
+- **更干净的尾跳**  
+  跳到末尾时单次定向拉取，避免在中间逐页加载；超大库下搜索尾跳会收紧候选上限。  
+- **可靠性**  
+  修复 ⌃E 连用失效，以及 ⌃E 后 ⌃A 困在尾页、较新记录需重开面板才出现的问题。  
+- **暂停录制**  
+  恢复录制后不会再把暂停期间复制的内容自动写进历史。  
+- **设置内反馈弹窗**  
+  从「关于 > 更新与反馈 > 提交反馈」打开的「选择反馈方式」面板中，取消与选项按钮可正常使用（与快捷键入口一致）。  
+- **关于页支持作者**  
+  「关于」中新增支持区块：官网入口使用 Deck 图标并直达定价页「支持开发」；另提供 GitHub 入口（随应用语言打开中文或英文站点）。  
+- **数据与安全（数据库 / 模板库 / iCloud / AI）**  
+  数据库初始化状态更可靠；模板条目改为落盘存储并支持从旧版 UserDefaults 正确迁移与补救；iCloud 同步在加密、fileURL、元数据与崩溃恢复上更一致；Smart Rule 不再静默授权需网络的脚本插件；AI 认证文件与 Keychain 写入更安全。  
+- **网络工具与局域网直连**  
+  网页抓取/搜索在较大响应体下组包更快；移除局域网手动节点时同步清理出站连接调度状态，避免长期增删节点后无用条目占用内存。  
+
+### 新增
+- **Homebrew Cask 安装**  
+  现在可以通过 Homebrew 安装 Deck：先 `brew tap yuzeguitarist/deck`，再 `brew install --cask deckclip`。后续版本随 GitHub Release 自动同步。  
+- **右键「系统分享」子菜单**  
+  卡片右键菜单新增「系统分享」二级子菜单，列出隔空投送、信息、邮件等所有 macOS 系统级分享服务，无需先拖到访达再操作。横版与竖版模式均支持。  
+- **历史列表 ⌃A / ⌃E（Emacs）**  
+  在面板历史列表聚焦时，⌃A 从数据库重新加载「最新一页」并选中其中时间上最新的一条；⌃E 单次拉取「最旧一页」并选中时间上最旧的一条，与上下文排序下的视觉顺序解耦。  
+- **关于页「支持作者」**  
+  设置「关于」新增「支持作者」：一行使用应用图标打开官网定价页并定位到「支持开发」区块；另一行打开 GitHub 仓库页面。应用语言为中文时打开中文站，否则打开英文站。  
+
+### 优化
+- **尾页跳转更省路径**  
+  跳到列表末尾时直接按时间升序取末段，避免为凑齐末尾而一页页从中间往后翻。  
+- **大库下搜索跳转更克制**  
+  在记录量很大时，为搜索结果的尾跳收紧单次候选上限，降低无谓扫描。  
+- **关于页支持入口展示**  
+  支持区块内图标尺寸与左侧对齐统一，GitHub 标识更易辨认、边缘更顺滑。  
+- **模板库持久化**  
+  模板条目正文与预览写入 Application Support（UserDefaults 仅存索引）；开启安全模式时对模板文件加密；删除/移动库或条目时仅更新索引，避免每次操作全量重写所有 payload。  
+- **iCloud 拉取结束时间**  
+  `lastSyncDate` 在每次拉取流程结束时更新（含失败提前返回），与 `serverChangeToken` 是否前进解耦，便于展示「最近一次拉取结束」。  
+- **Web 工具大响应流式读取**  
+  对 `URLSession` 异步字节流采用分块缓冲再合并到 `Data`，降低多 MB 响应下的 CPU 与分配开销（仍保留 5 MB 上限与超限语义）。  
+
+### 修复
+- **⌃E 可反复使用**  
+  不再与「加载更多」共用的加载标志误挡后续 ⌃E；分页任务只在异步块内标记加载中，避免长时间占住状态。  
+- **⌃E 后再按 ⌃A 回到真实最新**  
+  先前仅在当前内存列表中选「第一项」，在尾页场景下并非全局最新，且向左/向新方向看不到更早加载过的记录；现改为与 ⌃E 对称的「真·首屏」重载。  
+- **暂停期间复制不再在恢复时被记录**  
+  暂停后若在系统里复制过内容，恢复录制时不会再把当时剪贴板里的那一条当作新事件写入历史；只有恢复之后的新复制才会进入记录。  
+- **设置中打开的反馈选择面板**  
+  将反馈对话框推迟到下一轮主循环再进入 AppKit 模态会话，避免从设置页 SwiftUI 按钮同步弹出时内容区无法点击（仅标题栏关闭可用）的问题。  
+- **数据库初始化**  
+  仅在完整性检查通过且自定义函数、建表、迁移均就绪后置 `isInitialized`；完整性无法恢复时不再误标为已初始化，避免半初始化卡死。  
+- **模板库迁移**  
+  仅在实际解码成功并落盘后才升级存储版本；解码失败会保留旧数据并重试。若曾错误升级版本导致「只剩库壳」，启动时会尝试从遗留的 `templateItems` JSON 自动补救。  
+- **模板 fileURL 图片**  
+  保存到模板库时，若已从文件物化为图片字节，剪贴板类型会改为具体图片类型，与 payload 一致。  
+- **iCloud：fileURL 同步**  
+  仅当本地能解析出与路径字符串不同的实际内容时才上传；图片类会以具体图片类型写入记录；无法物化时跳过上传并记日志，避免跨设备只剩路径串。  
+- **iCloud：加密元数据**  
+  开启端侧加密时，`appPath` / `appName` 与预览、搜索文案等一致：加密失败则置空并记录警告，不再静默明文上云；`encryptAppMeta` 语义与接收端解密对齐。  
+- **iCloud：上传崩溃恢复**  
+  批量上传完成后，仅从持久化「进行中」列表里移除已成功或已取消的条目；失败并重入队的记录名保留，避免在下次 flush 前崩溃后无法被启动恢复逻辑发现。  
+-   解码失败时清除损坏的 UserDefaults 数据，避免长期反复失败。  
+- **Smart Rule 与网络脚本插件**  
+  Smart Rule 下需要网络且未授权的脚本插件不再自动授权，需用户在插件设置中手动授权。  
+- **ChatGPT / AI 认证文件与 Keychain**  
+  `auth.json` 目录与文件权限收紧（700 / 600）；API Key 优先 `SecItemUpdate`，避免先删后加导致更新失败时旧密钥丢失。  
+- **直连：移除手动节点后的出站状态**  
+  删除节点时从出站连接世代映射中移除对应 IP（不再仅自增计数保留键），在反复添加/删除不同设备时减少无用字典条目。  
+
+### 兼容性与行为说明
+- **快捷键环境**  
+  需在 macOS 上使用 Control 组合键；历史区域需处于列表焦点（非搜索框内编辑等）。  
+- **尾跳后的列表范围**  
+  执行 ⌃E 后，当前可见列表仅为该次拉取的末尾一页，直到 ⌃A 拉回最新一页或关闭再开面板等重新加载首屏的操作。  
+- **模板库数据位置**  
+  首次从旧版本升级时，模板条目会从 UserDefaults 大包迁移至 `~/Library/Application Support/Deck/TemplateItems/`；若曾遇迁移异常，新版会尽量从遗留 JSON 自动修复。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.7/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.6 -->
+## v1.3.6 — v1.3.6 | recherché
+
+- **Tag:** `v1.3.6`
+- **Published:** 2026-03-20T07:31:30Z
+
+### Release notes
+
+<p align="center">
+  <a href="https://deckclip.app/download" rel="noopener noreferrer" target="_blank">
+    <img width="1525" height="896" alt="Deck" src="https://github.com/yuzeguitarist/Deck/raw/main/photos/Deck.webp" style="max-width: 100%; height: auto;" />
+  </a>
+</p>
+
+---
+
+## 更新说明 v1.3.6
+
+### TL;DR
+- AI 助手新增联网搜索与网页抓取工具，并支持通过 OpenCode Zen 快速接入免费模型。  
+- 可在设置中即时隐藏或显示菜单栏图标，无需重启；主面板支持 Cmd+F 聚焦搜索框。  
+- 全局快捷键、Typing Paste 与光标助手触发键统一冲突检测，保存失败会回滚并提示，避免界面与注册状态不一致。  
+- 局域网同步与发现逻辑在唤醒、重连与回调上更稳健，并修复多处界面漏翻与 OAuth 完成页体验。  
+
+### 新增
+- **联网搜索与网页抓取（AI）**  
+  为 AI 助手新增 `web_search` 与 `web_fetch` 工具：支持向 Exa 端点发起搜索、抓取网页并转换为 Markdown 或纯文本，内容过长会自动截断；Smart Rule 自动化不包含这两项外网能力。  
+- **OpenCode Zen 免费模型快速配置**  
+  在 OpenAI API 配置区提供 Zen 入口与模型选择表，确认后自动填入 Base URL、API Key 与模型名称，便于零门槛试用免费模型。  
+
+### 优化
+- **菜单栏图标开关**  
+  在「通用 > 启动」中可打开或关闭菜单栏图标，写入既有偏好并立即生效；再次显示时会同步当前暂停状态，图标语义不丢失。  
+- **主面板 Cmd+F 聚焦搜索**  
+  在主面板按 Cmd+F 会显式将焦点移到搜索框；若规则列表弹层已打开会先收起，并与短暂焦点抑制逻辑配合，在开启或关闭 Vim 模式时均可使用；仍保留直接键入即可搜索的行为。  
+- **OAuth 完成页「打开 Deck」**  
+  授权完成页主按钮改为「打开 Deck」，通过自定义 URL Scheme 唤起应用，替代仅关闭页面的体验。  
+- **AI 设置界面**  
+  移除「AI 助手」标题旁的 Beta 标签，界面更简洁。  
+- **Zen 配置界面与文案**  
+  Zen 横幅复用既有配置行样式并与维护报告类 Sheet 视觉对齐；相关新增文案已补全多语言翻译。  
+- **快捷键与触发键校验**  
+  为全局快捷键、Typing Paste 录制与恢复默认、以及光标助手自定义触发键接入统一冲突检测（含为队列「依次粘贴」保留的 ⌘⇧V），录制与保存路径一致。  
+- **局域网同步稳定性**  
+  监听系统睡眠与唤醒，唤醒后延迟再恢复发现以降低刚唤醒时的 browser/advertiser 抖动；为记住节点的自动重连增加去抖并尊重连接中与拒绝重试时间；为重复邀请与过期回调增加防护，并在刷新或停止时取消任务、清理委托。  
+- **设置与主界面文案本地化**  
+  补齐菜单栏与快捷键相关新文案，以及空剪贴板、队列提示、搜索占位、导入规则、预览与 AI 错误等多处此前会露出中文 fallback 的条目，覆盖项目当前支持的语言。  
+
+### 变更
+- **快捷键保存行为**  
+  当系统未能成功注册新快捷键时，会自动回滚到先前已保存的组合并弹出说明，避免出现界面已改但实际未生效的情况。  
+- **AI 系统提示与工具说明**  
+  系统提示中的工具数量与文档已更新，明确包含联网搜索与抓取工具及其使用边界（含无需单独授权、由助手自主判断等说明）。  
+
+### 修复
+- **Multipeer 状态与冷却**  
+  在特定场景下保留对未连接状态的冷却，避免 `lostPeer` 误清；`lostPeer` 主要取消待执行的自动重连并清理发现相关 UI 状态。  
+- **界面漏翻与硬编码中文**  
+  修复主列表空状态、队列栏拼接、HUD 与搜索等区域在运行时仍显示中文或缺 key 的问题。  
+
+### 升级建议
+- 若使用自定义 AI 基址与模型，可在「AI 设置」中查看 Zen 快速配置是否适合你的隐私与合规要求后再启用。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.6/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.5 -->
+## v1.3.5 — v1.3.5 | Apologies
+
+- **Tag:** `v1.3.5`
+- **Published:** 2026-03-15T05:30:36Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+</p>
+
+---
+
+## 更新说明 v1.3.5
+
+### TL;DR
+
+- **下载校验失败时自动恢复**  
+  下载后遇到大小或哈希不匹配时，Deck 现在会先尝试恢复和重新确认，而不是直接报出致命错误。  
+
+- **更新信息会在安装中动态刷新**  
+  如果安装过程中可用更新已经发生变化，更新弹窗会自动切换到最新信息，避免继续安装过期快照。  
+
+- **边缘缓存导致的误判更少**  
+  针对旧缓存和边缘节点未同步完成的情况，Deck 会刷新元数据、追加 cache-bust 下载并自动重试一次。  
+
+### 优化
+
+- **恢复流程更贴近真实场景**  
+  下载校验异常后，Deck 会重新拉取最新元数据并根据实际情况决定后续处理路径，让升级流程更稳健。  
+
+- **错误提示更易理解**  
+  这类下载异常现在会显示更贴近场景的提示，不再只剩下笼统的“大小不一致”原始报错。  
+
+### 变更
+
+- **版本变化需要重新确认**  
+  如果恢复过程中发现远端版本已经变化，Deck 会更新本地记录，并提示你基于最新版本重新确认安装。  
+
+- **同版本资源变更会切换到新包**  
+  如果版本号未变但安装资源已更新，Deck 会刷新到新的安装包信息，并要求重新确认后继续。  
+
+### 修复
+
+- **边缘节点延迟导致的校验误报**  
+  当元数据没有变化时，Deck 会将其视为边缘节点同步延迟，短暂等待后自动重试下载一次。  
+
+- **旧缓存包导致的重复下载失败**  
+  重试下载现在会附带 cache-bust URL，尽量绕开陈旧缓存，减少反复命中旧安装包的问题。  
+
+- **更新弹窗持有旧快照的问题**  
+  如果安装途中发现可用更新已经变更，当前更新弹窗会切换到新的更新信息，而不是继续沿用旧快照。  
+
+### 升级建议
+
+- **建议直接升级**  
+  此更新主要提升更新下载与确认流程的稳定性，尤其能减少缓存或同步延迟造成的误报与卡死体验。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.5/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.4 -->
+## v1.3.4 — v1.3.4 | Responsive
+
+- **Tag:** `v1.3.4`
+- **Published:** 2026-03-14T05:08:10Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+</p>
+
+---
+
+## 更新说明 v1.3.4
+
+### TL;DR
+-   横向 Deck 现在支持从顶部拖拽调整高度，并会记住你上次使用的面板尺寸。  
+-   横版卡片会跟随面板高度同步放大，图片、链接、文本与代码内容都能更舒展地展示。  
+-   横向/纵向 Deck 与 Cursor Assistant 的键盘导航语义进一步统一，输入态下也不会抢走文本编辑按键。  
+-   预览打开后，切换标签或改变选中项时会立即跟随当前聚焦内容，不再出现内容不同步。  
+-   纯文本、Markdown、代码和单图预览改成更贴边、更沉浸的布局，并统一了更轻的滚动条样式。  
+
+### 新增
+-   横向 Deck 新增顶部拖拽手柄，可直接向上拉伸主面板高度，并自动保存你的自定义尺寸。  
+-   按住修饰键时，横版卡片现在会显示前 9 个可快速命中的编号提示，便于更快定位。  
+
+### 优化
+-   横版卡片会根据面板高度动态调整尺寸、内容密度与截断策略，让放大后的空间真正转化为更好的可读性。  
+-   图片卡片补充了更清晰的信息排布与透明格背景，链接卡片的图片区和图标也会随尺寸自然放大。  
+-   纯文本、Markdown、代码和单图预览改成更贴边的展示方式，滚动条更细、更轻，整体阅读压迫感更低。  
+-   横版卡片右下角的数字提示进一步收紧尺寸与位置，视觉上更轻，不容易干扰内容本身。  
+
+### 变更
+-   横向 Deck 的快捷键现在更强调方向语义：Ctrl+N / Ctrl+P 对应下一项 / 上一项，Ctrl+F / Ctrl+B 对应右移 / 左移；开启 Vim mode 后，h / l 固定左右，j / k 继续兼容导航。  
+-   纵向 Deck 继续保留方向键与 Ctrl+N / Ctrl+P 的上下移动语义；Vim mode 下支持 j / k 上下，但不再额外引入 Ctrl+F / Ctrl+B。  
+-   Cursor Assistant 现已支持 Ctrl+N / Ctrl+P，以及 Vim mode 下的 j / k 上下移动，并与主面板保持一致的输入态保护。  
+
+### 修复
+-   修复了预览只在部分键盘移动场景下刷新、在标签切换或外部选中变化后可能不同步的问题。  
+-   修复了长按方向键时的延迟预览刷新可能覆盖较新选中项的问题，预览跟随现在更稳定。  
+-   修复了超长代码预览底部额外提示占位的问题，正文不再因此被压缩或截断。  
+
+### 说明
+-   超长代码仍会保留关闭高亮等性能保护策略，但界面上不再额外显示打断阅读的提示块。  
+
+### 兼容性与行为说明
+-   本次面板拖拽调高仅作用于横向 Deck，纵向列表的整体高度行为保持不变。  
+-   搜索框与编辑态下仍会优先保留原本的文本输入快捷键行为，不会因为新导航映射而被劫持。  
+
+### 升级建议
+-   如果你主要使用横向 Deck、依赖键盘导航，或经常在面板里做预览浏览，这次更新值得优先升级。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.4/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.3 -->
+## v1.3.3 — v1.3.3 | Winsome
+
+- **Tag:** `v1.3.3`
+- **Published:** 2026-03-11T10:59:11Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+</p>
+
+---
+
+## 更新说明 v1.3.3
+
+### TL;DR
+-   AI 聊天的自动滚动、流式刷新和尾部渲染一起做了收敛，长回复时更顺，不再轻易把你从历史消息里拽走。  
+-   AI 会话存储与部分刷新链路进一步避开主线程，明显减轻发送瞬间卡顿、主线程堵塞和内存抖动。  
+-   搜索栏展开态、焦点同步和拼音输入残留问题已修复，面板反复开关时更稳定。  
+-   队列模式新增数字映射起点设置，你可以继续从最左侧开始，也可以改成从当前聚焦项开始。  
+-   反馈入口新增邮件/网页分流，AI 相关默认文案和提示也补齐了本地化。  
+
+### 新增
+-   设置里新增“数字映射起点”，队列模式下可选择数字键从最左侧卡片或当前聚焦卡片开始映射。  
+-   反馈入口新增网页报告方式，并会自动附带设备、系统、版本、语言和时区等诊断信息。  
+
+### 优化
+-   聊天页现在会在你刚发送消息、AI 正在输出且你本来就在底部附近时持续贴底；如果你主动上翻历史，就不会再被普通输出强行拉回底部。  
+-   流式刷新节奏与滚动触发策略进一步放缓并分层处理，长内容生成时的抖动、白屏和跳动感更低。  
+-   正在输出的 AI 消息改为更聚焦的尾部更新方式，历史内容不会再随着每次流式输出被大范围重算。  
+-   AI 会话保存和索引写入做了更聪明的合并与调度，连续操作时磁盘写入更克制。  
+-   消息文本的纵向布局更稳定，长文本持续生长时更不容易出现布局抖动。  
+
+### 变更
+-   聊天滚动现在按事件类型分层：普通 AI 输出尽量不打断阅读，而权限请求、交互提示等更重要事件会优先确保可见。  
+-   队列模式状态栏会显示当前数字映射方式，减少忘记当前选择规则的情况。  
+-   点击反馈时会先让你选择“使用邮件反馈”或“打开网页报告信息”，并按当前语言跳转对应页面。  
+
+### 修复
+-   修复了聊天页在流式输出期间容易整页频繁重绘的问题，显著减轻发送瞬间卡死和滚动时掉帧。  
+-   修复了主面板重新打开后搜索栏偶发保持展开但未进入真实搜索态的问题。  
+-   修复了拼音等输入法在候选未确认时关闭面板，重新打开后残留英文、吞键或焦点异常的问题。  
+-   修复了 AIConversationStore 中部分日志调用缺少异步等待的问题，避免相关保存与查询链路出现不稳定行为。  
+-   修复了部分 AI 默认标题、工具提示和错误提示未完整本地化的问题。  
+
+### 说明
+-   本次补齐了更多 AI 相关默认文案、工具结果提示、插件生成报错与新对话标题的本地化覆盖。  
+
+### 兼容性与行为说明
+-   队列模式的数字映射起点默认仍是“最左侧卡片”，现有用户升级后不会被突然改掉原有习惯。  
+-   面板每次重新打开时，搜索栏会优先回到更干净的默认收窄状态，只有进入真实搜索态后才展开。  
+
+### 升级建议
+-   如果你经常使用 AI 对话、长回复阅读、搜索面板或队列模式快捷选择，建议尽快升级到 v1.3.3。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.3/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.2 -->
+## v1.3.2 — v1.3.2 | Lucent
+
+- **Tag:** `v1.3.2`
+- **Published:** 2026-03-07T05:05:19Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+</p>
+
+---
+
+## 更新说明 v1.3.2
+
+https://github.com/user-attachments/assets/a969e1f3-02c2-43ae-b25d-64b1f396db10
+
+### TL;DR
+-   Deck 现在会把你在对话里分享的偏好、习惯和上下文，整理成持续成长的本地记忆，并且全程加密保存在你的设备上。  
+
+-   AI 现在既能直接调用已有脚本插件，也能在你批准后删除脚本插件；需要联网的插件会先走授权，再执行。  
+
+-   Deck 新增了 `/ai/run`、`/ai/search` 和 `/ai/transform` 三个 AI 接口，让命令行和自动化接入更直接。  
+
+-   Smart Rule 现在支持 AI 动作，但会自动收口权限范围，只处理触发当前规则的那一条内容。  
+
+-   AI 聊天变得更轻更顺，流式刷新、历史索引和内存占用都做了明显收紧。  
+
+-   自定义存储、导入事务、粘贴回退、热键记忆、图片预览和窗口层级都做了一轮补强。  
+
+### 新增
+-   Deck AI Memory 会安静记录对话里出现的重要细节，逐步理解你的使用习惯，同时保持本地加密和私密。  
+
+-   AI 现在可以直接运行已有脚本插件，也可以在你确认后删除插件；删除前会展示更明确的风险提醒和插件信息预览。  
+
+-   Smart Rule 新增 AI 动作，创建和保存时都要求填写 Prompt，同时会展示高权限自动化的提示说明。  
+
+-   图片预览现在支持右上角缩放按钮、双击放大/还原和手势缩放，图片类预览窗默认也放大了一档。  
+
+-   设置里新增“面板始终置顶”开关，关闭后像 Yoink 这类悬浮工具可以显示在 Deck 上方。  
+
+### Deck × Orbit
+-   CLI Bridge 新增了运行、搜索和二次处理三条 AI 路径，并在设置页补上了示例和错误示范，接入方式更清楚。  
+
+-   `/ai/search` 可以回传搜索结果，`/ai/transform` 可以先跑脚本插件再交给 AI 处理，`/ai/run` 和 `/ai/transform` 也支持自动保存。  
+
+### 优化
+-   AI 回复的流式刷新频率、自动滚动和文本渲染都做了减负，长回复时界面更稳，也更不容易卡。  
+
+-   AI 现在先拿到精简后的 skills 目录，再按需读取具体 `SKILL.md`，上下文更干净，工具选择也更精准。  
+
+-   AI 的系统提示词、人格定义和安全约束做了整体重写，回复风格、边界感和稳定性都更统一。  
+
+-   存储、自检、迁移、安全模式、AI 提供商和辅助功能提示这些设置区域都做了样式统一和点击体验优化。  
+
+-   这一版补齐了 AI、Smart Rules、CLI 教学、授权弹窗和窗口选项相关的新文案，并同步到现有多语言。  
+
+### 变更
+-   本地插件可直接运行，需要联网的插件会先请求授权，而删除脚本插件无论如何都必须先经过你的批准。  
+
+-   Smart Rule 触发 AI 时不再弹确认框，但只允许处理当前触发的那条记录，也不能创建、修改或删除脚本插件。  
+
+-   `/ai/run`、`/ai/search` 和 `/ai/transform` 现在都要求传入非空 `prompt`，缺失时会直接返回 `400`。  
+
+-   AI Bridge 的 JSON 响应能力做了扩展，同时加上了响应体大小保护，减少异常输出把链路撑爆的风险。  
+
+### 修复
+-   自定义存储目录现在会先迁移成功再写入设置；失败时会回滚界面状态并给出提示，也不会再悄悄退回默认目录。  
+
+-   导入流程改成先完整解析、再一次性事务入库，中途失败会整批回滚，不会再留下半截数据。  
+
+-   会话活跃通知接线错误、CGEvent tap 失败后的回退洞和“先吞快捷键再发现没文本”的问题都已经收紧。  
+
+-   清空热键后，重启应用也不会再偷偷恢复成默认值。  
+
+### 升级建议
+-   如果你接了 CLI Bridge，请确认所有 AI 请求都带上 `prompt`，并补上对 `400` 返回的处理。  
+
+-   如果你已经在自动化流程里用 AI，建议重新看一眼规则预期，确认“仅处理触发项”的新边界正符合你的用法。  
+
+-   升级后可以重点试试 AI Memory、脚本插件调用、CLI AI 接口，以及新的图片预览和窗口层级开关。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.2/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.1 -->
+## v1.3.1 — v1.3.1 | Adamantine
+
+- **Tag:** `v1.3.1`
+- **Published:** 2026-03-04T11:52:33Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+</p>
+
+---
+
+## 更新说明 v1.3.1
+
+https://github.com/user-attachments/assets/9ad6fe8a-3427-4c23-bb97-34273820d436
+
+### TL;DR
+- **AI 助手设置中心上线**  
+  新增 AI 助手设置页，支持 ChatGPT 订阅、OpenAI API、Anthropic API、Ollama 四种接入方式。  
+- **更新安全性显著提升**  
+  更新前后都加入版本与 SHA-256 校验，避免错误包或被篡改包被安装。  
+- **录制快捷键更安心**  
+  录制期间会自动暂停全局热键与相关全局触发，避免误触和冲突。  
+- **AI 流式回复更稳**  
+  网络抖动时会自动重试，并避免重连后重复刷出已显示内容。  
+- **存储整理新增二进制瘦身**  
+  支持扫描与整理可精简架构，并把结果展示在整理报告中。  
+
+### 新增
+- **AI 助手设置页与 Provider 配置**  
+  设置中新增「AI 助手 / AI Assistant」Tab，包含 Provider 选择、地址与密钥配置、模型配置、快捷键说明和安全提示。  
+- **二进制瘦身能力接入**  
+  新增多架构二进制扫描与清理能力，可在启动时后台扫描，并可在一键整理时执行。  
+- **更新信息本地安全记录**  
+  检测到新版本后会保存版本、大小和 SHA 信息，并在启动时自动恢复更新提示状态。  
+
+### 优化
+- **光标助手弹窗定位更准确**  
+  弹窗会按当前坐标所在屏幕定位，插入点坐标异常时自动回退到鼠标位置。  
+- **主面板切换更稳定**  
+  主面板弹出后加入短暂保护窗口，减少焦点抖动导致的瞬时关闭。  
+- **横板队列布局更紧凑**  
+  横板队列栏高度调整为 33，避免挤压卡片底部内容；竖板保持原有高度。  
+- **AI 流式输出容错增强**  
+  对超时、429、5xx 等临时错误增加自动退避重试，并在重试中保留上下文与工具链路。  
+
+### 变更
+- **数字快捷键修饰键可自选**  
+  `1-9` 快捷键不再固定为 Command，可按偏好切换为 Command / Option / Control。  
+- **录制期间的全局行为调整**  
+  快捷键录制期间会暂停全局热键、暂停 Option 双击监听，并放行模拟输入相关事件。  
+- **更新来源与安全默认值调整**  
+  更新与日志上传后端地址已更新；更新源改为仅走 Worker，代码签名校验默认开启。  
+- **列表置顶同步策略调整**  
+  置顶操作会同步更新最近缓存，保证主面板与光标助手看到一致顺序。  
+- **剪贴板搜索片段策略调整**  
+  工具返回的片段增加长度上限与打码处理，减少敏感信息暴露风险。  
+
+### 修复
+- **OAuth 回调重复参数崩溃**  
+  修复重复 query key 触发的运行时崩溃问题，改为稳定覆盖逻辑。  
+- **插件覆盖安装中途失败风险**  
+  修复覆盖安装时可能丢失旧数据的问题，失败时可回滚到安全状态。  
+- **授权请求悬挂问题**  
+  修复会话切换后授权仍悬挂的问题，取消路径已统一收口。  
+- **流式结果半截误判完成**  
+  修复流提前断开时被当作完成的问题，未收到完成态会自动重试。  
+- **存储整理相关稳定性问题**  
+  修复 Swift 6 主线程隔离报错与整理报告参数不匹配问题。  
+- **更新失败兜底恢复**  
+  修复更新失败后的回退流程，失败时可拉回旧版本应用。  
+
+### 说明
+- **多语言文案补全**  
+  新增的 16 条文案已补齐 7 种语言，并完成结构有效性校验。  
+
+### 兼容性与行为说明
+- **录制时全局触发暂不可用**  
+  这是为了防止误触，录制结束后会自动恢复。  
+- **更新校验更严格**  
+  若同版本但 SHA 不一致会直接拒绝更新；若检测到新版本会提示你重新确认。  
+- **二进制瘦身可能请求系统授权**  
+  仅在执行需要权限的清理动作时才会触发管理员授权。  
+
+### 升级建议
+- **升级后建议检查两处设置**  
+  建议先在「设置 > 快捷键」确认数字快捷键修饰键，再在「设置 > 存储」确认二进制瘦身开关是否符合你的使用习惯。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.1/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.3.0 -->
+## v1.3.0 — v1.3.0 | Palimpsestic
+
+- **Tag:** `v1.3.0`
+- **Published:** 2026-03-01T10:25:12Z
+
+### Release notes
+
+<p align="center">
+    <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+  </p>
+
+---
+
+
+  ### TL;DR
+
+  - **智能规则能力大升级**
+    动作类型升级为菜单结构，新增“转换”和“脚本插件”二级菜单，规则保存与执行全面兼容新旧值。
+  - **竖版模式正式可用**
+    支持竖版停靠方向（靠左/靠右），并联动搜索规则弹窗、卡片预览、底部区域和交互布局。
+  - **插件体系更快更稳**
+    脚本插件支持热更新、防抖刷新、缓存加速与监听策略优化，减少闪烁和重复重载。
+  - **导出与数据安全更可靠**
+    导出改为“临时写入 + 原子替换”，并修复多项迁移/加密/握手/任务清理等高风险问题。
+  - **预览与计算体验明显优化**
+    预览改异步，智能计算提速提准，缓存一致性更好，减少卡顿与结果延迟。
+  - **UI 交互细节打磨到位**
+    多图展示、标签菜单、焦点行为、设置页动画、对比度与间距等均有系统性优化。
+
+  ### 新增 / Added
+
+  - **动作类型新增“转换”二级菜单**
+    规则编辑时可直接悬停展开转换项并点击选择。
+  - **转换动作持久化升级为稳定码**
+    选择“转换”后会保存为稳定码，避免语言切换导致规则失效，并兼容旧值。
+  - **动作菜单新增“脚本插件”二级选择**
+    可直接选择已安装插件作为规则动作，同时打通模型编码/解析与执行链路。
+  - **新增 ASCII 艺术动画条（6 种场景）**
+    新增 idle/empty/newCopy/searching/tagSelected/dataRich 场景、字符级过渡、60fps 驱动和动态宽度渲染。
+  - **SmartRules 页面新增“使用指南”区块**
+    增加工作原理、条件说明、动作说明和实用小贴士，降低上手门槛。
+  - **新增数据库“立即恢复”能力**
+    设置页新增“立即恢复”按钮与确认弹窗，满足条件时可手动触发恢复。
+  - **新增竖版停靠设置（靠左/靠右）**
+    竖版模式可自定义停靠方向，并联动规则弹窗与预览窗口自动在外侧展示。
+  - **脚本插件热更新机制上线**
+    启动后自动监听插件目录，脚本/manifest/目录变化会自动刷新，且保留手动刷新入口。
+
+
+  - **CLI /clip 默认接入智能规则**
+    默认由规则入口处理，支持继续按参数切回旧直存模式。
+  - **CLI Bridge 示例与别名说明增强**
+    增加标签名/标签ID写入、空结果状态检查，并补充 health / last / write 别名示例与放置说明。
+  - **脚本插件“创建步骤”文档升级**
+    引导步骤更详细，示例 manifest/脚本更完整，并新增实测步骤与建议。
+  - **Cloudflare 更新代理后端优化**
+    提升性能、稳定性、实时性、速度和并发能力。
+
+  ### 优化 / Improvements
+
+  - **导出流程改为“临时文件写入 + 原子替换”**
+    避免中断留下半截 JSON，失败只清理临时文件，不再删用户已有备份。
+  - **导出大数据性能优化**
+    写盘改为缓冲批量写（1MB 阈值），批次从 500 调整为 200，降低内存压力。
+  - **导出链路减少重复 IO**
+    已加载完整数据时避免重复读 blob。
+  - **LS/PS 清洗热路径提速**
+    U+2028/U+2029 常量静态复用，并加入快速预检，命中才替换。
+  - **脚本插件执行性能优化**
+    增加插件索引、脚本文本缓存、网络授权缓存；执行路径改为缓存优先；仅在需要时计算脚本哈希。
+  - **预览与即时计算性能优化**
+    预览中的同步热点改异步，减少主线程压力；关闭即时计算时行为更准确。
+  - **数学识别与计算能力提升**
+    提升预检效率，支持等式左侧计算、多个/嵌套 sqrt，并优化数字格式化性能。
+  - **智能缓存一致性优化**
+    OCR/文本更新与设置切换时主动失效缓存，卡片/行视图任务联动文本与开关变化。
+  - **竖版图片显示优化**
+    图片严格限制在方形区域，按接近方图/宽图/竖图分别处理，避免冲出卡片。
+  - **多图展示体验优化**
+    多图记录仅展示首图，新增数量角标与“还有 N 张图片”提示，并修复预加载跳过问题。
+  - **竖版多图信息展示优化**
+    仅在多图时显示“共 X 张”，放在竖版右侧信息区中间。
+  - **设置页交互与过渡动画优化**
+    去掉内容区偏移 hack，切换 tab（点击/键盘）不再带整页动画，过渡更稳。
+  - **视觉细节优化**
+    迁移按钮改 Tonal 风格；textTertiary 对比度提升；标签编辑输入框改为随输入自动延长。
+  - **面板重开滚动体验优化**
+    重新激活时强制回到首项，复用现有平滑滚动逻辑。
+
+  ### 变更 / Changes
+
+  - **竖版顶部与底部交互逻辑重构**
+    竖版顶部移除设置/暂停/关闭/反馈；底部区域按队列模式与按钮栏二选一展示。
+  - **竖版搜索态布局调整**
+    搜索聚焦/有输入/规则面板打开时，右侧标签区自动收起，避免布局被撑开。
+  - **竖版底部高度统一**
+    按钮区和队列区统一为同一高度，移除偏移补丁，视觉对齐一致。
+  - **竖版搜索框展开宽度调整**
+    竖版搜索宽度接近吃满可用空间，横版行为不变。
+  - **搜索规则弹窗定位策略调整**
+    竖版下弹窗改为主面板外侧显示，并加边界保护，不遮挡输入与列表。
+  - **标签右键菜单改为 NSMenu**
+    保留编辑/共享分组/删除，并新增颜色圆点选择与状态反馈，点击即持久化。
+  - **打开面板后的初始选中策略调整**
+    改为优先保证首项选中；已在首项时不重复设置，避免二次闪动感。
+  - **自动检查更新改为北京时间 3 次/天**
+    调整为 04:00 / 12:00 / 20:00。
+  - **插件监听策略改为“目录/文件分离掩码”**
+    目录保留 .attrib，文件移除 .attrib，并关闭高频 watcher 日志。
+  - **监听范围扩展到脚本目录全部一级目录**
+    新增候选目录收集逻辑，避免新增插件目录初期遗漏刷新。
+
+  ### 修复 / Fixes
+
+  - **清理欢迎页未使用字段与常量**
+    删除未使用的 tint、icon/iconColor、颜色常量及结构体冗余字段。
+  - **修复异步日志漏写 await 导致的 6 个报错**
+    已补齐异步调用，恢复编译与运行稳定性。
+  - **修复规则弹窗数字键映射错误**
+    不再用连续减法推算，改为固定映射，解决 5/6 错位及 7/8/9/0 无响应问题。
+  - **修复搜索框抢焦点问题**
+    焦点切到 .newTag/.editTag 时，跳过延迟 makeFirstResponder(nil)。
+  - **修复新标签默认选中问题**
+    新建标签时先确保拿到焦点，再自动全选“新标签”文字。
+  - **修复粘贴后误吞下一次复制**
+    改为只在“刚写入那次 changeCount”内跳过，不再无条件吞掉真实复制。
+  - **修复粘贴失败引发的剪贴板丢失风险**
+    快照恢复支持更大预算和图片类型，恢复函数返回成功/失败并记录错误。
+  - **修复加密迁移“假成功”问题**
+    blob 迁移与 blob_path 更新改为强校验，任何一步失败都会整体失败。
+  - **修复解密失败却写成明文状态的问题**
+    解密分支新增严格检查，解不开直接失败，不再写 is_encrypted=false 假状态。
+  - **修复 DirectConnect authSuccess 阶段绕过**
+    增加 pendingAuthSuccess 阶段校验，仅在合法阶段接受成功握手。
+  - **修复 Multipeer verify_success 绕过**
+    必须存在活跃验证上下文才接受验证成功。
+  - **修复 Keychain 临时错误误建新密钥**
+    仅 errSecItemNotFound 才创建新 key，其他错误直接上抛。
+  - **修复清空数据后旧任务回写 UI**
+    clearAllData/clearAll 增加统一取消在飞任务入口。
+  - **修复 stop() 未清空 streamStore**
+    已补 streamStore.clearAll()。
+  - **修复 deleteItemById 链路不完整**
+    补齐 blob 清理与 totalCount 刷新。
+  - **修复 blob 路径收集漏删风险**
+    分页从 offset 改 cursor，并补稳定排序 ts desc, id desc。
+  - **修复编译错误（await 放在 ?? 表达式内）**
+    改为两步赋值，消除编译失败。
+  - **修复 Cmd+Q 提示文案语义错误**
+    “光标助手功能”统一改为“队列模式功能”，并补齐多语言。
+  - **修复多处潜在崩溃（强解包/异常元素/空屏幕）**
+    增加类型校验与 guard 兜底，移除 fatalError 风险路径。
+  - **修复进程管道可能死锁问题**
+    改为运行时持续读取 stdout/stderr，并在 wait 前正确关闭写端。
+  - **修复列表行编译/API 对接问题**
+    修正 item.colorValue、缩略图生成、智能分析赋值、脚本插件调用与隐写 API 调用。
+
+  ### 说明 / Notes
+
+  - **本版本文案多语言已补齐**
+    新增/更新文案覆盖 de/en/fr/ja/ko/zh-Hans/zh-Hant。
+  - **部分语种文案做了母语化重写**
+    de/fr/ja/ko 的新增长文案改为更自然表达，脚本设置页长文本改为 NSLocalizedString。
+  - **本稿已完成路径脱敏**
+    所有位置引用均仅保留 文件名:行号，不含任何绝对路径信息。
+
+  ### 兼容性与行为说明 / Compatibility & Behavior Notes
+
+  - **规则转换兼容新旧存储值**
+    transform 同时兼容“稳定码 + 历史旧值”，展示与执行都可回溯兼容。
+  - **CLI /clip 保持双行为兼容**
+    默认走规则；raw=1 或 rules=0 可强制直存；rules=1 可显式开启规则。
+  - **插件刷新支持“自动 + 手动”并存**
+    自动监听持续生效，手动“刷新插件列表”按钮仍保留可用。
+  - **“立即恢复”带双重保护**
+    必须同时满足“自动维护恢复备份已开启 + 恢复备份文件存在”才可执行。
+
+  ### 升级建议 / Upgrade Notes
+
+  - **建议升级后优先检查智能规则**
+    重点确认“转换动作”和“脚本插件动作”在你当前规则集中的展示与执行结果。
+  - **若有外部 CLI 依赖旧直存行为**
+    请在调用端显式加 raw=1 或 rules=0，避免行为变化影响自动化脚本。
+  - **建议升级后验证竖版布局偏好**
+    可按使用习惯选择“靠左/靠右停靠”，并确认搜索弹窗与预览窗口位置符合预期。
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.3.0/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.9 -->
+## v1.2.9 — v1.2.9 | eutactic
+
+- **Tag:** `v1.2.9`
+- **Published:** 2026-02-28T11:39:09Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+</p>
+
+---
+
+## 更新说明 v1.2.9
+
+### TL;DR
+- **快捷键交互更安全**  
+  队列模式切换改为 `Option + Q`，面板内 `Command + Q` 会先弹出确认，减少误关应用。  
+- **触发键能力升级**  
+  设置页新增“自定义触发键”，支持一键录制与清空，并和原有预设触发键并行生效。  
+- **搜索与统计更流畅**  
+  搜索采用自适应防抖，统计页改为后台并发计算并加入格式化缓存，整体响应更快。  
+- **Apple 链接识别更准确**  
+  Apple Music/Podcasts 识别规则加强，`apple.co` 会先等待元数据确认后再决定展示样式。  
+- **稳定性修复**  
+  修复了链接预览和统计任务中的多处状态与并发问题，降低卡住或异常风险。  
+
+### 新增
+- **自定义触发键**  
+  触发键设置下新增“自定义触发键”，点击后按一次组合键即可保存，右侧支持一键清空。  
+- **双触发模式并行可用**  
+  保留原有预设触发键逻辑的同时，自定义组合键也可单次触发，且会持久化保存。  
+
+### 优化
+- **搜索防抖策略自适应**  
+  清空搜索时立即响应；大数据量或安全模式下自动延长防抖时间，兼顾速度与稳定。  
+- **搜索框动画节奏优化**  
+  展开/收起动画节奏更干脆，同时移除全局动画副作用，交互更自然。  
+- **统计页性能优化**  
+  统计计算迁移到后台并发执行，并复用格式化器，降低主线程压力与重复开销。  
+- **Apple 媒体元数据匹配优化**  
+  Apple Music 优先按 track 精确匹配，再按 collection 回退；播客摘要文本也减少重复信息。  
+
+### 变更
+- **队列模式快捷键调整**  
+  队列模式切换快捷键从 `Command + Q` 调整为 `Option + Q`。  
+- **面板内退出流程调整**  
+  在面板内按 `Command + Q` 时，现改为先弹出“确认关闭”提示。  
+- **Apple 流媒体样式触发条件调整**  
+  `apple.co` 链接不再直接套用 Apple 流媒体样式，而是等待元数据确认后决定。  
+
+### 修复
+- **链接预览加载状态卡住**  
+  修复任务取消或页面消失后 `isLoading` 可能无法复位的问题，避免卡在 loading。  
+- **URL 误判问题**  
+  URL 解析规则收紧，减少将普通文本（如 `podcast:true`）误识别为链接的情况。  
+- **统计任务并发隔离问题**  
+  修复统计页在后台任务中的主线程隔离调用问题，避免并发上下文报错。  
+
+### 兼容性与行为说明
+- **快捷键行为提醒**  
+  如果你习惯用 `Command + Q` 触发队列模式，请改用 `Option + Q`。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.9/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.8 -->
+## v1.2.8 — v1.2.8 | Crisper
+
+- **Tag:** `v1.2.8`
+- **Published:** 2026-02-26T14:18:00Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+</p>
+
+---
+
+## 更新说明 v1.2.8
+
+### TL;DR
+- **复制提示音已更新**  
+  复制成功时的提示音已替换为新的音效，整体听感更清晰。  
+- **Apple Music / Podcasts 链接预览增强**  
+  链接卡片展示封面、标题、作者、发布时间与时长，支持 RSS 链接。  
+- **Apple Music / Podcasts 预览视觉优化（仅这两类）**  
+  仅针对 Apple Music / Podcasts 调整预览：底部空白区域缩减、链接超长截断（50 字符）、文本颜色根据封面亮暗自动切换。  
+- **预览性能与体验优化**  
+  大文本不截断、代码语法高亮优化、图片预览更高清。  
+- **预览回归问题修复**  
+  修复图片预览无法最大显示、预览区留白，以及代码预览中的状态更新警告。  
+- **链接卡片网站图标放大**  
+  链接记录预览中的网站 favicon 从 42x42 调整为 52x52，更易识别。  
+
+### 变更
+- **默认复制音效调整**  
+  默认复制提示音从原有音效调整为新音效，反馈更直接。  
+-   - 链接预览展示封面图、标题、作者、发布时间、时长  
+  - 支持 apple.co 短链解析  
+  - 支持 RSS 源链接  
+- **Apple Music / Apple Podcasts 预览样式优化（仅这两类）**  
+  - 仅对 Apple Music / Podcasts 生效，普通链接预览保持原样  
+  - 预览内容区域底部空白缩减约 `1/5`（不影响底部信息栏位置）  
+  - 链接显示增加 `50` 字符限制，超出部分以 `...` 截断  
+  - 标题/来源/链接文字颜色根据封面亮度自动切换，提升深浅封面下可读性  
+  - “打开 RSS” 入口整合至底部信息栏（与二维码/类型/大小同一行）  
+- **剪贴板与预览优化**  
+  - 支持 `public.url` 类型，Safari/Notes/Music 等应用的链接可正确识别  
+  - 链接记录预览中的网站 favicon 从 `42x42` 调整为 `52x52`，更易识别  
+  - 预览窗口图片使用高分辨率解码，显示更清晰  
+  - 大文本预览不截断（硬上限 200 万字符），支持 Cmd+F 搜索  
+  - 代码预览使用 TextKit，不截断，超长代码时禁用语法高亮以保持流畅  
+- **预览问题修复 / Preview Fixes**  
+  - 修复单图预览被固定高度限制的问题，图片现在会尽量占满可用预览区域（保持比例）  
+  - 修复单图预览外层内边距导致的额外留白，图片可在不裁切前提下最大显示  
+  - 修复 `SmartContentView` 中 “Modifying state during view update” 警告，避免不确定刷新行为  
+  - 拆分 `PreviewWindowContent` 复杂视图表达式，修复 “The compiler is unable to type-check this expression in reasonable time” 编译错误  
+  - 修复 `frame` 参数写法导致的 “Extra argument 'height' in call” 编译错误  
+- **设置稳定性修复 / Settings Stability Fix**  
+  修复在设置页切换“模拟键盘输入粘贴”开关时，因并发访问导致的崩溃问题。  @Wcowin
+
+- **多语言完整补齐（真实翻译） / Localization Completion (Real Translations)**  
+  - 已将 `Deck/Resources/Localizable.xcstrings` 中缺失的 `de / en / fr / ja / ko / zh-Hans / zh-Hant` 条目补齐到 `0` 缺口。  
+  - 覆盖范围包括：更新提示、数据库健康状态、脚本插件默认名称与描述、错误提示、触发词引导、上传分析说明、图片/文件预览文案等。  
+  - 本次补齐为真实译文，不是仅补空条目占位。  
+
+- **代码国际化改造 / i18n Code Refactor**
+  - `Deck/Services/ScriptPluginService.swift`：默认脚本名称/描述、执行错误、超时提示等改为 `NSLocalizedString`。  
+  - `Deck/Services/DeckSQLManager.swift`：数据库健康检查与安全模式错误提示改为本地化文案。  
+  - `Deck/Models/ClipboardItem.swift`：图片/文件/链接/颜色等描述文案改为本地化文案。  
+
+- **多语言资源收敛 / Localization Resource Cleanup**
+  - 统一以 `Localizable.xcstrings` 作为多语言来源。  
+  - 不再使用额外的 `Localizable.strings` 占位方案。  
+
+### 升级建议
+- **建议更新后试听确认**  
+  更新后可复制一段文本做一次试听，确认音量和听感符合你的习惯。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.8/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.7 -->
+## v1.2.7 — v1.2.7 | Honed
+
+- **Tag:** `v1.2.7`
+- **Published:** 2026-02-25T11:15:27Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+</p>
+
+---
+
+## 更新说明 v1.2.7
+
+### TL;DR
+- **连接拒绝与重试**：拒绝/超时后立即显示"已拒绝"，冷却倒计时"X后重试"，冷却结束后需手动点击"重试"才再次连接。  
+
+- **安装体验**：DMG 提供 `Deck Installer Tools` 文件夹，`install.command` 一键安装并清理隔离属性，`help.txt` 多语言说明，图标随系统明暗切换。  
+
+- **Orbit 精简**：聚焦环形应用切换演示，移除黑洞/拖拽/Caps Lock 等路径，代码瘦身，交互更稳定。  
+
+- **传输与连接**：大内容改走资源/流式传输；直连支持多端口回退；单条共享同步标签；资源与清单乱序到达可正确处理；直连标签改用真实 ID。  
+
+- **关键修复**：标签接收后即时刷新；TOTP 验证码实时轮换，减少校验失败。  
+
+- **Welcome 体验优化**：欢迎页圆角和按钮配色已优化，左侧文案切页更稳定；无可迁移内容时自动跳过第 7 页（6 直接到 8）。  
+
+
+### 新增
+- **新增标签拖拽排序功能**  
+  在弹出面板（⌘P）中，按住 Command 键后拖动标签即可自定义排列顺序。所有标签（系统标签与用户自定义标签）均支持拖拽排序，顺序会自动保存。  
+
+  - 拖拽时标签仅在水平轴移动，纵向位置锁定  
+  - 标签完全跟随鼠标位置，无加速度或惯性  
+  - 左右边界严格限制，标签不会超出显示区域  
+  - 拖拽中释放 Command 键会取消操作并恢复原始顺序  
+  - 被拖拽标签有轻微放大和阴影效果，便于区分当前操作目标  
+  - 拖拽标签与其他标签重叠时，被覆盖的标签会自动虚化（降低透明度），视觉层级更清晰  
+
+- **新增安装工具文件夹结构**  
+  原先分散的脚本改为统一收纳到 `Deck Installer Tools`，默认包含 `install.command` 与 `fix.command`。  
+
+- **粘贴队列 HUD 胶囊支持拖拽并自动记忆位置**  
+  右下角的粘贴队列 HUD 胶囊现在可以用鼠标拖拽到屏幕任意位置，位置会自动保存。鼠标悬停时显示小手光标提示可拖动，即使 App 不在前台也能正常显示。  
+
+- **新增多语言帮助文档 `help.txt`**  
+  帮助文档覆盖当前 App 支持语言，并明确“脚本用途 + 双击运行步骤”。  
+
+- **新增 LAN 文件归档工具 `LANFileArchiver`**  
+  新增统一打包、解包、临时文件认领和清理能力，专门用于局域网资源传输路径。  
+
+- **新增直连流式传输链路（大内容）**  
+  直连模式新增 `stream_start / chunk / stream_end` 传输链路，用于大内容和文件归档发送。  
+
+- **新增资源清单机制（Multipeer）**  
+  新增 `resource_manifest` 元信息通道，在资源到达后可准确还原内容类型、时间、应用名和标签信息。  
+
+### 优化
+- **Welcome 引导页细节优化**  
+  圆角调整为 30pt，浅色模式下右侧按钮图标/文字改为黑色，切页观感更稳定。  
+
+- **首次启动引导页全面重设计**  
+  引导页改为左右分栏沉浸式布局，左侧文字右侧配图。图片贴合右下角裁切露出局部。窗口改为无边框无红绿灯按钮，极简黑白风格，适配 Light/Dark Mode。导航按钮叠加在图片区底部，所有按钮统一使用毛玻璃材质。每页图片中央叠加对应 SF Symbol 动画图标（macOS 15+）。  
+
+- **菜单栏图标重绘**  
+  图标改为 `document.on.clipboard`，默认单色渲染，暂停时使用分层渲染以区分状态。复制内容入库时触发 `.symbolEffect(.bounce.up.byLayer)` 动画，反馈更直观。  
+
+- **菜单栏右键菜单增强**  
+  顶部图标右键菜单新增“反馈意见”入口（与面板“告诉我们您的想法”一致，打开邮件并使用反馈 HTML 模板）；在“偏好设置...”与“退出 Deck”之间新增版本与更新分组，显示“版本 X.X.X”并提供“检查更新”，点击后复用“关于”页手动检查更新流程，检测到新版本会弹出更新窗口。  
+
+- **TagChips 顶栏布局与按钮状态优化**  
+  标签栏改为更符合直觉的分布：添加标签按钮（+）和新建标签编辑器紧贴标签区内最后一个标签右侧；设置、暂停/恢复、退出和反馈按钮保留在右侧。相关按钮默认无背景，鼠标悬停时才显示高亮效果（与搜索按钮风格一致）。  
+
+- **设置窗口侧边栏右侧圆角优化**  
+  设置窗口左侧导航栏的右上角和右下角添加了圆角效果，侧边栏与右侧内容区之间的过渡更柔和，同时移除了原先的 1px 直线分隔线，改为右侧方向的柔和阴影分层。内容区域向左延伸填充圆角间隙，确保白色背景页面（如 Orbit）不会在圆角处露出灰色底色。  
+
+- **统计页面 UI 全面重设计**  
+  统计页面采用极简风格重新设计：概览数据合并为单一卡片并加入千分位格式化；数据安全提示精简为标题旁的小胶囊标记；内容类型分布新增右侧图例列表显示百分比；常用应用每行加入水平进度条与百分比显示；7 天活动柱状图细化为窄柱大圆角渐变填充；存储信息融入概览卡片底部。  
+
+- **模版库使用提示和描述优化**  
+  模版库页面标题旁增加了"光标助手"胶囊标记，明确表示模版库是配合光标助手使用的功能。副标题和使用提示卡片重新编写，采用分步骤引导的形式清晰说明创建模版、设置触发词和快速调用的完整流程。  
+
+- **触发词添加弹窗 UI 优化**  
+  触发词添加 Sheet 重新设计：顶部增加图标和说明文字；输入框改为自定义样式；匹配类型选择器从系统分段控件替换为自定义按钮组；类型选择网格改为水平布局，选中态更简洁；底部按钮区域点击范围扩大至整个区域。  
+
+- **智能规则编辑页面 UI 优化**  
+  编辑规则页面中"全部满足/任一满足"的匹配模式选择器从系统分段控件替换为自定义胶囊按钮组；条件和动作项改为带图标的卡片式行布局，视觉层级更清晰；添加条件/动作页面移除冗余空白，Sheet 高度改为自适应内容。  
+
+- **存储整理与自检 UI 优化**  
+  "会做的事情"说明从纯文本换成带彩色图标的分行展示，每项操作一目了然；整理完成报告弹窗的标题居中并使用圆形图标背景，卡片标题改为小号大写字母，数值使用等宽圆角字体，关闭按钮改为自定义样式。  
+
+- **安全设置页面 UI 优化**  
+  隐写密钥口令输入框添加前置图标（锁/钥匙），密码文本改为等宽字体；保存和清除按钮改为带填充背景的胶囊样式；安全模式说明从 bullet list 改为带彩色图标的分行展示；OCR 识别语言列表的图标按语言差异化显示；存储信息末行移除多余的分隔线。  
+
+- **代码示例增加语法高亮（脚本插件 / CLI Bridge）**  
+  设置页中的脚本插件创建示例（`manifest.json`、`index.js`）和 CLI Bridge 命令示例已增加颜色渲染，便于快速区分关键字、字符串、数字、注释与变量。  
+
+- **连接状态反馈更清晰**  
+  右侧状态提示补齐颜色和文案语义：冷却中为红色拒绝提示，冷却结束后显示蓝色可重试动作。  
+
+- **关于页面 UI 优化**  
+  版本号改为胶囊标签样式；"核心功能"和"智能功能"合并为单一"功能概览"卡片；快捷键标签改为仿键盘键帽样式（圆角 + 微阴影 + 描边）；"更新"和"反馈"合并为一个卡片。  
+
+- **搜索栏重构为收起/展开模式**  
+  默认状态仅显示放大镜图标（扁平设计、无投影、悬停圆形高光），点击或键盘输入后平滑展开为胶囊搜索栏（宽度 300pt），失焦且无查询内容时自动收起。保留全局键盘捕获、中文输入法兼容和 `/` 斜杠命令功能。标签栏紧邻搜索图标排列；点击搜索栏以外的内容区域可自动退出搜索状态（点击标签栏和规则选择器弹窗时不影响搜索）。  
+
+- **空状态图标更新**  
+  弹出面板的三种空状态（标签无记录、剪贴板为空、未找到结果）图标从 `clipboard` 替换为 `doc.on.clipboard`，使用分层渲染模式（`.hierarchical`），深色/浅色模式自动适配。  
+
+- **多语言文案同步更新**  
+  新状态文案已补齐多语言翻译，连接提示在不同语言下保持一致表达。  
+
+- **系统提示与更新流程文案多语言补齐**  
+  已将导入导出弹窗（成功/失败/数量提示）、生物识别验证默认文案与取消按钮、更新通知标题与正文、更新流程状态文案、辅助功能权限弹窗、iCloud 同步错误提示、Orbit 安装错误提示统一接入多语言。  
+
+- **首次安装路径更顺滑**  
+  新增安装脚本会在执行安装时自动处理隔离属性，尽量减少用户进入系统“隐私与安全性”手动放行的频率。  
+
+- **DMG 布局进一步整理**  
+  `Deck.app` 与 `Applications` 保持主区域展示，安装工具文件夹固定放在其下方，首次安装路径更直观。  
+
+- **安装器视觉一致性增强**  
+  安装器图标默认使用 1024 Logo，并支持明暗外观自动匹配。  
+
+- **Orbit 演示界面视觉层级简化**  
+  Orbit 环形演示移除了黑洞/AirDrop 指示层与拖拽消散链路，保留点击、悬停、键盘切换等核心交互。  
+
+- **接收缓冲与帧解析容错优化**  
+  接收链路加入更清晰的单条消息上限与总缓冲上限，异常包会更早拦截，减少卡死和误解析。  
+
+- **面板弹出/收起动画优化**  
+  缩短动画时长（show 0.16s、hide 0.18s），展示时改用 easeOut 曲线，收起更干脆、展开收尾更柔和。  
+
+- **快捷键连发与动画期间防抖**  
+  对 ⌘P 等全局快捷键增加节流与按键释放检测，避免长按或快速连按导致面板闪烁、卡顿；动画进行中不再响应新的 toggle 请求。  
+
+- **面板关闭后延迟清理**  
+  面板关闭时不再立即执行 purgeMissingFileItems 和 clearExpiredData，改为延迟约 0.6 秒后执行，避免快速开关面板时主线程被重任务抢占导致掉帧。  
+
+- **面板获得焦点时机优化**  
+  调整 activateApp 与 makeKeyAndOrderFront 的调用顺序，面板展示前先激活应用，动画完成后仅在需要时再次激活，减少“面板已显示但未获得焦点”的停顿感。  
+
+- **剪贴板 Copy/Cut 监听能耗优化**  
+  全局按键监听仅在命中 ⌘C / ⌘X 时触发检测，其他按键在回调内直接过滤，避免每次按键都创建 Task 或切换主线程，降低后台能耗。  
+
+- **粘贴队列快捷键监听能耗优化**  
+  快捷键配置改为缓存读取，配合 UserDefaults 变更通知同步；按键回调增加 fast path，仅处理 V 键与 Typing Paste 自定义快捷键，无关按键直接返回，减少 JSON 解码与主线程切换开销。  
+
+- **暂停倒计时 UI 能耗优化**  
+  暂停指示器与标签栏倒计时由 Timer.publish 改为 .task + Task.sleep，仅在限时暂停时每秒刷新；无限期暂停不再持续唤醒，减少 CPU 唤醒。  
+
+- **搜索栏展开/收起动画与样式**  
+  搜索栏展开/收起使用自定义 timingCurve 动画，背景从 Capsule/Circle 切换改为单一 RoundedRectangle 条件填充，图标用 scaleEffect 替代字体切换，过渡更顺滑。  
+
+- **分组分享自动选择更稳路径**  
+  当分组内包含文件 URL 或大内容时，会自动退化为逐条资源发送，避免分组大包失败。  
+
+- **资源接收生命周期更稳**  
+  资源文件到达后会先迁移到应用临时目录再处理，避免系统回收临时文件导致读取失败。  
+
+### 变更
+- **Welcome 迁移页自动跳过**  
+  欢迎窗口打开后会后台预扫描；无可迁移内容时自动隐藏第 7 页（6 直接到 8）。  
+
+- **移除光标助手和局域网共享的 Beta 标记**  
+  光标助手与局域网共享设置页面标题旁的 Beta 标签已移除，这两项功能现已正式发布。  
+
+- **连接重试策略调整**  
+  “X后重试”现在是操作提示而非自动行为，系统不会在倒计时结束后自动重连。  
+
+- **安装辅助入口改为文件夹形态**  
+  DMG 中安装辅助内容从“直接展示两个脚本”调整为“展示一个工具文件夹”，减少界面噪音。  
+
+- **Orbit 演示行为范围调整**  
+  Orbit 现在默认走“单模式应用切换”路径，不再进入剪贴板环切换流程，也不再启用跳转预测排序。  
+
+- **空状态图标更新**  
+  弹出面板的三种空状态（标签无记录、剪贴板为空、未找到结果）图标从 `clipboard` 替换为 `doc.on.clipboard`，使用分层渲染模式（`.hierarchical`），深色/浅色模式自动适配。  
+
+- **面板顶部间距优化**  
+  顶部导航栏（搜索、标签、控制按钮）距面板上边缘间距从 14pt 减至 10pt，面板视觉更紧凑。  
+
+- **文件 URL 传输策略调整**  
+  文件 URL 不再按普通内联数据发送，改为统一归档后传输并在接收端还原。  
+
+- **单条共享 payload 扩展元信息字段**  
+  共享 payload 新增 `contentLength`、`timestamp`、`appName`、`tagName`、`tagColor`，用于更准确还原来源上下文。  
+
+- **大内容发送阈值行为调整**  
+  超过阈值的内容会自动切到资源传输（Multipeer）或流式传输（直连），小内容仍走内联。  
+
+### 修复
+- **修复 Welcome 切页时左侧文案漂移**  
+  左侧文案不再因布局偏移出现明显横向移动。  
+
+- **修复 Welcome 引导页索引越界崩溃**
+  处理了 `WelcomeView` 在页面切换时偶发的数组越界访问（`pages[currentPage]`）问题，避免出现 `Swift/ContiguousArrayBuffer.swift:691: Fatal error: Index out of range` 崩溃。  
+
+- **修复拒绝后仍显示连接中**  
+  处理了对方拒绝或超时后发起端状态未及时更新的问题，避免界面误导。  
+
+- **修复重复触发连接弹窗的问题**  
+  通过冷却与手动重试流程，减少短时间内重复请求导致的连续弹窗。  
+
+- **修复重复内容导致的列表 ID 冲突警告**  
+  当智能识别结果里出现重复文本（如多个 `127.0.0.1`）时，不再触发 SwiftUI `ForEach` 的重复 ID 警告，列表渲染更稳定。  
+
+- **修复打包脚本变量解析异常**  
+  处理了 `release.sh` 在部分环境下可能触发的变量解析报错，提升打包稳定性。  
+
+- **修复 Orbit 精简后窗口控制器的上下文进程获取编译问题**  
+  调整了 Orbit 窗口控制器中的上下文进程获取实现，避免精简后出现返回类型不匹配导致的编译错误。  
+
+- **修复关闭面板时的线程优先级反转告警**  
+  优化了面板关闭时的焦点收尾流程，减少主线程等待低优先级任务导致的性能告警。  
+
+- **修复极速按 ESC 时焦点未归还**  
+  现在在弹出面板刚出现的极短时间内立刻按 ESC，焦点也会稳定返回到原来的应用，不再出现“面板已关闭但焦点仍停在 Deck”的情况。  
+
+- **修复自动更新后残留 `.Deck.app.old.*` 备份文件**  
+  更新完成后新 App 启动时会自动删除 `/Applications` 下的旧版备份，不再累积残留。  
+
+- **修复单条资源接收时标签未即时显示**  
+  接收端创建新标签后会立即刷新标签栏，内容和标签可同步可见。  
+
+- **修复大内容在局域网下偶发传输失败**  
+  通过资源/流式链路替代单次大包发送，降低大图、安装包、文件夹分享失败概率。  
+
+- **修复资源接收临时文件偶发丢失**  
+  处理回调里先迁移临时文件再解码，避免文件在回调结束后被系统回收。  
+
+- **修复默认端口占用导致直连失败**  
+  新增端口回退后，默认端口被占用时仍可自动连上。  
+
+- **修复 TOTP 弹窗验证码显示与验证窗口不同步**  
+  验证码现在按当前时间窗口实时计算，避免倒计时变化但验证码不变化导致的偶发失败。  
+
+- **修复验证请求早期失败时的 continuation 残留风险**  
+  发送验证请求编码失败、会话不可用或发送异常时，会及时清理等待态，避免后续二次回调风险。  
+
+- **修复资源先到但清单未到时被忽略的问题**  
+  接收端新增“先收资源后补清单”的配对处理，不再因为到达顺序差异直接丢弃资源。  
+
+- **修复资源接收失败场景的临时文件残留**  
+  对接收失败、会话停止和过期缓存等路径补齐清理，减少临时目录堆积。  
+
+- **修复未验证设备资源被缓存的安全边界问题**  
+  在安全模式下，未完成验证的资源会被立即拒绝并清理，不再进入等待队列。  
+
+- **修复直连共享标签 ID 映射错误**  
+  直连共享标签改为按真实标签 ID 读写，并同步维护标签显示顺序，避免标签错位。  
+
+- **修复接收方验证码弹窗“取消后不关闭”**  
+  接收方点击取消后会立即关闭弹窗，交互反馈更明确。  
+
+- **修复直连发送路径中的未使用变量编译告警**  
+  清理了 `sendItem` 里无实际用途的弱引用绑定，消除无效警告。  
+
+- **修复 HotKeyManager 全局快捷键事件处理的类型不匹配编译错误**  
+  统一 `InstallEventHandler` 参数类型：将 `paramErr` 显式转为 `OSStatus`，并把事件数量参数改为 `Int`，避免因类型不一致导致构建失败。  
+
+- **修复“模拟键盘输入粘贴”快捷键取消按钮无反馈**  
+  当快捷键已是默认值 `⌘⌥V` 时，取消按钮现在会显示为灰色不可点；只有在用户自定义过快捷键后才可点击并恢复默认，避免“点了没反应”的误解。  
+
+- **修复规则选择面板布局递归告警**  
+  调整规则选择面板的刷新时机，避免在布局过程中触发递归布局告警，弹层显示更稳定。  
+
+- **优化敏感窗口标题检测的系统日志噪声**  
+  对不适合查询的系统进程做了过滤，减少 `task name port` 相关报错刷屏，同时保持常用场景检测能力。  
+
+- **归档解压路径越界防护（Zip Slip）**  
+  解压前会先检查压缩包条目路径，解压后再校验输出路径与符号链接目标，避免越界落盘。  
+
+- **资源清单发送失败时的临时文件残留**  
+  当 `resource_manifest` 发送失败时，会立即清理对应临时文件，避免积累。  
+
+- **安全模式协商上下文不一致**  
+  连接邀请现在携带 `securityMode` 上下文，接收端会解析并同步对端安全模式状态。  
+
+- **分组加密一致性问题**  
+  分组发送时若任一条目加密失败会直接失败，接收端若解密任一条目失败会丢弃整组，避免“部分成功”造成数据错乱。  
+
+- **验证流程并发覆盖与异常成功判定**  
+  验证流程加入忙碌保护和对端绑定校验；`verify_success` 缺少或非法密钥时会判定失败，不再误报成功。  
+
+- **直连异常包处理不及时导致状态错乱**  
+  接收缓冲在追加前先做上限判断；遇到溢出或非法长度包会直接拒绝连接，减少 DoS 与状态错乱风险。  
+
+- **直连拒绝/重连后的连接状态不同步**  
+  拒绝和重连路径现在会先统一标记断开，避免 UI 长时间显示“已连接”假状态。  
+
+- **AES-GCM 空密文与 PSK 边界异常**  
+  发送侧不再接受空 `combined` 密文；PSK fallback 改为合法长度密钥，挑战阶段 PSK 非法会直接拒绝连接。  
+
+- **接收落盘目录使用远端 transferId 的路径风险**  
+  接收归档落盘目录改为安全化 `transferId` 组件，降低路径注入风险。  
+
+### 兼容性与行为说明
+- **macOS 安全限制下仍需手动触发脚本**  
+  将 App 拖入 `Applications` 后，系统不会自动执行 DMG 内脚本；如需修复隔离属性，请手动双击对应脚本。  
+
+### 升级建议
+- **建议尽快升级到 v1.2.7**  
+  本版本覆盖局域网连接与传输（拒绝状态、冷却重试、大内容流式传输、多端口回退、标签同步）、安全验证（TOTP 实时轮换、加密一致性、Zip Slip 防护）、安装体验（工具文件夹、一键安装、多语言说明）及多处 UI 优化，建议所有用户升级。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.7/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.6 -->
+## v1.2.6 — v1.2.6 | Hardened
+
+- **Tag:** `v1.2.6`
+- **Published:** 2026-02-23T11:59:17Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/f1f010f2-af6f-47a9-866a-c2e7520957c5" />
+</p>
+
+---
+
+## 更新说明 v1.2.6
+
+### TL;DR
+- **敏感检测更智能，减少误拦截**  
+  优化银行卡号与证件号检测逻辑，降低长文本中的误判概率，复制报错/日志内容更容易正常入库。  
+- **标签记录稳定性修复**  
+  修复重复复制同一内容时可能把已打标签记录重置成“未标签”的问题，标签不再容易莫名消失。  
+- **检测速度与稳定性提升**  
+  调整匹配流程与前置判断，减少无效扫描，敏感检测在高频复制场景下更快更稳。  
+- **隐私说明文案更透明**  
+  在“设置 > 隐私”补充上传范围说明，明确仅上传最近 24 小时的内存曲线与相关报错信息，且均已脱敏。  
+- **脚本插件联网授权更严格**  
+  联网授权现在强绑定脚本哈希；脚本内容变化后不会继续沿用旧授权，需要重新授权。  
+- **更新代理限流降级策略优化**  
+  当 `RATE_LIMITER` 未配置或异常时，更新代理默认降级可用（避免直接 503）；如需严格拦截可开启 `RATE_LIMIT_FAIL_CLOSED=true`。  
+- **向量索引恢复后写入稳定性修复**  
+  修复 vec 恢复完成后仍可能写回旧默认表，导致“恢复成功但紧接着 upsert 失败”的问题；恢复表现在会被优先选用。  
+- **向量旧表清理降噪与容错**  
+  遇到 sqlite-vec 内部 shadow 表限制时，不再强行删除并反复刷 `may not be dropped`，改为延后清理，运行更稳定。  
+- **存储整理与迁移安全保护增强**  
+  在向量索引可用时跳过 `VACUUM`；存储迁移前若 `WAL checkpoint` 失败会中止迁移，降低向量索引结构不一致风险。  
+- **向量回填判定与故障日志进一步修复**  
+  backfill 调度只按 vec 虚拟表判断，避免 shadow 表误判为“无需回填”；同时修复 upsert 失败日志延后造成的时序误导，排障更准确。  
+
+### 发布链路加固
+- **新增更新代理容错开关**  
+  更新 Worker 新增 `RATE_LIMIT_FAIL_CLOSED`（默认 `false`），用于选择“限流器异常时放行”还是“严格拦截”。  
+
+### 优化
+- **统一敏感检测策略**  
+  敏感检测不再依赖单一格式命中，而是结合上下文与内容形态做综合判断，整体可用性更好。  
+- **银行卡检测前置加速**  
+  增加更轻量的前置校验，减少大文本场景下的不必要计算。  
+- **呼出面板宽度与位置微调**  
+  App 呼出面板左右各内收 7 像素，并整体上移 7 像素；高度保持不变，视觉更紧凑且继续居中。  
+- **队列模式状态栏对齐微调**  
+  队列模式状态栏布局重新校准：左侧信息组整体右移 5 像素，右侧快捷提示与“清空/退出”整体左移 3 像素，视觉更平衡。  
+- **历史列表底层灰影与立体感移除**  
+  去掉历史列表卡片下方的底层灰色衬底与立体阴影，列表区域改为更干净的平面观感。  
+
+### 修复
+- **修复深色模式“全部”标签圆点不可见问题**  
+  修复深色模式下选中“全部”标签时左侧圆点过暗、几乎看不见的问题；现在会使用更清晰的浅灰指示色。  
+- **修复长文本误判导致“不保存”问题**  
+  开启银行卡号检测或证件号检测时，部分 App 的长报错/日志文本可能被误判并拦截；现已显著缓解。  
+- **修复重复复制导致标签被覆盖问题**  
+  当同一内容再次入库时，系统会保留原有手动标签，不再因为去重更新把标签清空。  
+- **修复缺失文件自动清理误删问题（已打标签项）**  
+  文件源路径失效时，已打标签的记录不再被自动清掉，只会标记为文件缺失。  
+- **修复云端合并时本地标签被空标签覆盖问题**  
+  云端记录为未打标签时，不再覆盖本地已有标签，减少多端同步后的标签丢失。  
+- **修复 vec 活跃表目标回退到默认表的问题**  
+  维度映射不再持久化默认 vec 表；存在 recovery 表时会优先路由到 recovery，避免读写目标被错误切回旧表。  
+- **修复 vec 写入/搜索在切表窗口期命中旧表的问题**  
+  向量写入与搜索前会重新解析当前活跃表，切表期间可自动自愈，减少 `vec upsert internal error` 的连锁失败。  
+- **修复 vec 旧表清理触发内部表删除报错刷屏问题**  
+  旧表清理不再直接处理 sqlite-vec shadow 子表（如 `_chunks/_info/_rowids`），失败场景会延后清理而非重复报错。  
+- **修复 vec 表枚举混入 shadow 表导致的误判问题**  
+  vec 表枚举现已限定为 `CREATE VIRTUAL TABLE ... USING vec0`，避免把 `_chunks/_info/_rowids` 当成业务索引表参与判空、路由或清理。  
+- **修复 vec 回填“无需执行”误判与失败日志时序误导**  
+  回填判定改为基于真实 vec 虚拟表；同时将 upsert 失败日志判定前移到同次写入流程内，避免出现“恢复完成后才打印同次失败”的错觉。  
+
+### 性能优化
+- **剪贴板主链路减负（减少主线程热区开销）**  
+  合并规则判断路径，去掉重复 ignore 检查；同时把智能断行清理放到后台执行，降低高频复制时的主线程负担。  
+- **搜索兜底改为游标分页（替代 OFFSET 扫描）**  
+  模糊搜索候选不足时，改用 keyset/cursor 分页补扫，避免数据量变大后 OFFSET 越查越慢。  
+- **安全模式正则搜索降耗**  
+  优化匹配流程，减少每条记录的临时字符串拼接；并按 limit 动态收敛扫描上限，降低 CPU 峰值。  
+- **批量行映射改后台并发执行**  
+  `row -> ClipboardItem` 的批量转换不再占用数据库串行队列，减少分页与查询互相阻塞。  
+- **存储统计后台化并加节流**  
+  设置页“占用空间”目录遍历改为后台执行，并增加刷新节流与任务取消，减少设置页卡顿。  
+- **历史列表减少无效重排与赋值**  
+  仅在确实需要时触发重排；并在顺序未变化时跳过数组重写，减少滚动与刷新时的额外开销。  
+
+### 说明
+- **上传分析数据范围说明**  
+  上传内容限定为诊断所需的最小范围，并保持脱敏处理，不包含其他个人信息。  
+
+### 升级建议
+- **建议所有用户升级到 v1.2.6**  
+  如果你经常复制调试日志、报错堆栈或长文本，升级后可明显降低被误拦截概率。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.6/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.5 -->
+## v1.2.5 — v1.2.5 | Auspicious
+
+- **Tag:** `v1.2.5`
+- **Published:** 2026-02-16T04:58:40Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://github.com/user-attachments/assets/1ce80c83-7dc5-43da-8007-c7e682cf6e71" />
+</p>
+
+---
+
+## 更新说明 v1.2.5
+
+### TL;DR
+- **智能文件名识别更准**  
+  新增高置信度文本格式识别，Diff/Patch、LilyPond、XML（含 SVG/Plist）会优先命中，减少扩展名误判。  
+- **存储维护默认更安全**  
+  清理任务改为“先创建回滚快照再删记录”；快照创建失败时会跳过破坏性删除，避免误删后无法撤回。  
+- **性能与耗电继续优化**  
+  轮询、日志写盘、网络接口探测、权限轮询等路径做了减负，长时间运行更稳更省资源。  
+- **同步与传输稳定性提升**  
+  iCloud 同步状态管理和局域网传输容错加强，异常场景下更不容易中断。  
+- **剪贴板图片/文件处理更可靠**  
+  文件路径解析、缩略图、图片尺寸和 Base64 图像缓存链路更一致，减少错误判定和异常。  
+- **建议 1.2.4 用户升级**  
+  本次 1.2.5 集中包含 4 组补丁（功能识别、性能、稳定性、维护安全），建议尽快升级。  
+
+### 新增
+- **Vim 导航方向可按习惯切换**  
+  在 `设置 -> 快捷键 -> VIM 模式` 中新增 `j/k 导航方向` 选项，可切换 `j→ k←` 或 `j← k→`。  
+- **智能文件名新增高置信度格式识别**  
+  文本转文件名时，优先识别 Diff/Patch、LilyPond、XML 家族（含 SVG/Plist），减少被代码语言误判的情况。  
+- **补充智能文件名回归测试集**  
+  新增覆盖 Diff、Unified Diff、Hunk 片段、Markdown 分隔线、LilyPond、XML、Swift/JSON/URL/纯文本等场景的回归测试。  
+
+### 优化
+- **剪贴板轮询与预览触发路径减负**  
+  轮询边界计算增加短时缓存，链接预取与状态栏提示减少不必要的异步跳转，降低高频路径开销。  
+- **iCloud 同步状态读取更轻量**  
+  变更令牌增加锁与缓存，抓取状态队列复用，减少重复解码和临时队列创建。  
+- **上下文匹配与数据处理性能提升**  
+  应用前缀匹配改为预排序缓存；导出、诊断、反馈邮件、文本转换中的日期/格式处理减少重复创建对象。  
+- **局域网直连网络探测更平稳**  
+  物理网卡缓存加入加锁与刷新去重，复用监控队列，避免短时间内重复创建探测任务。  
+- **日志系统加入节流与缓冲写盘**  
+  Debug/Info 级日志按调用点节流，文件写入改为缓冲+批量落盘，降低日志风暴与磁盘 I/O 压力。  
+- **计时器容差策略优化**  
+  局域网确认弹窗和权限轮询计时器增加 tolerance，减少无意义唤醒。  
+
+### 变更
+- **保留策略改为仅清理未标记内容**  
+  按保留天数清理时，仅处理未打标签项（`tag_id == -1`），用户手动标记内容默认保留。  
+- **维护清理改为“快照成功后再删记录”**  
+  无法创建回滚快照时，会跳过记录删除，优先保证可回退与数据安全。  
+- **快照替换顺序调整**  
+  先持久化新快照，再清理旧快照，避免中途失败导致“新旧都不可用”。  
+- **全量同步触发行为调整**  
+  手动全量同步会先清空同步错误并重置变更令牌，再走统一拉取流程，状态管理更一致。  
+
+### 修复
+- **修复 IDE 上下文感知崩溃**  
+  修复了复制文本时，读取 IDE 光标上下文偶发触发崩溃的问题。  
+- **修复副屏分类切换误隐藏**  
+  修复了 Deck 面板在外接显示器上点击分类标签（如“全部/文本/图片/文件”）后意外隐藏的问题。  
+- **修复老系统面板无圆角**  
+  修复了在 macOS 26 以下系统中，弹出面板外观为直角的问题。  
+- **修复删除后预览不同步**  
+  在 `Command+P` 面板中使用空格预览时，删除当前条目后，预览会立刻同步到新的当前条目；如果列表为空则自动关闭预览。  
+- **修复跨应用文本误判无法解析**  
+  针对 `public.html`、`public.utf16-plain-text`、`public.utf16-external-plain-text` 等文本类型增加兜底解析，降低在 Microsoft Edge、Kiro、微信等应用中出现“Deck 无法解析本剪贴板内容”的概率。  
+- **修复菜单项初始化可选值风险**  
+  暂停菜单项加入前先做可选值判断，避免初始化阶段的强制解包崩溃。  
+- **修复剪贴板缓存并发读写稳定性**  
+  URL、颜色、文件路径、缩略图、Base64 图片、图片尺寸等缓存链路补齐加锁与一致性更新，降低并发下异常概率。  
+- **修复文件路径解析兼容性**  
+  文件列表同时兼容 `file://` 和普通路径字符串，减少路径识别失败。  
+- **修复筛选表达式构建中的崩溃风险**  
+  多处条件拼接去除强制解包，避免过滤规则复杂时的空值崩溃。  
+- **修复图片预览与预览图空值判断**  
+  预览图是否为空的判断改为更安全写法，避免中大图场景下的异常分支。  
+- **修复全局快捷键注册/卸载异常处理**  
+  热键事件处理增加空指针保护与状态检查，安装/移除失败会记录错误并安全回收状态。  
+- **修复局域网传输中的边界与空值问题**  
+  TOTP 截断加入边界保护；共享密钥缺失时改为安全跳过，避免异常中断。  
+- **修复 Orbit 覆盖安装的静默失败**  
+  备份已有应用失败时会明确抛错，不再悄悄继续导致状态不一致。  
+- **修复图标缓存复制失败回退**  
+  图标尺寸副本创建失败时会安全回退到基础图标，避免缓存链路崩溃。  
+- **修复维护扫描误判坏文件链接**  
+  当记录中的存储路径文件仍存在时，扫描会直接跳过，避免误判为坏链接。  
+- **修复 Swift 6 下 DirectConnectService 并发隔离编译报错**  
+ 调整 `nonisolated` 网络接口探测中的队列使用方式，避免主线程隔离引用导致的编译错误。  
+
+### 兼容性与行为说明
+- **异常上下文会自动降级处理**  
+  当编辑器返回异常的行列信息时，Deck 会跳过异常位置信息而继续记录内容。  
+- **打标签内容不参与保留期自动清理**  
+  使用保留天数清理时，已打标签的内容默认保留，不会被自动删除。  
+- **快照创建失败时不会执行破坏性删除**  
+  若维护任务无法创建回滚快照，会跳过记录删除，仅保留非破坏性流程。  
+
+### 升级建议
+- **建议从 1.2.4 升级到 1.2.5**  
+  本次版本主要解决稳定性问题，建议所有受影响用户升级。  
+
+---
+
+### 作者寄语
+
+> **写在 2026 农历新春**
+>
+> 感谢每一位支持 Deck 的朋友。你们的反馈和耐心，让 Deck 一步步变得更稳、更好用。新的一年，愿你所想皆有回响，所行皆有收获。
+>
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.5/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.4 -->
+## v1.2.4 — v1.2.4 | Efficient
+
+- **Tag:** `v1.2.4`
+- **Published:** 2026-01-30T01:31:59Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://repository-images.githubusercontent.com/1111053300/a02138b8-d501-4d33-8c56-7a896d4ef6cb" />
+</p>
+
+---
+
+## 更新说明 v1.2.4
+
+### TL;DR
+- **更顺滑的历史滚动与焦点体验**  
+  `NSScrollView` 滚轮增量映射 + 钳位 + 方向键焦点切换。  
+- **搜索更快、更精准（支持 `lang:` / `len:`）**  
+  分字段匹配（`title/text/appName`）+ `lang:`（Beta）/`len:` 规则。  
+- **超长文本与 Base64 处理不再“拖后腿”**  
+  Base64 探测/解码后台化 + 快速否决/采样/上限。  
+- **图片卡片新增文件大小**  
+  文件大小异步计算 + `NSCache` 缓存，滚动不阻塞。  
+- **新增“一键整理/自检”（含可撤回快照）**  
+  一键维护 + 报告弹窗 + 5 分钟可撤回快照。  
+
+### 新增
+- **图片卡片：文件大小展示**  
+  图片卡片在尺寸下方新增“文件大小”一行；计算中显示“计算中…”，完成后自动刷新。大小计算走异步任务，并用 `NSCache` 缓存每条记录结果以避免重复计算。  
+- **搜索规则：`lang:` / `-lang:`（Beta）**  
+  支持按代码语言过滤/排除；大小写不敏感、支持 `+` 多选，并提供常见别名映射（如 js/ts/c#/cpp/yml/md）。规则选择器新增 Beta 标签与性能提示。  
+- **设置页：一键整理 / 自检 + 可撤回快照**  
+  新增维护入口与运行态展示、报告弹窗联动，并提供 5 分钟可撤回的快照恢复能力。  
+- **文件图标缓存**  
+  新增图标缓存机制，减少系统图标查询开销，预览与列表渲染更稳定。  
+- **设置项：打开面板时隐藏 Dock**  
+  新增设置项「通用 → 行为 → 打开面板时隐藏 Dock」，默认开启；关闭后恢复原行为（Dock 可随鼠标放大）。  
+
+### 优化
+- **历史列表滚动更顺滑**  
+  支持将滚轮“垂直增量”映射为水平滚动，并加入滚动钳位与交互细节优化，浏览大量历史更跟手。  
+- **HistoryList：空 `contextTypes` 回退 DB 顺序 + 选中项兜底**  
+  当 `contextTypes` 为空时直接回退到 DB 顺序，避免 `orderedItems` 与 `dataStore.items` 共享存储导致的 COW 全量复制；并确保 `selectedId` 一定落在当前列表内。  
+- **键盘焦点切换更自然**  
+  搜索框聚焦时按下方向键可把焦点移到列表且不清空搜索文本；列表聚焦时按上方向键回到搜索框（无修饰键时生效）。  
+- **搜索匹配更高效（分字段匹配）**  
+  匹配逻辑按 `title/text/appName` 分字段处理，exact/regex/fuzzy 分别匹配；避免把大文本拼成单个巨字符串再匹配，降低 CPU 与瞬时内存压力。  
+- **语言过滤更稳、更省**  
+  `lang:` 采用“先套牢前面规则、再二次筛选语言”的顺序；语言检测改走更轻量的检测接口，并引入缓存（含 signature 防误命中）与预热策略。  
+- **大文件预览更轻量**  
+  Markdown 文件预览仅读取前 16KB 并提示截断，避免大文件打开导致明显卡顿。  
+- **日志与格式化更省分配**  
+  日志改为惰性字符串，并新增线程本地 `DeckFormatters` 复用 Number/Date/Relative formatter，减少滚动与日志热点的对象创建与格式化开销。  
+- **图片卡片：Base64 任务轻量预检 + detached 取消处理**  
+  增加极轻量 pre-check，普通文本不再启动 Base64 探测任务；`Task.detached` 增加取消处理，减少任务雨与无效计算。  
+- **链接预览正则复用缓存**  
+  Link 预览正则复用 RegexCache（含 options），减少重复编译带来的 CPU 抖动。  
+- **SmartTextService 热路径更轻量**  
+  `isLikelyAssetFilename` 改为纯字符串判断以避免每次跑正则；裸域名校验改用已缓存的 regex；`matches(for:in:)` 改为 `enumerateMatches` 以减少中间数组分配（行为保持一致）。  
+- **IconCache：分层缓存 + 新增 size API**  
+  拆分 base/sized cache，并新增 `icon(forFile:size:)`；减少图标取用过程中的 `.copy()` 分配与重复工作，提升列表/预览渲染的稳定性。  
+- **ClipboardItem 热路径进一步降分配**  
+  增加 URL/`normalizedFilePaths` 缓存；`sampleText` 与富文本采样改为 index‑limited；文件名提取改走 `NSString`；PDF/文件图标改用新的 size API。  
+- **ClipboardService：更快的前置判断与轻量缓存**  
+  URL 清理增加快速前置判断；敏感标题加入 0.4s TTL 缓存；身份证采样改 index‑limited；银行卡前缀静态化以减少重复构造。  
+- **Semantic 文本截断更省开销**  
+  semantic text 截断改为 index‑limited，避免长文本处理时的额外扫描与分配。  
+- **拖拽图片类型检测更准确（WebP）**  
+  拖拽图片类型检测改用 `withUnsafeBytes`，提升 WebP 识别准确性并减少不必要的解析开销。  
+- **面板激活期间 Dock 不再抢响应**  
+  在面板 show/hide 时保存/恢复 `NSApp.presentationOptions`，并临时切换 `.hideDock`，避免面板激活期间 Dock 响应干扰交互；同时加入延迟隐藏/恢复（`scheduleDockSuppression(...)`）以避免面板出现瞬间 Dock “闪一下”（系统 `.hideDock` 本身不支持渐隐动画）。默认：`dockHideDelay = -1`、`dockShowDelay = 0.10`。  
+- **剪贴板写入兼容性与内存护栏**  
+  对 unsupported payload 增加总预算/单类型上限并跳过 image，避免内存暴涨；文件粘贴优先写 `NSURL`（兼容性更好），并保留原有 fallback 路径。  
+- **局域网接收数据的硬上限保护**  
+  接收数据先做 30MB 上限拦截，超限直接丢弃并记录，避免异常包拖垮进程内存。  
+
+### 变更
+- **长度规则统一为 `len:` / `-len:`**  
+  原 `size:` 规则调整为 `len:`（仅数字+比较符）；文本类按长度参与过滤，非文本不排除但会降权排序。  
+- **长度过滤尽量下推到数据库**  
+  在无关键词场景下减少内存扫描量，提升规则过滤的响应速度与一致性。  
+- **横向滚动方向修正**  
+  主要是横向滑动的输入场景下，滚动方向已调整为更符合直觉的表现（如 Magic Mouse 左滑时内容向右移动显示）。  
+
+### 修复
+- **Swift 6 编译问题修复**  
+  修复多处并发捕获、主线程隔离访问与缺失 `await` 导致的编译错误/警告；并对关键路径做“最小侵入”的隔离调整，尽量不改变既有行为。  
+- **超长文本导致的卡顿风险降低**  
+  Base64 探测与解码移出主线程，并加入快速否决与长度上限，减少滚动/搜索场景的掉帧。  
+- **颜色卡片兼容富文本来源**  
+  颜色解析优先从纯文本内容提取并自动 trim，来自 RTF/RTFD 的复制内容也能正确显示色块。  
+- **剪贴板 URL 清理更保守**  
+  清理 URL 时保留原有粘贴板类型，并新增复制大小上限，降低异常内容带来的风险。  
+- **粘贴失败不再“清空剪贴板”**  
+  paste 失败时恢复原剪贴板快照，避免异常情况下用户剪贴板内容被意外清空。  
+- **维护功能相关稳定性修复**  
+  修复维护流程中的并发隔离访问、SQLite 表达式运算符缺失与压缩流初始化问题。  
+- **维护快照：过期计时“可取消即返回” + 重活移出 MainActor**  
+  过期倒计时改为取消即返回，避免“取消=立刻过期”的误行为；同时将“扫描缺失文件/删除 blob”等重活从 `MainActor` 移出，降低维护期间 UI 受影响的概率。  
+- **维护快照：并发隔离修复（4 处）**  
+  在 `MainActor` 上快照 `ClipboardItem` 的 id/paths，将文件存在性检查移回后台；Blob 删除改回 `MainActor`，消除并发隔离相关的 4 处编译错误。  
+- **LAN 日志调用的并发隔离修复**  
+  将 `log.warn` 放到 `MainActor` 的 `Task` 中执行，避免在 `nonisolated` 上下文直接访问主线程隔离的 logger，消除并发隔离编译报错。  
+- **搜索防抖任务不再触发 Swift 6 捕获告警**  
+  搜索防抖 `Task` 固定在 `MainActor` 上创建与运行，避免 Swift 6 `@Sendable` 捕获警告。  
+- **窗口关闭后的清理逻辑主线程化**  
+  关闭窗口后清理过期数据改为 `MainActor` `Task` 执行，避免跨隔离访问引发的不稳定行为。  
+- **Orbit token 目录兜底，避免崩溃**  
+  当 token 目录取不到时回退到 `Caches` / 临时目录，避免 `first!` 触发崩溃。  
+- **数据库错误监听补齐并正确移除**  
+  补存 `.databaseError` observer，并在 `applicationWillTerminate` 里一并移除（含 pause/orbit），避免泄漏与重复回调。  
+- **Debug 预览拼接避免无谓开销**  
+  debug 预览拼接改为 `log.isEnabled(.debug)` 保护，并新增 `isEnabled(_:)` 接口，避免在非 debug 场景做字符串拼接与格式化。  
+- **本地化覆盖率问题修复**  
+  补齐缺失翻译并清理无引用 key，提升各语言的完整性与一致性。  
+- **搜索规则解析错位修复（`size:`/`len:`）**  
+  规则解析支持 `size:`/`len:` 兼容匹配，并返回真实前缀长度，避免 token 解析错位导致的体验问题。  
+- **设置页：过期计时“取消即返回”**  
+  UI 侧的过期倒计时逻辑同步改为取消即返回，避免清理/撤回交互中被误触发。  
+
+### 说明
+- **关于页版权信息**  
+  “关于”页底部版权优先读取 `NSHumanReadableCopyright`，并保留原文本作为兜底。  
+- **`lang:` 规则为 Beta**  
+  `lang:` 需要进行语言检测，数据量很大时仍可能带来额外开销；规则选择器已提供提示。  
+
+### 升级建议
+- **推荐升级到 v1.2.4**  
+  如果你在历史浏览/搜索时遇到滚动掉帧或卡顿，本版本的优化收益最明显，强烈推荐更新。
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.4/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.3 -->
+## v1.2.3 — v1.2.3 | Monumental
+
+- **Tag:** `v1.2.3`
+- **Published:** 2026-01-27T07:15:38Z
+
+### Release notes
+
+<p align="center">
+  <img width="2435" height="1219" alt="Deck" src="https://repository-images.githubusercontent.com/1111053300/a02138b8-d501-4d33-8c56-7a896d4ef6cb" />
+</p>
+
+---
+
+## 更新说明 v1.2.3
+
+### 新增
+- **搜索规则过滤（/ 规则）**  
+  重磅功能：在搜索框输入 / 即弹出规则面板（固定在搜索框上方）。列表模式显示 6 个规则，↑↓ / j/k / 1–6 切换高亮，回车插入前缀（app/date/type 或 -app/-date/-type），Esc 关闭面板。插入后光标停在前缀后，可直接输入值；空格结束该值并继续输入搜索词，/ 可继续叠加下一条规则；支持 + 多值与引号包裹含空格的应用名。Delete/Backspace 位于前缀或值边界时会整段删除规则（含值与尾随空格），提示模式下 Esc 也会删除当前规则并回到搜索。  
+  ![搜索规则弹窗（1379×776）](https://github.com/user-attachments/assets/b5166844-d693-47db-8719-9d02bd8cf8b0)  
+  ![搜索规则提示（1262×709）](https://github.com/user-attachments/assets/38da8c37-aed0-4b4d-b9a7-61af490c9ea5)
+
+- **自定义标题（端到端）**  
+  支持为每条记录设置自定义标题，贯通模型、存储、搜索与 UI，并在卡片/预览头部显示。  
+
+- **自定义标题同步与导出**  
+  自定义标题会随同步、导出与快捷指令流转，保证跨设备一致。  
+
+- **智能规则新增“有自定义标题”条件**  
+  Smart Rules 可按“有自定义标题”筛选，并在编辑器中可选。  
+
+- **Figma 剪贴板识别与专用预览**  
+  识别 Figma 剪贴板内容，卡片与预览展示专用图标/信息视图，并仅在预览打开时解析。  
+
+- **链接二维码入口**  
+  预览底部信息条新增“显示二维码”按钮（仅链接项显示），行为与右键菜单一致。  
+
+- **设置直达“局域网”栏目**  
+  “前往设置添加设备”改为直达“局域网”页，并引入共享的设置导航状态。  
+
+- **模拟键盘输入粘贴开关 + 自定义快捷键**  
+  新增开关与可配置快捷键（默认 ⌘⌥V），关闭后不再拦截该组合键。  
+
+- **文件缺失提示与自动清理**  
+  文件/图片缺失时显示警告提示，并在面板关闭后自动清理缺失记录。  
+
+### Deck × Orbit
+- **Orbit 摘要携带自定义标题**  
+  Orbit 摘要输出包含 customTitle，保持 CLI/集成一致。  
+
+### 优化
+- **搜索框与标签编辑快捷键**  
+  搜索框支持 ⌘A 全选与 ⌘V 粘贴（仅在有搜索内容时全选），标签编辑也支持 ⌘A/⌘V。  
+
+- **搜索焦点与输入调度优化**  
+  面板打开时抑制自动抢焦点，重命名期间不触发自动搜索；关键 UI 调度提升为 userInteractive。  
+
+- **Figma 预览与图标细节**  
+  Figma 预览改为两列布局、信息更简洁并支持多语言；暗黑模式下图标自动反白。  
+
+- **链接元数据缓存优化**  
+  LinkMetadataService 加入 LRU + 上限（500），并在命中时刷新顺序以降低内存。  
+
+- **数据库备份一致性**  
+  WAL checkpoint 与文件复制在同一 dbQueue 执行，避免备份期间写入穿插导致不一致。  
+
+### 变更
+- **标题长度上限与显示策略**  
+  自定义标题限制为 12 个字符（保存时截断），标题过长会自动缩放以适配卡片头部。  
+
+- **搜索排序与匹配规则**  
+  搜索会同时匹配自定义标题；标题命中项会稳定置顶，但保留原有排序。  
+
+- **标题重命名触发规则重评估**  
+  保存标题后会重新评估智能规则，但 ignore/transform 仍仅在入库时触发。  
+
+- **规则语法识别范围**  
+  仅 / 插入的规则前缀会被解析，手动输入 app:/date:/type: 会视为普通搜索文本。  
+
+- **规则语义扩展**  
+  规则支持 -app/-date/-type 排除与 + 多值叠加；type 去掉 email/phone，新增 color；app 多词需引号。  
+
+- **模拟键盘粘贴换行策略**  
+  模拟键盘输入粘贴遇到换行时改为发送 Shift+Enter，避免直接回车提交。  
+
+- **Focus 模式内容记录**  
+  专注模式不再仅记录文本，富文本/文件/图片也会被保留。  
+
+- **Figma 记录不进入搜索**  
+  新产生的 Figma 记录不写入搜索文本，避免污染搜索结果。  
+
+### 修复
+- **SQL LIKE 可选值类型错误**  
+  通过 IFNULL 处理 custom_title，避免 .like 的可选类型导致 Expression<Bool> 报错。  
+
+- **重命名输入状态与焦点问题**  
+  修复重命名时跳入搜索框、Esc 失效与关闭面板残留输入框；回车保存后 UI 立即刷新标题。  
+
+- **file:// 解析与安全处理**  
+  统一 file:// 归一化与本地解析逻辑，避免路径含空格解析失败，并移除不安全的 propertyList 回退。  
+
+- **文件/图片粘贴与缩略图稳定性**  
+  修复 fileURL 大小计算错误、缩略图对不存在文件的生成，以及大图安全读取与去重。  
+
+- **搜索规则输入与索引崩溃**  
+  修复规则前缀带空格失效、UTF-16/Emoji 索引崩溃与删除范围不完整的问题。  
+
+- **搜索分页与缓存一致性**  
+  修复新搜索未取消旧分页导致结果混入，并在结果不足时自动扩容拉取。  
+
+- **并发与主线程隔离编译报错**  
+  修复 Swift 6 并发/隔离相关编译问题，包括主线程调用、非隔离上下文访问与必要 await。  
+
+- **安全与稳定性修补**  
+  防止 TOTP 计数下溢、停止在 UserDefaults 存 PSK、补齐 blob 文件回收与目录创建保护。  
+
+- **搜索缓存失效与内存压力**  
+  标题/OCR 更新仅失效对应缓存，内存压力时正确清空缓存，避免旧结果残留。  
+
+- **拖拽临时文件可靠性**  
+  拖拽回退为同步生成临时文件，确保拖拽可用，并引入统一临时目录与自动清理。  
+
+- **Figma 解析鲁棒性**  
+  增强 Figma HTML 容错解码与缓存策略，解析失败不再永久缓存为 false，并记录更清晰日志。  
+
+- **设置与预览细节修补**  
+  补齐 SettingsView.swift 的 Combine 引入与二维码按钮点击区域/间距修正。  
+
+- **存储路径初始化退避**  
+  存储路径初始化失败后增加 60 秒退避，避免重复重试风暴。  
+
+### 说明
+- **规则提示已全面本地化**  
+  规则提示/帮助文案覆盖德/英/法/日/韩/繁体/简体，并统一说明“输入值后空格继续搜索词，/ 添加下一规则”。  
+
+### 兼容性与行为说明
+- **规则使用示例**  
+  示例：`app:\"Google Chrome\"+Safari -type:code+text -date:26-01-01+26-01-02`（+ 多值，- 排除）。  
+
+- **Figma 预览范围**  
+  当前仅展示基础信息列表，不进行图形/元素渲染。  
+
+### 升级建议
+- **数据库迁移与索引重建**  
+  升级后会迁移 SQLite 并重建 FTS，以支持自定义标题搜索；首次启动请等待索引完成。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.3/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.2 -->
+## v1.2.2 — v1.2.2 | Orchestrated
+
+- **Tag:** `v1.2.2`
+- **Published:** 2026-01-23T11:45:04Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.2.2
+
+### 新增
+- **新增多语言：法语 / 韩语 / 日语**  
+  Deck 增加法语、韩语、日语的多语言支持。  
+
+- **新增反馈邮件撰写入口（关于设置 + 剪贴板面板顶部）**  
+  在“关于”设置页新增「提交反馈」，并在剪贴板面板顶部栏加入反馈按钮；使用内置 HTML 模板并注入系统/应用诊断信息与本地化标签。  
+
+- **新增反馈邮件多语言模板 + 工单号**  
+  反馈邮件会根据 `Locale.preferredLanguages` 选择 `feedback_en` / `feedback_de` / `feedback_kr` / `feedback_fr` / `feedback_ja` / `feedback_zh_hant` / `feedback` 模板，并且每次生成随机 UUID 工单号。  
+
+- **设置侧边栏 Tab/Shift+Tab 循环切换**  
+  在设置窗口中支持 Tab/Shift+Tab 在左侧侧边栏标签间循环切换（含 wrap-around），且仅在无 Command/Control/Option 修饰键时生效。  
+
+- **新增 Cmd+Option+V「键盘逐字输入粘贴」**  
+  新增全局 Cmd+Option+V：从系统剪贴板读取 string/rtf/rtfd/html 文本并用 CGEvent 逐字符输入（带轻微延迟以提升远程会话稳定性），适合 VNC 等不支持普通粘贴的场景；无辅助功能权限时不拦截按键。  
+
+- **修复键盘逐字输入的参数标签编译错误**  
+  为 `keyboardSetUnicodeString` 调用补上 `stringLength:` 标签，消除编译错误。  
+
+- **Orbit 设置页与独立 Orbit 窗口集成**  
+  新增 Orbit 设置页（引导/已安装/安装中等阶段）、Option 键交互、Orbit 窗口显示/隐藏与安装进度流；并将独立 Orbit 应用代码整合到 `Deck/Deck/Orbit`，使用其 window controller 管理独立环形窗口。  
+
+- **Orbit 安装器与资源加载**  
+  实现内置图标/zip 资源的安装器与加载器，并支持安装检测；补充 Orbit 资源与纹理加载 fallback。  
+
+- **空间预览：多文件浏览**  
+  支持在空间预览面板中浏览一个剪贴板项的多个文件（chips + 上一/下一项），并在文件之间平滑淡入淡出；每个文件可选择 PDF/Markdown/Office/Image 或不支持时的 fallback。  
+
+### Deck × Orbit
+- **Orbit 组件移植与模型冲突修正**  
+  移植 Magic Keyboard 片段组件，调整 Option 键视觉，并解决剪贴板模型命名冲突；完善 ring 相关 view model 与分享/卡片等联动。  
+
+- **Orbit CLI Bridge 服务线程模型与保护**  
+  Orbit CLI Bridge 请求处理不再整段 `@MainActor`；仅在必须操作（如 paste）切主线程，JSON 编码与响应在后台完成；增加高阈值速率限制与响应体上限（20MB）防止极端负载拖慢 UI。  
+
+### 优化
+- **CLI Bridge 代码块悬停复制按钮**  
+  CLI Bridge 代码块右上角新增悬停态复制图标；仅当鼠标进入代码块时显示，点击使用 `NSPasteboard` 复制命令。  
+
+- **脚本插件创建代码块支持悬停复制**  
+  在“创建脚本插件”的代码块右上角加入与 CLI Bridge 相同的复制按钮（悬停显示、点击线条动画变对勾）；新增 `CodeBlockView` 并替换两处代码片段为可复制样式，同时引入 AppKit 以使用剪贴板。  
+
+- **局域网 IP 复制按钮采用 CLI Bridge 动画样式**  
+  Local Network IP 的复制按钮改为复用 CopyIconButton，并使用 CLI Bridge 同款 doc→check 动画与时序，同时保留原有强调色。  
+
+- **“添加设备”按钮改为明确 CTA 样式**  
+  “添加设备”按钮改为全宽强调填充、半粗体标签，并完善禁用态样式，使其不再像输入框。  
+
+- **已连接设备空态优化**  
+  移除“已连接设备”的加载提示与圈圈，空态改为多语言文案「暂无已连接的 Deck 设备」。  
+
+- **面板动画更顺滑：延后重载与保留热缓存**  
+  将数据 reload 延后到面板滑入动画完成后执行；关闭时不再完全清空列表而是保留少量 warm cache，避免动画与 DB/SwiftUI 重建竞争（UI 文件保持不改动）。  
+
+- **面板动画与 Reduce Motion 细节打磨**  
+  Reduce Motion 下强制动画时长为 0；hide 使用 `easeIn`、show 保持 `easeOut`；动画结束后移除残留动画状态。  
+
+- **弹出面板视觉统一**  
+  增加弹出面板圆角、减少顶部间距，使整体观感更和谐统一。  
+
+- **弹出动画路径优化与旧系统 blur 降负担**  
+  将重活移出 present 动画；简化 Spaces 行为；present easing 调整为更柔和的 `easeInEaseOut`；在较旧的 macOS 上移除多余的 behind-window blur（避免双层 blur）。  
+
+- **数据准备更早提交，减少动画后抖动**  
+  将“提交 UI”的时机提前到准备好就提交，让更新可发生在动画过程中；同时避免 `setPanelActive` 用缓存覆盖刚提交结果。  
+
+- **历史列表初始选择更稳定，减少末尾闪动**  
+  `resetInitialSelection(force:)` 增加 `force` 参数；上下文感知开启时切换应用后在 `refreshDisplayItems(...)` 后强制重置选择；并通过 `guard selectedId == nil` 避免后续提交/重排反复触发选中导致“末尾闪两下”。  
+
+- **搜索/粘贴/写入路径性能优化（UX 不变）**  
+  大图 blob 写入改为异步存储以避免 UI 相关流程同步 IO；搜索 lowercasing 做上限并避免额外分配；粘贴板字符串只取一次，银行卡检测单次扫描并尽早退出。  
+
+- **热路径最小化优化（保持交互与行为一致）**  
+  SearchService 增加跨击键的 `prepareLowercasedText` 有界缓存与安全 range 转换、在安全模式/会话退到后台时失效缓存，并暴露 `clearPreparedTextCache()` 供内存压力清理；SmartContentCache 增加 inflight 去重、将 CPU 工作移到 detached task、避免竞态覆盖缓存，并在失效/清理/内存压力时取消 inflight；Cursor Assistant 将数字键映射提升为静态以减少每次事件分配；内存压力处理联动清理 SearchService 缓存。  
+
+- **剪贴板检查合并与 OCR 读取优化**  
+  合并重叠的剪贴板检测，`nil` item 也会消费 `changeCount`；为 CLI 预热 recent cache；OCR 避免全量 blob 读取。  
+
+- **设置窗口 Auto Layout 循环缓解**  
+  通过在普通容器视图中承载 SwiftUI，缓解设置窗口的 Auto Layout loop。  
+
+### 变更
+- **反馈邮件撰写：不再走 `mailto`，优先系统邮件撰写器**  
+  反馈邮件流程不再使用会拉起浏览器的 `mailto`；始终优先用 `NSSharingService` 打开系统邮件撰写器；模板读取失败时也会打开邮件并填入纯文本占位，避免空页面；仅当服务不可用时才尝试打开 Mail 应用本身。  
+
+- **设置布局重整与侧边栏顺序调整**  
+  隐私相关项仅保留在「隐私」，通用行为开关集中到「通用」；同时调整侧边栏标签顺序（将隐私/安全/存储/统计置于功能标签之前，并按“上下文感知 > 智能规则 > Cursor Assistant > … > 统计 > Orbit > 关于”排序）。  
+
+- **设置侧边栏顺序微调（Smart Rules / Cursor Assistant）**  
+  侧边栏顺序更新为 Smart Rules 紧跟 Context Aware；同时让 Cursor Assistant 与 Template Library 相邻；顺序由 `SettingsTab` 的声明顺序与 `SettingsTab.allCases` 驱动。  
+
+- **标准快捷键卡片新增 ⌘⌥V 说明与本地化**  
+  在标准快捷键卡片新增 ⌘⌥V 行，并增加“模拟键盘逐字输入粘贴”的提示文案；补齐德/英/法及其他已有语言的翻译。  
+
+- **移除 Focus 监测/恢复逻辑与相关依赖**  
+  移除 Focus 轮询/监测相关定时器与恢复逻辑，并清理 Focus 状态权限/查询的辅助方法与 Intents 依赖。  
+
+- **默认脚本插件更新与清理策略调整**  
+  默认脚本逻辑为“先清理旧的默认插件，再写入新的默认插件（保留字数统计）”，且只会删除/覆盖作者为 Deck 的默认脚本以避免误伤用户自定义脚本；启动时清理旧默认目录（base64-encode/base64-decode/url-encode/url-decode/json-format）；新默认包含「字数统计 / 去除表情符号 / 去除 Markdown / 去空行 / 提取 URL / 提取邮箱 / 行号前缀」；新增 JSContext 桥接 `Deck.detectEmails`，内部调用 `SmartTextService.shared` 识别逻辑；去表情符号使用 Unicode emoji 匹配（含变体选择符/ZWJ），去 Markdown 移除常见语法与 HTML 标签并保留纯文本。  
+
+- **Deck × Orbit 文案全面本地化**  
+  Deck × Orbit 页面所有可见文案改为 `NSLocalizedString`，并补齐缺失词条「欢迎使用」的多语言翻译。  
+
+- **设置项归属移动（保持原 UI 样式与逻辑）**  
+  将“辅助功能权限”从隐私移到通用（并迁移权限刷新计时逻辑到 `SettingsView.swift`）；将“隐写密钥”从隐私移到安全并明确“用于文本隐写”，位置在安全信息之前；将“历史保留”从通用移到存储并放在存储信息之后。  
+
+- **隐私页副标题更新并补齐多语言**  
+  隐私页副标题更新为「隐私保护设置」，并补齐/同步英/德/法/日/韩/繁中翻译与新增文案。  
+
+- **字符串目录告警消除（保留翻译）**  
+  通过将 7 条陈旧条目的 `extractionState` 设为 `manual`，清除 “no references” 警告且不删除翻译。  
+
+- **移除 3 条陈旧字符串键以清理 Xcode 警告**  
+  删除 3 条已废弃的字符串键，避免 Xcode 报 “References to this key could not be found in source code.”：插件清单 JSON 模板、`transform(input) { return input.toUpperCase(); }` 示例片段，以及「正在搜索附近的 Deck 设备...」。  
+
+- **Mail 启动方式切换到现代 NSWorkspace API**  
+  将 `launchApplication("Mail")` 替换为通过 Mail bundle ID 的 `openApplication(at:configuration:completionHandler:)`。  
+
+- **Cursor Assistant「触发键」显示改为静态 Shift 键帽**  
+  将“触发键”行改为静态 Shift keycap badge（不再用分段选择），匹配当前没有可选项的事实。  
+
+- **标签 Tab 循环顺序覆盖系统 + 用户标签**  
+  Tab 切换改为按“系统标签 + 用户自定义标签”的完整顺序循环，越过「重要」后若存在用户标签则继续，否则回到系统标签起点；`cycleSystemTags` 现遍历 `vm.tags` 的整体顺序以支持前后循环。  
+
+### 修复
+- **剪贴板分类误判降低（URL/电话/邮箱）与线程安全缓存**  
+  更新剪贴板分类与识别逻辑，降低 URL/电话/邮箱的误判；收紧 URL 归一化并使分析缓存线程安全；同时补充 URL 边界用例测试。  
+
+- **SmartTextService.swift 编译错误修复（保持改动收敛在单文件）**  
+  将所有编译修复限定在 `SmartTextService.swift`：移除 `resourceSpecifier` 用法、修正 `Substring` trimming，并用本地 URL 归一化逻辑替换对 `asCompleteURL()` 的调用，避免在 `nonisolated` 上下文触发 MainActor 隔离问题。  
+
+- **测试修复：URL/@mention 去重与短 Swift 片段识别**  
+  修复测试失败：收紧 URL/@mention 去重逻辑（URL 去重额外规范化 percent-encoding，mention 正则避开 email），改进短代码片段的 Swift 识别阈值/模式，并将假名（kana）用例改为明确断言 false 以避免 unused locals；同时将手机号去重对 `+86` 等变体做归一化。  
+
+- **修正裸域名 URL 正则：避免在带 scheme 的 URL 内部再次匹配**  
+  调整 bare-domain URL 正则，避免在 `http/https/ftp` 等已带 scheme 的 URL 内部再次命中导致重复。  
+
+- **URL 识别去重：NSDataDetector 命中时跳过额外正则扫描**  
+  当 `NSDataDetector` 已识别出 URL 时，URL 检测将跳过后续正则 pass，减少重复计数与重复命中。  
+
+- **修复 XML/邮件识别去重：更少误判与重复计数**  
+  将 XML 视为 data-like 内容，因此不再要求 `structureScore ≥ 2`；同时对 email 正则结果先做 percent-decoding 再去重，避免 `mailto` 场景重复计数。  
+
+- **不支持的剪贴板兜底：避免条目被丢弃**  
+  当剪贴板解析失败时构建兜底 `ClipboardItem`（使用自定义 pasteboard type 并写入本地化占位文本），历史卡片会居中显示「Deck 无法解析本剪贴板内容」。  
+
+- **DirectConnect 与导入链路加固**  
+  修复 DirectConnect 随机生成与接收清理；加强导入大小限制、后台插入与流式对象上限。  
+
+- **迁移适配器 SQLite 句柄与表名查找保护**  
+  为 sqlite 句柄/statement 增加 guard，并安全绑定表名查找以避免异常访问。  
+
+- **迁移适配器补齐 SQLITE_TRANSIENT 兼容 shim**  
+  在使用 `sqlite3_bind_text` 的迁移适配器中加入本地 `SQLITE_TRANSIENT` shim，保持与 `PasteMigrationAdapter` 的用法一致，修复 “Cannot find SQLITE_TRANSIENT” 编译错误且不改变行为。  
+
+- **Cloud Sync 数值解码规范化与插件发布线程修正**  
+  统一 Cloud Sync 的数值解码；保留 group payload 的时间戳与应用名；插件列表发布切回主线程。  
+
+- **多端接收元信息补齐：timestamp/appName 贯穿解码与投递**  
+  扩展 `DecodedItemPayload` 包含 timestamp 与 appName，并在解码与投递路径贯通；`MultipeerService` 为 group items 写入这两项、单条使用默认值，并用其构建 `ClipboardItem`。  
+
+- **生物识别类型检测更安全与 Application Support 路径兜底**  
+  加强生物识别类型检测的安全性，并为 Application Support 路径增加 fallback。  
+
+- **持久化/迁移健壮性加固（不改交互体验）**  
+  ManualPeer 持久化补写 psk；Multipeer `ifa_addr` 判空；ClipboardService 的 `isPaused` 过期恢复限定主线程；PasteMigrationAdapter `openDatabase` 针对 `db == nil` 提供更明确错误与关闭流程。导出改为 throwing 写入 API；加密迁移改为 id 游标分页；embedding 迁移采用批量事务；大 ID 集合查询分块以避开 SQLite 变量上限。  
+
+- **加密失败通知调用显式捕获**  
+  将 `notifyEncryptionFailureIfNeeded()` 的调用改为显式捕获 `self`，修复相关编译/并发告警。  
+
+- **IDE 锚点发现更健壮（Cursor/VS Code）**  
+  扩展 IDE anchor 发现逻辑：Cursor/VS Code 在缺失 `AXDocument` 时不再 hard-fail；AX 遍历更深并更适配 Electron 风格树；多属性提取带 proxy/title/value fallback，并对 `file://` 值做更宽松的 URL/path 归一化；集中路径校验（存在性 + 可选 `:line:col` 去除）减少误判。  
+
+- **替换不可用 AX 常量，避免 SDK 符号依赖导致编译失败**  
+  将不可用的 AX 常量替换为基于字符串的 attribute，保留 navigation-order 遍历尝试且不再触发编译错误。  
+
+- **统计页存储信息计算修正**  
+  存储大小改为统计 `Deck.sqlite3` 及其 `-wal/-shm` 的真实文件大小，平均记录大小随之修正。  
+
+- **历史预览复制按钮改为对勾动画反馈**  
+  代码区复制按钮改为与 CLI Bridge 同款对勾动画；点击代码复制不再弹绿色“已复制”，其他复制项仍保留原提示。  
+
+- **空间预览状态重置，避免重开面板复现旧预览**  
+  面板激活/失活/消失时统一重置预览状态（state + task cancel + window hide），避免预览在重新打开后“自动浮现”。  
+
+- **预览与 Orbit 相关 Swift 6 警告/错误清理**  
+  将 `FilePreviewRules` 常量/函数标为 `nonisolated` 以适配 MainActor 默认隔离；fallback icon 调用切换为正确 API；并在 Orbit jump model 中显式捕获 `saveDebounce` 以避免 actor hop。  
+
+- **修正 NSWorkspace 图标 API 参数标签，消除 `forContentType:` 编译错误**  
+  将 fallback icon 调用改为 `NSWorkspace.shared.icon(for: .data)` 以匹配当前 SDK 的 `icon(for:)` 签名。  
+
+- **避免 RTF/RTFD 路径触发 Obj‑C decode warning（保留富文本粘贴）**  
+  在 `ClipboardItem` 中优先缓存 plain-text 候选；当 plain text 非空时短路 RTF/RTFD 解码以避免 `NSAttributedString` 解码告警；同时保留原富文本 payload 作为粘贴与无 plain text 情况的 fallback。  
+
+- **输入过大/无效保护：防崩溃与竞态**  
+  保持正常流程 UX 不变，仅对超大/无效输入做提前拒绝与日志记录，避免 crash 与 race：Cloud Sync/脚本插件/隐写/语义搜索/剪贴板等路径加入大小上限、锁与安全读取。  
+
+- **Steganography Swift 6 隔离修复**  
+  将 `loadCarrierImageData(from:)` 标注为 `nonisolated` 与调用方一致；并将 `maxCarrierFileBytes` 标为 `nonisolated`，修复静态属性在非隔离上下文访问的编译报错。  
+
+- **Cloud Sync 同名遮蔽修复**  
+  避免 `if let previewData` 同名遮蔽导致块内变为 `let`；改用局部 `previewBytes` 后可正常 `previewData = nil`。  
+
+- **数据库/同步/可访问性/热键/导入导出等稳定性修复（保持行为一致）**  
+  FTS 查询使用显式 `bm25` alias；历史遗留空 `unique_id` 安全回填；blob items 遵循 `loadFullData`；batch fetch 按 SQLite 限制分块；引入 cursor-based fetching 稳定分页并用于 Cloud Sync；修复 AX 强制解包/坐标换算与 window title cast；热键更新失败时回滚；粘贴队列加入可取消自动退出调度；Multipeer TOTP nil 安全处理；导出改用 cursor paging、导入重 IO 移出主线程、支持 JSON fragments、URL 编码收紧；并用 typeID 校验 helper 消除 CFTypeRef cast warnings。  
+
+- **Swift 6 编译错误修复（导出/导入与类型推断）**  
+  修正 `append` 类型推断与未使用结果；将 export DTO 标为 `nonisolated + Sendable`，新增 `@MainActor` insert helper，并 await 主线程日志；为跨 Task 的 source-anchor 值类型补充 `Sendable`；并通过显式 `rows: [Row]` 修复 `append(contentsOf:)` 的剩余错误。  
+
+- **长网址导致卡片被拉长与二维码生成卡死问题**  
+  弹窗卡片固定宽度 320；展示用 URL 改为去掉 `http(s)://` 后最多 20 个字符并追加省略号（悬停可看完整链接）；二维码生成失败时显示「链接过长，无法生成二维码」而非一直“生成中...”；超过 600 字节阈值时右键菜单不再显示「显示二维码」以避免生成无法扫码的二维码。  
+
+- **翻译补齐至 100%**  
+  `Localizable.xcstrings` 中那 25 个空/未翻译条目已补齐，翻译覆盖率恢复到 100%。  
+
+- **拖拽导出：单文件 `suggestedName` 去掉最后一个扩展名**  
+  单文件拖拽导出时将 `suggestedName` 改为去掉最后一个扩展名的基名，避免 Finder 根据 UTType 再次追加后缀导致 `.py.py` / `.json.json`。  
+
+### 说明
+- **反馈邮件文案与翻译覆盖**  
+  新增并翻译「提交反馈」「告诉我们您的想法」与「Deck 反馈」邮件主题；并更新/补齐既有模板中的 subject/question/hint 行与缺失语言文件。  
+
+### 兼容性与行为说明
+- **反馈邮件撰写依赖系统邮件服务可用性**  
+  反馈邮件优先通过 `NSSharingService` 打开系统邮件撰写器；仅当该服务不可用时才尝试直接打开 Mail 应用。  
+
+### 升级建议
+- **建议所有用户升级至 v1.2.2**  
+  本版本包含反馈邮件流程完善、多语言补齐、预览与设置交互增强、稳定性/性能与安全防护的集中改进。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.2/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.1 -->
+## v1.2.1 — v1.2.1 | Lean
+
+- **Tag:** `v1.2.1`
+- **Published:** 2026-01-18T04:00:20Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.2.1
+
+### 新增
+- **数据库自救备份开关与手动备份**  
+  新增偏好项 `databaseAutoBackupEnabled` 并接入设置页；支持立即备份/删除入口，关闭时不再备份/恢复并清理 `.bak`。  
+
+### 优化
+- **历史记录分页懒加载 payload，降低滚动内存与解密开销**  
+  分页列表项默认保持轻量：仅在需要时才解密完整 payload，结合大小阈值与预览字段延迟加载。  
+- **历史列表减少 COW 峰值（避免数组镜像）**  
+  当重排关闭/搜索/队列模式时保持 `orderedItems` 为空，避免共享缓冲区导致的 Copy-on-Write 峰值。  
+- **上下文重排与模板保存减少拷贝并确保持久化完整数据**  
+  重排结果在单一数组中构建以避免额外拷贝；保存模板前会先 materialize 完整 payload，确保存储的是全量内容。  
+- **数据库队列 QoS 分层与后台化搜索排序**  
+  将交互查询与后台维护拆分到不同队列（交互/后台），并将 in-memory fuzzy ranking 移出主线程以减少卡顿。  
+- **搜索性能：候选扩展、扫描上限与可取消的 in-memory 路径**  
+  mixed 模式优先 exact 命中，无命中时再触发模糊回退；加入 LIKE 候选扩展、`scanLimit` 上限与真正的 Task 取消；循环内增加协作取消检查。  
+- **CloudSync/Steganography/OCR 节能优化（不改热键行为）**  
+  CloudSync 批处理延迟加大并对低电量更保守；stego 解码仅在更可能成功时运行；OCR 增加背压/去抖、低电量跳过与超大图片尺寸上限。  
+- **文本/正则与缓存：降低 churn 与重复编译**  
+  引入 O(1) LRU、`NSCache` 正则缓存与敏感内容匹配的小型 regex cache，减少频繁分配与重复编译。  
+- **IO/CPU 热点优化（采样、Blob、IDE 锚点、分页等）**  
+  批量写入采样、序列化 Blob IO、OCR 热/低功耗降级、IDE 锚点 BFS 队列去 O(n)、分页改为 on-appear 触发等。  
+- **面板与 macOS 26 视觉：原生玻璃容器与更一致的圆角**  
+  macOS 26 使用 `NSGlassEffectView` 作为主容器（`.regular`），并统一 `cornerRadius = Const.panelCornerRadius`；SwiftUI 背景改为 `Color.clear`，顶部间距改用 `Const.panelTopPadding`，搜索框圆角使用 `Const.searchFieldRadius`。  
+- **面板打开优先级：交互查询更快、后台维护更省电**  
+  将串行 DB 队列 QoS 提回 `.userInitiated`，并在后台维护路径中强制 `.utility`，避免交互查询被整体降级或排在维护任务之后。  
+
+### 变更
+- **macOS 26 视图层级与裁切策略调整**  
+  `HostingView` 改为放入 `glass.contentView`；在 26+ 上对 `view` 也设置圆角与 `cornerCurve = .continuous` 做裁切；窗口阴影在 macOS 26 开启（<26 维持关闭）。  
+- **常量更新：面板尺寸与圆角/间距参数**  
+  新增 `panelCornerRadius = 26`、`panelTopPadding = Const.space12 + 5`、`searchFieldRadius = 12`；窗口高度调整为 `305`；`panelOverlay` 在 macOS 26 的配色变轻（但 26 上不再由 `DeckContentView` 使用）。  
+- **热键与队列行为回退为 CGEventTap**  
+  将热键监听与 paste-queue 改回此前的基于 `CGEventTap` 的行为，确保 `Cmd+P` 与队列模式恢复正常。  
+- **更新后清理与启动提示：按清理结果触发**  
+  启动时清理更新残留并移除 `/Applications` 下 `.Deck.app.old.*` 备份（不进废纸篓），并使用清理结果决定是否触发 8 秒设置窗口提示。  
+- **隐私设置：移除手动上传入口并优化 stego key 编辑交互**  
+  移除“手动上传/上传一次”动作，分析区仅保留开关；stego passphrase 输入改为更接近真实输入框的样式，保存/清除状态更清晰，并支持回车提交保存。  
+- **stego key 掩码与长度持久化**  
+  掩码按真实长度渲染并右对齐；保存/清除时持久化长度，使 UI 一致反映当前状态。  
+
+### 修复
+- **DB 队列初始化与编译问题修复**  
+  将 `dbQueue`/`dbBackgroundQueue` 改为 `lazy`，避免属性初始化期间触发 `self`；清理未使用变量并修复相关编译报错。  
+- **键盘 unicode 读取调用签名修复**  
+  为 `keyboardGetUnicodeString` 调用补齐 `maxStringLength:` label，修复编译错误。  
+- **SwiftUI 更新周期警告与优先级反转缓解**  
+  避免在 SwiftUI 更新期间进行状态突变，程序性文本更新被忽略；焦点/失焦变更延迟到异步调度，降低告警与潜在阻塞。  
+- **主线程读取 UserDefaults 的 Actor 归属修复**  
+  将 `sharedKeyMaskLength` 标注为 `@MainActor`，以在主线程读取 `DeckUserDefaults.stegoPassphraseLength`。  
+
+### 说明
+- **BlobStorage 目录保持动态以支持运行时切换**  
+  `BlobStorage.swift` 的 base directory 继续保持动态，以确保运行时切换存储位置安全；如需补丁里的 lazy cache，可新增失效钩子。  
+- **Carbon 热键的取舍说明（已回退为 CGEventTap）**  
+  Carbon 方案会全局占用 `Cmd+Shift+V`；如未来恢复 Carbon 并需要队列关闭时透传，可做条件注册或合成透传逻辑。  
+- **更新后设置窗口触发条件说明**  
+  更新后窗口仍仅在内置更新器设置了 `deck.pendingUpdateVersion` 时触发，手动 DMG 更新不会触发。  
+
+### 兼容性与行为说明
+- **macOS 26 的玻璃效果由 AppKit 承担**  
+  macOS 26 上 `DeckContentView` 不再在 SwiftUI 内绘制玻璃/叠加层（背景为 `Color.clear`），玻璃与圆角裁切交由 `NSGlassEffectView` 容器处理；<26 仍使用 `VisualEffectBackground + panelOverlay`。  
+
+### 升级建议
+- **建议所有用户升级到 v1.2.1**  
+  本版本聚焦滚动/分页/搜索/DB 交互性能与能耗优化，并包含 macOS 26 视觉容器调整与多处稳定性修复。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.1/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.2.0 -->
+## v1.2.0 — v1.2.0 | Stabilized
+
+- **Tag:** `v1.2.0`
+- **Published:** 2026-01-16T06:33:02Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.2.0
+
+### 新增
+- **自动更新国内加速与兜底下载**  
+  自动更新部署了 CF 反代，国内无法访问 GitHub 时也可稳定更新，并保留 GitHub 下载作为兜底。  
+
+- **诊断上传与内存采样**  
+  新增诊断上传与内存采样器：每日 15:00 本地时间上传 24 小时诊断报告，失败会去掉日志再试；每分钟采样内存，最多 1440 点，数据写入 `memory_samples.json`。  
+
+- **隐私设置中的分析数据入口**  
+  隐私设置新增“分析数据”卡片与开关，开启后提供“手动上传”按钮。  
+
+- **新增繁体中文支持**  
+  增加对繁体中文（zh-Hant）的本地化翻译支持。  
+
+### Deck × Orbit
+- **每次安装唯一 Token 与安全兜底**  
+  Orbit bridge token 改为每次安装随机生成并存储，`#if DEBUG` 仍兼容 legacy token；Release 不再接受硬编码 token。  
+
+- **启动即准备 Token 与 401 重试**  
+  启动时强制创建 token，并在 401 时从磁盘重载并重试一次。  
+
+### 优化
+- **预览渲染与缩略图网格增强**  
+  预览始终显示电话行 + 全文并保留智能摘要；file URL 多图新增缩略图网格，历史卡片缩略图修复，预览对鼠标点击也会刷新。  
+
+- **多图卡片的布局与省略指示优化**  
+  多图卡片仅显示首图，右侧独立省略指示条（固定高度与最小宽度），不再遮盖图片、也不会顶起标题。  
+
+- **安装/更新界面图标渲染稳定**  
+  安装/更新 UI 强制使用原色应用图标，避免暗色模式出现模板色偏。  
+
+- **统计视图轻量化与内存回收**  
+  统计改为仅用元数据查询，退出视图时触发 SQLite shrink；Top Apps 使用 `appPath` 作为稳定 id。  
+
+- **数据库启动与向量索引性能优化**  
+  PRAGMA `quick_check(1)` 以 24h 窗口限频，仅在备份恢复时强制；向量回填仅在 embeddings 存在且 vec 表为空时触发，并按最近数据分批带短暂休眠；`updateVecIndex` 避免重序列化并使用 `INSERT OR REPLACE`。  
+
+- **隐写解码与导出任务离线化**  
+  隐写解码改为后台任务执行并支持取消；导出认证在主线程，抓取/编码/写入在后台完成。  
+
+- **自动删除调度器替换逐条 sleep**  
+  用 `AutoDeleteScheduler` actor 统一调度自动删除，减少队列阻塞。  
+
+- **语义检索矩阵化与缓存**  
+  引入矩阵化评分与向量范数缓存，保持阈值/排序语义不变，并用 `vDSP_mmul` 替代弃用的 `cblas_sgemv`。  
+
+### 变更
+- **更新缓存清理与更新完成提示**  
+  启动时清理 `~/Library/Caches/Deck/Updates/` 下所有版本前缀目录（含 `unknown-`），并记录 `pendingUpdateVersion`；满足条件时 8 秒后打开设置并提示“更新完成”，设置窗口新增 `showWindow()` 防止 toggle 误关。  
+
+- **更新服务的签名强制与安全约束**  
+  Release 更新路径强制代码签名校验。  
+
+- **脚本执行队列策略调整**  
+  脚本执行队列做过串行化以降低资源争用，现改为并发以避免单个脚本阻塞其他任务。  
+
+- **规则/模板持久化稳定码**  
+  `TransformType` 持久化改用稳定 code，并兼容旧中文 rawValue。  
+
+- **加密迁移与行级状态跟踪**  
+  数据库新增 `is_encrypted` 列并实现按字段幂等加解密与行级决策，检测阶段使用静默解密避免日志刷屏。  
+
+- **导出路径与临时文件策略**  
+  导出改为直接写入用户选择路径，并在启动时清理遗留临时导出文件。  
+
+- **DirectConnect 明文接收限制**  
+  没有确认回调时拒绝明文接收。  
+
+### 修复
+- **事件回调内存泄漏与 RunLoop 解绑问题**  
+  所有 CGEventTap 回调返回 `passUnretained(event)`，并统一使用 `CFRunLoopGetMain()` 绑定/解绑，避免泄漏与 runloop 不一致导致的资源悬挂。  
+
+- **热键卸载遍历崩溃**  
+  `unregisterAllHotKeys()` 改为遍历 `Array(hotKeys.keys)`，避免遍历中修改集合崩溃。  
+
+- **热键修饰键事件泄漏**  
+  修饰键 event tap 回调改为返回 `passUnretained(event)`。  
+
+- **剪贴板轮询定时器竞态**  
+  轮询定时器的 schedule/cancel 全部在其所属队列执行，避免竞态和异常。  
+
+- **云同步回环与漏同步**  
+  远端变更落库时支持 `shouldSyncToCloud=false`，避免上传回环；`moreComing` 拉取改为循环直到完成，并正确推进 token。  
+
+- **云端加密记录解密逻辑**  
+  只要 record 标记为加密就强制解密，不再受本地开关影响。  
+
+- **云同步远端更新落地方式**  
+  远端更新改为直接更新数据库，不再 delete+insert，避免重复与写放大。  
+
+- **CloudSync 竞争态修复**  
+  `pendingUploadCount` 统一在主线程更新，避免后台修改可观察状态导致竞态。  
+
+- **云同步编译错误清理**  
+  移除 `ManagedCriticalState` 并补齐显式 tuple 类型，修复编译错误。  
+
+- **唯一索引与重复去重**  
+  `unique_id` 建立 UNIQUE 索引并在需要时去重重试，失败则降级为普通索引并报警。  
+
+- **重复记录的稳定读取**  
+  `fetchRow(uniqueId:)` 增加排序，确保重复时命中最新记录。  
+
+- **Blob 更新一致性与磁盘清理**  
+  更新时写入 `blob_path`，必要时转存大数据到 blob；旧 blob 路径在更新成功后清理。  
+
+- **Blob 路径与 symlink 安全**  
+  `BlobStorage` 路径不再触碰 `@MainActor`；symlink 解析加强以避免路径穿越。  
+
+- **文件 URL 缩略图解码错误**  
+  避免将文件路径字符串当作图像数据解码，直接从 file URL 生成缩略图。  
+
+- **JS 执行超时与兼容性**  
+  JSCore 执行加入超时限制；不可用符号改用 `dlsym` 动态查找，仅在支持时生效。  
+
+- **导出 OOM 修复**  
+  大文件导出改为流式解析 `items`，避免一次性 decode 造成内存爆。  
+
+- **Swift 6 并发与隔离修复**  
+  日志方法标记 `nonisolated(unsafe)` 以支持后台调用；移除不必要的全局 logger `nonisolated`；隐写解码使用非隔离静态管线与预取 key；`SteganographyKeyStore` 访问改为 nonisolated。  
+
+- **Swift 6 语义与线程安全修复**  
+  主线程捕获隐写服务后再 detach，自动删除日志改到主线程，修复 Swift 6 隔离错误。  
+
+- **统计 SQL 迭代与 shrinkMemory 异步化**  
+  原生 SQL 遍历改为 Statement 行索引，`shrinkMemory()` 改为 async 并补齐调用点。  
+
+- **本地化警告清理**  
+  16 个未引用 key 的 `extractionState` 改为 `manual`，保留翻译同时消除警告。  
+
+### 说明
+- **诊断上传内容范围**  
+  上传日志不包含剪贴板数据，仅包含 App 版本、系统信息、用户 ID、24h 内存曲线与崩溃日志。  
+
+---
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.2.0/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.9 -->
+## v1.1.9 — v1.1.9 | Rock-Solid
+
+- **Tag:** `v1.1.9`
+- **Published:** 2026-01-15T01:40:49Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.9
+
+### 优化
+
+- **安全模式性能大幅优化（CPU / IO）**  
+  在加密模式下，对密钥处理、搜索扫描路径、文本分析、链接预取、Blob IO、语义排序等关键路径进行了系统性优化，显著降低 CPU 与 IO 开销。  
+
+- **Keychain 访问削减（短 TTL 内存缓存）**  
+  为对称密钥引入短 TTL 的内存缓存，并在鉴权重置 / 密钥删除时主动清空，减少突发场景下的 Keychain 往返。  
+
+- **搜索与向量计算优化**  
+  - 正则扫描仅选择 `id / search_text`，再按需拉取完整行  
+  - 安全模式下启用搜索缓存，并在 App / Session 失活时清空  
+  - 向量归一化与查询范数计算统一使用 vDSP，避免重复计算  
+
+- **文本分析加速**  
+  缓存 `NSDataDetector` 并加入快速预检查，在明显不匹配时跳过高成本检测。  
+
+- **链接预览与电量感知**  
+  低电量模式下跳过图片预取，且预取逻辑迁移至 utility 队列，降低主线程与能耗压力。  
+
+- **大文件 IO 与内存峰值控制**  
+  - 大 Blob 写入避免使用 `.atomic`  
+  - 读取时优先使用 `.mappedIfSafe`，减少 IO 与内存抖动  
+
+---
+
+### 内存 / 网络 / UI 深度优化
+
+- **内存与生命周期管理**  
+  - 缓存引入 LRU + 内存压力清理  
+  - 数据层补齐内存压力降载  
+  - 剪贴板解析与粘贴改为 lazy 读取大数据，避免 OOM  
+  - 链接卡片快照加入总量 / 单类型预算，避免大图瞬时占用  
+
+- **网络与电量优化**  
+  - 多端连接改为指数退避 + jitter  
+  - 新增 sleep / wake 发现管理，已连接时停止扫描  
+  - 编码 / 加密统一移至后台队列，主线程仅保留快路径  
+
+- **列表与渲染性能**  
+  - History 列表将高频交互状态移出 `@State`，避免滚动重算  
+  - 缩略图 / 图标缓存 + 后台降采样  
+  - Base64 检测仅执行一次  
+  - 代码高亮异步缓存  
+  - 大文本 / Markdown 预览支持取消与销毁清理  
+
+---
+
+### 行为调整
+
+- **已连接时默认停止 Browsing（省电优先）**  
+  如需恢复原行为，可通过开关控制。  
+
+- **大图片写入策略调整**  
+  当已存在 `fileURL` 时，不再强制写入 inline bytes，降低瞬时内存峰值。  
+
+---
+
+### 并发与 Swift 6 兼容性修复
+
+- **Sendable 与隔离修正**  
+  为多种 Payload / Snapshot / Decoded 类型补齐 `Sendable`，避免后台编解码触发主线程隔离错误。  
+
+- **日志与工具类型隔离调整**  
+  - `AppLogger` 标记为 `@unchecked Sendable`  
+  - 部分方法显式退出 `MainActor` 隔离，避免后台任务报错  
+
+- **URL 检测彻底去除 NSDataDetector**  
+  改为正则匹配并统一去除尾部标点，消除 Swift 6 主线程隔离问题，同时保持快速预检查与去重。  
+
+---
+
+### 更新系统
+
+- **每日 20:00（北京时间）自动检查更新**  
+  定时检查改为系统通知提醒，点击通知进入更新详情。  
+
+- **更新提示 UI 升级**  
+  - 完整 Markdown 渲染（标题 / 引用 / 列表 / 分割线）  
+  - 保留自然换行并压缩多余空行  
+  - 深色模式下按钮对比度优化  
+
+- **更新可靠性增强**  
+  - 启动验证等待时间延长（2s → 8s）  
+  - 旧进程等待加入超时与 PID 复用保护  
+  - 下载临时文件先落盘到稳定路径，避免被系统清理  
+  - 新版本启动后自动清理当前版本前缀的旧更新缓存  
+
+---
+
+### 修复
+
+- **Finder 多文件复制回归修复**  
+  修复从 Finder 复制多文件后，再复制文本并从历史记录粘贴时只剩第一个文件的问题。
+
+- **面板关闭后焦点未恢复**  
+  修复复制后关闭面板但焦点未返回之前 App 的问题，并补齐 ⌘W 关闭设置窗口行为。  
+
+- **PasteNow 剪贴板数据迁移支持**  
+  新增对 PasteNow App 剪贴板数据的迁移兼容。
+
+- **Markdown 预览任务修复**  
+  修复 `parseTask` 重复声明与类型不匹配问题，并清理无效任务。  
+
+---
+
+### 兼容性与说明
+
+- iCloud / CloudKit entitlement 已移除，避免签名依赖；同步功能代码仍保留但默认关闭。  
+
+- 本版本包含大量性能、并发与稳定性改进，**强烈建议所有用户升级**。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.9/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.8 -->
+## v1.1.8 — v1.1.8 | Grounded
+
+- **Tag:** `v1.1.8`
+- **Published:** 2026-01-13T05:28:11Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.8
+
+### 新增
+
+- **Paste 迁移适配与一键迁移流程**  
+  新增 Paste 迁移适配，同时兼容旧版 `Paste.db` 与沙盒新版 `index.sqlite`，并加入 Maccy / Flycut / PasteBar 的一键迁移流程。  
+
+- **Storage 页面常驻迁移模块**  
+  Storage 页面新增始终可见的迁移模块，复用欢迎页迁移流程与提示，进入页面即触发扫描。  
+
+- **本地 Orbit CLI Bridge 常驻服务**  
+  Deck 新增本地 Orbit CLI Bridge 常驻服务（`127.0.0.1:53129`），提供：`/orbit/health`、`/orbit/recent`、`/orbit/item`、`/orbit/delete`、`/orbit/copy`。  
+
+- **迁移来源名称本地化覆盖**  
+  新增迁移来源名称（Maccy / Paste / Flycut / PasteBar）的中文 / 英文 / 德文覆盖。  
+
+- **引导页强制触发开关**  
+  新增引导页强制触发的调试开关（代码布尔开关）。  
+
+---
+
+### Deck × Orbit
+
+> https://github.com/yuzeguitarist/Orbit
+
+- **剪贴板记录环（Clipboard Ring）**  
+  Orbit 现已与 Deck 深度联动，引入剪贴板记录环形态，将 Deck 的剪贴板能力以径向方式呈现。  
+
+- **快速切换方式**  
+  打开 Orbit 应用环后，按下 **Caps Lock（中 / 英切换键）** 即可切换到剪贴板环形态。  
+
+- **剪贴板环能力**  
+  剪贴板环默认显示 9 张卡片，支持键盘切换、复制、删除，以及拖拽到中心进行分享或删除。  
+
+- **文本 / 代码 AirDrop 支持**  
+  文本与代码会以临时文件形式进行 AirDrop，自动匹配语言扩展名（Swift / Python / Plist / Shell），并在完成后自动清理。  
+
+---
+
+### 优化
+
+- **迁移导入性能优化**  
+  迁移批量插入流程优化，减少事务次数与 UI 刷新压力，提升大数据量导入性能。  
+
+- **欢迎引导迁移页体验优化**  
+  优化欢迎引导迁移页布局与间距；列表仅显示已检测到的 App；窗口高度调整为 450。  
+
+- **Option 双击响应节奏优化**  
+  调整窗口阈值与冷却时间，更快可再次隐藏/唤起。  
+
+---
+
+### 变更
+
+- **鉴权方式调整为固定请求头**  
+  Deck 鉴权改为固定 `X-Orbit-Token` 请求头，不再使用 Keychain / XPC 弹窗流程。  
+
+- **OrbitBridgeClient 改为 HTTP 调用**  
+  OrbitBridgeClient 改为通过 HTTP 调用 CLI Bridge，移除 XPC 连接逻辑。  
+
+- **面板显示位置跟随鼠标所在屏幕**  
+  面板显示位置调整为跟随鼠标所在屏幕。  
+
+---
+
+### 修复
+
+- **Flycut 迁移容错**  
+  修复 Flycut 无历史数据时迁移流程不应报错的问题。  
+
+- **数据库 VACUUM 的 Swift 6 并发警告**  
+  修复数据库 vacuum 相关的 Swift 6 并发警告。  
+
+- **Finder PNG（fileURL）再次复制/拖拽异常**  
+  修复 Finder 复制的 PNG 在再次复制/拖拽时无法粘贴、拖出文件损坏的问题：对 `fileURL` 图片读取真实图像数据并写入正确的图片类型。  
+
+- **fileURL 图片粘贴/拖拽兼容性增强**  
+  粘贴/拖拽 `fileURL` 图片时同时写入文件 URL 与图像数据，兼容更多目标应用。  
+
+---
+
+### 说明
+
+- **迁移模块文案复用**  
+  本次变更未新增文案，迁移模块继续复用现有中文 / 英文 / 德文翻译。  
+
+---
+
+### 兼容性与行为说明
+
+- Paste 迁移支持同时识别旧库 `Paste.db` 与沙盒新版 `index.sqlite`。  
+
+- Orbit Bridge 服务仅在本机回环地址提供能力，并通过固定请求头进行鉴权。  
+
+---
+
+### 升级建议
+
+- 建议所有用户升级以获得更顺滑的迁移体验（更快的大数据量导入、Storage 常驻迁移入口）、更稳定的图片粘贴/拖拽兼容性，以及新的 Orbit CLI Bridge 能力与更简化的鉴权流程。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.8/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.7 -->
+## v1.1.7 — v1.1.7 | Resilient
+
+- **Tag:** `v1.1.7`
+- **Published:** 2026-01-11T07:53:31Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.7
+
+### 修复
+
+- **脚本插件「转换后粘贴」主线程阻塞**  
+  将执行方式改为异步，避免主线程同步调用被系统拒绝而导致无响应。  
+
+- **NSExpression 非法格式导致崩溃**  
+  非法表达式不再触发崩溃，新增 Objective-C 异常捕获并进行安全降级处理。  
+
+- **清空数据后数据库文件未实际释放**  
+  在清空数据流程中执行 WAL checkpoint 与 VACUUM，确保数据库文件占用被真实回收。  
+
+- **上下文感知排序初始化时序问题**  
+  修复初始化与 `preApp` 注入时机不当导致 `lastNonDeck` 为空的问题。  
+
+- **Swift 6 并发捕获警告**  
+  修复因表达式快照（expr capture）引发的 Swift 6 并发警告。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新仅包含稳定性与安全性修复，不引入行为破坏性变更。  
+
+- 数据库结构未变更，可直接覆盖升级。  
+
+---
+
+### 升级建议
+
+- 强烈建议所有用户升级，以获得更稳定的脚本插件执行、更安全的智能文本处理以及更可靠的数据库空间回收行为。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.7/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.6 -->
+## v1.1.6 — v1.1.6 | Connected
+
+- **Tag:** `v1.1.6`
+- **Published:** 2026-01-06T10:44:18Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.6
+
+### 新增
+
+- **CLI Bridge 独立设置栏目**  
+  新增左侧「CLI Bridge」独立栏目，用于集中管理配置与查看使用说明。  
+
+- **CLI Bridge 使用与测试说明**  
+  新增健康检查、写入/读取示例与可选 alias 配置说明。  
+
+- **IDE 溯源锚点与深链跳转**  
+  支持采集 file / line / col / IDE 信息，并在详情预览中提供“在 IDE 中打开”按钮。  
+
+- **`source_anchor` 持久化与同步**  
+  新增数据库字段，并支持导出 / 导入与 iCloud 同步。  
+
+- **VS Code 系套壳支持**  
+  支持 Cursor / Windsurf / Antigravity（bundleId 识别、CLI 与 URL scheme 跳转）。  
+
+- **链接转图片（Cmd+Shift+V）**  
+  将链接转换为可分享的预览卡片图片，包含标题、摘要、域名、站点图标与首图。  
+
+---
+
+### 优化
+
+- **设置结构调整**  
+  将 CLI Bridge 配置从「通用」迁移至独立栏目，减少设置混杂。  
+
+- **来源捕捉策略改进**  
+  优先使用 `preApp`，并将 AX 读取范围扩展到 MainWindow / Windows 子树搜索。  
+
+- **Bundle ID 归一化**  
+  自动将 helper 映射回主应用 bundleId，提升识别准确性。  
+
+- **链接卡片渲染体验**  
+  去除白边、下移文字区域；图片自适应高度，长图完整展示，并用模糊背景填充。  
+
+- **快捷键与流程一致性**  
+  Cmd+Shift+V 在光标助手开启时可用；队列模式仍优先处理队列。  
+
+- **本地化补充**  
+  为 CLI Bridge 与 “在 IDE 中打开”补充英 / 德文翻译。  
+
+---
+
+### 修复
+
+- 修复 CLI Bridge 本地 HTTP 服务无响应问题（连接处理器被释放导致无返回）。  
+
+- 修复 AX CFTypeRef / AXValue 转换警告与编译错误。  
+
+- 修复 iCloud 同步解密后 `sourceAnchor` 赋值缺失的问题。  
+
+- 修复 Cmd+Shift+V 生成图片后无法连续使用的问题。  
+
+- 修复从富文本来源复制的链接预览为空白的问题。  
+
+- 修复 Swift 6 并发环境下的锁警告，缓存读写改为异步安全访问。  
+
+---
+
+### 技术变更
+
+-   新增采集、持久化、同步与导出支持。  
+
+-   统一链接抓取、缓存与图片渲染管线，预览卡与图片生成复用同一数据源。  
+
+-   强化连接生命周期管理，避免 handler 提前释放。  
+
+---
+
+### 本地化
+
+- 新增 CLI Bridge 与 IDE 操作相关的英文 / 德文翻译。  
+
+---
+
+### 兼容性与行为说明
+
+- CLI Bridge 仅监听 127.0.0.1，保持原有安全边界不变。  
+
+- 本次更新不包含破坏性数据库结构变更，可直接覆盖升级。  
+
+---
+
+### 升级建议
+
+- 推荐升级以获得更完善的 IDE 溯源能力、更顺滑的链接分享体验与更稳定的 CLI Bridge。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.6/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.5 -->
+## v1.1.5 — v1.1.5 | Fortified
+
+- **Tag:** `v1.1.5`
+- **Published:** 2026-01-05T05:07:30Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.5
+
+### 新增
+
+- **隐私增强：证件号智能识别**  
+  新增对身份证（中国 / 台湾 / 香港）、护照、德国税号、美国 SSN / ITIN 的识别能力；支持隐私开关，检测到后可自动跳过保存。  
+
+- **临时剪贴板条目（Temporary Items）**  
+  新增“临时”剪贴板项，粘贴一次后自动销毁；可在条目菜单中启用，并提供明确的视觉标识。  
+
+- **文本隐写（Steganography）**  
+  支持将文本隐藏进图片（LSB）或文本（零宽字符），并在剪贴板历史中自动检测与解码；  
+  采用 AES-GCM 加密，可选共享口令，安全存储于 Keychain。  
+
+- **OCR 设置面板**  
+  通用设置中新增 OCR 设置区域，包含识别级别、语言纠错、最大文本长度与语言开关，UI 与现有设置体系保持一致。  
+
+---
+
+### 优化
+
+- **安全模式行为强化**  
+  安全模式下加密失败将拒绝明文回退，仅触发一次用户可见提示；应用名称纳入加密 / 解密流程并参与迁移，确保隐私一致性。  
+
+- **数据库与同步稳定性**  
+  数据库状态与重初始化流程完全序列化至 `dbQueue`；  
+  iCloud 与局域网同步不再在 detached task 中捕获 `ClipboardItem`，一致性与稳定性提升。  
+
+- **迁移与大图处理**  
+  大图迁移采用 keyset pagination，仅在完成后提升 schema 版本；  
+  嵌入式迁移在加密错误时安全失败，不破坏已有数据。  
+
+- **剪贴板与分享流程**  
+  文件粘贴统一使用 `NSPasteboardItem + NSFilenamesPboardType`；  
+  局域网接收写入通过 `dbQueue` 执行；  
+  iCloud 同步可基于 DB id 重建条目。  
+
+- **搜索与检测一致性**  
+  FTS 与搜索路径统一读取 `dbQueue` 状态；  
+  安全模式下搜索缓存会解密 `appName`；  
+  修复文件名如 `deck-...@1x.png` 被误判为邮箱的问题。  
+
+- **导出与 UI 反馈**  
+  导出成功弹窗显示真实导出数量，而非当前内存页大小。  
+
+- **隐写体验改进**  
+  隐写密钥 UI 自适应窄布局，确保保存 / 清除按钮始终可见；  
+  自动解码发生在“仅聚焦文本”过滤之前；  
+  新增“存储并复制（store & copy）”流程。  
+
+---
+
+### 修复
+
+- 修复零宽字符隐写解码稳定性问题。  
+
+- 修复透明 PNG 在图片隐写中的处理问题。  
+
+- 修复本地化表冲突，统一整合至 `Localizable.xcstrings`。  
+
+- 修复 Smart Rules 中的正则处理、忽略逻辑、标签创建与分享 URL 编码问题。  
+
+- 修复 OCR 回调未保证主线程完成的问题。  
+
+---
+
+### 技术变更
+
+-   新增基于 hash 的网络授权；  
+  改进超时与中断处理；  
+  执行逻辑移出主线程。  
+
+-   新增并迁移网络插件授权与 OCR 设置持久化。  
+
+-   预共享密钥（PSK）迁移至 Keychain；  
+  强化缓冲区解析与连接处理。  
+
+-   队列 HUD 标签由 emoji 改为 ASCII 文本。  
+
+---
+
+### 本地化
+
+- 新增隐私、隐写与告警相关的英文 / 德文翻译。  
+
+- 新增队列模式帮助文案与操作标签的 en / de 翻译。  
+
+- 清理 17 个未使用 key（旧占位符、废弃 `%lld` 变体等），消除 “References to this key…” 警告。  
+
+- 补全缺失翻译，标记 zh-Hans 的版本 / 导入确认文案为已翻译状态。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不包含数据库结构破坏性变更，可直接覆盖升级。  
+
+- 所有隐私处理、检测与加密均在本地完成。  
+
+---
+
+### 升级建议
+
+- 推荐所有用户升级，以获得更强的隐私保障、更稳定的同步与迁移流程，以及全新的临时剪贴板与隐写能力。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.5/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.4 -->
+## v1.1.4 — v1.1.4 | Quietly Better
+
+- **Tag:** `v1.1.4`
+- **Published:** 2026-01-04T03:45:34Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.4
+
+### 新增
+
+- 链接右键菜单新增「在默认浏览器中打开」「显示二维码」。二维码以全屏毛玻璃遮罩显示，支持 ESC 或点击空白退出，退出后自动回到 Deck 面板。  
+
+- 新增二维码全屏遮罩 UI：毛玻璃背景、居中二维码 + 标题与链接信息，适合快速分享。  
+
+- 文件与文件夹搜索支持按文件名匹配；历史数据后台无损回填，不修改表结构、不丢失记录。  
+
+- Office 文件支持空格预览（QuickLook），与 PDF 预览保持统一的面板结构与交互。  
+
+- 欢迎引导新增「队列模式」介绍与快捷键说明。  
+
+- 设置页新增队列模式快捷键与使用提示，提升功能可发现性。  
+
+---
+
+### 优化
+
+- 链接预览 UI 重做：展示 favicon、站点标题、站点名与完整 URL，列表卡片与空格预览保持一致。  
+
+- 预览系统复用列表缓存与 in-flight 请求，避免重复网络获取。  
+
+- 全屏与多屏场景下的面板显示稳定性提升：始终跟随前台应用所在屏幕与 Space。  
+
+- 双击 Option 打开面板时键盘焦点更稳定，空格预览可靠性提升。  
+
+- 面板开合时输入模式与搜索焦点恢复更符合直觉。  
+
+- 顶栏四个圆形按钮点击区域扩大（添加标签 / 设置 / 暂停 / 退出），减少误触与漏点。  
+
+- 新增并完善中 / 英 / 德多语言翻译（右键菜单、二维码提示、搜索空态文案等）。  
+
+---
+
+### 修复
+
+- 修复设置页「存储信息」中剪贴板条目数显示为 0 的问题，现在显示数据库真实总数。  
+
+- 修复面板关闭后输入模式与焦点恢复异常的问题。  
+
+- 修复顶部按钮点击区域过小的问题。  
+
+- 修复搜索无结果时空态提示文案误导的问题。  
+
+- 修复安全作用域书签在频繁路径检查时访问计数累积的问题。  
+
+- 修复数据库错误跟踪状态未序列化导致重复通知与重复恢复的问题。  
+
+- 修复大图卸载逻辑中 data 与 preview_data 同时存储缩略图的问题。  
+
+- 修复 Swift 6 async 锁相关的数据库错误跟踪编译问题。  
+
+---
+
+### 技术变更
+
+- DeckSQLManager.swift：补充完整类级注释，明确职责边界、线程模型与安全模式语义。  
+
+- DeckSQLManager.swift：补充存储策略说明，包括大图处理、blobPath、备份恢复与迁移顺序约束。  
+
+- 数据库初始化逻辑统一在 dbQueue 执行，确保顺序与线程安全。  
+
+- 安全模式加密失败时输出明确警告，提升可诊断性。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不包含数据库结构变更，可直接覆盖升级。  
+
+- 所有处理逻辑均在本地完成，不上传、不存储任何用户数据。  
+
+---
+
+### 升级建议
+
+- 推荐所有用户升级以获得更稳定的多屏体验、更直观的链接与二维码分享流程，以及更可靠的搜索与预览系统。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.4/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.3 -->
+## v1.1.3 — v1.1.3 | Handled with ease
+
+- **Tag:** `v1.1.3`
+- **Published:** 2026-01-03T06:31:18Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.3
+
+### 新增
+
+- 面板内支持 ⌘, 打开设置（与齿轮按钮等效）。  
+
+- 面板新增“暂停”按钮（位于设置与退出之间），可一键暂停/恢复剪贴板记录。  
+
+- 暂停后按钮向右展开显示“已暂停 / 倒计时”，并与菜单栏暂停状态保持同步。  
+
+- Vim 模式新增“默认进入插入模式”开关：打开面板不自动搜索，首次输入自动进入搜索并保留字符。  
+
+- 插入模式下按 Esc 仅回到 Normal，不清空搜索内容，便于使用 j/k 导航。  
+
+- 光标助手触发键精简为 Shift，移除空格与 Tab 作为触发选项。  
+
+---
+
+### 优化
+
+- 搜索框增加描边与阴影，在深色模式下与背景及标签区域区分更加明显。  
+
+- 暂停状态提示从搜索框右侧移除，统一收拢到暂停按钮内部显示，界面更简洁。  
+
+- 菜单栏图标改为 template 渲染，自动适配深色 / 浅色 / 半透明菜单栏背景。  
+
+- 暂停按钮改为胶囊样式并使用橙色高亮，状态变化更直观。  
+
+- 本地化完善：新增 Vim 插入模式相关文案的中 / 英 / 德翻译，“已暂停”等状态提示也补充英 / 德版本。  
+
+---
+
+### 修复
+
+- 修复使用 Ctrl 打开面板后，点击空白区域无法关闭的问题，使所有打开方式行为一致。  
+
+- 修复清空搜索词后列表仍停留在过滤状态、未恢复默认排序的问题。  
+
+- 修复开启 Vim 插入模式后首字符未进入搜索的问题，现在会自动进入并保留输入。  
+
+- 修复点击预览窗口时误触发面板关闭的问题。  
+
+- 自动进入搜索时过滤特殊键，避免空格、回车等误触发搜索模式。  
+
+- 修复正则搜索崩溃问题：SQLite 自定义 regexp 函数改为返回 Int64(0/1)，避免 Optional(true) 导致 “unsupported result type” 的 fatal error。  
+
+---
+
+### 预览与搜索增强
+
+- 正则搜索结果高亮：在纯文本预览中以黄色荧光笔样式高亮匹配字符串，并适配浅色 / 深色模式。  
+
+- 自动滚动到首个匹配：预览区域会自动滚动至第一个匹配位置；若匹配位于超长文本后段，则截取包含该匹配的文本片段进行展示。  
+
+---
+
+### 技术变更
+
+- LargeTextPreviewView.swift：接入正则高亮与自动滚动到首个匹配的逻辑。  
+
+- PreviewWindowController.swift / PreviewOverlayView.swift：接入预览匹配定位逻辑。  
+
+- DeckSQLManager.swift：修复 regexp 返回类型导致的崩溃问题。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不包含数据库结构变更，可直接覆盖升级。  
+
+- 所有处理逻辑均在本地完成，不上传、不存储任何用户数据。  
+
+---
+
+### 升级建议
+
+- 推荐所有用户升级以获得更流畅的 Vim 操作体验、更清晰的暂停状态反馈以及更稳定的搜索与预览行为。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.3/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.2 -->
+## v1.1.2 — v1.1.2 | More Intuitive
+
+- **Tag:** `v1.1.2`
+- **Published:** 2026-01-02T12:29:32Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.2
+
+### 新增
+
+- 新增自动清理触发词功能：在插入模板内容前自动删除触发词（如 `num`），无需手动清理多余字符，插入过程更加干净流畅。  
+
+- 新增“重要”系统标签：可在右键菜单中一键标记或取消标记。所有被打上任意标签（包括“重要”与自定义标签）的记录将不再参与自动清理与自动删除，除非手动删除。  
+
+- 模板库设置页「添加短语」改为按钮 + 弹窗交互，与“编辑 / 删除”保持一致，统一整体设计语言。  
+
+---
+
+### 优化
+
+- 优化中文输入体验：修复了在中文输入法下，触发词回车上屏后光标助手无法被唤起的问题。现在无论输入状态如何，识别均稳定可靠。  
+
+- 优化剪贴板弹出面板 UI：采用更符合视觉习惯的布局与排版，并增强文字可读性。  
+
+- 光标助手支持点击空白处立即关闭，并确保关闭后自动删除触发词。  
+
+- 预览更新改为合并刷新：快速切换时不再高频刷新，停止操作后再更新最终项，浏览更稳定、更省电。  
+
+---
+
+### 修复
+
+- 修复备忘录复制图片在 Deck 中不显示的问题，扩展图像粘贴类型并支持 RTFD / flat-RTFD 附件图像解析与占位符判定。  
+
+- 修复长按左右键快速切换时预览窗口与滚动动画造成的高频窗口更新与唤醒，显著降低 Wakes / CPU 使用。  
+
+- 修复打开面板时首条记录偶发不显示聚焦环的问题，确保首条始终正确选中。  
+
+- 修复 macOS 14 下 `activateIgnoringOtherApps` 的弃用警告，采用新系统推荐激活方式，同时保持旧系统兼容。  
+
+---
+
+### 技术变更
+
+- Fix: 修复中文输入法回车上屏导致上下文丢失的问题，引入 AXUIElement 屏幕读取作为兜底机制，从屏幕上下文识别触发词。  
+
+- Feat: 新增自动回退逻辑，根据触发词长度模拟 Delete 键事件，在粘贴前清理输入内容。  
+
+- 完善本地化：补齐英语 / 德语缺失翻译，并修正统计页动态“次数”文案为标准格式化字符串。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不包含破坏性数据库结构变更，可直接覆盖升级。  
+
+- 所有识别与处理逻辑均在本地完成，不上传、不存储任何敏感内容。  
+
+---
+
+### 升级建议
+
+- 推荐所有用户升级以获得更稳定的输入体验、更低的功耗表现以及更一致的交互行为。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.2/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.1 -->
+## v1.1.1 — v1.1.1 | Safer
+
+- **Tag:** `v1.1.1`
+- **Published:** 2026-01-01T12:37:26Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.1 (fix)
+
+### 问题
+
+- 在「网络」页面点击已连接设备旁的刷新按钮时，应用会直接崩溃。  
+
+- 在开启安全模式后，系统指纹认证弹窗点击“取消”会闪烁并不断重复出现，无法正常关闭。  
+
+- 缺少对银行卡号的系统性识别与校验逻辑，存在误识别与漏识别风险。  
+
+---
+
+### 修复与改进
+
+- 修复了点击已连接设备刷新按钮导致应用崩溃的问题。  
+
+- 修复了安全模式下指纹认证弹窗取消后闪烁并重复弹出的异常行为。  
+
+- 新增银行卡号识别功能，并采用多策略校验以提高准确性与安全性：  
+  - 长度匹配  
+  - 前缀匹配（BIN 规则）  
+  - 轻量级 Luhn 校验算法  
+
+- 支持自定义模板库，并为每个模板库配置独立的光标助手触发词，实现快速调用与插入预设内容。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不引入数据库结构破坏性变更，可直接覆盖升级。  
+
+- 银行卡识别仅在本地进行，不会上传或记录任何敏感数据。  
+
+- 模板库与触发词为本地配置，不会影响现有模板内容。  
+
+---
+
+### 升级建议
+
+- 建议所有用户升级至此版本以避免崩溃问题并获得更稳定的安全模式体验。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.1/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.0(fix) -->
+## v1.1.0(fix) — v1.1.0(fix) | Bug Fix
+
+- **Tag:** `v1.1.0(fix)`
+- **Published:** 2026-01-01T04:07:02Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+## 更新说明 v1.1.0 (fix)
+
+本版本为紧急修复更新，重点解决主线程被数据库同步查询阻塞导致的异常耗电、频繁唤醒与卡顿问题。
+
+* * *
+
+### 优化
+
+  * 数据库访问统一走串行 `dbQueue` 的异步执行，并通过 `await` 获取结果，显著降低主线程压力与能耗。
+
+  * 异步闭包补充显式 `self` 捕获，线程/并发语义更清晰，避免隐式捕获带来的可读性与维护成本。
+
+* * *
+
+### 修复
+
+  * 修复：主线程同步等待数据库队列执行 SQLite 查询导致 CPU 长时间繁忙与频繁唤醒（异常耗电）。
+
+  * 修复：搜索、FTS、统计、导出等路径在 UI 线程触发同步 SQL，放大能耗与卡顿。
+
+  * 修复：搜索、FTS、向量检索与迁移等查询路径改为异步 DB 调用，阻断主线程 SQL 扫描与阻塞等待。
+
+  * 修复：统计与导出改为异步读取数据库，UI 线程不再直接执行 SQL。
+
+* * *
+
+### 技术变更
+
+  * 将原先可能发生在主线程上的同步 DB 查询/写入，统一改为通过 `dbQueue` 异步执行并 `await` 返回。
+
+  * 将高频路径（搜索/FTS/统计/导出/迁移等）切换到异步 DB 调用，避免 UI 线程被同步等待拖住。
+
+* * *
+
+### 兼容性与行为说明
+
+  * 本版本为性能与能耗修复更新，不引入新的用户交互流程。
+
+  * 所有处理逻辑均在本地完成，不上传、不存储任何用户数据。
+
+* * *
+
+### 升级建议
+
+  * 强烈建议所有 v1.1.0 用户升级至此版本，尤其是遇到明显耗电、频繁唤醒或面板卡顿的情况。
+
+* * *
+
+### 致谢
+
+  * 祝大家新的一年身体健康，事业顺利，家庭和睦。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.0%28fix%29/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.1.0 -->
+## v1.1.0 — v1.1.0 | Huge Update!
+
+- **Tag:** `v1.1.0`
+- **Published:** 2025-12-29T07:05:34Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.1.0
+
+### 新增
+
+- 快速搜索：打开面板后直接输入文字即可自动进入搜索模式，无需先点击搜索框，支持中文输入法（Vim 模式下自动禁用）。  
+
+### 优化
+
+- 优化多语言支持，提升翻译覆盖率与准确性。  
+
+- 修复并优化内存与 CPU 占用，显著提升应用稳定性。  
+
+- 改进设置和欢迎界面的 UI 设计，采用类似 Material Design 的风格，提高文字可读性与可见性。  
+
+- 修复打开面板后第一个卡片不显示选中状态的问题。  
+
+- 针对其他已知问题进行了若干优化。  
+
+---
+
+### 致谢
+
+- 这是 Deck 在 2026 新年前的最后一个版本更新，祝大家新年快乐！
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.1.0/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.0.9 -->
+## v1.0.9 — v1.0.9 | More composed
+
+- **Tag:** `v1.0.9`
+- **Published:** 2025-12-28T02:45:17Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.0.9
+
+### 新增
+
+- **语义搜索引擎升级**：引入 Apple Sentence Embedding 并与 sqlite-vec 进行静态集成，排序逻辑下沉至数据库内部执行，响应更快、内存占用更低。  
+
+- **混合搜索模式优化**：文本搜索与语义搜索结果融合排序，提高相关性与召回稳定性。  
+
+- **中文检索体验增强**：引入 FTS5 trigram 分词策略，显著提升 CJK 文本搜索的准确度与性能。  
+
+---
+
+### 优化
+
+- **OCR 性能优化**：对超大图片进行下采样处理，降低卡顿概率并减少内存峰值。  
+
+- **同步与数据库稳定性增强**：优化 CloudKit 批量提交流程，并加入自动备份、完整性校验与恢复机制。  
+
+- **内存占用大幅下降**：整体内存使用从约 300MB 降至约 50MB。  
+
+---
+
+### 技术变更
+
+- 引入 sqlite-vec 静态链接版本，避免动态扩展加载的不确定性并提升启动稳定性。  
+
+- 搜索排序逻辑由应用层迁移至数据库层执行，减少数据拷贝与中间态内存占用。  
+
+- FTS5 配置升级为 trigram tokenizer，更适配中文与日韩文本。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不包含数据库结构变更，可直接覆盖升级。  
+
+- 所有搜索、识别与处理逻辑均在本地完成，不上传、不存储任何用户内容。  
+
+---
+
+### 升级建议
+
+- 推荐所有用户升级以获得显著更快的搜索体验、更低的内存占用以及更稳定的数据同步行为。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.0.9/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.0.3 -->
+## v1.0.3 — v1.0.3 | More elegant
+
+- **Tag:** `v1.0.3`
+- **Published:** 2025-12-25T08:55:14Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.0.3
+
+### 新增
+
+- **版本号更新**：内部版本标识与发布标签同步整理。  
+
+- **图标尺寸优化**：调整应用图标在 Dock、菜单栏与设置界面的显示比例，提升视觉一致性。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不包含功能与数据层变更，仅涉及外观与版本标识调整。  
+
+---
+
+### 升级建议
+
+- 建议所有用户升级以获得更一致的视觉体验与正确的版本标识。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.0.3/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.0.2 -->
+## v1.0.2 — v1.0.2 | More stable
+
+- **Tag:** `v1.0.2`
+- **Published:** 2025-12-25T04:16:17Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.0.2
+
+### 新增
+
+- **应用图标更新**：替换为全新设计的应用图标，在 Dock、菜单栏与设置界面中呈现更清晰一致的视觉风格。  
+
+---
+
+### 优化
+
+- **数据库文件校验**：在执行数据库操作前增加文件有效性校验，防止异常文件导致崩溃。  
+
+---
+
+### 修复
+
+- **PRAGMA 表结构遍历修复**：修复 `PRAGMA table_info` 使用 `failableNext()` 迭代时可能跳过结果的问题。  
+
+- **FTS 搜索绑定与遍历修复**：修复全文搜索语句参数绑定与结果遍历异常的问题。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不涉及数据库结构变更，可直接覆盖升级。  
+
+- 所有处理逻辑均在本地完成，不上传、不存储任何用户数据。  
+
+---
+
+### 升级建议
+
+- 推荐所有用户升级以获得更稳定的运行表现与更安全的数据处理流程。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.0.2/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.0.1 -->
+## v1.0.1 — v1.0.1 | Smoother
+
+- **Tag:** `v1.0.1`
+- **Published:** 2025-12-08T08:07:55Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.0.1
+
+### 新增
+
+- **鼠标滚轮模式**：支持使用鼠标滚轮在剪贴板记录之间快速滚动浏览。  
+
+- **Vim 按键系统增强**：改进 Normal / Insert 状态切换与按键响应，提升键盘导航的流畅度与一致性。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不涉及数据库结构变更，仅包含交互与输入系统层面的增强。  
+
+---
+
+### 升级建议
+
+- 推荐所有用户升级以获得更顺畅的键盘与鼠标混合操作体验。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.0.1/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.0.0(fix) -->
+## v1.0.0(fix) — v1.0.0(fix) | Hotfix
+
+- **Tag:** `v1.0.0(fix)`
+- **Published:** 2025-12-08T02:49:14Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.0.0 (fix)
+
+### 修复
+
+- **数据库文件有效性检查**：新增 `isDatabaseFileValid()`，在每次数据库操作前检查文件是否存在且可读，防止异常文件导致崩溃。  
+
+- **withDB 执行流程加固**：在执行前校验数据库文件有效性；当文件无效或被删除时：
+  - 记录警告日志  
+  - 触发错误处理机制并通知用户  
+  - 异步尝试重新初始化数据库  
+  - 返回 `nil` 而不是触发崩溃  
+
+- **SQL 遍历安全修复**：将 PRAGMA 与 FTS 查询从不安全的 `for-in` 迭代改为使用 `failableNext()`，避免 `try!` 引发致命错误。  
+
+---
+
+### 技术说明
+
+- `db.prepare(Table query)` 返回 `AnySequence<Row>`，其内部迭代器使用 `try!`，无法在外部安全捕获错误。  
+
+- `db.prepare(String SQL)` 返回 `Statement`，可直接调用 `failableNext()` 实现安全错误处理。  
+
+- 在执行前增加文件有效性校验，可以防止绝大多数因数据库文件被删除或移动导致的崩溃。  
+
+---
+
+### 兼容性与行为说明
+
+- 本次更新不涉及数据库结构与数据格式变更，可直接覆盖升级。  
+
+- 所有处理逻辑均在本地完成，不上传、不存储任何用户数据。  
+
+---
+
+### 升级建议
+
+- 强烈建议所有用户升级以避免潜在的数据损坏与程序崩溃风险。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.0.0%28fix%29/Deck.dmg)
+
+<!-- release-changelog-bot:tag:v1.0.0 -->
+## v1.0.0 — v1.0.0 | Deck Launches — A Privacy-First Clipboard for macOS
+
+- **Tag:** `v1.0.0`
+- **Published:** 2025-12-06T07:12:15Z
+
+### Release notes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/1b523c6b-7785-4698-8931-db205e43d7be">
+    <img width="256" height="256" alt="Deck" src="https://github.com/user-attachments/assets/883ebfa4-29a1-4dd7-a282-c2e9e5f66cac" />
+  </picture>
+</p>
+
+<h1 align="center">Deck</h1>
+
+<p align="center">A modern, native, privacy-first clipboard OS for macOS</p>
+
+---
+
+## 更新说明 v1.0.0 | Deck Launches
+
+### 新增
+
+- **首次发布**：Deck 正式发布，一个现代化、原生、隐私优先的 macOS 剪贴板系统。  
+
+- **完整剪贴板历史记录**：自动记录文本、图片、链接与文件，防止重要内容丢失。  
+
+- **高性能搜索与过滤**：支持模糊搜索与快速筛选，毫秒级定位内容。  
+
+- **富预览支持**：支持图片、PDF、链接等内容的内嵌预览。  
+
+- **键盘优先设计**：支持全局快捷键与 Vim 风格导航。  
+
+- **安全与隐私**：所有数据本地存储，支持加密与生物识别解锁。  
+
+- **脚本与自动化能力**：支持插件与规则系统扩展剪贴板工作流。  
+
+- **局域网共享**：支持局域网内 P2P 传输，无需云服务。  
+
+---
+
+### 兼容性与行为说明
+
+- 本版本为首次发布版本，后续更新将逐步增强稳定性、性能与可扩展性。  
+
+- 所有处理逻辑均在本地完成，不上传、不存储任何用户数据。  
+
+---
+
+### 系统要求
+
+- macOS 14.0 (Sonoma) 或更新版本  
+
+---
+
+### 安装
+
+1. 下载 `Deck.dmg`  
+
+2. 将 `Deck.app` 拖入 Applications 文件夹  
+
+3. 如首次打开被系统拦截：  
+   前往 **系统设置 → 隐私与安全性 → 安全性**，在“已阻止的 App”处点击 **仍要打开 / 允许打开**  
+
+4. 按提示授予辅助功能权限（Accessibility）  
+
+
+---
+
+### 升级建议
+
+- 建议关注后续更新以获得更稳定、更强大的剪贴板体验。
+
+### Assets
+
+- [`Deck.dmg`](https://github.com/yuzeguitarist/Deck/releases/download/v1.0.0/Deck.dmg)

@@ -17,6 +17,7 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
     public var radialMenuEnabled: Bool
     public var radialLockToCenter: Bool
     public var radialCursorSelectionEnabled: Bool
+    public var radialTriggerModifier: WindowGestureModifier
 
     public init(
         enabled: Bool = false,
@@ -34,7 +35,8 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         defaultsSeededVersion: Int = 0,
         radialMenuEnabled: Bool = false,
         radialLockToCenter: Bool = false,
-        radialCursorSelectionEnabled: Bool = false
+        radialCursorSelectionEnabled: Bool = false,
+        radialTriggerModifier: WindowGestureModifier = [.control, .option]
     ) {
         self.enabled = enabled
         self.dragAnywhereEnabled = dragAnywhereEnabled
@@ -52,6 +54,7 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         self.radialMenuEnabled = radialMenuEnabled
         self.radialLockToCenter = radialLockToCenter
         self.radialCursorSelectionEnabled = radialCursorSelectionEnabled
+        self.radialTriggerModifier = radialTriggerModifier
     }
 
     // Custom decoder so legacy payloads without the radial keys decode with
@@ -74,6 +77,7 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialMenuEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialMenuEnabled) ?? false
         radialLockToCenter = try container.decodeIfPresent(Bool.self, forKey: .radialLockToCenter) ?? false
         radialCursorSelectionEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialCursorSelectionEnabled) ?? false
+        radialTriggerModifier = try container.decodeIfPresent(WindowGestureModifier.self, forKey: .radialTriggerModifier) ?? [.control, .option]
     }
 
     public static let `default` = WindowControlSettings()

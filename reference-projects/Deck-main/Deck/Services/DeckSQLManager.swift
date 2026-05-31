@@ -1,0 +1,7428 @@
+// Copyright © 2024–2026 Yuze Pan. 保留一切权利。
+
+//
+//  DeckSQLManager.swift
+//  Deck
+//
+//  Deck 剪贴板历史 — SQLite 持久化与检索（单例 `DeckSQLManager.shared`）
+//
+//  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  职责边界 (Responsibility Boundaries)
+//  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+//  DeckSQLManager 是 Deck 的核心数据层，负责：
+//
+//  1. **数据库生命周期**
+//     - 打开/关闭连接、`PRAGMA` 调优（含 `mmap_size` 128MB）
+//     - 启动时节流完整性检查（默认 24h 间隔，见 `integrityCheckInterval`）
+//     - 自动备份与从 `.bak` 恢复、损坏时的恢复流程
+//     - `PRAGMA user_version` 驱动的 Schema 迁移（与 static `currentSchemaVersion` 对齐）
+//
+//  2. **剪贴板 CRUD**
+//     - 历史条目的插入、更新、删除、分页列表与单条查询
+//     - 多类型负载（文本、图片、文件等）；超过 `Const.largeBlobThreshold`（512KB）走 Blob 外置 + `blob_path`
+//     - 支持 `unique_id` UPSERT（SQLite 能力不足时降级为 delete+insert）
+//
+//  3. **搜索与索引**
+//     - FTS5（可选 trigram，小查询长度有下限）；结构化过滤（类型、标签等）
+//     - 语义向量：sqlite-vec，表名带维度后缀；安全模式下关闭 vec 索引
+//     - 安全模式或无 FTS 兜底：`searchWithLike` / `searchWithRegexInMemory` 等内存路径（keyset 分批，每批 500 行）
+//
+//  4. **安全模式（`DeckUserDefaults.securityModeEnabled`）**
+//     - 敏感列加密存储/解密读取：`data`、`search_text`、`app_name`、`custom_title`、`embedding`
+//     - 加密状态下 FTS5 与向量相似度不可用，走上述内存搜索降级
+//     - `searchTextCache`（`NSCache`，最多 300 条 / 4MB 成本上限）降低重复解密；安全模式下应用/会话失焦时清空（见 `handleSensitiveCacheInvalidation`）
+//
+//  5. **性能与其它**
+//     - 列表模式通过 SQL 投影避免大 `data` blob 物化到 Swift
+//     - 大批量维护任务走 writer 的 `withDBAsyncBackground`（`.utility`），轻量列表/搜索/统计走 read-only 连接
+//     - 文件级：`Maintenance helpers` 扩展中的按批删除、blob 路径查询、页信息统计等
+//
+//  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  线程模型 (Threading Model)
+//  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+//  **原则：单个 SQLite `Connection` 非线程安全；writer / reader 各自用独立串行队列隔离。**
+//
+//  1. **writer 三层队列，同一串行目标**
+//     - `dbSerialQueue` — `com.deck.sqlite.queue.serial`，`.userInitiated`：writer 实际串行执行点
+//     - `dbQueue` — `com.deck.sqlite.queue.interactive`，target 为 `dbSerialQueue`：写入/小型 writer 操作（`withDB` / `withDBAsync`）
+//     - `dbBackgroundQueue` — `com.deck.sqlite.queue.background`，`.utility`，target 同上：迁移、VACUUM、大批量回填等（`withDBAsyncBackground`）
+//     - `dbQueueKey` 标在 writer 三者上，`syncOnDBQueue` 等在 writer 队列上可检测并重入，避免死锁
+//
+//  2. **reader 独立串行队列**
+//     - `dbReadQueue` — `com.deck.sqlite.queue.reader`，绑定只读 SQLite `Connection`
+//     - 纯读路径（列表、搜索、统计、单条/批量 fetch）走 `withReadDB` / `withReadDBAsync`
+//     - 只读连接不可用时自动回退到 writer，保证功能不降级
+//
+//  3. **入口惯例**
+//     - 纯读 API：`withReadDB` / `withReadDBAsync`（经 `dbReadQueue`，失败回退 writer）
+//     - 写入/维护 writer API：`withDB` / `withDBAsync`（经 `dbQueue`）
+//     - 重负载后台：`withDBAsyncBackground`（经 `dbBackgroundQueue`）
+//     - 内部需直接调度时：`syncOnDBQueue`、`asyncOnDBQueue`、`syncOnDBBackgroundQueue`、`asyncOnDBBackgroundQueue`
+//
+//  4. **embeddingQueue** — `com.deck.semantic.embedding`（`.utility`）：向量编码等 CPU 工作，与 DB 队列分离
+//
+//  5. **errorStateQueue** — `com.deck.sqlite.error.state`：错误计数、通知标志等状态的原子更新
+//
+//  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  安全模式：内存搜索上限 (Security mode scan caps)
+//  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+//  以下为 **近似上界** ，实现细节以代码为准：
+//  - `searchWithRegexInMemory`：`maxScan = min(5000, max(limit * 50, 1000))`，`batchSize = 500`
+//  - `searchWithLike`（安全模式）：`maxScan = min(max(5000, limit * 200), 20000)`；非安全模式可扫全表
+//  - 向量回填批量：安全模式 300 条 / 批，非安全模式 1000 条 / 批
+//
+//  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  存储与 Schema（PRAGMA user_version）
+//  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+//  1. **路径**
+//     - 默认：`~/Library/Application Support/Deck/Deck.sqlite3`；备份：`Deck.sqlite3.bak`
+//     - 可自定义目录（security-scoped bookmark）；`currentDBPath` 缓存避免热路径反复解析
+//
+//  2. **Blob**
+//     - 超大 payload：`BlobStorage` + `blob_path`；`migrateLargeImagesIfNeeded` 等在低 QoS 下分批迁移历史数据
+//
+//  3. **版本历史（与代码内注释一致；当前 `currentSchemaVersion == 9`）**
+//     - 0：初始
+//     - 1：`blob_path` + 大图迁移流程
+//     - 2：语义向量缓存表 `ClipboardHistory_embedding`
+//     - 3：`is_temporary`
+//     - 4：`source_anchor`（IDE 溯源）
+//     - 5：`is_encrypted`（逐行加密标记）
+//     - 6：`custom_title`（自定义标题，伴随 FTS 重建）
+//     - 7：`received_from_lan`（局域网接收标记，供过滤）
+//     - 8：语义向量模型版本升级（CJK 短文本 word-embedding 策略），重建向量缓存
+//     - 9：CJK 统一 word-embedding 向量空间，重建向量缓存
+//
+//  4. **向量表（sqlite-vec）**
+//     - 命名：`ClipboardHistory_embedding_vec_{dimension}`；按需 `ensureVecTable`；级联删除触发器；`cleanupLegacyVecTableIfNeeded` 清理无后缀旧表；
+//       活跃表映射可持久化（`vecActiveTablesDefaultsKey`），支持维度变更后的恢复路径
+//
+//  5. **错误与恢复**
+//     - `consecutiveErrorCount` ≥ `errorThreshold`（3）等逻辑可触发用户通知；严重 I/O 或损坏类错误走恢复与 `reinitialize`
+//
+//  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+
+import AppKit
+import Foundation
+@preconcurrency import SQLite
+import SQLite3
+import Darwin
+import Accelerate
+import CryptoKit
+
+enum Col {
+    // SQL 列描述本身是不可变常量；SQLite.swift 0.16.0 起 Expression 已是 Sendable。
+    nonisolated static let id = Expression<Int64>("id")
+    nonisolated static let uniqueId = Expression<String>("unique_id")
+    nonisolated static let type = Expression<String>("type")
+    nonisolated static let itemType = Expression<String>("item_type")
+    nonisolated static let data = Expression<Data>("data")
+    nonisolated static let previewData = Expression<Data?>("preview_data")
+    nonisolated static let ts = Expression<Int64>("timestamp")
+    nonisolated static let appPath = Expression<String>("app_path")
+    nonisolated static let appName = Expression<String>("app_name")
+    nonisolated static let customTitle = Expression<String?>("custom_title")
+    nonisolated static let sourceAnchor = Expression<String?>("source_anchor")
+    nonisolated static let searchText = Expression<String>("search_text")
+    nonisolated static let length = Expression<Int>("content_length")
+    nonisolated static let tagId = Expression<Int>("tag_id")
+    nonisolated static let blobPath = Expression<String?>("blob_path")
+    nonisolated static let isTemporary = Expression<Bool>("is_temporary")
+    nonisolated static let isEncrypted = Expression<Bool>("is_encrypted")
+    nonisolated static let receivedFromLan = Expression<Bool>("received_from_lan")
+}
+
+// MARK: - Maintenance helpers (storage cleanup / rollback snapshot)
+
+extension DeckSQLManager {
+    private nonisolated struct UnsafeRowBatch: @unchecked Sendable {
+        let rows: [Row]
+    }
+
+    struct PageInfo: Sendable {
+        let pageCount: Int64
+        let freelistCount: Int64
+        let pageSize: Int64
+
+        var freelistBytes: Int64 { freelistCount * pageSize }
+    }
+
+    struct BlobRecord: Sendable {
+        let id: Int64
+        let blobPath: String
+    }
+
+    /// Fetch ids matching a filter with minimal IO (select only `id`).
+    func fetchIds(filter: Expression<Bool>, limit: Int? = nil) async -> [Int64] {
+        await withDBAsyncBackground {
+            guard let db = self.db, let table = self.table else { return [] }
+            do {
+                var query = table.select(Col.id).filter(filter)
+                if let limit { query = query.limit(limit) }
+                var ids: [Int64] = []
+                for row in try db.prepare(query) {
+                    ids.append(row[Col.id])
+                }
+                return ids
+            } catch {
+                return []
+            }
+        } ?? []
+    }
+
+    /// Fetch `(id, blobPath)` pairs for all rows with a blob path.
+    func fetchBlobRecords() async -> [BlobRecord] {
+        await withDBAsyncBackground {
+            guard let db = self.db, let table = self.table else { return [] }
+            do {
+                let query = table.select(Col.id, Col.blobPath)
+                    .filter(Col.blobPath != nil)
+                    .order(Col.id.asc)
+
+                var out: [BlobRecord] = []
+                out.reserveCapacity(512)
+                for row in try db.prepare(query) {
+                    if let blobPath = row[Col.blobPath] {
+                        out.append(BlobRecord(id: row[Col.id], blobPath: blobPath))
+                    }
+                }
+                return out
+            } catch {
+                return []
+            }
+        } ?? []
+    }
+
+    /// Fetch blob paths for a given id list.
+    func fetchBlobPaths(ids: [Int64]) async -> [String] {
+        guard !ids.isEmpty else { return [] }
+        let chunks = ids.chunked(into: 500)
+        var out: [String] = []
+        out.reserveCapacity(min(ids.count, 1024))
+
+        for chunk in chunks {
+            let paths: [String] = await withDBAsyncBackground {
+                guard let db = self.db, let table = self.table else { return [] }
+                do {
+                    let query = table.select(Col.blobPath)
+                        .filter(chunk.contains(Col.id) && Col.blobPath != nil)
+                    var local: [String] = []
+                    for row in try db.prepare(query) {
+                        if let p = row[Col.blobPath] { local.append(p) }
+                    }
+                    return local
+                } catch {
+                    return []
+                }
+            } ?? []
+            out.append(contentsOf: paths)
+            await Task.yield()
+        }
+
+        return out
+    }
+
+    /// Fetch uniqueIds for a given id list.
+    func fetchUniqueIds(ids: [Int64]) async -> [String] {
+        guard !ids.isEmpty else { return [] }
+        let chunks = ids.chunked(into: 500)
+        var out: [String] = []
+        out.reserveCapacity(min(ids.count, 1024))
+
+        for chunk in chunks {
+            let uids: [String] = await withDBAsyncBackground {
+                guard let db = self.db, let table = self.table else { return [] }
+                do {
+                    let query = table.select(Col.uniqueId)
+                        .filter(chunk.contains(Col.id))
+                    var uniqueIds: [String] = []
+                    uniqueIds.reserveCapacity(chunk.count)
+                    for row in try db.prepare(query) {
+                        uniqueIds.append(row[Col.uniqueId])
+                    }
+                    return uniqueIds
+                } catch {
+                    return []
+                }
+            } ?? []
+            out.append(contentsOf: uids)
+            await Task.yield()
+        }
+
+        return out
+    }
+
+    /// Delete rows in safe batches (avoids overly large `IN (...)` queries).
+    /// - Returns: total deleted rows as reported by SQLite.
+    func deleteBatch(ids: [Int64]) async -> Int {
+        guard !ids.isEmpty else { return 0 }
+
+        let chunks = ids.chunked(into: 500)
+        let deleted: Int = await withDBAsyncBackground {
+            guard let db = self.db, let table = self.table else { return 0 }
+            do {
+                let total = try Self.deleteRowsInTransaction(chunks: chunks, table: table, db: db)
+                // Invalidate once (hot path: avoid repeated cache clears/log spam).
+                self.invalidateSearchCache()
+                return total
+            } catch {
+                return 0
+            }
+        } ?? 0
+
+        return deleted
+    }
+
+    private nonisolated static func deleteRowsInTransaction(
+        chunks: [[Int64]],
+        table: Table,
+        db: Connection
+    ) throws -> Int {
+        var total = 0
+        try db.transaction {
+            for chunk in chunks {
+                let query = table.filter(chunk.contains(Col.id))
+                total += try db.run(query.delete())
+            }
+        }
+        return total
+    }
+
+    /// Export a rollback snapshot database containing the specified ids.
+    ///
+    /// This creates a small SQLite file with two tables:
+    /// - ClipboardHistory
+    /// - ClipboardHistory_embedding
+    ///
+    /// The schema is created via `CREATE TABLE AS SELECT ... WHERE 0` so it stays lightweight.
+    func exportSnapshotDatabase(ids: [Int64], to snapshotDBPath: String) async throws {
+        guard !ids.isEmpty else { return }
+
+        let ok = await withDBAsyncBackground {
+            guard let db = self.db else { return false }
+            do {
+                let escaped = snapshotDBPath.replacingOccurrences(of: "'", with: "''")
+
+                // Create / replace snapshot db.
+                try db.execute("ATTACH DATABASE '\(escaped)' AS snap")
+                defer { try? db.execute("DETACH DATABASE snap") }
+
+                try db.execute("DROP TABLE IF EXISTS snap.ClipboardHistory")
+                try db.execute("DROP TABLE IF EXISTS snap.ClipboardHistory_embedding")
+
+                try db.execute("CREATE TABLE snap.ClipboardHistory AS SELECT * FROM ClipboardHistory WHERE 0")
+                try db.execute("CREATE TABLE snap.ClipboardHistory_embedding AS SELECT * FROM ClipboardHistory_embedding WHERE 0")
+
+                let chunks = ids.chunked(into: 500)
+                for chunk in chunks {
+                    let idList = chunk.map(String.init).joined(separator: ",")
+                    try db.execute("INSERT INTO snap.ClipboardHistory SELECT * FROM ClipboardHistory WHERE id IN (\(idList))")
+                    try db.execute("INSERT INTO snap.ClipboardHistory_embedding SELECT * FROM ClipboardHistory_embedding WHERE id IN (\(idList))")
+                }
+
+                return true
+            } catch {
+                return false
+            }
+        } ?? false
+
+        if !ok {
+            throw NSError(domain: "DeckSQLManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to export snapshot database"])
+        }
+    }
+
+    /// Restore rows from a snapshot database created by `exportSnapshotDatabase`.
+    /// - Returns: number of rows in the snapshot table (not necessarily all inserted if conflicts exist).
+    func restoreSnapshotDatabase(from snapshotDBPath: String) async throws -> Int {
+        let result: (ok: Bool, count: Int) = await withDBAsyncBackground {
+            guard let db = self.db else { return (false, 0) }
+            do {
+                let escaped = snapshotDBPath.replacingOccurrences(of: "'", with: "''")
+                try db.execute("ATTACH DATABASE '\(escaped)' AS snap")
+                defer { try? db.execute("DETACH DATABASE snap") }
+
+                let total = (try db.scalar("SELECT COUNT(*) FROM snap.ClipboardHistory") as? Int64) ?? 0
+
+                var snapHasReceivedFromLan = false
+                let infoStmt = try db.prepare("PRAGMA snap.table_info(ClipboardHistory)")
+                while let infoRow = try infoStmt.failableNext() {
+                    if let name = infoRow[1] as? String, name == "received_from_lan" {
+                        snapHasReceivedFromLan = true
+                        break
+                    }
+                }
+
+                if snapHasReceivedFromLan {
+                    let cols = "id, unique_id, type, item_type, data, preview_data, timestamp, app_path, app_name, custom_title, source_anchor, search_text, content_length, tag_id, blob_path, is_temporary, is_encrypted, received_from_lan"
+                    try db.execute("INSERT OR IGNORE INTO ClipboardHistory (\(cols)) SELECT \(cols) FROM snap.ClipboardHistory")
+                } else {
+                    let cols = "id, unique_id, type, item_type, data, preview_data, timestamp, app_path, app_name, custom_title, source_anchor, search_text, content_length, tag_id, blob_path, is_temporary, is_encrypted"
+                    try db.execute("INSERT OR IGNORE INTO ClipboardHistory (\(cols)) SELECT \(cols) FROM snap.ClipboardHistory")
+                }
+
+                // Embeddings are best-effort.
+                try? db.execute("INSERT OR IGNORE INTO ClipboardHistory_embedding (id, text_hash, embedding) SELECT id, text_hash, embedding FROM snap.ClipboardHistory_embedding")
+
+                self.invalidateSearchCache()
+                return (true, Int(total))
+            } catch {
+                return (false, 0)
+            }
+        } ?? (false, 0)
+
+        guard result.ok else {
+            throw NSError(domain: "DeckSQLManager", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to restore snapshot database"])
+        }
+        return result.count
+    }
+
+    /// Gather current DB page statistics.
+    func fetchPageInfo() async -> PageInfo {
+        await withDBAsyncBackground {
+            guard let db = self.db else { return PageInfo(pageCount: 0, freelistCount: 0, pageSize: 4096) }
+            do {
+                let pageCount = (try db.scalar("PRAGMA page_count") as? Int64) ?? 0
+                let freelistCount = (try db.scalar("PRAGMA freelist_count") as? Int64) ?? 0
+                let pageSize = (try db.scalar("PRAGMA page_size") as? Int64) ?? 4096
+                return PageInfo(pageCount: pageCount, freelistCount: freelistCount, pageSize: pageSize)
+            } catch {
+                return PageInfo(pageCount: 0, freelistCount: 0, pageSize: 4096)
+            }
+        } ?? PageInfo(pageCount: 0, freelistCount: 0, pageSize: 4096)
+    }
+
+    /// Perform a WAL checkpoint (TRUNCATE).
+    func walCheckpointTruncate() async -> Bool {
+        await withDBAsyncBackground {
+            guard let db = self.db else { return false }
+            do {
+                try db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                return true
+            } catch {
+                return false
+            }
+        } ?? false
+    }
+
+    /// Schedule a low-priority passive WAL checkpoint after the app becomes idle.
+    /// PASSIVE avoids blocking active readers/writers; TRUNCATE remains reserved for explicit maintenance.
+    func scheduleIdleWALCheckpoint(reason: String) {
+        idleWALCheckpointTask?.cancel()
+        idleWALCheckpointTask = Task(priority: .utility) { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            _ = await self?.walCheckpointPassive(reason: reason)
+        }
+    }
+
+    private func walCheckpointPassive(reason: String) async -> Bool {
+        let didCheckpoint = await withDBAsyncBackground {
+            guard let db = self.db else { return false }
+            do {
+                try db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                return true
+            } catch {
+                return false
+            }
+        } ?? false
+
+        if didCheckpoint {
+            await log.debug("Passive WAL checkpoint completed (\(reason))")
+        }
+        return didCheckpoint
+    }
+
+    /// Run SQLite `PRAGMA optimize`.
+    func pragmaOptimize() async -> Bool {
+        await withDBAsyncBackground {
+            guard let db = self.db else { return false }
+            do {
+                try db.execute("PRAGMA optimize")
+                return true
+            } catch {
+                return false
+            }
+        } ?? false
+    }
+
+    /// Run SQLite `PRAGMA quick_check` and return the first result row (usually "ok").
+    func pragmaQuickCheck() async -> String? {
+        await withDBAsyncBackground {
+            guard let db = self.db else { return nil }
+            do {
+                return try db.scalar("PRAGMA quick_check") as? String
+            } catch {
+                return nil
+            }
+        } ?? nil
+    }
+
+    /// Run a VACUUM right now on the background queue.
+    func vacuumNow(reason: String) async -> Bool {
+        await withDBAsyncBackground {
+            guard let db = self.db else { return false }
+            do {
+                log.info("Running VACUUM (maintenance): \(reason)")
+                try db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                try db.execute("VACUUM")
+                return true
+            } catch {
+                return false
+            }
+        } ?? false
+    }
+
+    /// Fetch all blob paths currently referenced by the database.
+    func fetchAllBlobPaths() async -> [String] {
+        await withDBAsyncBackground {
+            guard let db = self.db, let table = self.table else { return [] }
+            do {
+                let query = table.select(Col.blobPath).filter(Col.blobPath != nil)
+                var out: [String] = []
+                out.reserveCapacity(1024)
+                for row in try db.prepare(query) {
+                    if let p = row[Col.blobPath] { out.append(p) }
+                }
+                return out
+            } catch {
+                return []
+            }
+        } ?? []
+    }
+}
+
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0, !self.isEmpty else { return [] }
+        var result: [[Element]] = []
+        result.reserveCapacity((count + size - 1) / size)
+        var i = 0
+        while i < count {
+            let end = Swift.min(i + size, count)
+            result.append(Array(self[i..<end]))
+            i = end
+        }
+        return result
+    }
+}
+
+enum EmbeddingCol {
+    nonisolated static let id = Expression<Int64>("id")
+    nonisolated static let textHash = Expression<String>("text_hash")
+    nonisolated static let embedding = Expression<Data>("embedding")
+}
+
+// MARK: - Search Cache Entry
+
+/// 搜索缓存条目：存储解密且小写化后的搜索文本和应用名
+private final class SearchCacheEntry: NSObject {
+    let searchText: String
+    let appName: String
+    let customTitle: String
+    let estimatedCost: Int
+
+    init(searchText: String, appName: String, customTitle: String) {
+        self.searchText = searchText
+        self.appName = appName
+        self.customTitle = customTitle
+        self.estimatedCost = (searchText.utf16.count + appName.utf16.count + customTitle.utf16.count) * 2
+    }
+}
+
+private nonisolated struct DatabaseQueues: @unchecked Sendable {
+    let serial: DispatchQueue
+    let interactive: DispatchQueue
+    let background: DispatchQueue
+    let reader: DispatchQueue
+
+    init() {
+        let serial = DispatchQueue(label: "com.deck.sqlite.queue.serial", qos: .userInitiated)
+        self.serial = serial
+        self.interactive = DispatchQueue(label: "com.deck.sqlite.queue.interactive", qos: .userInitiated, target: serial)
+        self.background = DispatchQueue(label: "com.deck.sqlite.queue.background", qos: .utility, target: serial)
+        self.reader = DispatchQueue(label: "com.deck.sqlite.queue.reader", qos: .userInitiated)
+    }
+}
+
+private nonisolated final class SQLWorkBox<T>: @unchecked Sendable {
+    let work: () throws -> T
+
+    init(_ work: @escaping () throws -> T) {
+        self.work = work
+    }
+}
+
+final class DeckSQLManager: NSObject, @unchecked Sendable {
+    nonisolated static let shared = DeckSQLManager()
+    private static var isInitialized = false
+    private nonisolated static let initLock = NSLock()
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MARK: - Thread Safety (线程安全)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    /// 数据库操作队列：SQLite 单连接非线程安全，每个连接都必须由自己的串行队列隔离。
+    ///
+    /// writer 拆分为 *交互* 与 *后台维护* 两个队列，它们都 target 到同一个串行 `dbSerialQueue`；
+    /// reader 使用独立 `dbReadQueue` + read-only 连接，发挥 WAL 的读写并发能力：
+    /// - 好处：
+    ///   - 用户触发的搜索/列表/统计不再排在 writer 维护任务后面
+    ///   - 后台 backfill / vacuum / migration 等继续用 `.utility`，避免抢占 CPU/能耗飙升
+    ///   - writer 与 reader 各自串行访问自己的 Connection，不跨队列复用同一连接
+    // Keep the serial queue user-initiated so panel-open queries are not downgraded.
+    private nonisolated let dbQueues = DatabaseQueues()
+    private nonisolated var dbSerialQueue: DispatchQueue { dbQueues.serial }
+    private nonisolated var dbQueue: DispatchQueue { dbQueues.interactive }
+    private nonisolated var dbBackgroundQueue: DispatchQueue { dbQueues.background }
+    private nonisolated var dbReadQueue: DispatchQueue { dbQueues.reader }
+    
+    /// 队列检测 Key：用于判断当前代码是否已在 dbQueue 上执行
+    /// - 作用：防止重复 dispatch 导致死锁（如在 dbQueue 上再次 sync 到 dbQueue）
+    /// - 使用：`DispatchQueue.getSpecific(key: dbQueueKey)` 检测
+    private nonisolated let dbQueueKey = DispatchSpecificKey<Void>()
+    private nonisolated let dbReadQueueKey = DispatchSpecificKey<Void>()
+    
+    /// 语义向量计算队列：与 dbQueue 解耦，避免阻塞数据库操作
+    /// - Label: "com.deck.semantic.embedding"
+    /// - QoS: .utility - 后台任务，不影响用户交互
+    /// - 用途：向量编码、相似度计算等 CPU 密集型任务
+    private nonisolated let embeddingQueue = DispatchQueue(label: "com.deck.semantic.embedding", qos: .utility)
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MARK: - Database Core (数据库核心)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    /// SQLite 数据库连接（非线程安全，必须在 dbQueue 上访问）
+    private nonisolated(unsafe) var db: Connection?
+
+    /// SQLite 只读连接（非线程安全，必须在 dbReadQueue 上访问）。
+    ///
+    /// 读连接与写连接分离后，WAL 模式下的列表/搜索/统计读查询不再排在
+    /// writer 的迁移、checkpoint、backfill 等维护任务后面。若只读连接打开失败，
+    /// `withReadDB*` 会自动回退到 writer 连接，保证功能不降级。
+    private nonisolated(unsafe) var readerDb: Connection?
+    
+    /// ClipboardHistory 主表引用
+    private nonisolated(unsafe) var table: Table?
+
+    /// 当前打开的数据库文件路径缓存
+    /// - 目的：避免在热路径（每次查询/写入）里反复解析 security-scoped bookmark / 读取 UserDefaults
+    /// - 注意：路径变化时会在 `openDatabase`/`reinitialize` 过程中刷新
+    private nonisolated(unsafe) var currentDBPath: String?
+    private nonisolated let dbPathLock = NSLock()
+
+    /// 数据库文件有效性检查节流（避免每次 DB 操作都触发 fileExists/readable 的系统调用）
+    private nonisolated(unsafe) var lastDBFileCheckAt: TimeInterval = 0
+    private nonisolated(unsafe) var lastDBFileCheckResult: Bool = true
+    private nonisolated let dbFileCheckThrottle: TimeInterval = 0.5
+    private var idleWALCheckpointTask: Task<Void, Never>?
+
+    /// 是否可用 UPSERT(unique_id) + RETURNING（取决于 SQLite 版本与 unique index 是否就绪）
+    /// - 第一次失败后会自动降级为 delete+insert，避免每次都走异常路径
+    // Access is confined to the SQLite serial target queue. This must remain
+    // nonisolated because hot-path inserts execute on `com.deck.sqlite.queue.*`,
+    // not on MainActor under Swift 6 default actor isolation.
+    private nonisolated(unsafe) var supportsUniqueIdUpsert: Bool = true
+    private nonisolated(unsafe) var upsertClipboardHistoryStatement: OpaquePointer?
+    private nonisolated static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+    /// 列表模式下 Data 列投影阈值（与 `rowToClipboardItem(loadFullData: false)` 保持一致）
+    private nonisolated static let listInlineBytesForNonImage = 32 * 1024
+    private nonisolated static let listInlineBytesForFile = 256 * 1024
+    private nonisolated static let listInlineBytesForImageWithoutPreview = 256 * 1024
+
+    /// 列表模式下的 `data` 投影表达式：
+    /// - 对于大 payload：返回空 BLOB（X''），避免把大 blob materialize 到 Swift Data
+    /// - 对于 image：优先只取 preview_data
+    private nonisolated var listModeProjectedDataExpr: Expression<Data> {
+        Expression<Data>(literal: """
+            CASE
+                WHEN blob_path IS NOT NULL THEN X''
+                WHEN item_type = 'image' AND type != '\(PasteboardType.fileURL.rawValue)' AND preview_data IS NOT NULL AND length(preview_data) > 0 THEN X''
+                WHEN item_type = 'file' AND content_length > \(Self.listInlineBytesForFile) THEN X''
+                WHEN item_type != 'file' AND item_type != 'image' AND content_length > \(Self.listInlineBytesForNonImage) THEN X''
+                WHEN item_type = 'image' AND (preview_data IS NULL OR length(preview_data) = 0) AND content_length > \(Self.listInlineBytesForImageWithoutPreview) THEN X''
+                ELSE data
+            END AS data
+            """)
+    }
+    
+    /// 自定义存储路径的 security-scoped URL（需要在 deinit 时释放）
+    private nonisolated(unsafe) var securityScopedURL: URL?
+    /// 保护 security-scoped access 的并发访问
+    private nonisolated let securityScopeLock = NSLock()
+    /// 当前是否已成功 startAccessingSecurityScopedResource()
+    private nonisolated(unsafe) var securityScopedAccessActive = false
+    
+    /// FTS5 是否使用 trigram 分词（支持中文等 CJK 语言）
+    private nonisolated(unsafe) var ftsUsesTrigram = false
+    
+    /// trigram 分词最小查询长度（少于此长度不触发 FTS5 搜索）
+    private let ftsTrigramMinQueryLength = 3
+    
+    /// 备份文件名
+    private let backupFileName = "Deck.sqlite3.bak"
+    
+    /// 自动备份间隔（24 小时）
+    private nonisolated let backupInterval: TimeInterval = 24 * 60 * 60
+    
+    /// 初始化失败时间（用于重试退避）
+    private var lastInitFailureAt: Date?
+    /// 初始化重试退避时间
+    private let initRetryBackoff: TimeInterval = 60
+
+    /// Startup integrity check interval (default: 24 hours).
+    private let integrityCheckInterval: TimeInterval = 24 * 60 * 60
+    private let integrityCheckLastRunKey = "com.deck.sqlite.integrityCheck.lastRun"
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MARK: - Vector Index (向量索引 - sqlite-vec)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    /// 向量表基础名称（实际表名会加上维度后缀，如 _384, _1024）
+    private nonisolated let vecTableBaseName = "ClipboardHistory_embedding_vec"
+    
+    /// sqlite-vec 扩展文件候选名称（按优先级搜索）
+    private nonisolated let vecExtensionFileNames = [
+        "vec0",
+        "vec0.dylib",
+        "sqlite-vec",
+        "sqlite-vec.dylib",
+        "libsqlite_vec.dylib"
+    ]
+    
+    /// 向量数值解析使用的 Locale（确保小数点格式一致）
+    private nonisolated let vecNumberLocale = Locale(identifier: "en_US_POSIX")
+    
+    /// sqlite-vec 模块是否已注册到当前 writer 连接。
+    ///
+    /// 注意：安全模式下仍会注册模块以便 SQLite 能解析/清理恢复备份里遗留的
+    /// vec0 virtual table 与触发器；真正的 vec 搜索/写入仍由调用点的
+    /// `!DeckUserDefaults.securityModeEnabled` guard 禁用。
+    private nonisolated(unsafe) var vecIndexEnabled = false
+    
+    /// 已创建的向量表维度集合（如 [384, 1024]）
+    private nonisolated(unsafe) var vecReadyDimensions: Set<Int> = []
+    
+    /// 是否已清理旧版向量表（无维度后缀的表）
+    private nonisolated(unsafe) var vecLegacyTableCleaned = false
+    
+    /// 向量索引回填是否正在进行（防止重复启动）
+    private nonisolated(unsafe) var vecBackfillInProgress = false
+    
+    /// 向量回填状态队列（保护 vecBackfillInProgress 的并发访问）
+    private nonisolated let vecBackfillStateQueue = DispatchQueue(label: "com.deck.vec.backfill.state")
+
+    /// 语义向量缓存回填是否正在进行（防止 schema 迁移与启动补漏重复启动）
+    private nonisolated(unsafe) var semanticEmbeddingBackfillInProgress = false
+
+    /// 语义向量回填状态队列
+    private nonisolated let semanticEmbeddingBackfillStateQueue = DispatchQueue(label: "com.deck.semantic.backfill.state")
+
+    private nonisolated struct SemanticEmbeddingBackfillResult: Sendable {
+        let attempted: Int
+        let advanced: Int
+        let retryableFailures: Int
+    }
+
+    private nonisolated enum BackgroundStringDecryptionResult: Sendable {
+        case text(String)
+        case retry
+    }
+    
+    /// 已记录缺失维度警告的集合（避免重复日志）
+    private nonisolated(unsafe) var vecMissingDimensionLogged: Set<Int> = []
+
+    /// 已判定不可用的向量维度（当前会话内熔断，避免重复 rebuild 风暴）
+    private nonisolated(unsafe) var vecBrokenDimensions: Set<Int> = []
+
+    /// 已记录不可用维度警告的集合（避免重复日志）
+    private nonisolated(unsafe) var vecBrokenDimensionLogged: Set<Int> = []
+
+    /// 当前维度对应的活跃 vec 表名（支持恢复后切换到新表名）
+    private nonisolated(unsafe) var vecActiveTableNames: [Int: String] = [:]
+
+    /// 正在进行恢复回填的维度集合（防止重复恢复任务）
+    private nonisolated(unsafe) var vecRecoveryInProgressDimensions: Set<Int> = []
+
+    /// 恢复表序号（用于生成唯一表名）
+    private nonisolated(unsafe) var vecRecoverySequence: Int64 = 0
+
+    /// 持久化活跃 vec 表映射（跨重启保持恢复后的读写目标）
+    private nonisolated let vecActiveTablesDefaultsKey = "com.deck.vec.activeTables.v2"
+
+    /// 无法立即清理的旧 vec 表（避免每次恢复都重复尝试）
+    private nonisolated(unsafe) var vecCleanupDeferredTables: Set<String> = []
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MARK: - Error Tracking (错误追踪与恢复)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    /// 连续错误计数（成功操作后重置为 0）
+    private nonisolated(unsafe) var consecutiveErrorCount = 0
+    
+    /// 最后一次错误发生时间
+    private nonisolated(unsafe) var lastErrorTime: Date?
+    
+    /// 错误阈值：连续错误达到此值时通知用户
+    private nonisolated let errorThreshold = 3
+    
+    /// 是否已通知用户（防止重复弹窗）
+    private nonisolated(unsafe) var hasNotifiedUser = false
+    /// 是否已提示过加密失败（避免频繁弹窗）
+    private nonisolated(unsafe) var hasNotifiedEncryptionFailure = false
+    
+    /// 数据库恢复是否正在进行（防止并发恢复）
+    private nonisolated(unsafe) var recoveryInProgress = false
+    
+    /// 错误状态锁（保护错误计数与通知状态）
+    private nonisolated let errorStateQueue = DispatchQueue(label: "com.deck.sqlite.error.state")
+    private nonisolated let errorStateQueueKey = DispatchSpecificKey<Void>()
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MARK: - Search Cache (搜索缓存 - 安全模式优化)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    /// 搜索缓存：避免重复解密和 lowercased 转换（安全模式下会在失焦时清空）
+    /// - Key: row.id (NSNumber)
+    /// - Value: SearchCacheEntry (解密且小写化后的 searchText + appName + customTitle)
+    /// - Limit: 300 条 / 4MB 成本上限（平衡性能与内存占用）
+    /// - 失效时机：`reinitialize()` / `invalidateSearchCache()`
+    private nonisolated(unsafe) let searchTextCache: NSCache<NSNumber, SearchCacheEntry> = {
+        let cache = NSCache<NSNumber, SearchCacheEntry>()
+        cache.countLimit = 300  // 限制缓存条目，降低常驻内存
+        cache.totalCostLimit = 4 * 1024 * 1024
+        return cache
+    }()
+
+    /// Backfill cache for legacy rows with empty unique_id values.
+    /// Keeps a stable generated UUID per row until the DB update succeeds.
+    /// - Important: Access only through the pending-unique-id helpers below so
+    ///   read mapping and background metadata backfill stay serialized on the
+    ///   writer DB queue.
+    private nonisolated(unsafe) var pendingUniqueIdBackfill: [Int64: String] = [:]
+    private nonisolated(unsafe) var readPathMetadataBackfillScheduled = false
+    private var hasConfiguredSensitiveCacheObservation = false
+
+    /// 单例初始化（设置队列检测机制）
+    /// - Note: 设置 `dbQueueKey` 用于检测当前是否在 dbQueue 上执行
+    nonisolated override private init() {
+        super.init()
+        // 两个队列 target 到同一串行队列，因此三者都设置 specific key，保证死锁检测可靠。
+        dbSerialQueue.setSpecific(key: dbQueueKey, value: ())
+        dbQueue.setSpecific(key: dbQueueKey, value: ())
+        dbBackgroundQueue.setSpecific(key: dbQueueKey, value: ())
+        dbReadQueue.setSpecific(key: dbReadQueueKey, value: ())
+        errorStateQueue.setSpecific(key: errorStateQueueKey, value: ())
+    }
+
+    @MainActor
+    func configureSensitiveCacheObservation() {
+        guard !hasConfiguredSensitiveCacheObservation else { return }
+        hasConfiguredSensitiveCacheObservation = true
+
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSensitiveCacheInvalidation), name: NSApplication.willResignActiveNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(handleSensitiveCacheInvalidation), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+    }
+
+    @objc private func handleSensitiveCacheInvalidation() {
+        guard DeckUserDefaults.securityModeEnabled else { return }
+        invalidateSearchCache()
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MARK: - Thread Safety Wrappers (线程安全包装)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    /// 在 dbQueue 上同步执行代码块（防止死锁）
+    /// - Parameter work: 需要执行的代码块
+    /// - Returns: 代码块的返回值
+    /// - Note: 如果当前已在 dbQueue 上，直接执行；否则 sync 到 dbQueue
+    /// - Warning: 仅用于内部数据库操作，外部调用应使用 `withDB` / `withDBAsync`
+    private nonisolated func syncOnDBQueue<T>(_ work: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: dbQueueKey) != nil {
+            return try work()
+        }
+        return try dbQueue.sync(execute: work)
+    }
+
+    /// 在 dbQueue 上异步执行代码块（防止死锁）
+    /// - Parameter work: 需要执行的代码块
+    /// - Returns: 代码块的返回值
+    /// - Note: 如果当前已在 dbQueue 上，直接执行；否则异步切换到 dbQueue
+    /// - Warning: 仅用于内部数据库操作，外部调用应使用 `withDB` / `withDBAsync`
+    private nonisolated func asyncOnDBQueue<T>(_ work: @escaping () throws -> T) async throws -> T {
+        if DispatchQueue.getSpecific(key: dbQueueKey) != nil {
+            return try work()
+        }
+        let workBox = SQLWorkBox(work)
+        return try await withCheckedThrowingContinuation { continuation in
+            dbQueue.async {
+                do {
+                    continuation.resume(returning: try workBox.work())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// 在后台维护队列上同步执行代码块（防止死锁）
+    /// - Note: 该队列 QoS 更低，适合 migration/backfill/vacuum 等“非交互”工作。
+    private nonisolated func syncOnDBBackgroundQueue<T>(_ work: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: dbQueueKey) != nil {
+            return try work()
+        }
+        return try dbBackgroundQueue.sync(flags: .enforceQoS, execute: work)
+    }
+
+    /// 在后台维护队列上异步执行代码块（防止死锁）
+    private nonisolated func asyncOnDBBackgroundQueue<T>(_ work: @escaping () throws -> T) async throws -> T {
+        if DispatchQueue.getSpecific(key: dbQueueKey) != nil {
+            return try work()
+        }
+        let workBox = SQLWorkBox(work)
+        return try await withCheckedThrowingContinuation { continuation in
+            dbBackgroundQueue.async(qos: .utility, flags: .enforceQoS) {
+                do {
+                    continuation.resume(returning: try workBox.work())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// 在只读 DB 队列上同步执行。
+    /// - Note: read queue 独立于 writer serial queue；不要给它设置 `dbQueueKey`，避免在读队列上误触 writer 连接。
+    private nonisolated func syncOnDBReadQueue<T>(_ work: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: dbReadQueueKey) != nil {
+            return try work()
+        }
+        return try dbReadQueue.sync(execute: work)
+    }
+
+    /// 在只读 DB 队列上异步执行。
+    private nonisolated func asyncOnDBReadQueue<T>(_ work: @escaping () throws -> T) async throws -> T {
+        if DispatchQueue.getSpecific(key: dbReadQueueKey) != nil {
+            return try work()
+        }
+        let workBox = SQLWorkBox(work)
+        return try await withCheckedThrowingContinuation { continuation in
+            dbReadQueue.async {
+                do {
+                    continuation.resume(returning: try workBox.work())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// 在错误状态队列上同步执行（避免 NSLock 在 async 上下文报错）
+    private nonisolated func syncOnErrorStateQueue<T>(_ work: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: errorStateQueueKey) != nil {
+            return work()
+        }
+        return errorStateQueue.sync(execute: work)
+    }
+
+    /// 在 dbQueue 上执行数据库操作（带错误处理和文件有效性检查）
+    /// - Parameter work: 数据库操作代码块
+    /// - Returns: 操作结果，失败时返回 nil
+    /// - Note: 自动处理错误、重置错误计数、触发恢复机制
+    /// - Warning: 操作失败时会调用 `handleDBError()`，可能触发数据库恢复
+    @discardableResult
+    private nonisolated func withDB<T>(_ work: () throws -> T) -> T? {
+        // 在执行数据库操作前检查文件有效性，防止 try! 崩溃
+        if !isDatabaseFileValid() {
+            log.warn("Database file is invalid or missing, attempting to reinitialize...")
+            handleDBError(NSError(domain: "DeckSQL", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Database file is invalid or missing"
+            ]))
+            // 尝试重新初始化数据库
+            DispatchQueue.main.async { [weak self] in
+                self?.reinitialize()
+            }
+            return nil
+        }
+
+        do {
+            let result = try syncOnDBQueue(work)
+            // 操作成功，重置错误计数
+            syncOnErrorStateQueue {
+                consecutiveErrorCount = 0
+            }
+            return result
+        } catch {
+            handleDBError(error)
+            return nil
+        }
+    }
+
+    /// 在只读 SQLite 连接上同步执行数据库读取。
+    /// - Important: 只用于纯读查询；写入、迁移、checkpoint、FTS/vec 维护继续走 writer。
+    @discardableResult
+    private nonisolated func withReadDB<T>(_ work: @escaping (_ db: Connection, _ table: Table) throws -> T) -> T? {
+        if !isDatabaseFileValid() {
+            log.warn("Database file is invalid or missing, attempting to reinitialize...")
+            handleDBError(NSError(domain: "DeckSQL", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Database file is invalid or missing"
+            ]))
+            DispatchQueue.main.async { [weak self] in
+                self?.reinitialize()
+            }
+            return nil
+        }
+
+        do {
+            let result: T?
+            if syncOnDBReadQueue({ readerDb != nil }) {
+                do {
+                    result = try syncOnDBReadQueue {
+                        guard self.table != nil, let db = self.readerDb else { return nil }
+                        return try work(db, Table("ClipboardHistory"))
+                    }
+                } catch {
+                    log.debug("Read-only DB operation failed; retrying on writer: \(error.localizedDescription)")
+                    result = try syncOnDBQueue {
+                        guard self.table != nil, let db = self.db else { return nil }
+                        return try work(db, Table("ClipboardHistory"))
+                    }
+                }
+            } else {
+                result = try syncOnDBQueue {
+                    guard self.table != nil, let db = self.db else { return nil }
+                    return try work(db, Table("ClipboardHistory"))
+                }
+            }
+            if result != nil {
+                syncOnErrorStateQueue {
+                    consecutiveErrorCount = 0
+                }
+            }
+            return result
+        } catch {
+            handleDBError(error)
+            return nil
+        }
+    }
+
+    /// 在 dbQueue 上异步执行数据库操作（带错误处理和文件有效性检查）
+    /// - Parameter work: 数据库操作代码块
+    /// - Returns: 操作结果，失败时返回 nil
+    /// - Note: 自动处理错误、重置错误计数、触发恢复机制
+    /// - Warning: 操作失败时会调用 `handleDBError()`，可能触发数据库恢复
+    @discardableResult
+    private nonisolated func withDBAsync<T>(_ work: @escaping () throws -> T) async -> T? {
+        // 在执行数据库操作前检查文件有效性，防止 try! 崩溃
+        if !isDatabaseFileValid() {
+            await log.warn("Database file is invalid or missing, attempting to reinitialize...")
+            handleDBError(NSError(domain: "DeckSQL", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Database file is invalid or missing"
+            ]))
+            // 尝试重新初始化数据库
+            DispatchQueue.main.async { [weak self] in
+                self?.reinitialize()
+            }
+            return nil
+        }
+
+        do {
+            let result = try await asyncOnDBQueue(work)
+            // 操作成功，重置错误计数
+            syncOnErrorStateQueue {
+                consecutiveErrorCount = 0
+            }
+            return result
+        } catch {
+            handleDBError(error)
+            return nil
+        }
+    }
+
+    /// 在只读 SQLite 连接上异步执行数据库读取。
+    /// - Important: 只用于纯读查询；只读连接不可用时回退到 writer，避免影响功能可用性。
+    @discardableResult
+    private nonisolated func withReadDBAsync<T>(_ work: @escaping (_ db: Connection, _ table: Table) throws -> T) async -> T? {
+        if !isDatabaseFileValid() {
+            await log.warn("Database file is invalid or missing, attempting to reinitialize...")
+            handleDBError(NSError(domain: "DeckSQL", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Database file is invalid or missing"
+            ]))
+            DispatchQueue.main.async { [weak self] in
+                self?.reinitialize()
+            }
+            return nil
+        }
+
+        do {
+            let result: T?
+            if syncOnDBReadQueue({ readerDb != nil }) {
+                do {
+                    result = try await asyncOnDBReadQueue {
+                        guard self.table != nil, let db = self.readerDb else { return nil }
+                        return try work(db, Table("ClipboardHistory"))
+                    }
+                } catch {
+                    await log.debug("Read-only DB operation failed; retrying on writer: \(error.localizedDescription)")
+                    result = try await asyncOnDBQueue {
+                        guard self.table != nil, let db = self.db else { return nil }
+                        return try work(db, Table("ClipboardHistory"))
+                    }
+                }
+            } else {
+                result = try await asyncOnDBQueue {
+                    guard self.table != nil, let db = self.db else { return nil }
+                    return try work(db, Table("ClipboardHistory"))
+                }
+            }
+            if result != nil {
+                syncOnErrorStateQueue {
+                    consecutiveErrorCount = 0
+                }
+            }
+            return result
+        } catch {
+            handleDBError(error)
+            return nil
+        }
+    }
+
+    /// 在后台维护队列上异步执行数据库操作（带错误处理与文件有效性检查）。
+    ///
+    /// 适用场景：migrations / backfills / VACUUM / 大批量重算等。
+    /// 这样可以避免这些任务在 `.userInitiated` 下和用户交互抢 CPU，显著降低能耗与卡顿风险。
+    @discardableResult
+    private nonisolated func withDBAsyncBackground<T>(_ work: @escaping () throws -> T) async -> T? {
+        if !isDatabaseFileValid() {
+            await log.warn("Database file is invalid or missing, attempting to reinitialize...")
+            handleDBError(NSError(domain: "DeckSQL", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Database file is invalid or missing"
+            ]))
+            DispatchQueue.main.async { [weak self] in
+                self?.reinitialize()
+            }
+            return nil
+        }
+
+        do {
+            let result = try await asyncOnDBBackgroundQueue(work)
+            syncOnErrorStateQueue {
+                consecutiveErrorCount = 0
+            }
+            return result
+        } catch {
+            handleDBError(error)
+            return nil
+        }
+    }
+
+    /// 检查数据库文件是否存在且可访问
+    /// 在数据库操作前调用，防止因文件被删除而导致 try! 崩溃
+    private nonisolated func isDatabaseFileValid() -> Bool {
+        let now = Date().timeIntervalSince1970
+
+        // Throttle the expensive filesystem checks on hot paths (search/pagination).
+        dbPathLock.lock()
+        let cachedPath = currentDBPath
+        let lastAt = lastDBFileCheckAt
+        let lastResult = lastDBFileCheckResult
+        dbPathLock.unlock()
+
+        if now - lastAt < dbFileCheckThrottle {
+            return lastResult
+        }
+
+        let dbPath: String
+        if let cachedPath {
+            dbPath = cachedPath
+        } else {
+            // Fallback: resolve once, then cache.
+            let basePath = getStoragePath()
+            dbPath = databasePaths(for: basePath).dbPath
+            dbPathLock.lock()
+            currentDBPath = dbPath
+            dbPathLock.unlock()
+        }
+
+        let fm = FileManager.default
+        let ok = fm.fileExists(atPath: dbPath) && fm.isReadableFile(atPath: dbPath)
+
+        dbPathLock.lock()
+        lastDBFileCheckAt = now
+        lastDBFileCheckResult = ok
+        dbPathLock.unlock()
+
+        return ok
+    }
+
+    /// 处理数据库错误并在必要时通知用户
+    private nonisolated func handleDBError(_ error: Error) {
+        let details = extractDBErrorDetails(error)
+        let errorMessage = details.message
+        let errorCount = syncOnErrorStateQueue {
+            consecutiveErrorCount += 1
+            lastErrorTime = Date()
+            return consecutiveErrorCount
+        }
+
+        log.error("DB operation failed (\(errorCount)/\(errorThreshold)): \(errorMessage) (domain=\(details.domain), code=\(details.code))")
+        if details.debug != details.message {
+            log.debug("DB error detail: \(details.debug)")
+        }
+
+        // 检测严重错误类型
+        let isCritical = errorMessage.contains("disk I/O error") ||
+                         errorMessage.contains("database is locked") ||
+                         errorMessage.contains("disk full") ||
+                         errorMessage.contains("readonly") ||
+                         errorMessage.contains("corrupt") ||
+                         details.isCriticalSQLiteCode
+
+        if details.isSQLiteDomain, details.code == SQLITE_OK {
+            if !performIntegrityCheck() {
+                attemptDBRecovery(reason: "SQLite error 0 with failed integrity check")
+            } else {
+                syncOnErrorStateQueue {
+                    if consecutiveErrorCount >= errorThreshold {
+                        consecutiveErrorCount = 0
+                    }
+                }
+            }
+            return
+        }
+
+        let (shouldNotify, shouldAttemptRecovery) = syncOnErrorStateQueue { () -> (Bool, Bool) in
+            if (consecutiveErrorCount >= errorThreshold || isCritical) && !hasNotifiedUser {
+                hasNotifiedUser = true
+                let shouldAttemptRecovery = details.isSQLiteDomain && isCritical
+                return (true, shouldAttemptRecovery)
+            }
+            return (false, false)
+        }
+
+        if shouldAttemptRecovery {
+            attemptDBRecovery(reason: "Critical SQLite error")
+        }
+        if shouldNotify {
+            notifyUserOfDBError(errorMessage, isCritical: isCritical)
+        }
+    }
+
+    private nonisolated func attemptDBRecovery(reason: String) {
+        let shouldProceed = syncOnErrorStateQueue {
+            if recoveryInProgress {
+                return false
+            }
+            recoveryInProgress = true
+            return true
+        }
+        guard shouldProceed else { return }
+        log.warn("Attempting database recovery: \(reason)")
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.reinitialize()
+            self.syncOnErrorStateQueue {
+                self.recoveryInProgress = false
+            }
+        }
+    }
+
+    private struct DBErrorDetails {
+        let message: String
+        let debug: String
+        let domain: String
+        let code: Int32
+        let isSQLiteDomain: Bool
+        let isCriticalSQLiteCode: Bool
+    }
+
+    private nonisolated func extractDBErrorDetails(_ error: Error) -> DBErrorDetails {
+        let nsError = error as NSError
+        let domain = nsError.domain
+        let code = Int32(nsError.code)
+        let message = nsError.localizedDescription
+        let debug = String(reflecting: error)
+        let isSQLiteDomain = domain.lowercased().contains("sqlite")
+        let criticalCodes: Set<Int32> = [
+            SQLITE_IOERR,
+            SQLITE_CORRUPT,
+            SQLITE_NOTADB,
+            SQLITE_READONLY,
+            SQLITE_CANTOPEN,
+            SQLITE_FULL
+        ]
+        let isCriticalSQLiteCode = isSQLiteDomain && criticalCodes.contains(code)
+        return DBErrorDetails(
+            message: message,
+            debug: debug,
+            domain: domain,
+            code: code,
+            isSQLiteDomain: isSQLiteDomain,
+            isCriticalSQLiteCode: isCriticalSQLiteCode
+        )
+    }
+
+    /// 发送数据库错误通知
+    private nonisolated func notifyUserOfDBError(_ message: String, isCritical: Bool) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .databaseError,
+                object: nil,
+                userInfo: [
+                    "message": message,
+                    "isCritical": isCritical
+                ]
+            )
+        }
+    }
+
+    /// 重置错误状态（用户处理后调用）
+    func resetErrorState() {
+        syncOnErrorStateQueue {
+            consecutiveErrorCount = 0
+            hasNotifiedUser = false
+            hasNotifiedEncryptionFailure = false
+            lastErrorTime = nil
+        }
+    }
+
+    /// 检查数据库健康状态
+    func checkDatabaseHealth() -> (isHealthy: Bool, message: String) {
+        guard syncOnDBQueue({ db != nil }) else {
+            return (false, NSLocalizedString("数据库连接未建立", comment: "Database health: connection not established"))
+        }
+
+        // 检查数据库是否可读写
+        let canWrite = withDB {
+            guard let db = self.db else { return false }
+            return (try db.scalar("SELECT 1") as? Int64) == 1
+        } ?? false
+
+        if !canWrite {
+            return (false, NSLocalizedString("数据库无法正常访问", comment: "Database health: cannot access"))
+        }
+
+        // 检查最近是否有错误
+        let recentErrorCount = syncOnErrorStateQueue { consecutiveErrorCount }
+        if recentErrorCount > 0 {
+            return (
+                false,
+                String(
+                    format: NSLocalizedString("最近有 %d 次数据库操作失败", comment: "Database health: recent error count"),
+                    recentErrorCount
+                )
+            )
+        }
+
+        // 轻量完整性检查（用于用户主动诊断）
+        if !performIntegrityCheck() {
+            return (false, NSLocalizedString("数据库完整性检查未通过", comment: "Database health: integrity check failed"))
+        }
+
+        return (true, NSLocalizedString("数据库运行正常", comment: "Database health: healthy"))
+    }
+    
+    func setup() {
+        initializeDatabase()
+    }
+    
+    func reinitialize() {
+        stopSecurityScopedAccess()
+        Self.initLock.lock()
+        Self.isInitialized = false
+        Self.initLock.unlock()
+        syncOnDBReadQueue {
+            readerDb = nil
+        }
+        syncOnDBQueue {
+            finalizeCachedStatements()
+            db = nil
+            table = nil
+            dbPathLock.lock()
+            currentDBPath = nil
+            lastDBFileCheckAt = 0
+            lastDBFileCheckResult = true
+            dbPathLock.unlock()
+            vecReadyDimensions.removeAll()
+            vecMissingDimensionLogged.removeAll()
+            vecBrokenDimensions.removeAll()
+            vecBrokenDimensionLogged.removeAll()
+            vecActiveTableNames.removeAll()
+            vecRecoveryInProgressDimensions.removeAll()
+            vecCleanupDeferredTables.removeAll()
+            vecRecoverySequence = 0
+            vecIndexEnabled = false
+            vecLegacyTableCleaned = false
+            ftsUsesTrigram = false
+        }
+        invalidateSearchCache()  // 清空搜索缓存
+        initializeDatabase()
+    }
+    
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MARK: - Database Initialization (数据库初始化)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    /// 初始化数据库（线程安全，支持重复调用）
+    /// - Note: 使用 `initLock` 确保只初始化一次
+    /// - 执行流程：
+    ///   1. 检查 `isInitialized` 标志，避免重复初始化
+    ///   2. 获取存储路径（默认或自定义）
+    ///   3. 创建数据库目录（如果不存在）
+    ///   4. 检查是否需要从备份恢复
+    ///   5. 打开数据库连接
+    ///   6. 执行完整性检查，失败时尝试从备份恢复
+    ///   7. 注册自定义函数（REGEXP）
+    ///   8. 创建表结构
+    ///   9. 应用 Schema 迁移
+    ///   10. 启动后台任务（FTS trigram、备份、回填）
+    private func initializeDatabase() {
+        Self.initLock.lock()
+        defer { Self.initLock.unlock() }
+
+        if let lastFailure = lastInitFailureAt,
+           Date().timeIntervalSince(lastFailure) < initRetryBackoff {
+            return
+        }
+
+        guard !Self.isInitialized else { return }
+        
+        let basePath = getStoragePath()
+        let paths = databasePaths(for: basePath)
+        let dbPath = paths.dbPath
+        let backupPath = paths.backupPath
+        let backupEnabled = DeckUserDefaults.databaseAutoBackupEnabled
+        
+        var isDir = ObjCBool(false)
+        if !FileManager.default.fileExists(atPath: basePath, isDirectory: &isDir) || !isDir.boolValue {
+            do {
+                try FileManager.default.createDirectory(atPath: basePath, withIntermediateDirectories: true)
+            } catch {
+                lastInitFailureAt = Date()
+                log.error("Failed to create database directory: \(error.localizedDescription)")
+                return
+            }
+        }
+
+        if !backupEnabled {
+            removeRecoveryBackupFiles(at: backupPath)
+        }
+        
+        var restoredFromBackupAtStartup = false
+        if backupEnabled,
+            !FileManager.default.fileExists(atPath: dbPath) &&
+            FileManager.default.fileExists(atPath: backupPath) {
+            if restoreDatabaseFromBackup(dbPath: dbPath, backupPath: backupPath) {
+                restoredFromBackupAtStartup = true
+                log.info("Restored database from backup at startup")
+            }
+        }
+
+        do {
+            try syncOnDBQueue {
+                try openDatabase(at: dbPath)
+
+                var integrityOK = performIntegrityCheckIfNeeded(force: restoredFromBackupAtStartup)
+                if !integrityOK {
+                    log.warn("Database integrity check failed, attempting to restore from backup")
+                    closeReadOnlyDatabase()
+                    db = nil
+                    if backupEnabled {
+                        if restoreDatabaseFromBackup(dbPath: dbPath, backupPath: backupPath) {
+                            try openDatabase(at: dbPath)
+                            integrityOK = performIntegrityCheckIfNeeded(force: true)
+                            if !integrityOK {
+                                handleDBError(NSError(domain: "DeckSQL", code: -2, userInfo: [
+                                    NSLocalizedDescriptionKey: "Database integrity check failed after restore"
+                                ]))
+                                closeReadOnlyDatabase()
+                                db = nil
+                                throw NSError(domain: "DeckSQL", code: -2, userInfo: [
+                                    NSLocalizedDescriptionKey: "Database integrity check failed after restore"
+                                ])
+                            }
+                        } else {
+                            handleDBError(NSError(domain: "DeckSQL", code: -3, userInfo: [
+                                NSLocalizedDescriptionKey: "Database integrity check failed and no backup available"
+                            ]))
+                            throw NSError(domain: "DeckSQL", code: -3, userInfo: [
+                                NSLocalizedDescriptionKey: "Database integrity check failed and no backup available"
+                            ])
+                        }
+                    } else {
+                        handleDBError(NSError(domain: "DeckSQL", code: -4, userInfo: [
+                            NSLocalizedDescriptionKey: "Database integrity check failed and automatic backups are disabled"
+                        ]))
+                        closeReadOnlyDatabase()
+                        db = nil
+                        throw NSError(domain: "DeckSQL", code: -4, userInfo: [
+                            NSLocalizedDescriptionKey: "Database integrity check failed and automatic backups are disabled"
+                        ])
+                    }
+                }
+
+                guard registerCustomFunctions() else {
+                    log.error("registerCustomFunctions failed; database not fully initialized")
+                    closeReadOnlyDatabase()
+                    db = nil
+                    table = nil
+                    throw NSError(domain: "DeckSQL", code: -5, userInfo: [
+                        NSLocalizedDescriptionKey: "Failed to register custom SQL functions"
+                    ])
+                }
+                guard createTable() else {
+                    log.error("createTable failed; database not fully initialized")
+                    closeReadOnlyDatabase()
+                    db = nil
+                    table = nil
+                    throw NSError(domain: "DeckSQL", code: -6, userInfo: [
+                        NSLocalizedDescriptionKey: "Failed to create database tables"
+                    ])
+                }
+                guard applyMigrations() else {
+                    log.error("applyMigrations reported unhealthy state; database not fully initialized")
+                    closeReadOnlyDatabase()
+                    db = nil
+                    table = nil
+                    throw NSError(domain: "DeckSQL", code: -7, userInfo: [
+                        NSLocalizedDescriptionKey: "Database migrations did not complete in a healthy state"
+                    ])
+                }
+
+                openReadOnlyDatabase(at: dbPath)
+                scheduleVecIndexBackfillIfNeeded()
+                scheduleSemanticEmbeddingBackfillIfNeeded()
+
+                log.info("Database initialized at: \(dbPath)")
+                Self.isInitialized = true
+                lastInitFailureAt = nil
+            }
+
+            backfillFileSearchTextIfNeeded()
+            scheduleReadPathMetadataBackfillIfNeeded()
+            let storageDirForCleanup = basePath
+            Task.detached(priority: .utility) {
+                LANReceivedCleanup.cleanupStaleStagingDirectories(storagePath: storageDirForCleanup)
+                LANReceivedCleanup.cleanupExpiredDirectories(storagePath: storageDirForCleanup)
+            }
+            Task { @MainActor in
+                DeckSQLManager.shared.ensureFTSTrigramIfAvailable()
+            }
+            if backupEnabled {
+                Task {
+                    DeckSQLManager.shared.backupDatabaseIfNeeded(dbPath: dbPath, backupPath: backupPath)
+                }
+            }
+        } catch {
+            lastInitFailureAt = Date()
+            log.error("Database connection error: \(error.localizedDescription)")
+        }
+    }
+    
+    private nonisolated func getStoragePath() -> String {
+        var basePath: String
+
+        if DeckUserDefaults.useCustomStorage {
+            if let bookmarkData = DeckUserDefaults.storageBookmark {
+                basePath = resolveSecurityScopedStoragePath(from: bookmarkData)
+                    ?? DeckUserDefaults.customStoragePath
+                    ?? defaultStoragePath()
+            } else if let customPath = DeckUserDefaults.customStoragePath {
+                stopSecurityScopedAccess()
+                basePath = customPath
+            } else {
+                stopSecurityScopedAccess()
+                basePath = defaultStoragePath()
+            }
+        } else {
+            stopSecurityScopedAccess()
+            basePath = defaultStoragePath()
+        }
+
+        return (basePath as NSString).appendingPathComponent("Deck")
+    }
+
+    private nonisolated func resolveSecurityScopedStoragePath(from bookmarkData: Data) -> String? {
+        var isStale = false
+        do {
+            let url = try URL(
+                resolvingBookmarkData: bookmarkData,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+
+            let result = ensureSecurityScopedAccess(for: url)
+            if result.success {
+                if result.didStart {
+                    log.debug("Restored security-scoped access to \(url.path)")
+                }
+                if isStale {
+                    if let newBookmark = try? url.bookmarkData(
+                        options: .withSecurityScope,
+                        includingResourceValuesForKeys: nil,
+                        relativeTo: nil
+                    ) {
+                        DeckUserDefaults.storageBookmark = newBookmark
+                        log.debug("Refreshed stale bookmark")
+                    }
+                }
+                return url.path
+            }
+            log.error("Failed to start security-scoped access for \(url.path)")
+        } catch {
+            log.error("Failed to resolve bookmark: \(error)")
+        }
+
+        stopSecurityScopedAccess()
+        return nil
+    }
+
+    private nonisolated func ensureSecurityScopedAccess(for url: URL) -> (success: Bool, didStart: Bool) {
+        securityScopeLock.lock()
+        defer { securityScopeLock.unlock() }
+
+        if let currentURL = securityScopedURL,
+           securityScopedAccessActive,
+           currentURL.path == url.path {
+            return (true, false)
+        }
+
+        if securityScopedAccessActive {
+            securityScopedURL?.stopAccessingSecurityScopedResource()
+            securityScopedAccessActive = false
+            securityScopedURL = nil
+        }
+
+        guard url.startAccessingSecurityScopedResource() else {
+            securityScopedURL = nil
+            securityScopedAccessActive = false
+            return (false, false)
+        }
+
+        securityScopedURL = url
+        securityScopedAccessActive = true
+        return (true, true)
+    }
+
+    private nonisolated func stopSecurityScopedAccess() {
+        securityScopeLock.lock()
+        defer { securityScopeLock.unlock() }
+
+        guard securityScopedAccessActive else {
+            securityScopedURL = nil
+            return
+        }
+
+        securityScopedURL?.stopAccessingSecurityScopedResource()
+        securityScopedURL = nil
+        securityScopedAccessActive = false
+    }
+    
+    private nonisolated func defaultStoragePath() -> String {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.path
+            ?? (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support")
+    }
+    
+    nonisolated func getStorageDirectory() -> String {
+        getStoragePath()
+    }
+
+    private nonisolated func databasePaths(for basePath: String) -> (dbPath: String, backupPath: String) {
+        let dbPath = (basePath as NSString).appendingPathComponent("Deck.sqlite3")
+        let backupPath = (basePath as NSString).appendingPathComponent(backupFileName)
+        return (dbPath, backupPath)
+    }
+
+    private nonisolated func blobsDirectoryPath(for basePath: String) -> String {
+        (basePath as NSString).appendingPathComponent("Blobs")
+    }
+
+    private nonisolated func recoveryBlobsBackupPath(for backupPath: String) -> String {
+        backupPath + ".blobs"
+    }
+
+    private nonisolated func directoryExists(at url: URL) -> Bool {
+        var isDirectory = ObjCBool(false)
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
+    private nonisolated func referencedBlobState(in db: Connection) -> (hasReferences: Bool, firstMissingPath: String?) {
+        do {
+            let stmt = try db.prepare("""
+                SELECT blob_path
+                FROM ClipboardHistory
+                WHERE blob_path IS NOT NULL
+                  AND blob_path != ''
+                """)
+            var hasReferences = false
+            while let row = try stmt.failableNext() {
+                guard let path = row[0] as? String, !path.isEmpty else { continue }
+                hasReferences = true
+                if !FileManager.default.fileExists(atPath: path) {
+                    return (true, path)
+                }
+            }
+            return (hasReferences, nil)
+        } catch {
+            log.debug("Failed to inspect referenced blob files before backup: \(error.localizedDescription)")
+        }
+        return (false, nil)
+    }
+
+    @discardableResult
+    private nonisolated func clearMissingBlobReferences(reason: String) -> Int {
+        let cleared = withDB {
+            guard let db = self.db, let table = self.table else { return 0 }
+            let rows = Array(try db.prepare(
+                table
+                    .select(Col.id, Col.blobPath)
+                    .filter(Col.blobPath != nil)
+                    .order(Col.id.asc)
+            ))
+            var cleared = 0
+            for row in rows {
+                let id = try row.get(Col.id)
+                guard let path = try row.get(Col.blobPath), !path.isEmpty else { continue }
+                guard !FileManager.default.fileExists(atPath: path) else { continue }
+                let query = table.filter(Col.id == id)
+                try db.run(query.update(Col.blobPath <- nil))
+                cleared += 1
+            }
+            return cleared
+        } ?? 0
+
+        if cleared > 0 {
+            log.warn("Cleared \(cleared) missing blob references after \(reason)")
+        }
+        return cleared
+    }
+
+    private nonisolated func commitStagedDatabaseAndBlobSnapshot(
+        databaseURL: URL,
+        stagedDatabaseURL: URL,
+        blobsURL: URL,
+        stagedBlobsURL: URL?,
+        removeExistingBlobsIfNoStage: Bool
+    ) throws {
+        let fileManager = FileManager.default
+        let parentURL = databaseURL.deletingLastPathComponent()
+        let databaseRollbackURL = parentURL.appendingPathComponent(".\(databaseURL.lastPathComponent).rollback-\(UUID().uuidString)")
+        let blobsRollbackURL = parentURL.appendingPathComponent(".\(blobsURL.lastPathComponent).rollback-\(UUID().uuidString)")
+        let shouldTouchBlobs = stagedBlobsURL != nil || removeExistingBlobsIfNoStage
+        var hasDatabaseRollback = false
+        var hasBlobsRollback = false
+
+        if fileManager.fileExists(atPath: databaseRollbackURL.path) {
+            try fileManager.removeItem(at: databaseRollbackURL)
+        }
+        if fileManager.fileExists(atPath: blobsRollbackURL.path) {
+            try fileManager.removeItem(at: blobsRollbackURL)
+        }
+
+        if fileManager.fileExists(atPath: databaseURL.path) {
+            try fileManager.moveItem(at: databaseURL, to: databaseRollbackURL)
+            hasDatabaseRollback = true
+        }
+        if shouldTouchBlobs, fileManager.fileExists(atPath: blobsURL.path) {
+            try fileManager.moveItem(at: blobsURL, to: blobsRollbackURL)
+            hasBlobsRollback = true
+        }
+
+        do {
+            try fileManager.moveItem(at: stagedDatabaseURL, to: databaseURL)
+            if let stagedBlobsURL {
+                try fileManager.moveItem(at: stagedBlobsURL, to: blobsURL)
+            }
+            if hasDatabaseRollback, fileManager.fileExists(atPath: databaseRollbackURL.path) {
+                try? fileManager.removeItem(at: databaseRollbackURL)
+            }
+            if hasBlobsRollback, fileManager.fileExists(atPath: blobsRollbackURL.path) {
+                try? fileManager.removeItem(at: blobsRollbackURL)
+            }
+        } catch {
+            if fileManager.fileExists(atPath: databaseURL.path) {
+                try? fileManager.removeItem(at: databaseURL)
+            }
+            if shouldTouchBlobs, fileManager.fileExists(atPath: blobsURL.path) {
+                try? fileManager.removeItem(at: blobsURL)
+            }
+            if hasDatabaseRollback, fileManager.fileExists(atPath: databaseRollbackURL.path) {
+                try? fileManager.moveItem(at: databaseRollbackURL, to: databaseURL)
+            }
+            if hasBlobsRollback, fileManager.fileExists(atPath: blobsRollbackURL.path) {
+                try? fileManager.moveItem(at: blobsRollbackURL, to: blobsURL)
+            }
+            throw error
+        }
+    }
+
+    private nonisolated func configureSQLiteConnection(_ connection: Connection, role: String, readOnly: Bool) {
+        connection.busyTimeout = 5.0
+
+        // Use a modest mmap size to reduce read overhead without inflating heap usage.
+        do {
+            try connection.run("PRAGMA mmap_size = 134217728") // 128MB
+        } catch {
+            log.debug("Failed to set mmap_size for \(role): \(error.localizedDescription)")
+        }
+
+        do {
+            try connection.run("PRAGMA temp_store = MEMORY")
+        } catch {
+            log.debug("Failed to set temp_store MEMORY for \(role): \(error.localizedDescription)")
+        }
+
+        do {
+            try connection.run("PRAGMA cache_size = -20000") // ~20MB
+        } catch {
+            log.debug("Failed to set cache_size for \(role): \(error.localizedDescription)")
+        }
+
+        if readOnly {
+            do {
+                try connection.run("PRAGMA query_only = ON")
+            } catch {
+                log.debug("Failed to set query_only for \(role): \(error.localizedDescription)")
+            }
+            return
+        }
+
+        // High-impact writer pragmas for a clipboard-history workload:
+        // - WAL: readers don't block writers; fewer "database is locked" stalls under frequent inserts.
+        // - synchronous NORMAL: good durability/perf tradeoff for WAL on desktop.
+        // - wal_autocheckpoint: cap WAL growth to keep checkpoint cost bounded.
+        do { _ = try connection.scalar("PRAGMA journal_mode = WAL") } catch { log.debug("Failed to set journal_mode WAL for \(role): \(error.localizedDescription)") }
+        do { _ = try connection.scalar("PRAGMA synchronous = NORMAL") } catch { log.debug("Failed to set synchronous NORMAL for \(role): \(error.localizedDescription)") }
+        do { _ = try connection.scalar("PRAGMA wal_autocheckpoint = 1000") } catch { log.debug("Failed to set wal_autocheckpoint for \(role): \(error.localizedDescription)") }
+        do { _ = try connection.scalar("PRAGMA journal_size_limit = 16777216") } catch { log.debug("Failed to set journal_size_limit for \(role): \(error.localizedDescription)") }
+    }
+
+    private func openReadOnlyDatabase(at dbPath: String) {
+        syncOnDBReadQueue {
+            readerDb = nil
+            do {
+                let readConnection = try Connection(dbPath, readonly: true)
+                configureSQLiteConnection(readConnection, role: "reader", readOnly: true)
+                installRegexpFunction(on: readConnection, role: "reader")
+                readerDb = readConnection
+                log.debug("Read-only SQLite connection opened")
+            } catch {
+                readerDb = nil
+                log.warn("Read-only SQLite connection unavailable; falling back to writer: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func closeReadOnlyDatabase() {
+        syncOnDBReadQueue {
+            readerDb = nil
+        }
+    }
+
+    private func openDatabase(at dbPath: String) throws {
+        closeReadOnlyDatabase()
+        vecIndexEnabled = false
+        vecReadyDimensions.removeAll()
+        vecLegacyTableCleaned = false
+        vecMissingDimensionLogged.removeAll()
+        vecBrokenDimensions.removeAll()
+        vecBrokenDimensionLogged.removeAll()
+        vecRecoveryInProgressDimensions.removeAll()
+        vecCleanupDeferredTables.removeAll()
+        vecRecoverySequence = 0
+        loadPersistedVecActiveTables()
+        db = try Connection(dbPath)
+        // Cache the opened db path so validity checks don't resolve security-scoped bookmarks on every query.
+        dbPathLock.lock()
+        currentDBPath = dbPath
+        lastDBFileCheckAt = 0
+        lastDBFileCheckResult = true
+        dbPathLock.unlock()
+        if let db = db {
+            configureSQLiteConnection(db, role: "writer", readOnly: false)
+        }
+        initializeSQLiteVecOnConnection()
+        loadSQLiteVecExtensionIfAvailable()
+    }
+
+    private typealias SQLiteEnableLoadExtensionFn = @convention(c) (OpaquePointer?, Int32) -> Int32
+    private typealias SQLiteLoadExtensionFn = @convention(c) (
+        OpaquePointer?,
+        UnsafePointer<Int8>?,
+        UnsafePointer<Int8>?,
+        UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?
+    ) -> Int32
+    private func resolveSQLiteLoadExtensionAPI() -> (enable: SQLiteEnableLoadExtensionFn, load: SQLiteLoadExtensionFn)? {
+        let handle = UnsafeMutableRawPointer(bitPattern: -2)
+        guard let enablePtr = dlsym(handle, "sqlite3_enable_load_extension"),
+              let loadPtr = dlsym(handle, "sqlite3_load_extension") else {
+            return nil
+        }
+        let enable = unsafeBitCast(enablePtr, to: SQLiteEnableLoadExtensionFn.self)
+        let load = unsafeBitCast(loadPtr, to: SQLiteLoadExtensionFn.self)
+        return (enable, load)
+    }
+
+    private func initializeSQLiteVecOnConnection() {
+        syncOnDBQueue {
+            guard let db = db else { return }
+
+            var error: UnsafeMutablePointer<Int8>?
+            // sqlite-vec is compiled with SQLITE_CORE, so pApi can be nil.
+            let rc = sqlite3_vec_init(db.handle, &error, nil)
+            if rc == SQLITE_OK {
+                vecIndexEnabled = true
+                log.info("sqlite-vec initialized via sqlite3_vec_init (static)")
+                log.debug("sqlite-vec registered on db handle: \(String(describing: db.handle))")
+                cleanupLegacyVecTableIfNeeded()
+                return
+            }
+
+            let message = error.map { String(cString: $0) } ?? "unknown error"
+            if let error { sqlite3_free(error) }
+            vecIndexEnabled = false
+            log.debug("sqlite-vec init failed (rc=\(rc)): \(message)")
+        }
+    }
+
+    private func loadSQLiteVecExtensionIfAvailable() {
+        // Static init succeeded; skip dynamic extension loading.
+        if vecIndexEnabled { return }
+
+        let candidates = vecExtensionCandidateURLs()
+        guard let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+            log.debug("sqlite-vec extension not found, vector index disabled")
+            return
+        }
+
+        guard let api = resolveSQLiteLoadExtensionAPI() else {
+            log.debug("SQLite load_extension API not available, vector index disabled")
+            return
+        }
+
+        let didEnable = syncOnDBQueue { () -> Bool in
+            guard let db = db else { return false }
+            if vecIndexEnabled {
+                return true
+            }
+            var error: UnsafeMutablePointer<Int8>?
+            let rc: Int32 = url.path.withCString { path in
+                _ = api.enable(db.handle, 1)
+                defer { _ = api.enable(db.handle, 0) }
+                return api.load(db.handle, path, nil, &error)
+            }
+
+            if rc == SQLITE_OK {
+                vecIndexEnabled = true
+                log.info("Loaded sqlite-vec extension at: \(url.path)")
+            } else {
+                let message = error.map { String(cString: $0) } ?? "unknown error"
+                if let error { sqlite3_free(error) }
+                log.debug("Failed to load sqlite-vec extension: \(message)")
+            }
+            return vecIndexEnabled
+        }
+
+        if didEnable {
+            cleanupLegacyVecTableIfNeeded()
+        }
+    }
+
+    private func vecExtensionCandidateURLs() -> [URL] {
+        var searchPaths: [URL] = []
+        let bundle = Bundle.main
+        if let url = bundle.resourceURL {
+            searchPaths.append(url)
+        }
+        if let url = bundle.privateFrameworksURL {
+            searchPaths.append(url)
+        }
+        if let url = bundle.builtInPlugInsURL {
+            searchPaths.append(url)
+        }
+        if let url = bundle.executableURL?.deletingLastPathComponent() {
+            searchPaths.append(url)
+        }
+
+        var result: [URL] = []
+        for dir in searchPaths {
+            for name in vecExtensionFileNames {
+                result.append(dir.appendingPathComponent(name))
+            }
+        }
+        return result
+    }
+
+    private func loadPersistedVecActiveTables() {
+        guard let data = UserDefaults.standard.data(forKey: vecActiveTablesDefaultsKey),
+              let raw = try? JSONDecoder().decode([String: String].self, from: data) else {
+            vecActiveTableNames = [:]
+            return
+        }
+        var mapped: [Int: String] = [:]
+        for (dimensionText, tableName) in raw {
+            guard let dimension = Int(dimensionText), dimension > 0 else { continue }
+            guard !tableName.isEmpty else { continue }
+            let defaultName = vecDefaultTableName(for: dimension)
+            // 默认表是天然回退目标，不需要持久化；只持久化恢复表映射。
+            guard tableName != defaultName else { continue }
+            mapped[dimension] = tableName
+        }
+        vecActiveTableNames = mapped
+    }
+
+    private nonisolated func persistVecActiveTables() {
+        var persisted: [Int: String] = [:]
+        for (dimension, tableName) in vecActiveTableNames {
+            if !tableName.isEmpty, tableName != vecDefaultTableName(for: dimension) {
+                persisted[dimension] = tableName
+            }
+        }
+        guard !persisted.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: vecActiveTablesDefaultsKey)
+            return
+        }
+        var raw: [String: String] = [:]
+        raw.reserveCapacity(persisted.count)
+        for (dimension, tableName) in persisted {
+            raw[String(dimension)] = tableName
+        }
+        if let data = try? JSONEncoder().encode(raw) {
+            UserDefaults.standard.set(data, forKey: vecActiveTablesDefaultsKey)
+        }
+    }
+
+    private nonisolated func vecDefaultTableName(for dimension: Int) -> String {
+        "\(vecTableBaseName)_\(dimension)"
+    }
+
+    private nonisolated func vecRecoveryTableName(for dimension: Int) -> String {
+        vecRecoverySequence += 1
+        let ts = Int(Date().timeIntervalSince1970)
+        return "\(vecTableBaseName)_recovery_\(dimension)_\(ts)_\(vecRecoverySequence)"
+    }
+
+    private nonisolated func vecTableName(for dimension: Int) -> String {
+        vecActiveTableNames[dimension] ?? vecDefaultTableName(for: dimension)
+    }
+
+    private nonisolated func setVecActiveTableName(dimension: Int, tableName: String) {
+        guard dimension > 0 else { return }
+        let defaultName = vecDefaultTableName(for: dimension)
+        if tableName == defaultName {
+            guard vecActiveTableNames.removeValue(forKey: dimension) != nil else { return }
+            persistVecActiveTables()
+            return
+        }
+        guard vecActiveTableNames[dimension] != tableName else { return }
+        vecActiveTableNames[dimension] = tableName
+        persistVecActiveTables()
+    }
+
+    private nonisolated func vecLegacyTriggerName(for dimension: Int) -> String {
+        "\(vecTableBaseName)_ad_\(dimension)"
+    }
+
+    private nonisolated func vecTriggerName(for tableName: String) -> String {
+        "\(tableName)_ad"
+    }
+
+    private nonisolated func vecTriggerName(for tableName: String, dimension: Int) -> String {
+        tableName == vecDefaultTableName(for: dimension)
+            ? vecLegacyTriggerName(for: dimension)
+            : vecTriggerName(for: tableName)
+    }
+
+    private nonisolated func vecTableExists(_ tableName: String, db: Connection) -> Bool {
+        let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1"
+        return (try? db.scalar(sql, tableName) as? String) != nil
+    }
+
+    private func listVecTables() -> [String] {
+        return (try? syncOnDBQueue {
+            guard let db = db else { return [] }
+            let sql = """
+                SELECT name FROM sqlite_master
+                WHERE type='table'
+                  AND name LIKE ?
+                  AND sql IS NOT NULL
+                  AND sql LIKE 'CREATE VIRTUAL TABLE%'
+                  AND instr(lower(sql), 'using vec0') > 0
+            """
+            let pattern = "\(vecTableBaseName)%"
+            let stmt = try db.prepare(sql).bind(pattern)
+            var names: [String] = []
+            while let row = try stmt.failableNext() {
+                if let name = row[0] as? String {
+                    names.append(name)
+                }
+            }
+            return names
+        }) ?? []
+    }
+
+    private nonisolated func listVecTables(for dimension: Int, db: Connection) -> [String] {
+        guard dimension > 0 else { return [] }
+        let defaultName = vecDefaultTableName(for: dimension)
+        let recoveryPattern = "\(vecTableBaseName)_recovery_\(dimension)_%"
+        do {
+            let sql = """
+                SELECT name FROM sqlite_master
+                WHERE type='table'
+                  AND (name = ? OR name LIKE ?)
+                  AND sql IS NOT NULL
+                  AND sql LIKE 'CREATE VIRTUAL TABLE%'
+                  AND instr(lower(sql), 'using vec0') > 0
+                ORDER BY name
+            """
+            let stmt = try db.prepare(sql).bind(defaultName, recoveryPattern)
+            var names: [String] = []
+            while let row = try stmt.failableNext() {
+                if let name = row[0] as? String {
+                    names.append(name)
+                }
+            }
+            return names
+        } catch {
+            return []
+        }
+    }
+
+    private nonisolated func resolveVecActiveTableName(dimension: Int, db: Connection) -> String {
+        let defaultName = vecDefaultTableName(for: dimension)
+        let recoveryPrefix = "\(vecTableBaseName)_recovery_\(dimension)_"
+        let tables = listVecTables(for: dimension, db: db)
+        let latestRecovery = Self.latestRecoveryVecTable(in: tables, recoveryPrefix: recoveryPrefix)
+
+        if let active = vecActiveTableNames[dimension] {
+            if vecTableExists(active, db: db) {
+                if active.hasPrefix(recoveryPrefix) {
+                    return active
+                }
+                if let latestRecovery {
+                    if latestRecovery != active {
+                        setVecActiveTableName(dimension: dimension, tableName: latestRecovery)
+                    }
+                    return latestRecovery
+                }
+                return active
+            }
+            vecActiveTableNames.removeValue(forKey: dimension)
+            persistVecActiveTables()
+        }
+
+        if let latestRecovery {
+            setVecActiveTableName(dimension: dimension, tableName: latestRecovery)
+            return latestRecovery
+        }
+        setVecActiveTableName(dimension: dimension, tableName: defaultName)
+        return defaultName
+    }
+
+    private nonisolated static func latestRecoveryVecTable(
+        in tables: [String],
+        recoveryPrefix: String
+    ) -> String? {
+        var latest: String?
+        for table in tables {
+            guard table.hasPrefix(recoveryPrefix) else { continue }
+            if latest == nil || table > latest! {
+                latest = table
+            }
+        }
+        return latest
+    }
+
+    private func cleanupObsoleteVecTables(dimension: Int, activeTableName: String, db: Connection) {
+        let tables = listVecTables(for: dimension, db: db)
+        guard !tables.isEmpty else { return }
+        let defaultName = vecDefaultTableName(for: dimension)
+        for name in tables where name != activeTableName {
+            guard !vecCleanupDeferredTables.contains(name) else { continue }
+            var triggerNames = [vecTriggerName(for: name)]
+            if name == defaultName {
+                triggerNames.append(vecLegacyTriggerName(for: dimension))
+            }
+            for triggerName in Set(triggerNames) {
+                do {
+                    try db.run("DROP TRIGGER IF EXISTS \(triggerName)")
+                } catch {
+                    log.debug("Failed to drop vec trigger \(triggerName): \(error.localizedDescription)")
+                }
+            }
+            if dropVecTableWithShadowCleanup(name, db: db) {
+                vecCleanupDeferredTables.remove(name)
+                log.info("Dropped obsolete vec table \(name)")
+            } else {
+                if vecCleanupDeferredTables.insert(name).inserted {
+                    log.warn("Deferred obsolete vec table cleanup for \(name); will retry after future reinitialize")
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func dropVecTableWithShadowCleanup(_ tableName: String, db: Connection) -> Bool {
+        do {
+            try db.run("DROP TABLE IF EXISTS \(tableName)")
+            return true
+        } catch {
+            let merged = "\(error.localizedDescription) \(String(reflecting: error))".lowercased()
+            if merged.contains("shadow") || merged.contains("may not be dropped") {
+                // sqlite-vec 的 shadow 表不可直接 drop，延后到后续重启再清理即可。
+                log.debug("Vec table \(tableName) cleanup deferred due to shadow dependency: \(error.localizedDescription)")
+                return false
+            }
+            log.debug("Failed to drop vec table \(tableName): \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func cleanupLegacyVecTableIfNeeded() {
+        syncOnDBQueue {
+            guard let db = db else { return }
+            guard !vecLegacyTableCleaned else { return }
+            vecLegacyTableCleaned = true
+            do {
+                let legacyName = vecTableBaseName
+                let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1"
+                let exists = (try? db.scalar(sql, legacyName) as? String) != nil
+                guard exists else { return }
+                try db.run("DROP TABLE IF EXISTS \(legacyName)")
+                try db.run("DROP TRIGGER IF EXISTS \(legacyName)_ad")
+                log.info("Dropped legacy vec table \(legacyName)")
+            } catch {
+                log.debug("Failed to clean legacy vec table: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func dropVecTables() {
+        syncOnDBQueue {
+            guard let db = db else { return }
+            let tables = listVecTables()
+            for name in tables {
+                do {
+                    if let dimension = vecDimension(from: name) {
+                        var triggerNames = [vecTriggerName(for: name)]
+                        if name == vecDefaultTableName(for: dimension) {
+                            triggerNames.append(vecLegacyTriggerName(for: dimension))
+                        }
+                        for triggerName in Set(triggerNames) {
+                            try db.run("DROP TRIGGER IF EXISTS \(triggerName)")
+                        }
+                    }
+                    try db.run("DROP TABLE IF EXISTS \(name)")
+                } catch {
+                    log.debug("Failed to drop vec table \(name): \(error.localizedDescription)")
+                }
+            }
+            vecReadyDimensions.removeAll()
+            vecBrokenDimensions.removeAll()
+            vecBrokenDimensionLogged.removeAll()
+            vecRecoveryInProgressDimensions.removeAll()
+            vecCleanupDeferredTables.removeAll()
+            vecRecoverySequence = 0
+            vecActiveTableNames.removeAll()
+            persistVecActiveTables()
+        }
+    }
+
+    private func vecDimension(from tableName: String) -> Int? {
+        let defaultPrefix = "\(vecTableBaseName)_"
+        if tableName.hasPrefix(defaultPrefix),
+           let value = Int(tableName.dropFirst(defaultPrefix.count)) {
+            return value
+        }
+
+        let recoveryPrefix = "\(vecTableBaseName)_recovery_"
+        guard tableName.hasPrefix(recoveryPrefix) else { return nil }
+        let suffix = tableName.dropFirst(recoveryPrefix.count)
+        guard let dimensionPart = suffix.split(separator: "_").first else { return nil }
+        return Int(dimensionPart)
+    }
+
+    private nonisolated func isVecInternalSQLiteError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        let merged = "\(nsError.localizedDescription) \(String(reflecting: error))".lowercased()
+        return merged.contains("sqlite-vec") ||
+               merged.contains("vec0") ||
+               merged.contains("rowids get chunk position") ||
+               merged.contains("could not fetch vector data") ||
+               merged.contains("opening blob failed") ||
+               merged.contains("vector blob")
+    }
+
+    private nonisolated func isVecDimensionUsable(_ dimension: Int) -> Bool {
+        guard dimension > 0 else { return false }
+        guard !vecBrokenDimensions.contains(dimension) else {
+            if vecBrokenDimensionLogged.insert(dimension).inserted {
+                log.warn("Vec dimension \(dimension) temporarily disabled; vec index/search will use fallback until background recovery completes")
+            }
+            return false
+        }
+        return true
+    }
+
+    private nonisolated func scheduleVecRecoveryBackfill(dimension: Int, db: Connection, reason: String) {
+        guard dimension > 0 else { return }
+        guard !vecRecoveryInProgressDimensions.contains(dimension) else { return }
+
+        let recoveryTableName = vecRecoveryTableName(for: dimension)
+        let createSQL = """
+            CREATE VIRTUAL TABLE IF NOT EXISTS \(recoveryTableName) USING vec0(
+                embedding float[\(dimension)]
+            )
+        """
+
+        do {
+            try db.run(createSQL)
+            vecRecoveryInProgressDimensions.insert(dimension)
+            vecReadyDimensions.remove(dimension)
+            vecMissingDimensionLogged.remove(dimension)
+            vecBrokenDimensions.insert(dimension)
+            vecBrokenDimensionLogged.remove(dimension)
+            log.warn("Vec recovery started for dim=\(dimension), table=\(recoveryTableName), reason=\(reason)")
+            Task(priority: .background) { [weak self] in
+                await self?.performVecRecoveryBackfill(
+                    dimension: dimension,
+                    recoveryTableName: recoveryTableName,
+                    reason: reason
+                )
+            }
+        } catch {
+            vecBrokenDimensions.insert(dimension)
+            log.error("Failed to create vec recovery table \(recoveryTableName): \(error.localizedDescription)")
+            log.debug("Vec recovery create detail (\(recoveryTableName)): \(String(reflecting: error))")
+        }
+    }
+
+    private func performVecRecoveryBackfill(dimension: Int, recoveryTableName: String, reason: String) async {
+        let indexed: Int? = await withDBAsyncBackground {
+            guard self.vecIndexEnabled, !DeckUserDefaults.securityModeEnabled else { return nil }
+            guard let db = self.db else { return nil }
+            guard self.vecRecoveryInProgressDimensions.contains(dimension) else { return nil }
+            guard self.vecTableExists(recoveryTableName, db: db) else { return nil }
+
+            let rowBytes = dimension * MemoryLayout<Float>.size
+            let selectSQL = """
+                SELECT id, embedding
+                FROM ClipboardHistory_embedding
+                WHERE length(embedding) = ?
+                ORDER BY id DESC
+            """
+
+            let selectStmt = try db.prepare(selectSQL).bind(rowBytes)
+            let indexed = try self.backfillVecRecoveryRows(
+                selectStmt: selectStmt,
+                dimension: dimension,
+                recoveryTableName: recoveryTableName,
+                db: db
+            )
+
+            let triggerName = self.vecTriggerName(for: recoveryTableName, dimension: dimension)
+            try db.run("""
+                CREATE TRIGGER IF NOT EXISTS \(triggerName)
+                AFTER DELETE ON ClipboardHistory_embedding BEGIN
+                    DELETE FROM \(recoveryTableName) WHERE rowid = old.id;
+                END
+            """)
+
+            self.setVecActiveTableName(dimension: dimension, tableName: recoveryTableName)
+            self.vecReadyDimensions.insert(dimension)
+            self.vecBrokenDimensions.remove(dimension)
+            self.vecBrokenDimensionLogged.remove(dimension)
+            self.vecMissingDimensionLogged.remove(dimension)
+            self.vecRecoveryInProgressDimensions.remove(dimension)
+            self.cleanupObsoleteVecTables(dimension: dimension, activeTableName: recoveryTableName, db: db)
+            return indexed
+        } ?? nil
+
+        if let indexed {
+            await log.warn("Vec recovery completed for dim=\(dimension), table=\(recoveryTableName), indexed=\(indexed), reason=\(reason)")
+        } else {
+            syncOnDBQueue {
+                vecRecoveryInProgressDimensions.remove(dimension)
+                vecReadyDimensions.remove(dimension)
+                vecBrokenDimensions.insert(dimension)
+            }
+            await log.error("Vec recovery failed for dim=\(dimension), table=\(recoveryTableName)")
+        }
+    }
+
+    private nonisolated func backfillVecRecoveryRows(
+        selectStmt: Statement,
+        dimension: Int,
+        recoveryTableName: String,
+        db: Connection
+    ) throws -> Int {
+        var indexed = 0
+        try db.transaction {
+            while let row = try selectStmt.failableNext() {
+                guard let id = bindingToInt64(row[0]),
+                      let rawData = bindingToData(row[1]) else {
+                    continue
+                }
+                guard let vector = decodeEmbedding(rawData), vector.count == dimension else {
+                    continue
+                }
+                let normalized = normalizeVector(vector)
+                guard !normalized.isEmpty else { continue }
+                let payload = vectorToFloat32Blob(normalized)
+                try db.run(
+                    "INSERT OR REPLACE INTO \(recoveryTableName)(rowid, embedding) VALUES (?, ?)",
+                    id,
+                    payload
+                )
+                indexed += 1
+            }
+        }
+        return indexed
+    }
+
+    @discardableResult
+    private nonisolated func rebuildVecTable(dimension: Int, db: Connection, reason: String) -> Bool {
+        guard dimension > 0 else { return false }
+        scheduleVecRecoveryBackfill(dimension: dimension, db: db, reason: reason)
+        // Recovery is asynchronous; caller should not retry vec write in current call.
+        return false
+    }
+
+    private nonisolated func ensureVecTable(dimension: Int) {
+        syncOnDBQueue {
+            guard vecIndexEnabled, dimension > 0 else { return }
+            guard isVecDimensionUsable(dimension) else { return }
+            guard let db = db else { return }
+            if vecReadyDimensions.contains(dimension) { return }
+            let tableName = resolveVecActiveTableName(dimension: dimension, db: db)
+            let triggerName = vecTriggerName(for: tableName, dimension: dimension)
+            do {
+                let sql = """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS \(tableName) USING vec0(
+                        embedding float[\(dimension)]
+                    )
+                """
+                try db.run(sql)
+                try db.run("""
+                    CREATE TRIGGER IF NOT EXISTS \(triggerName)
+                    AFTER DELETE ON ClipboardHistory_embedding BEGIN
+                        DELETE FROM \(tableName) WHERE rowid = old.id;
+                    END
+                """)
+                setVecActiveTableName(dimension: dimension, tableName: tableName)
+                vecReadyDimensions.insert(dimension)
+            } catch {
+                log.debug("Failed to create vec table: \(error.localizedDescription)")
+                if isVecInternalSQLiteError(error) {
+                    scheduleVecRecoveryBackfill(dimension: dimension, db: db, reason: "ensure vec table internal error")
+                }
+            }
+        }
+    }
+
+    /// Returns true only when embeddings exist and all vec tables are empty.
+    private func shouldScheduleVecIndexBackfill() -> Bool {
+        return syncOnDBQueue {
+            guard vecIndexEnabled, !DeckUserDefaults.securityModeEnabled else { return false }
+            guard let db = db else { return false }
+
+            guard (try? db.scalar("SELECT 1 FROM ClipboardHistory_embedding WHERE text_hash NOT LIKE 'skip:%' LIMIT 1")) != nil else {
+                return false
+            }
+
+            let tables = listVecTables()
+            for name in tables {
+                do {
+                    if (try db.scalar("SELECT rowid FROM \(name) LIMIT 1")) != nil {
+                        return false
+                    }
+                } catch {
+                    continue
+                }
+            }
+
+            return true
+        }
+    }
+
+    private func scheduleVecIndexBackfillIfNeeded() {
+        guard shouldScheduleVecIndexBackfill() else {
+            log.debug("Vec index backfill not needed; skip scheduling")
+            return
+        }
+        let shouldStart = vecBackfillStateQueue.sync {
+            if vecBackfillInProgress {
+                return false
+            }
+            vecBackfillInProgress = true
+            return true
+        }
+        guard shouldStart else {
+            log.debug("Vec index backfill already in progress; skip scheduling")
+            return
+        }
+        log.info("Vec index backfill started")
+        Task(priority: .background) { [weak self] in
+            defer {
+                self?.vecBackfillStateQueue.sync {
+                    self?.vecBackfillInProgress = false
+                }
+            }
+            await self?.backfillVecIndexIfNeeded()
+        }
+    }
+
+    private func backfillVecIndexIfNeeded() async {
+        guard shouldScheduleVecIndexBackfill() else { return }
+
+        let batchSize = 100
+        let maxItems = DeckUserDefaults.securityModeEnabled ? 300 : 1000
+        var attempted = 0
+        var indexed = 0
+        var lastSeenID = Int64.max
+        var dimensionCounts: [Int: Int] = [:]
+        while attempted < maxItems {
+            guard !Task.isCancelled else { break }
+
+            let rows: [(id: Int64, data: Data)] = syncOnDBBackgroundQueue {
+                guard let db = db else { return [] }
+                do {
+                    let sql = """
+                        SELECT e.id, e.embedding
+                        FROM ClipboardHistory_embedding e
+                        WHERE e.id < ?
+                          AND e.text_hash NOT LIKE 'skip:%'
+                        ORDER BY e.id DESC
+                        LIMIT ?
+                    """
+                    let stmt = try db.prepare(sql).bind(lastSeenID, batchSize)
+                    var result: [(Int64, Data)] = []
+                    while let row = try stmt.failableNext() {
+                        let idValue = row[0]
+                        let dataValue = row[1]
+                        let id: Int64
+                        if let id64 = idValue as? Int64 {
+                            id = id64
+                        } else if let idInt = idValue as? Int {
+                            id = Int64(idInt)
+                        } else {
+                            continue
+                        }
+                        guard let data = bindingToData(dataValue) else { continue }
+                        result.append((id, data))
+                    }
+                    return result
+                } catch {
+                    return []
+                }
+            }
+
+            guard !rows.isEmpty else { break }
+            lastSeenID = rows.last?.id ?? lastSeenID
+
+            for row in rows {
+                guard !Task.isCancelled else { break }
+                let raw = DeckUserDefaults.securityModeEnabled ? decryptData(row.data) : row.data
+                guard let vector = decodeEmbedding(raw) else { continue }
+                dimensionCounts[vector.count, default: 0] += 1
+                if updateVecIndex(id: row.id, vector: vector) {
+                    indexed += 1
+                }
+                attempted += 1
+                if attempted >= maxItems { break }
+            }
+
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        if attempted > 0 {
+            let dimensionSummary = dimensionCounts
+                .sorted(by: { $0.key < $1.key })
+                .map { "\($0.key):\($0.value)" }
+                .joined(separator: ", ")
+            await log.info("Vec index backfill completed: attempted=\(attempted), indexed=\(indexed) (dims: [\(dimensionSummary)])")
+        } else {
+            await log.debug("Vec index backfill completed: attempted=0, indexed=0")
+        }
+    }
+
+    private func performIntegrityCheckIfNeeded(force: Bool = false) -> Bool {
+        if !force {
+            if let lastRun = UserDefaults.standard.object(forKey: integrityCheckLastRunKey) as? Date {
+                if Date().timeIntervalSince(lastRun) < integrityCheckInterval {
+                    return true
+                }
+            }
+        }
+
+        let ok = performIntegrityCheck()
+        if ok {
+            UserDefaults.standard.set(Date(), forKey: integrityCheckLastRunKey)
+        }
+        return ok
+    }
+
+    private nonisolated func performIntegrityCheck() -> Bool {
+        let result: String? = syncOnDBQueue {
+            guard let db = db else { return nil }
+            return (try? db.scalar("PRAGMA quick_check(1)") as? String) ?? nil
+        }
+        if result == "ok" {
+            return true
+        }
+        log.warn("Database integrity check returned: \(result ?? "unknown")")
+        return false
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MARK: - Backup & Recovery (备份与恢复)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    /// 获取数据库恢复备份文件路径（Deck.sqlite3.bak）
+    func getDatabaseRecoveryBackupPath() -> String {
+        let basePath = getStoragePath()
+        return databasePaths(for: basePath).backupPath
+    }
+
+    /// 立即创建数据库恢复备份（可选同步执行）
+    func createDatabaseRecoveryBackupNow(synchronous: Bool = false) {
+        let basePath = getStoragePath()
+        let paths = databasePaths(for: basePath)
+        backupDatabaseIfNeeded(
+            dbPath: paths.dbPath,
+            backupPath: paths.backupPath,
+            force: true,
+            synchronous: synchronous
+        )
+    }
+
+    /// 删除数据库恢复备份文件
+    func deleteDatabaseRecoveryBackup() {
+        let basePath = getStoragePath()
+        let backupPath = databasePaths(for: basePath).backupPath
+        removeRecoveryBackupFiles(at: backupPath)
+    }
+
+    /// 立即从数据库恢复备份还原数据库
+    /// - Returns: 是否恢复成功
+    func restoreDatabaseRecoveryBackupNow() -> Bool {
+        guard DeckUserDefaults.databaseAutoBackupEnabled else {
+            log.warn("Recovery backup restore skipped because automatic backup is disabled")
+            return false
+        }
+
+        let basePath = getStoragePath()
+        let paths = databasePaths(for: basePath)
+        guard FileManager.default.fileExists(atPath: paths.backupPath) else {
+            log.warn("Recovery backup restore skipped because backup file is missing")
+            return false
+        }
+
+        let restored = syncOnDBQueue {
+            closeReadOnlyDatabase()
+            finalizeCachedStatements()
+            db = nil
+            table = nil
+            return restoreDatabaseFromBackup(dbPath: paths.dbPath, backupPath: paths.backupPath)
+        }
+        reinitialize()
+        if restored {
+            clearMissingBlobReferences(reason: "recovery backup restore")
+            rebuildFTSIndex()
+        }
+        return restored
+    }
+
+    private func removeRecoveryBackupFiles(at backupPath: String) {
+        let fileManager = FileManager.default
+        let tempPath = backupPath + ".tmp"
+        let blobsBackupPath = recoveryBlobsBackupPath(for: backupPath)
+        let blobsTempPath = blobsBackupPath + ".tmp"
+        if fileManager.fileExists(atPath: backupPath) {
+            try? fileManager.removeItem(atPath: backupPath)
+        }
+        if fileManager.fileExists(atPath: tempPath) {
+            try? fileManager.removeItem(atPath: tempPath)
+        }
+        if fileManager.fileExists(atPath: blobsBackupPath) {
+            try? fileManager.removeItem(atPath: blobsBackupPath)
+        }
+        if fileManager.fileExists(atPath: blobsTempPath) {
+            try? fileManager.removeItem(atPath: blobsTempPath)
+        }
+    }
+    
+    /// 自动备份数据库（如果需要）
+    /// - Parameters:
+    ///   - dbPath: 数据库文件路径
+    ///   - backupPath: 备份文件路径
+    ///   - force: 是否强制备份（忽略时间间隔）
+    ///   - synchronous: 是否同步执行（默认异步）
+    /// - Note: 默认 24 小时备份一次，使用文件拷贝方式
+    /// - Warning: 备份失败不会影响数据库正常运行
+    private nonisolated func backupDatabaseIfNeeded(
+        dbPath: String,
+        backupPath: String,
+        force: Bool = false,
+        synchronous: Bool = false
+    ) {
+        guard DeckUserDefaults.databaseAutoBackupEnabled else { return }
+        guard FileManager.default.fileExists(atPath: dbPath) else { return }
+
+        if !force, let attrs = try? FileManager.default.attributesOfItem(atPath: backupPath),
+           let modDate = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(modDate) < backupInterval {
+            return
+        }
+
+        let dbURL = URL(fileURLWithPath: dbPath)
+        let backupURL = URL(fileURLWithPath: backupPath)
+        let tempURL = URL(fileURLWithPath: backupPath + ".tmp")
+        let blobsURL = URL(fileURLWithPath: blobsDirectoryPath(for: dbURL.deletingLastPathComponent().path), isDirectory: true)
+        let blobsBackupURL = URL(fileURLWithPath: recoveryBlobsBackupPath(for: backupPath), isDirectory: true)
+        let blobsTempURL = URL(fileURLWithPath: recoveryBlobsBackupPath(for: backupPath) + ".tmp", isDirectory: true)
+
+        let copyBlock: @Sendable (_ requiresBlobSnapshot: Bool) -> Void = { requiresBlobSnapshot in
+            do {
+                if FileManager.default.fileExists(atPath: tempURL.path) {
+                    try FileManager.default.removeItem(at: tempURL)
+                }
+                if FileManager.default.fileExists(atPath: blobsTempURL.path) {
+                    try FileManager.default.removeItem(at: blobsTempURL)
+                }
+
+                let hasBlobs = self.directoryExists(at: blobsURL)
+                if requiresBlobSnapshot, !hasBlobs {
+                    throw NSError(domain: "DeckSQL", code: -31, userInfo: [
+                        NSLocalizedDescriptionKey: "Database references external blobs but Blobs directory is missing"
+                    ])
+                }
+                if hasBlobs {
+                    try FileManager.default.copyItem(at: blobsURL, to: blobsTempURL)
+                }
+
+                try FileManager.default.copyItem(at: dbURL, to: tempURL)
+                try self.commitStagedDatabaseAndBlobSnapshot(
+                    databaseURL: backupURL,
+                    stagedDatabaseURL: tempURL,
+                    blobsURL: blobsBackupURL,
+                    stagedBlobsURL: hasBlobs ? blobsTempURL : nil,
+                    removeExistingBlobsIfNoStage: true
+                )
+                log.info("Database backup updated")
+            } catch {
+                log.warn("Failed to backup database: \(error.localizedDescription)")
+                if FileManager.default.fileExists(atPath: tempURL.path) {
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
+                if FileManager.default.fileExists(atPath: blobsTempURL.path) {
+                    try? FileManager.default.removeItem(at: blobsTempURL)
+                }
+            }
+        }
+
+        let backupBlock: @Sendable () -> Void = { [weak self] in
+            guard let self, let db = self.db else { return }
+            do {
+                try db.run("PRAGMA wal_checkpoint(TRUNCATE)")
+            } catch {
+                log.debug("Failed to checkpoint WAL before backup: \(error.localizedDescription)")
+            }
+            let blobState = self.referencedBlobState(in: db)
+            if let missingPath = blobState.firstMissingPath {
+                log.warn("Database backup skipped because referenced blob file is missing: \(missingPath)")
+                return
+            }
+            copyBlock(blobState.hasReferences)
+        }
+
+        if synchronous {
+            syncOnDBQueue {
+                backupBlock()
+            }
+        } else {
+            dbQueue.async {
+                backupBlock()
+            }
+        }
+    }
+
+    private func restoreDatabaseFromBackup(dbPath: String, backupPath: String) -> Bool {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: backupPath) else { return false }
+
+        let dbURL = URL(fileURLWithPath: dbPath)
+        let backupURL = URL(fileURLWithPath: backupPath)
+        let tempURL = URL(fileURLWithPath: dbPath + ".restore")
+        let blobsURL = URL(fileURLWithPath: blobsDirectoryPath(for: dbURL.deletingLastPathComponent().path), isDirectory: true)
+        let blobsBackupURL = URL(fileURLWithPath: recoveryBlobsBackupPath(for: backupPath), isDirectory: true)
+        let blobsTempURL = URL(fileURLWithPath: blobsURL.path + ".restore", isDirectory: true)
+
+        do {
+            if fileManager.fileExists(atPath: tempURL.path) {
+                try fileManager.removeItem(at: tempURL)
+            }
+            if fileManager.fileExists(atPath: blobsTempURL.path) {
+                try fileManager.removeItem(at: blobsTempURL)
+            }
+            try fileManager.copyItem(at: backupURL, to: tempURL)
+            let hasBlobBackup = directoryExists(at: blobsBackupURL)
+            if hasBlobBackup {
+                try fileManager.copyItem(at: blobsBackupURL, to: blobsTempURL)
+            }
+            try commitStagedDatabaseAndBlobSnapshot(
+                databaseURL: dbURL,
+                stagedDatabaseURL: tempURL,
+                blobsURL: blobsURL,
+                stagedBlobsURL: hasBlobBackup ? blobsTempURL : nil,
+                removeExistingBlobsIfNoStage: false
+            )
+            cleanupSQLiteSidecarFiles(for: dbPath)
+            if hasBlobBackup {
+                log.info("Blob recovery backup restored")
+            } else {
+                log.warn("Recovery backup has no blob snapshot; restored database may reference missing external blobs")
+            }
+            log.info("Database restored from backup")
+            return true
+        } catch {
+            log.error("Failed to restore database from backup: \(error.localizedDescription)")
+            if fileManager.fileExists(atPath: tempURL.path) {
+                try? fileManager.removeItem(at: tempURL)
+            }
+            if fileManager.fileExists(atPath: blobsTempURL.path) {
+                try? fileManager.removeItem(at: blobsTempURL)
+            }
+            return false
+        }
+    }
+
+    private func cleanupSQLiteSidecarFiles(for dbPath: String) {
+        let fileManager = FileManager.default
+        let walPath = dbPath + "-wal"
+        let shmPath = dbPath + "-shm"
+        if fileManager.fileExists(atPath: walPath) {
+            try? fileManager.removeItem(atPath: walPath)
+        }
+        if fileManager.fileExists(atPath: shmPath) {
+            try? fileManager.removeItem(atPath: shmPath)
+        }
+    }
+
+    // MARK: - Custom SQL Functions
+
+    private nonisolated func installRegexpFunction(on connection: Connection, role: String) {
+        // 注册 REGEXP 函数：regexp(pattern, text) -> Bool
+        // 使用方式：WHERE search_text REGEXP 'pattern'
+        connection.createFunction("regexp", argumentCount: 2, deterministic: true) { args in
+            guard args.count == 2,
+                  let pattern = args[0] as? String,
+                  let text = args[1] as? String else {
+                return Int64(0)
+            }
+
+            // 使用缓存的正则表达式
+            guard let regex = RegexCache.shared.regex(for: pattern) else {
+                return Int64(0)
+            }
+
+            let range = NSRange(text.startIndex..., in: text)
+            let isMatch = regex.firstMatch(in: text, range: range) != nil
+            return isMatch ? Int64(1) : Int64(0)
+        }
+        log.debug("Registered custom REGEXP function for SQLite \(role)")
+    }
+
+    /// 注册自定义 SQL 函数（如正则匹配）
+    /// - Returns: 是否在有效 writer 上完成注册；reader 不可用时允许回退到 writer 读路径。
+    private func registerCustomFunctions() -> Bool {
+        let writerOK = syncOnDBQueue {
+            guard let db = db else { return false }
+            installRegexpFunction(on: db, role: "writer")
+            return true
+        }
+
+        let readerOK = syncOnDBReadQueue {
+            guard let readerDb else { return true }
+            installRegexpFunction(on: readerDb, role: "reader")
+            return true
+        }
+
+        return writerOK && readerOK
+    }
+
+    /// 使用正则表达式搜索（在数据库层执行）
+    func searchWithRegex(
+        pattern: String,
+        typeFilter: [String]? = nil,
+        tagId: Int? = nil,
+        limit: Int = 50
+    ) async -> [Row] {
+        guard !Task.isCancelled else { return [] }
+
+        // 安全模式下需要内存解密后再匹配正则
+        if DeckUserDefaults.securityModeEnabled {
+            return await searchWithRegexInMemory(
+                pattern: pattern,
+                typeFilter: typeFilter,
+                tagId: tagId,
+                limit: limit
+            )
+        }
+
+        return await withReadDBAsync { db, table in
+            // 构建查询
+            let escapedPattern = pattern.replacingOccurrences(of: "'", with: "''")
+            var query = self.listModeBaseQuery(table: table).filter(
+                Expression<Bool>(
+                    literal: "regexp('\(escapedPattern)', search_text) OR regexp('\(escapedPattern)', custom_title) OR regexp('\(escapedPattern)', app_name)"
+                )
+            )
+
+            if let types = typeFilter, !types.isEmpty {
+                query = query.filter(types.contains(Col.itemType))
+            }
+
+            if let tagId = tagId, tagId != -1 {
+                query = query.filter(Col.tagId == tagId)
+            }
+
+            query = query.order(Col.ts.desc, Col.id.desc).limit(limit)
+
+            return Array(try db.prepare(query))
+        } ?? []
+    }
+
+    /// 安全模式下的正则搜索：在内存中解密后匹配
+    /// 采用分批流式扫描，覆盖更多数据
+    private func searchWithRegexInMemory(
+        pattern: String,
+        typeFilter: [String]?,
+        tagId: Int?,
+        limit: Int
+    ) async -> [Row] {
+        guard let regex = RegexCache.shared.regex(for: pattern) else { return [] }
+
+        var matchingIds: [Int64] = []
+        matchingIds.reserveCapacity(limit)
+        let batchSize = 500
+        // 关键优化：用 keyset pagination 替代 OFFSET 扫描
+        var cursor: RowCursor? = nil
+        var scanned = 0
+        let dynamicScanFloor = max(limit * 50, 1000)
+        let maxScan = min(5000, dynamicScanFloor)  // 安全模式下最多扫描 5000 条
+
+        while matchingIds.count < limit && scanned < maxScan {
+            // 支持任务取消
+            guard !Task.isCancelled else { break }
+
+            let rows: [Row] = await withReadDBAsync { db, table in
+                // 构建基础查询
+                var query = table
+                    .select(Col.id, Col.ts, Col.searchText, Col.appName, Col.customTitle)
+                    .order(Col.ts.desc, Col.id.desc)
+                    .limit(batchSize)
+
+                if let cursor {
+                    let cursorFilter = (Col.ts < cursor.timestamp) || (Col.ts == cursor.timestamp && Col.id < cursor.id)
+                    query = query.filter(cursorFilter)
+                }
+
+                if let types = typeFilter, !types.isEmpty {
+                    query = query.filter(types.contains(Col.itemType))
+                }
+
+                if let tagId = tagId, tagId != -1 {
+                    query = query.filter(Col.tagId == tagId)
+                }
+
+                return Array(try db.prepare(query))
+            } ?? []
+
+            // 没有更多数据
+            if rows.isEmpty { break }
+
+            cursor = self.cursor(from: rows.last)
+
+            for row in rows {
+                guard matchingIds.count < limit else { break }
+                guard !Task.isCancelled else { break }
+
+                do {
+                    let id = try row.get(Col.id)
+                    let rawSearchText = try row.get(Col.searchText)
+                    let rawAppName = try row.get(Col.appName)
+                    let rawCustomTitle = (try? row.get(Col.customTitle)) ?? nil
+
+                    let searchText = decryptString(rawSearchText)
+                    let appName = decryptString(rawAppName)
+                    let customTitle = rawCustomTitle.map { decryptString($0) } ?? ""
+
+                    if !customTitle.isEmpty {
+                        let range = NSRange(customTitle.startIndex..., in: customTitle)
+                        if regex.firstMatch(in: customTitle, range: range) != nil {
+                            matchingIds.append(id)
+                            continue
+                        }
+                    }
+
+                    if !searchText.isEmpty {
+                        let range = NSRange(searchText.startIndex..., in: searchText)
+                        if regex.firstMatch(in: searchText, range: range) != nil {
+                            matchingIds.append(id)
+                            continue
+                        }
+                    }
+
+                    if !appName.isEmpty {
+                        let range = NSRange(appName.startIndex..., in: appName)
+                        if regex.firstMatch(in: appName, range: range) != nil {
+                            matchingIds.append(id)
+                            continue
+                        }
+                    }
+
+                    if customTitle.isEmpty && searchText.isEmpty && appName.isEmpty {
+                        let empty = ""
+                        let range = NSRange(empty.startIndex..., in: empty)
+                        if regex.firstMatch(in: empty, range: range) != nil {
+                            matchingIds.append(id)
+                        }
+                    }
+                } catch {
+                    continue
+                }
+            }
+
+            scanned += rows.count
+            if rows.count < batchSize { break }
+
+            // 批次间让出 CPU
+            await Task.yield()
+        }
+
+        if scanned >= maxScan && matchingIds.count < limit {
+            await log.info("Security mode regex search reached scan limit (\(maxScan) items), results may be incomplete")
+        }
+
+        guard !matchingIds.isEmpty else { return [] }
+
+        // 分块查询避免 SQLite 变量上限
+        let chunkSize = 900
+        var fullRows: [Row] = []
+        fullRows.reserveCapacity(matchingIds.count)
+        var start = 0
+        while start < matchingIds.count {
+            let end = min(start + chunkSize, matchingIds.count)
+            let chunk = Array(matchingIds[start..<end])
+            let chunkRows: [Row] = await withReadDBAsync { db, table in
+                var query = self.listModeBaseQuery(table: table).filter(chunk.contains(Col.id))
+
+                if let types = typeFilter, !types.isEmpty {
+                    query = query.filter(types.contains(Col.itemType))
+                }
+
+                if let tagId = tagId, tagId != -1 {
+                    query = query.filter(Col.tagId == tagId)
+                }
+
+                return Array(try db.prepare(query))
+            } ?? []
+            fullRows.append(contentsOf: chunkRows)
+            start = end
+        }
+
+        var rowsById: [Int64: Row] = [:]
+        rowsById.reserveCapacity(fullRows.count)
+        for row in fullRows {
+            if let id = try? row.get(Col.id) {
+                rowsById[id] = row
+            }
+        }
+
+        return matchingIds.compactMap { rowsById[$0] }
+    }
+
+    /// - Returns: 是否成功创建主表并挂载 `table` 引用
+    private func createTable() -> Bool {
+        do {
+            return try syncOnDBQueue {
+                guard let db = db else { return false }
+                let tab = Table("ClipboardHistory")
+                try db.run(tab.create(ifNotExists: true) { t in
+                    t.column(Col.id, primaryKey: .autoincrement)
+                    t.column(Col.uniqueId)
+                    t.column(Col.type)
+                    t.column(Col.itemType)
+                    t.column(Col.data)
+                    t.column(Col.previewData)
+                    t.column(Col.ts)
+                    t.column(Col.appPath)
+                    t.column(Col.appName)
+                    t.column(Col.customTitle)
+                    t.column(Col.sourceAnchor)
+                    t.column(Col.searchText)
+                    t.column(Col.length)
+                    t.column(Col.tagId, defaultValue: -1)
+                    t.column(Col.blobPath)
+                    t.column(Col.isTemporary, defaultValue: false)
+                    t.column(Col.isEncrypted, defaultValue: false)
+                    t.column(Col.receivedFromLan, defaultValue: false)
+                })
+
+                try db.run(tab.createIndex(Col.ts, ifNotExists: true))
+                // Composite index for stable (timestamp,id) ordering.
+                // - Keyset pagination depends on this to avoid OFFSET scans.
+                // - Also reduces sort work when many rows share the same timestamp.
+                do {
+                    try db.run("""
+                        CREATE INDEX IF NOT EXISTS idx_clipboardhistory_ts_id
+                        ON ClipboardHistory(timestamp DESC, id DESC)
+                        """)
+                } catch {
+                    log.debug("Failed to create idx_clipboardhistory_ts_id: \(error.localizedDescription)")
+                }
+                // Composite indexes for filtered history pages. The panel frequently combines
+                // item-type / tag filters with the same `timestamp DESC, id DESC` keyset order;
+                // keeping the order columns in the index avoids extra sorting and wide scans.
+                do {
+                    try db.run("""
+                        CREATE INDEX IF NOT EXISTS idx_clipboardhistory_item_type_ts_id
+                        ON ClipboardHistory(item_type, timestamp DESC, id DESC)
+                        """)
+                } catch {
+                    log.debug("Failed to create idx_clipboardhistory_item_type_ts_id: \(error.localizedDescription)")
+                }
+                do {
+                    try db.run("""
+                        CREATE INDEX IF NOT EXISTS idx_clipboardhistory_tag_ts_id
+                        ON ClipboardHistory(tag_id, timestamp DESC, id DESC)
+                        """)
+                } catch {
+                    log.debug("Failed to create idx_clipboardhistory_tag_ts_id: \(error.localizedDescription)")
+                }
+                // Create a partial unique index for non-empty unique_id to avoid sync duplicates.
+                do {
+                    try db.run("""
+                        CREATE UNIQUE INDEX IF NOT EXISTS idx_clipboardhistory_unique_id
+                        ON ClipboardHistory(unique_id)
+                        WHERE unique_id <> ''
+                        """)
+                } catch {
+                    log.error("Failed to create unique index for unique_id, attempting deduplication: \(error)")
+                    do {
+                        try db.run("""
+                            DELETE FROM ClipboardHistory
+                            WHERE unique_id <> ''
+                              AND id NOT IN (
+                                SELECT MAX(id) FROM ClipboardHistory
+                                WHERE unique_id <> ''
+                                GROUP BY unique_id
+                              )
+                            """)
+                        try db.run("""
+                            CREATE UNIQUE INDEX IF NOT EXISTS idx_clipboardhistory_unique_id
+                            ON ClipboardHistory(unique_id)
+                            WHERE unique_id <> ''
+                            """)
+                    } catch {
+                        log.error("Deduplication/unique index creation failed, falling back to non-unique index: \(error)")
+                        _ = try? db.run(tab.createIndex(Col.uniqueId, ifNotExists: true))
+                    }
+                }
+                try db.run(tab.createIndex(Col.tagId, ifNotExists: true))
+                try db.run(tab.createIndex(Col.itemType, ifNotExists: true))
+
+                table = tab
+
+                // Create FTS5 virtual table for fast full-text search
+                createFTS5Table()
+                createEmbeddingTable()
+
+                log.info("Database table created successfully")
+                return true
+            }
+        } catch {
+            log.error("DB queue failed during table creation: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private nonisolated func dropFTS5TableAndTriggers(in db: Connection) throws {
+        try db.run("DROP TRIGGER IF EXISTS ClipboardHistory_ai")
+        try db.run("DROP TRIGGER IF EXISTS ClipboardHistory_ad")
+        try db.run("DROP TRIGGER IF EXISTS ClipboardHistory_au")
+        try db.run("DROP TABLE IF EXISTS ClipboardHistory_fts")
+        ftsUsesTrigram = false
+    }
+
+    private nonisolated func dropFTS5TableAndTriggers(reason: String) {
+        syncOnDBQueue {
+            guard let db = db else { return }
+            do {
+                try dropFTS5TableAndTriggers(in: db)
+                log.info("FTS5 table and triggers dropped: \(reason)")
+            } catch {
+                log.warn("Failed to drop FTS5 table/triggers for \(reason): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private nonisolated func createFTS5Table(forceRecreate: Bool = false, preferTrigram: Bool = true) {
+        syncOnDBQueue {
+            guard let db = db else { return }
+            let shouldRecreateIndex = forceRecreate || DeckUserDefaults.securityModeEnabled
+            if shouldRecreateIndex {
+                do {
+                    try dropFTS5TableAndTriggers(in: db)
+                } catch {
+                    log.warn("Failed to drop existing FTS5 table/triggers: \(error.localizedDescription)")
+                }
+            }
+
+            let defaultSQL = """
+                CREATE VIRTUAL TABLE IF NOT EXISTS ClipboardHistory_fts USING fts5(
+                    search_text,
+                    app_name,
+                    custom_title,
+                    content='ClipboardHistory',
+                    content_rowid='id'
+                )
+            """
+
+            let trigramSQL = """
+                CREATE VIRTUAL TABLE IF NOT EXISTS ClipboardHistory_fts USING fts5(
+                    search_text,
+                    app_name,
+                    custom_title,
+                    content='ClipboardHistory',
+                    content_rowid='id',
+                    tokenize='trigram'
+                )
+            """
+
+            var createdWithTrigram = false
+            if preferTrigram {
+                do {
+                    try db.run(trigramSQL)
+                    createdWithTrigram = true
+                } catch {
+                    log.warn("FTS5 trigram tokenizer unavailable, falling back to default: \(error.localizedDescription)")
+                    do {
+                        try db.run(defaultSQL)
+                    } catch {
+                        log.error("Failed to create FTS5 table: \(error.localizedDescription)")
+                        return
+                    }
+                }
+            } else {
+                do {
+                    try db.run(defaultSQL)
+                } catch {
+                    log.error("Failed to create FTS5 table: \(error.localizedDescription)")
+                    return
+                }
+            }
+
+            // Create triggers to keep FTS in sync.
+            // - Only index plaintext rows. Security mode searches decrypt in memory,
+            //   so indexing ciphertext is pure write amplification and can leave
+            //   useless terms behind.
+            // - Only rebuild FTS entries when FTS-backed columns actually change.
+            //   Tag / temporary-flag updates must not rewrite the full-text index.
+            do {
+                try db.transaction {
+                    try db.run("DROP TRIGGER IF EXISTS ClipboardHistory_ai")
+                    try db.run("DROP TRIGGER IF EXISTS ClipboardHistory_ad")
+                    try db.run("DROP TRIGGER IF EXISTS ClipboardHistory_au")
+
+                    try db.run("""
+                    CREATE TRIGGER ClipboardHistory_ai
+                    AFTER INSERT ON ClipboardHistory
+                    WHEN new.is_encrypted = 0
+                    BEGIN
+                        INSERT INTO ClipboardHistory_fts(rowid, search_text, app_name, custom_title)
+                        VALUES (new.id, new.search_text, new.app_name, new.custom_title);
+                    END
+                    """)
+
+                    try db.run("""
+                    CREATE TRIGGER ClipboardHistory_ad
+                    AFTER DELETE ON ClipboardHistory
+                    WHEN old.is_encrypted = 0
+                    BEGIN
+                        INSERT INTO ClipboardHistory_fts(ClipboardHistory_fts, rowid, search_text, app_name, custom_title)
+                        VALUES ('delete', old.id, old.search_text, old.app_name, old.custom_title);
+                    END
+                    """)
+
+                    try db.run("""
+                    CREATE TRIGGER ClipboardHistory_au
+                    AFTER UPDATE OF search_text, app_name, custom_title, is_encrypted ON ClipboardHistory
+                    WHEN old.search_text IS NOT new.search_text
+                      OR old.app_name IS NOT new.app_name
+                      OR old.custom_title IS NOT new.custom_title
+                      OR old.is_encrypted IS NOT new.is_encrypted
+                    BEGIN
+                        INSERT INTO ClipboardHistory_fts(ClipboardHistory_fts, rowid, search_text, app_name, custom_title)
+                        SELECT 'delete', old.id, old.search_text, old.app_name, old.custom_title
+                        WHERE old.is_encrypted = 0;
+                        INSERT INTO ClipboardHistory_fts(rowid, search_text, app_name, custom_title)
+                        SELECT new.id, new.search_text, new.app_name, new.custom_title
+                        WHERE new.is_encrypted = 0;
+                    END
+                    """)
+                }
+            } catch {
+                log.error("Failed to create FTS5 triggers: \(error.localizedDescription)")
+            }
+
+            ftsUsesTrigram = createdWithTrigram
+        }
+
+        updateFTSTokenizerState()
+        let usesTrigram = syncOnDBQueue { ftsUsesTrigram }
+        log.info("FTS5 table and triggers created successfully (trigram=\(usesTrigram))")
+    }
+
+    private func createEmbeddingTable() {
+        do {
+            try syncOnDBQueue {
+                guard let db = db else { return }
+                let tab = Table("ClipboardHistory_embedding")
+                try db.run(tab.create(ifNotExists: true) { t in
+                    t.column(EmbeddingCol.id, primaryKey: true)
+                    t.column(EmbeddingCol.textHash)
+                    t.column(EmbeddingCol.embedding)
+                })
+
+                try db.run("""
+                    CREATE TRIGGER IF NOT EXISTS ClipboardHistory_embedding_ad AFTER DELETE ON ClipboardHistory BEGIN
+                        DELETE FROM ClipboardHistory_embedding WHERE id = old.id;
+                    END
+                """)
+
+                log.info("Embedding table and triggers created successfully")
+            }
+        } catch {
+            log.error("DB queue failed during embedding table creation: \(error.localizedDescription)")
+        }
+    }
+
+    private nonisolated func updateFTSTokenizerState() {
+        syncOnDBQueue {
+            guard let db = db else { return }
+
+            let sql = "SELECT sql FROM sqlite_master WHERE type='table' AND name='ClipboardHistory_fts' LIMIT 1"
+            let ftsSQL: String? = (try? db.scalar(sql) as? String) ?? nil
+
+            let normalized = ftsSQL?.lowercased() ?? ""
+            let compact = normalized.components(separatedBy: .whitespacesAndNewlines).joined()
+            ftsUsesTrigram = compact.contains("tokenize='trigram'") || compact.contains("tokenize=\"trigram\"")
+            log.debug("FTS5 tokenizer detected: \(ftsUsesTrigram ? "trigram" : "default")")
+        }
+    }
+
+    private nonisolated func isFTSTrigramAvailable() -> Bool {
+        syncOnDBQueue {
+            guard let db = db else { return false }
+            let testTable = "ClipboardHistory_fts_trigram_check"
+            var available = false
+
+            do {
+                try db.run("CREATE VIRTUAL TABLE IF NOT EXISTS \(testTable) USING fts5(content, tokenize='trigram')")
+                available = true
+            } catch {
+                log.debug("FTS5 trigram tokenizer not available: \(error.localizedDescription)")
+            }
+
+            do {
+                try db.run("DROP TABLE IF EXISTS \(testTable)")
+            } catch {
+                log.debug("Failed to drop trigram test table: \(error.localizedDescription)")
+            }
+
+            return available
+        }
+    }
+
+    private nonisolated func ensureFTSTrigramIfAvailable() {
+        dbBackgroundQueue.async(qos: .utility, flags: .enforceQoS) { [weak self] in
+            guard let self else { return }
+            guard !DeckUserDefaults.securityModeEnabled else { return }
+            self.updateFTSTokenizerState()
+            guard !self.ftsUsesTrigram else { return }
+            guard self.isFTSTrigramAvailable() else { return }
+
+            log.info("FTS5 trigram tokenizer available, rebuilding FTS table for CJK support")
+            self.rebuildFTSIndex(preferTrigram: true)
+        }
+    }
+
+    /// Rebuild FTS index from existing data (call after migration or if FTS gets out of sync)
+    nonisolated func rebuildFTSIndex(preferTrigram: Bool? = nil) {
+        rebuildFTSIndex(preferTrigram: preferTrigram, respectSecurityMode: true)
+    }
+
+    private nonisolated func rebuildFTSIndex(preferTrigram: Bool? = nil, respectSecurityMode: Bool) {
+        let shouldPreferTrigram = preferTrigram ?? syncOnDBQueue { ftsUsesTrigram }
+        createFTS5Table(forceRecreate: true, preferTrigram: shouldPreferTrigram)
+
+        guard !respectSecurityMode || !DeckUserDefaults.securityModeEnabled else {
+            invalidateSearchCache()
+            log.info("FTS5 index cleared and rebuild skipped in security mode")
+            return
+        }
+
+        let rebuilt = syncOnDBQueue { () -> Bool in
+            guard let db = self.db else { return false }
+            do {
+                try db.run("""
+                INSERT INTO ClipboardHistory_fts(rowid, search_text, app_name, custom_title)
+                SELECT id, search_text, app_name, custom_title
+                FROM ClipboardHistory
+                WHERE is_encrypted = 0
+                """)
+                return true
+            } catch {
+                log.error("Failed to rebuild FTS5 index: \(error.localizedDescription)")
+                return false
+            }
+        }
+
+        if rebuilt {
+            // FTS 重建后清空搜索缓存，确保缓存与索引一致
+            invalidateSearchCache()
+            log.info("FTS5 index rebuilt successfully")
+        }
+    }
+    
+    // MARK: - Schema Versioning
+
+    /// 当前数据库 Schema 版本
+    /// 版本历史：
+    /// - 0: 初始版本
+    /// - 1: 添加 blob_path 列并完成大图迁移
+    /// - 2: 添加语义向量缓存表
+    /// - 3: 添加 is_temporary 列
+    /// - 4: 添加 source_anchor 列（IDE 溯源元数据）
+    /// - 5: 添加 is_encrypted 列（逐行加密状态）
+    /// - 6: 添加 custom_title 列（自定义标题）
+    /// - 7: 添加 received_from_lan 列（局域网共享接收标记，供 type:lan 过滤）
+    /// - 8: 语义向量模型版本升级，清理旧缓存并后台重建
+    /// - 9: CJK 统一 word-embedding 向量空间，清理旧缓存并后台重建
+    private static let currentSchemaVersion: Int32 = 9
+    private static let fileSearchTextBackfillTargetVersion = 1
+
+    private func getSchemaVersion() -> Int32 {
+        return withDB {
+            guard let db = self.db else { return 0 }
+            return Int32(try db.scalar("PRAGMA user_version") as? Int64 ?? 0)
+        } ?? 0
+    }
+
+    private nonisolated func setSchemaVersion(_ version: Int32) {
+        withDB {
+            guard let db = self.db else { return }
+            try db.run("PRAGMA user_version = \(version)")
+        }
+    }
+
+    /// 迁移流程结束后主库与表引用是否仍可用（用于避免“半初始化”却标记成功）
+    private func migrationStoresLookHealthy() -> Bool {
+        syncOnDBQueue { db != nil && table != nil }
+    }
+
+    private func applyMigrations() -> Bool {
+        let currentVersion = getSchemaVersion()
+        log.info("Current database schema version: \(currentVersion)")
+
+        if currentVersion < Self.currentSchemaVersion {
+            let basePath = getStoragePath()
+            let paths = databasePaths(for: basePath)
+            backupDatabaseIfNeeded(
+                dbPath: paths.dbPath,
+                backupPath: paths.backupPath,
+                force: true,
+                synchronous: true
+            )
+        }
+
+        let needsLargeImageMigration = currentVersion < 1
+        let needsEmbeddingMigration = currentVersion < 2
+        let needsTemporaryMigration = currentVersion < 3
+        let needsSourceAnchorMigration = currentVersion < 4
+        let needsEncryptionStateMigration = currentVersion < 5
+        let needsCustomTitleMigration = currentVersion < 6
+        let needsReceivedFromLanMigration = currentVersion < 7
+        let needsSemanticEmbeddingModelMigration = currentVersion < 9
+
+        let applyCustomTitleMigrationIfNeeded = { [weak self] in
+            guard let self, needsCustomTitleMigration else { return }
+            self.addCustomTitleColumnIfNeeded()
+            self.rebuildFTSForCustomTitleMigration()
+        }
+
+        let applyReceivedFromLanMigrationIfNeeded = { [weak self] in
+            guard let self, needsReceivedFromLanMigration else { return }
+            self.addReceivedFromLanColumnIfNeeded()
+            self.backfillReceivedFromLanFlagsIfNeeded()
+        }
+
+        // Migration 0 -> 1: 添加 blob_path 列
+        if needsLargeImageMigration {
+            withDB {
+                guard let db = self.db else { return }
+                let stmt = try db.prepare("PRAGMA table_info(ClipboardHistory)")
+                var columns: [String] = []
+                while let row = try stmt.failableNext() {
+                    if let name = row[1] as? String {
+                        columns.append(name)
+                    }
+                }
+                if !columns.contains("blob_path") {
+                    try db.run("ALTER TABLE ClipboardHistory ADD COLUMN blob_path TEXT")
+                    log.info("Added blob_path column for large payload offloading")
+                }
+            }
+
+            if needsEmbeddingMigration {
+                createEmbeddingTable()
+            }
+
+            if needsTemporaryMigration {
+                addTemporaryColumnIfNeeded()
+            }
+            if needsSourceAnchorMigration {
+                addSourceAnchorColumnIfNeeded()
+            }
+            if needsEncryptionStateMigration {
+                addEncryptionStateColumnIfNeeded()
+            }
+            applyCustomTitleMigrationIfNeeded()
+            applyReceivedFromLanMigrationIfNeeded()
+
+            // 执行大图迁移，完成后再进行语义缓存回填
+            let postMigration: (() async -> Void)?
+            if needsEmbeddingMigration {
+                postMigration = { [weak self] in
+                    _ = await self?.performSemanticEmbeddingBackfill()
+                }
+            } else {
+                postMigration = nil
+            }
+            migrateLargeImagesIfNeeded(
+                finalVersion: Self.currentSchemaVersion,
+                postMigration: postMigration
+            )
+            return migrationStoresLookHealthy()
+        }
+
+        // Migration 1 -> 2: 添加语义向量缓存表
+        if needsEmbeddingMigration {
+            createEmbeddingTable()
+            if needsTemporaryMigration {
+                addTemporaryColumnIfNeeded()
+            }
+            if needsSourceAnchorMigration {
+                addSourceAnchorColumnIfNeeded()
+            }
+            if needsEncryptionStateMigration {
+                addEncryptionStateColumnIfNeeded()
+            }
+            applyCustomTitleMigrationIfNeeded()
+            applyReceivedFromLanMigrationIfNeeded()
+            backfillSemanticEmbeddingsIfNeeded(targetVersion: Self.currentSchemaVersion)
+            return migrationStoresLookHealthy()
+        }
+
+        if needsTemporaryMigration || needsSourceAnchorMigration || needsEncryptionStateMigration || needsCustomTitleMigration || needsReceivedFromLanMigration || needsSemanticEmbeddingModelMigration {
+            if needsTemporaryMigration {
+                addTemporaryColumnIfNeeded()
+            }
+            if needsSourceAnchorMigration {
+                addSourceAnchorColumnIfNeeded()
+            }
+            if needsEncryptionStateMigration {
+                addEncryptionStateColumnIfNeeded()
+            }
+            applyCustomTitleMigrationIfNeeded()
+            applyReceivedFromLanMigrationIfNeeded()
+            if needsSemanticEmbeddingModelMigration {
+                resetSemanticEmbeddingCachesForModelUpgrade()
+                // Persist the schema/model marker immediately after the destructive
+                // reset. Backfill is resumable and bounded; if the app exits before it
+                // completes, the next launch must continue backfilling without clearing
+                // the cache again.
+                setSchemaVersion(Self.currentSchemaVersion)
+                scheduleSemanticEmbeddingBackfillIfNeeded()
+                return migrationStoresLookHealthy()
+            }
+            setSchemaVersion(Self.currentSchemaVersion)
+        }
+
+        // 未来的迁移可以继续添加:
+        return migrationStoresLookHealthy()
+    }
+
+    private func resetSemanticEmbeddingCachesForModelUpgrade() {
+        dropVecTables()
+        withDB {
+            guard let db = self.db else { return }
+            try db.run("DELETE FROM ClipboardHistory_embedding")
+        }
+        SemanticSearchService.shared.clearCache()
+        log.info("Semantic embedding cache reset for \(SemanticSearchService.embeddingModelVersion)")
+    }
+
+    private func addReceivedFromLanColumnIfNeeded() {
+        withDB {
+            guard let db = self.db else { return }
+            let stmt = try db.prepare("PRAGMA table_info(ClipboardHistory)")
+            var columns: [String] = []
+            while let row = try stmt.failableNext() {
+                if let name = row[1] as? String {
+                    columns.append(name)
+                }
+            }
+            guard !columns.contains("received_from_lan") else { return }
+            try db.run("ALTER TABLE ClipboardHistory ADD COLUMN received_from_lan INTEGER NOT NULL DEFAULT 0")
+            log.info("Added received_from_lan column for LAN-received clipboard markers")
+        }
+    }
+
+    /// 将历史记录中可可靠识别的局域网接收条目标为 `received_from_lan`（明文路径含 `/LANReceived/`）。
+    private func backfillReceivedFromLanFlagsIfNeeded() {
+        withDB {
+            guard let db = self.db else { return }
+            let marker = "/" + LANReceivedCleanup.folderComponent + "/"
+            let escaped = marker.replacingOccurrences(of: "'", with: "''")
+            // 仅处理未加密行，避免对密文做 LIKE；小 payload 的 data 可能为 file:// 列表。
+            let sql = """
+            UPDATE ClipboardHistory SET received_from_lan = 1
+            WHERE is_encrypted = 0
+              AND received_from_lan = 0
+              AND (
+                search_text LIKE '%\(escaped)%'
+                OR IFNULL(blob_path, '') LIKE '%\(escaped)%'
+                OR (length(data) <= 1048576 AND CAST(data AS TEXT) LIKE '%\(escaped)%')
+              )
+            """
+            do {
+                try db.run(sql)
+                log.info("Backfill received_from_lan (historical LANReceived paths) executed")
+            } catch {
+                log.error("Backfill received_from_lan failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func addTemporaryColumnIfNeeded() {
+        withDB {
+            guard let db = self.db else { return }
+            let stmt = try db.prepare("PRAGMA table_info(ClipboardHistory)")
+            var columns: [String] = []
+            while let row = try stmt.failableNext() {
+                if let name = row[1] as? String {
+                    columns.append(name)
+                }
+            }
+            guard !columns.contains("is_temporary") else { return }
+            try db.run("ALTER TABLE ClipboardHistory ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0")
+            log.info("Added is_temporary column for temporary items")
+        }
+    }
+
+    private func addSourceAnchorColumnIfNeeded() {
+        withDB {
+            guard let db = self.db else { return }
+            let stmt = try db.prepare("PRAGMA table_info(ClipboardHistory)")
+            var columns: [String] = []
+            while let row = try stmt.failableNext() {
+                if let name = row[1] as? String {
+                    columns.append(name)
+                }
+            }
+            guard !columns.contains("source_anchor") else { return }
+            try db.run("ALTER TABLE ClipboardHistory ADD COLUMN source_anchor TEXT")
+            log.info("Added source_anchor column for IDE anchors")
+        }
+    }
+
+    private func addEncryptionStateColumnIfNeeded() {
+        withDB {
+            guard let db = self.db else { return }
+            let stmt = try db.prepare("PRAGMA table_info(ClipboardHistory)")
+            var columns: [String] = []
+            while let row = try stmt.failableNext() {
+                if let name = row[1] as? String {
+                    columns.append(name)
+                }
+            }
+            guard !columns.contains("is_encrypted") else { return }
+            try db.run("ALTER TABLE ClipboardHistory ADD COLUMN is_encrypted INTEGER NOT NULL DEFAULT 0")
+            let encryptedValue = DeckUserDefaults.securityModeEnabled ? 1 : 0
+            try db.run("UPDATE ClipboardHistory SET is_encrypted = ?", encryptedValue)
+            log.info("Added is_encrypted column for encryption state")
+        }
+    }
+
+    private func addCustomTitleColumnIfNeeded() {
+        withDB {
+            guard let db = self.db else { return }
+            let stmt = try db.prepare("PRAGMA table_info(ClipboardHistory)")
+            var columns: [String] = []
+            while let row = try stmt.failableNext() {
+                if let name = row[1] as? String {
+                    columns.append(name)
+                }
+            }
+            guard !columns.contains("custom_title") else { return }
+            try db.run("ALTER TABLE ClipboardHistory ADD COLUMN custom_title TEXT")
+            log.info("Added custom_title column for user-defined titles")
+        }
+    }
+
+    private func rebuildFTSForCustomTitleMigration() {
+        let preferTrigram = syncOnDBQueue { ftsUsesTrigram }
+        rebuildFTSIndex(preferTrigram: preferTrigram)
+    }
+
+    private func backfillFileSearchTextIfNeeded() {
+        guard DeckUserDefaults.fileSearchTextBackfillVersion < Self.fileSearchTextBackfillTargetVersion else { return }
+
+        Task(priority: .background) { [weak self] in
+            guard let self else { return }
+            await self.performFileSearchTextBackfill()
+            DeckUserDefaults.fileSearchTextBackfillVersion = Self.fileSearchTextBackfillTargetVersion
+        }
+    }
+
+    private func performFileSearchTextBackfill() async {
+        let batchSize = 200
+        var lastSeenID: Int64 = 0
+        var updated = 0
+
+        while true {
+            guard !Task.isCancelled else { break }
+
+            let rows: [Row] = await withDBAsyncBackground {
+                guard let db = self.db, let table = self.table else { return [] }
+                let query = table
+                    .select(Col.id, Col.data, Col.searchText, Col.type)
+                    .filter((Col.type == PasteboardType.fileURL.rawValue) && (Col.id > lastSeenID))
+                    .order(Col.id.asc)
+                    .limit(batchSize)
+                return Array(try db.prepare(query))
+            } ?? []
+
+            guard !rows.isEmpty else { break }
+            if let lastID = try? rows.last?.get(Col.id) {
+                lastSeenID = lastID
+            }
+
+            for row in rows {
+                guard !Task.isCancelled else { break }
+                do {
+                    let id = try row.get(Col.id)
+                    let rawSearchText = try row.get(Col.searchText)
+                    let existingSearchText = decryptString(rawSearchText)
+
+                    let rawData = try row.get(Col.data)
+                    let decodedData = decryptData(rawData)
+                    guard let text = String(data: decodedData, encoding: .utf8) else { continue }
+                    let paths = text.components(separatedBy: "\n").filter { !$0.isEmpty }
+                    let newSearchText = ClipboardItem.searchTextForFilePaths(paths)
+                    guard !newSearchText.isEmpty else { continue }
+
+                    if existingSearchText == newSearchText {
+                        continue
+                    }
+
+                    let existingLower = existingSearchText.lowercased()
+                    if !existingLower.isEmpty {
+                        let fileNames = paths.map { URL(fileURLWithPath: $0).lastPathComponent }
+                        if fileNames.contains(where: { !($0.isEmpty) && existingLower.contains($0.lowercased()) }) {
+                            continue
+                        }
+                    }
+
+                    await updateSearchText(id: id, searchText: newSearchText)
+                    updated += 1
+                } catch {
+                    continue
+                }
+            }
+
+            if rows.count < batchSize { break }
+            await Task.yield()
+        }
+
+        if updated > 0 {
+            await log.info("File search text backfill completed: \(updated) items updated")
+        }
+    }
+
+    private func migrateLargeImagesIfNeeded(
+        finalVersion: Int32,
+        postMigration: (() async -> Void)? = nil
+    ) {
+        // 在后台线程执行迁移
+        Task(priority: .background) { [weak self] in
+            guard let self else { return }
+            let completed = await self.performLargeImageMigration()
+            guard completed else {
+                await log.warn("Large image migration incomplete; schema version not updated")
+                return
+            }
+            if let postMigration {
+                await postMigration()
+            }
+            // 迁移完成后更新数据库版本
+            self.setSchemaVersion(finalVersion)
+            await log.info("Database schema updated to version \(finalVersion)")
+        }
+    }
+
+    private func performLargeImageMigration() async -> Bool {
+        guard syncOnDBBackgroundQueue({ db != nil && table != nil }) else { return false }
+
+        // 使用分页查询避免一次性加载全部数据
+        let batchSize = 50
+        var lastId: Int64 = 0
+        var totalMigrated = 0
+
+        while true {
+            // 支持任务取消
+            guard !Task.isCancelled else {
+                await log.info("Large image migration cancelled after \(totalMigrated) items")
+                return false
+            }
+
+            // 每次只查询一批需要迁移的图片
+            let rows: [Row] = await withDBAsyncBackground {
+                guard let db = self.db, let table = self.table else { return [] }
+                let blobIsNil = Expression<Bool>("blob_path IS NULL")
+                let filter = (Col.itemType == ClipItemType.image.rawValue) && blobIsNil && (Col.id > lastId)
+                let query = table
+                    .filter(filter)
+                    .order(Col.id.asc)
+                    .limit(batchSize)
+                return Array(try db.prepare(query))
+            } ?? []
+
+            guard !rows.isEmpty else { break }
+
+            if let lastRow = rows.last, let rowId = try? lastRow.get(Col.id) {
+                lastId = rowId
+            }
+
+            for row in rows {
+                // 支持任务取消
+                guard !Task.isCancelled else {
+                    await log.info("Large image migration cancelled after \(totalMigrated) items")
+                    return false
+                }
+
+                guard let item = rowToClipboardItem(row, isEncrypted: nil) else { continue }
+                guard item.data.count > Const.largeBlobThreshold else { continue }
+                guard let rowId = try? row.get(Col.id) else { continue }
+
+                let path = await BlobStorage.shared.storeAsync(data: item.data, uniqueId: item.uniqueId)
+
+                guard let path else { continue }
+
+                // Avoid storing preview duplicates for blob-backed items.
+                guard let encryptedData = encryptData(Data()) else { return false }
+
+                _ = await withDBAsyncBackground {
+                    guard let db = self.db, let table = self.table else { return }
+                    let query = table.filter(Col.id == rowId)
+                    try db.run(query.update(
+                        Col.data <- encryptedData,
+                        Col.blobPath <- path
+                    ))
+                }
+
+                totalMigrated += 1
+            }
+
+            if rows.count < batchSize { break }
+
+            // 批次间让出 CPU，避免长时间阻塞后台线程
+            await Task.yield()
+        }
+
+        await log.info("Large image migration completed: \(totalMigrated) items migrated")
+        await vacuumDatabase(reason: "blob migration")
+        return true
+    }
+
+    private nonisolated func backfillSemanticEmbeddingsIfNeeded(targetVersion: Int32) {
+        // Schema/table creation is complete before this point; semantic embedding
+        // population is resumable maintenance and must not gate user_version.
+        // Otherwise an empty history (or an interrupted bounded chunk) repeats the
+        // migration/backup path on every launch.
+        setSchemaVersion(targetVersion)
+        log.info("Database schema updated to version \(targetVersion)")
+        scheduleSemanticEmbeddingBackfillIfNeeded()
+    }
+
+    private nonisolated func scheduleSemanticEmbeddingBackfillIfNeeded() {
+        guard shouldScheduleSemanticEmbeddingBackfill() else { return }
+        let shouldStart = semanticEmbeddingBackfillStateQueue.sync {
+            guard !semanticEmbeddingBackfillInProgress else { return false }
+            semanticEmbeddingBackfillInProgress = true
+            return true
+        }
+        guard shouldStart else { return }
+        Task(priority: .background) { [weak self] in
+            guard let self else { return }
+            let result = await self.performSemanticEmbeddingBackfill()
+
+            let shouldContinue = !Task.isCancelled && self.shouldScheduleSemanticEmbeddingBackfill()
+            self.semanticEmbeddingBackfillStateQueue.sync {
+                self.semanticEmbeddingBackfillInProgress = false
+            }
+
+            if shouldContinue {
+                let retryOnlyDelay: UInt64 = 5_000_000_000
+                let normalDelay: UInt64 = 250_000_000
+                let delay = result.advanced == 0 && result.retryableFailures > 0 ? retryOnlyDelay : normalDelay
+                try? await Task.sleep(nanoseconds: delay)
+                self.scheduleSemanticEmbeddingBackfillIfNeeded()
+            }
+        }
+    }
+
+    private nonisolated func shouldScheduleSemanticEmbeddingBackfill() -> Bool {
+        syncOnDBBackgroundQueue {
+            guard let db = db else { return false }
+            let sql = """
+                SELECT 1
+                FROM ClipboardHistory ch
+                LEFT JOIN ClipboardHistory_embedding e ON ch.id = e.id
+                WHERE e.id IS NULL
+                LIMIT 1
+            """
+            return (try? db.scalar(sql) as? Int64) != nil
+        }
+    }
+
+    private nonisolated func performSemanticEmbeddingBackfill() async -> SemanticEmbeddingBackfillResult {
+        let batchSize = 50
+        let maxItems = DeckUserDefaults.securityModeEnabled ? 100 : 200
+        var processed = 0
+        var advanced = 0
+        var retryableFailures = 0
+        var lastSeenID: Int64 = 0
+
+        while processed < maxItems {
+            guard !Task.isCancelled else { break }
+
+            let startAfterID = lastSeenID
+            let rows: [(id: Int64, searchText: String, isEncrypted: Bool?)] = await withDBAsyncBackground {
+                guard let db = self.db else { return [] }
+                let sql = """
+                    SELECT ch.id, ch.search_text, ch.is_encrypted
+                    FROM ClipboardHistory ch
+                    LEFT JOIN ClipboardHistory_embedding e ON ch.id = e.id
+                    WHERE e.id IS NULL
+                      AND ch.id > ?
+                    ORDER BY ch.id ASC
+                    LIMIT ?
+                """
+                let stmt = try db.prepare(sql).bind(startAfterID, batchSize)
+                var result: [(Int64, String, Bool?)] = []
+                while let row = try stmt.failableNext() {
+                    if let id = row[0] as? Int64, let text = row[1] as? String {
+                        let rawEncrypted = row[2]
+                        let isEncrypted: Bool?
+                        if let value = rawEncrypted as? Bool {
+                            isEncrypted = value
+                        } else if let value = rawEncrypted as? Int64 {
+                            isEncrypted = value != 0
+                        } else if let value = rawEncrypted as? Int {
+                            isEncrypted = value != 0
+                        } else {
+                            isEncrypted = nil
+                        }
+                        result.append((id, text, isEncrypted))
+                    }
+                }
+                return result
+            } ?? []
+
+            guard !rows.isEmpty else { break }
+            lastSeenID = rows.last?.id ?? lastSeenID
+
+            for row in rows {
+                guard !Task.isCancelled else { break }
+                let rawText: String
+                switch decryptStringForBackgroundBackfill(row.searchText, isEncrypted: row.isEncrypted) {
+                case .text(let text):
+                    rawText = text
+                case .retry:
+                    retryableFailures += 1
+                    processed += 1
+                    continue
+                }
+
+                let normalized = SemanticSearchService.normalizedSemanticText(rawText)
+                guard !normalized.isEmpty else {
+                    storeSemanticEmbeddingSkipMarker(id: row.id, normalizedText: normalized, reason: "empty")
+                    processed += 1
+                    advanced += 1
+                    continue
+                }
+
+                let textHash = SemanticSearchService.semanticTextHash(normalizedText: normalized)
+                guard let vector = SemanticSearchService.shared.vector(for: normalized, cacheKey: "i:\(row.id)-\(textHash)") else {
+                    storeSemanticEmbeddingSkipMarker(id: row.id, normalizedText: normalized, reason: "unavailable")
+                    processed += 1
+                    advanced += 1
+                    continue
+                }
+                storeSemanticEmbedding(id: row.id, textHash: textHash, vector: vector)
+                processed += 1
+                advanced += 1
+                if processed >= maxItems { break }
+            }
+
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        if processed > 0 {
+            await log.info("Semantic embedding backfill completed: attempted=\(processed), advanced=\(advanced), retryable=\(retryableFailures)")
+        }
+        return SemanticEmbeddingBackfillResult(attempted: processed, advanced: advanced, retryableFailures: retryableFailures)
+    }
+
+    private nonisolated func decryptStringForBackgroundBackfill(_ string: String, isEncrypted: Bool?) -> BackgroundStringDecryptionResult {
+        let shouldDecrypt = isEncrypted ?? DeckUserDefaults.securityModeEnabled
+        guard shouldDecrypt else { return .text(string) }
+        guard let data = Data(base64Encoded: string) else { return .text(string) }
+        guard let decrypted = SecurityService.backgroundDecryptSilently(data),
+              let result = String(data: decrypted, encoding: .utf8) else {
+            return .retry
+        }
+        return .text(result)
+    }
+
+    private func vacuumDatabase(reason: String) async {
+        let didCheckpoint = await withDBAsyncBackground {
+            guard let db = self.db else { return false }
+            try db.run("PRAGMA wal_checkpoint(TRUNCATE)")
+            return true
+        } == true
+
+        if didCheckpoint {
+            await log.info("WAL checkpoint completed (\(reason))")
+        }
+
+        let didVacuum = await withDBAsyncBackground {
+            guard let db = self.db else { return false }
+            try db.run("VACUUM")
+            return true
+        } == true
+
+        if didVacuum {
+            await log.info("Database vacuum completed (\(reason))")
+        }
+    }
+
+    private func scheduleDatabaseVacuum(reason: String) {
+        Task(priority: .background) { [weak self] in
+            await self?.vacuumDatabase(reason: reason)
+        }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        syncOnDBQueue {
+            finalizeCachedStatements()
+        }
+        stopSecurityScopedAccess()
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MARK: - Encryption Helpers (加密辅助函数)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+//  安全模式下的加密/解密逻辑：
+//  - 加密列：data, search_text, app_name, custom_title, embedding
+//  - 加密算法：由 SecurityService 提供（AES-256-GCM + Keychain 密钥管理）
+//  - 加密失败：返回 nil 并提示用户，避免安全模式下写入明文
+//
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+extension DeckSQLManager {
+    /// 加密二进制数据（用于 data、embedding 列）
+    /// - Parameter data: 原始数据
+    /// - Returns: 加密后的数据（安全模式下），或原始数据（非安全模式）；失败时返回 nil
+    private func encryptData(_ data: Data) -> Data? {
+        guard DeckUserDefaults.securityModeEnabled else { return data }
+        guard let encrypted = SecurityService.shared.encrypt(data) else {
+            log.error("Security mode enabled but data encryption failed; rejecting plaintext write")
+            notifyEncryptionFailureIfNeeded()
+            return nil
+        }
+        return encrypted
+    }
+    
+    /// 解密二进制数据（用于 data、embedding 列）
+    /// - Parameter data: 加密的数据
+    /// - Returns: 解密后的数据（安全模式下），或原始数据（非安全模式）
+    private func decryptData(_ data: Data, force: Bool = false) -> Data {
+        guard force || DeckUserDefaults.securityModeEnabled else { return data }
+        // This is intentionally tolerant: several read paths call it while the
+        // database can contain mixed plaintext/encrypted rows (startup,
+        // security-mode migration windows, legacy rows). A failed probe falls
+        // back to the original payload, so it should not be logged as ERROR.
+        return SecurityService.shared.decryptSilently(data) ?? data
+    }
+    
+    /// 加密字符串（用于 search_text、app_name、custom_title 列）
+    /// - Parameter string: 原始字符串
+    /// - Returns: Base64 编码的加密数据（安全模式下），或原始字符串（非安全模式）；失败时返回 nil
+    private func encryptString(_ string: String) -> String? {
+        guard DeckUserDefaults.securityModeEnabled else { return string }
+        guard let data = string.data(using: .utf8) else {
+            log.error("Security mode enabled but string encoding failed; rejecting plaintext write")
+            notifyEncryptionFailureIfNeeded()
+            return nil
+        }
+        guard let encrypted = SecurityService.shared.encrypt(data) else {
+            log.error("Security mode enabled but string encryption failed; rejecting plaintext write")
+            notifyEncryptionFailureIfNeeded()
+            return nil
+        }
+        return encrypted.base64EncodedString()
+    }
+    
+    /// 解密字符串（用于 search_text、app_name、custom_title 列）
+    /// - Parameter string: Base64 编码的加密数据
+    /// - Returns: 解密后的字符串（安全模式下），或原始字符串（非安全模式）
+    private func decryptString(_ string: String, force: Bool = false) -> String {
+        guard force || DeckUserDefaults.securityModeEnabled else { return string }
+        guard let data = Data(base64Encoded: string),
+              let decrypted = SecurityService.shared.decryptSilently(data),
+              let result = String(data: decrypted, encoding: .utf8) else { return string }
+        return result
+    }
+
+    private func isEncryptedPayload(_ data: Data) -> Bool {
+        guard !data.isEmpty else { return false }
+        return SecurityService.shared.decryptSilently(data) != nil
+    }
+
+    private func isEncryptedStringPayload(_ string: String) -> Bool {
+        guard let decoded = Data(base64Encoded: string),
+              let decrypted = SecurityService.shared.decryptSilently(decoded),
+              String(data: decrypted, encoding: .utf8) != nil else { return false }
+        return true
+    }
+
+    private func encryptDataIfNeeded(_ data: Data) -> Data? {
+        if isEncryptedPayload(data) {
+            return data
+        }
+        return SecurityService.shared.encrypt(data)
+    }
+
+    private func decryptStringSilently(_ string: String) -> String {
+        guard let data = Data(base64Encoded: string),
+              let decrypted = SecurityService.shared.decryptSilently(data),
+              let result = String(data: decrypted, encoding: .utf8) else { return string }
+        return result
+    }
+
+    private func encryptStringIfNeeded(_ string: String) -> String? {
+        if isEncryptedStringPayload(string) {
+            return string
+        }
+        guard let data = string.data(using: .utf8),
+              let encrypted = SecurityService.shared.encrypt(data) else { return nil }
+        return encrypted.base64EncodedString()
+    }
+
+    private nonisolated func encryptDataForMigration(_ data: Data, using key: SymmetricKey) -> Data? {
+        SecurityService.encryptWithKey(data, using: key)
+    }
+
+    private nonisolated func decryptDataForMigration(_ data: Data, using key: SymmetricKey) -> Data? {
+        if data.isEmpty { return data }
+        return SecurityService.decryptWithKey(data, using: key)
+    }
+
+    private nonisolated func encryptStringForMigration(_ string: String, using key: SymmetricKey) -> String? {
+        guard let data = string.data(using: .utf8),
+              let encrypted = SecurityService.encryptWithKey(data, using: key) else {
+            return nil
+        }
+        return encrypted.base64EncodedString()
+    }
+
+    private nonisolated func decryptStringForMigration(_ string: String, using key: SymmetricKey) -> String? {
+        if string.isEmpty { return "" }
+        guard let data = Data(base64Encoded: string),
+              let decrypted = SecurityService.decryptWithKey(data, using: key) else {
+            return nil
+        }
+        return String(data: decrypted, encoding: .utf8)
+    }
+
+    private nonisolated func notifyEncryptionFailureIfNeeded() {
+        let shouldNotify = syncOnErrorStateQueue {
+            if hasNotifiedEncryptionFailure {
+                return false
+            }
+            hasNotifiedEncryptionFailure = true
+            return true
+        }
+        guard shouldNotify else { return }
+        notifyUserOfDBError(
+            NSLocalizedString("安全模式加密失败，请重新认证或关闭安全模式后重试", comment: "Security mode encryption failed"),
+            isCritical: true
+        )
+    }
+
+    // MARK: - Semantic Embedding Helpers
+
+    private func semanticTextHash(_ text: String) -> String {
+        SemanticSearchService.semanticTextHash(text)
+    }
+
+    private nonisolated func bindingToData(_ binding: Binding?) -> Data? {
+        if let blob = binding as? Blob {
+            return Data(blob.bytes)
+        }
+        return nil
+    }
+
+    private nonisolated func bindingToInt64(_ binding: Binding?) -> Int64? {
+        if let value = binding as? Int64 {
+            return value
+        }
+        if let value = binding as? Int {
+            return Int64(value)
+        }
+        if let value = binding as? NSNumber {
+            return value.int64Value
+        }
+        return nil
+    }
+
+    private nonisolated func bindingToDouble(_ binding: Binding?) -> Double? {
+        if let value = binding as? Double {
+            return value
+        }
+        if let value = binding as? Int64 {
+            return Double(value)
+        }
+        if let value = binding as? Int {
+            return Double(value)
+        }
+        if let value = binding as? NSNumber {
+            return value.doubleValue
+        }
+        return nil
+    }
+
+    private nonisolated func encodeEmbedding(_ vector: [Float]) -> Data {
+        vector.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+
+    private nonisolated func decodeEmbedding(_ data: Data) -> [Float]? {
+        guard data.count % MemoryLayout<Float>.size == 0 else { return nil }
+        return data.withUnsafeBytes { rawBuffer in
+            let buffer = rawBuffer.bindMemory(to: Float.self)
+            return Array(buffer)
+        }
+    }
+
+    private nonisolated func normalizeVector(_ vector: [Float]) -> [Float] {
+        guard !vector.isEmpty else { return vector }
+        var sumSquares: Float = 0
+        vDSP_svesq(vector, 1, &sumSquares, vDSP_Length(vector.count))
+        let norm = sqrt(sumSquares)
+        guard norm > 0 else { return vector }
+        var normalized = vector
+        var scale = Float(1.0) / norm
+        vDSP_vsmul(normalized, 1, &scale, &normalized, 1, vDSP_Length(normalized.count))
+        return normalized
+    }
+
+    private nonisolated func vectorToFloat32Blob(_ vector: [Float]) -> SQLite.Blob {
+        var data = Data(capacity: vector.count * MemoryLayout<Float>.size)
+        for value in vector {
+            var bits = value.bitPattern.littleEndian
+            withUnsafeBytes(of: &bits) { data.append(contentsOf: $0) }
+        }
+        return SQLite.Blob(bytes: [UInt8](data))
+    }
+
+    @discardableResult
+    private nonisolated func updateVecIndex(id: Int64, vector: [Float]) -> Bool {
+        guard !vector.isEmpty else { return false }
+        let canIndex = syncOnDBQueue { vecIndexEnabled } && !DeckUserDefaults.securityModeEnabled
+        guard canIndex else { return false }
+
+        let normalized = normalizeVector(vector)
+        guard !normalized.isEmpty else { return false }
+        let dimension = normalized.count
+
+        // Broken dimension should short-circuit early (avoid withDB and failure logs in hot path).
+        let dimensionUsable = syncOnDBQueue { self.isVecDimensionUsable(dimension) }
+        guard dimensionUsable else { return false }
+
+        // sqlite-vec accepts raw float32 BLOBs; avoid hot-path JSON formatting/parsing.
+        let payload = vectorToFloat32Blob(normalized)
+
+        let outcome = withDB { () -> (succeeded: Bool, shouldLogFailure: Bool) in
+            guard vecIndexEnabled, !DeckUserDefaults.securityModeEnabled else { return (false, false) }
+            guard let db = self.db else { return (false, false) }
+            guard self.isVecDimensionUsable(dimension) else { return (false, false) }
+            ensureVecTable(dimension: dimension)
+            guard vecReadyDimensions.contains(dimension) else {
+                if vecMissingDimensionLogged.insert(dimension).inserted {
+                    log.debug("Vec table not ready for dimension \(dimension); skipping updates")
+                }
+                let shouldLogFailure = !self.vecBrokenDimensions.contains(dimension)
+                return (false, shouldLogFailure)
+            }
+
+            var tableName = self.resolveVecActiveTableName(dimension: dimension, db: db)
+            let upsertRow = { (targetTableName: String) in
+                try db.run(
+                    "INSERT OR REPLACE INTO \(targetTableName)(rowid, embedding) VALUES (?, ?)",
+                    id,
+                    payload
+                )
+            }
+            do {
+                _ = try upsertRow(tableName)
+            } catch {
+                let resolvedTableName = self.resolveVecActiveTableName(dimension: dimension, db: db)
+                if resolvedTableName != tableName {
+                    do {
+                        _ = try upsertRow(resolvedTableName)
+                        return (true, false)
+                    } catch {
+                        tableName = resolvedTableName
+                    }
+                }
+                if self.isVecInternalSQLiteError(error) {
+                    let rebuilt = self.rebuildVecTable(dimension: dimension, db: db, reason: "vec upsert internal error")
+                    guard rebuilt else { return (false, false) }
+                    do {
+                        _ = try upsertRow(tableName)
+                        return (true, false)
+                    } catch {
+                        log.debug("Vec upsert still failed after rebuild: \(error.localizedDescription)")
+                        let shouldLogFailure = !self.vecBrokenDimensions.contains(dimension)
+                        return (false, shouldLogFailure)
+                    }
+                }
+                do {
+                    try db.run("DELETE FROM \(tableName) WHERE rowid = ?", id)
+                    try db.run(
+                        "INSERT INTO \(tableName)(rowid, embedding) VALUES (?, ?)",
+                        id,
+                        payload
+                    )
+                } catch {
+                    log.debug("Vec upsert failed on table \(tableName): \(error.localizedDescription)")
+                    let shouldLogFailure = !self.vecBrokenDimensions.contains(dimension)
+                    return (false, shouldLogFailure)
+                }
+            }
+            return (true, false)
+        }
+
+        let succeeded = (outcome?.succeeded == true)
+        if !succeeded {
+            let shouldLog = outcome?.shouldLogFailure ?? false
+            if shouldLog {
+                log.debug("Vec index update failed for id=\(id), dim=\(dimension)")
+            }
+        }
+        return succeeded
+    }
+
+    private nonisolated func storeSemanticEmbedding(id: Int64, textHash: String, vector: [Float]) {
+        let encoded = encodeEmbedding(vector)
+        let storedData: Data
+        if DeckUserDefaults.securityModeEnabled {
+            guard let encrypted = SecurityService.backgroundEncryptSilently(encoded) else {
+                log.error("Security mode enabled but semantic embedding encryption failed; rejecting plaintext write")
+                notifyEncryptionFailureIfNeeded()
+                return
+            }
+            storedData = encrypted
+        } else {
+            storedData = encoded
+        }
+
+        withDB {
+            guard let db = self.db else { return }
+            let tab = Table("ClipboardHistory_embedding")
+            let insert = tab.insert(or: .replace,
+                                    EmbeddingCol.id <- id,
+                                    EmbeddingCol.textHash <- textHash,
+                                    EmbeddingCol.embedding <- storedData)
+            try db.run(insert)
+        }
+
+        updateVecIndex(id: id, vector: vector)
+    }
+
+    private nonisolated func storeSemanticEmbeddingSkipMarker(id: Int64, normalizedText: String, reason: String) {
+        let textHash = "skip:\(reason):\(SemanticSearchService.semanticTextHash(normalizedText: normalizedText))"
+        let storedData: Data
+        if DeckUserDefaults.securityModeEnabled {
+            guard let encrypted = SecurityService.backgroundEncryptSilently(Data()) else {
+                log.error("Security mode enabled but semantic embedding skip marker encryption failed; rejecting plaintext write")
+                notifyEncryptionFailureIfNeeded()
+                return
+            }
+            storedData = encrypted
+        } else {
+            storedData = Data()
+        }
+
+        withDB {
+            guard let db = self.db else { return }
+            let tab = Table("ClipboardHistory_embedding")
+            let insert = tab.insert(or: .replace,
+                                    EmbeddingCol.id <- id,
+                                    EmbeddingCol.textHash <- textHash,
+                                    EmbeddingCol.embedding <- storedData)
+            try db.run(insert)
+        }
+    }
+
+    nonisolated func scheduleSemanticEmbeddingUpdate(id: Int64, searchText: String) {
+        embeddingQueue.async { [weak self] in
+            guard let self else { return }
+            let normalized = SemanticSearchService.normalizedSemanticText(searchText)
+            guard !normalized.isEmpty else { return }
+            let textHash = SemanticSearchService.semanticTextHash(normalizedText: normalized)
+            guard let vector = SemanticSearchService.shared.vector(for: normalized, cacheKey: "i:\(id)-\(textHash)") else {
+                return
+            }
+            self.storeSemanticEmbedding(id: id, textHash: textHash, vector: vector)
+        }
+    }
+
+    nonisolated func scheduleSemanticEmbeddingStore(id: Int64, textHash: String, vector: [Float]) {
+        embeddingQueue.async { [weak self] in
+            self?.storeSemanticEmbedding(id: id, textHash: textHash, vector: vector)
+        }
+    }
+
+    func fetchSemanticEmbeddings(for items: [ClipboardItem]) async -> [Int64: [Float]] {
+        let ids = items.compactMap { $0.id }
+        guard !ids.isEmpty else { return [:] }
+
+        var expectedHashes: [Int64: String] = [:]
+        expectedHashes.reserveCapacity(ids.count)
+        for item in items {
+            if let id = item.id {
+                let normalized = SemanticSearchService.normalizedSemanticText(item.searchText)
+                guard !normalized.isEmpty else { continue }
+                expectedHashes[id] = SemanticSearchService.semanticTextHash(normalizedText: normalized)
+            }
+        }
+
+        let tab = Table("ClipboardHistory_embedding")
+        let query = tab.select(EmbeddingCol.id, EmbeddingCol.textHash, EmbeddingCol.embedding)
+            .filter(ids.contains(EmbeddingCol.id))
+
+        return await withReadDBAsync { db, _ in
+            var result: [Int64: [Float]] = [:]
+            let rows = Array(try db.prepare(query))
+            for row in rows {
+                let id = try row.get(EmbeddingCol.id)
+                let storedHash = try row.get(EmbeddingCol.textHash)
+                guard let expectedHash = expectedHashes[id], expectedHash == storedHash else { continue }
+                let rawData = try row.get(EmbeddingCol.embedding)
+                let decodedData = DeckUserDefaults.securityModeEnabled ? self.decryptData(rawData) : rawData
+                guard let vector = self.decodeEmbedding(decodedData) else { continue }
+                result[id] = vector
+            }
+            return result
+        } ?? [:]
+    }
+
+    var isVecSearchAvailable: Bool {
+        syncOnDBQueue { vecIndexEnabled } && !DeckUserDefaults.securityModeEnabled
+    }
+
+    func searchVecIds(queryVector: [Float], limit: Int) async -> [Int64] {
+        let candidates = await searchVecCandidates(queryVector: queryVector, limit: limit)
+        return candidates.map { $0.id }
+    }
+
+    func searchVecCandidates(queryVector: [Float], limit: Int) async -> [(id: Int64, distance: Double)] {
+        guard !Task.isCancelled else { return [] }
+        guard !queryVector.isEmpty else { return [] }
+
+        let normalized = normalizeVector(queryVector)
+        guard !normalized.isEmpty else { return [] }
+        let isReady = syncOnDBQueue { () -> Bool in
+            guard vecIndexEnabled, !DeckUserDefaults.securityModeEnabled else { return false }
+            guard self.isVecDimensionUsable(normalized.count) else { return false }
+            ensureVecTable(dimension: normalized.count)
+            guard vecReadyDimensions.contains(normalized.count) else {
+                if vecMissingDimensionLogged.insert(normalized.count).inserted {
+                    log.debug("Vec table not ready for dimension \(normalized.count); search fallback")
+                }
+                return false
+            }
+            return true
+        }
+        guard isReady else { return [] }
+
+        let payload = vectorToFloat32Blob(normalized)
+        await log.debug("Vec search: dim=\(normalized.count), limit=\(limit)")
+        let results: [(id: Int64, distance: Double)] = await withDBAsync({ () throws -> [(id: Int64, distance: Double)] in
+            guard let db = self.db else { return [] }
+            let tableName = self.resolveVecActiveTableName(dimension: normalized.count, db: db)
+            do {
+                let sql = """
+                    SELECT rowid, distance FROM \(tableName)
+                    WHERE embedding MATCH ?
+                    ORDER BY distance
+                    LIMIT ?
+                """
+                let stmt = try db.prepare(sql).bind(payload, limit)
+                var rows: [(id: Int64, distance: Double)] = []
+                while let row = try stmt.failableNext() {
+                    guard let id = self.bindingToInt64(row[0]),
+                          let distance = self.bindingToDouble(row[1]) else {
+                        continue
+                    }
+                    rows.append((id: id, distance: distance))
+                }
+                return rows
+            } catch {
+                if self.isVecInternalSQLiteError(error) {
+                    _ = self.rebuildVecTable(dimension: normalized.count, db: db, reason: "vec search internal error")
+                    return []
+                }
+                throw error
+            }
+        }) ?? []
+        await log.debug("Vec search results: count=\(results.count)")
+        return results
+    }
+
+    // MARK: - Search Cache Helpers
+
+    /// 获取缓存的搜索字符串，如果未缓存则解密并缓存
+    /// 安全模式下也使用缓存，但会在失焦/会话切换时清空以降低明文驻留
+    /// - Parameters:
+    ///   - id: 行 ID
+    ///   - rawSearchText: 原始搜索文本（可能已加密）
+    ///   - appName: 应用名称
+    ///   - rawCustomTitle: 自定义标题（可能已加密）
+    ///   - isSecurityMode: 是否处于安全模式
+    /// - Returns: 解密且小写化后的缓存条目
+    private func getCachedSearchEntry(
+        id: Int64,
+        rawSearchText: String,
+        appName: String,
+        rawCustomTitle: String?,
+        isSecurityMode: Bool
+    ) -> SearchCacheEntry {
+        let cacheKey = NSNumber(value: id)
+
+        // 尝试从缓存获取
+        if let cached = searchTextCache.object(forKey: cacheKey) {
+            return cached
+        }
+
+        let resolvedSearchText: String
+        let resolvedAppName: String
+        let resolvedCustomTitle: String
+        if isSecurityMode {
+            resolvedSearchText = decryptString(rawSearchText, force: true)
+            resolvedAppName = decryptString(appName, force: true)
+            resolvedCustomTitle = rawCustomTitle.map { decryptString($0, force: true) } ?? ""
+        } else {
+            resolvedSearchText = rawSearchText
+            resolvedAppName = appName
+            resolvedCustomTitle = rawCustomTitle ?? ""
+        }
+
+        // 缓存未命中，小写化后存入缓存
+        let entry = SearchCacheEntry(
+            searchText: resolvedSearchText.lowercased(),
+            appName: resolvedAppName.lowercased(),
+            customTitle: resolvedCustomTitle.lowercased()
+        )
+
+        searchTextCache.setObject(entry, forKey: cacheKey, cost: entry.estimatedCost)
+        return entry
+    }
+
+    /// Build a lightweight, decrypted search snapshot for off-main fuzzy/mixed ranking.
+    ///
+    /// In security mode, rows store `search_text`, `app_name`, and `custom_title`
+    /// encrypted, so ranking raw SQL rows would compare against Base64 ciphertext and
+    /// make fuzzy/mixed search look empty. This mirrors `rowToClipboardItem`'s
+    /// lightweight-field decryption without materializing payload blobs.
+    func searchSnapshot(from row: Row) -> SearchSnapshot? {
+        do {
+            let id = try row.get(Col.id)
+            let timestamp = try row.get(Col.ts)
+            let uniqueId = try row.get(Col.uniqueId)
+            let rawSearchText = try row.get(Col.searchText)
+            let rawAppName = try row.get(Col.appName)
+            let rawCustomTitle = (try? row.get(Col.customTitle)) ?? nil
+            let storedIsEncrypted = try? row.get(Col.isEncrypted)
+            let shouldDecrypt = storedIsEncrypted ?? DeckUserDefaults.securityModeEnabled
+
+            let searchText = decryptString(rawSearchText, force: shouldDecrypt)
+            let appName = decryptString(rawAppName, force: shouldDecrypt)
+            let customTitle = rawCustomTitle
+                .map { decryptString($0, force: shouldDecrypt).trimmingCharacters(in: .whitespacesAndNewlines) }
+
+            return SearchSnapshot(
+                uniqueId: uniqueId,
+                rowId: id,
+                timestamp: timestamp,
+                title: customTitle ?? "",
+                text: searchText,
+                appName: appName
+            )
+        } catch {
+            log.error("Failed to build search snapshot: \(error)")
+            return nil
+        }
+    }
+
+    func searchSnapshots(from rows: [Row]) -> [SearchSnapshot] {
+        rows.compactMap { searchSnapshot(from: $0) }
+    }
+
+    /// 使缓存失效
+    /// - Parameter ids: 要失效的行 ID 列表。如果为 nil，则清空所有缓存
+    private nonisolated func invalidateSearchCache(ids: [Int64]? = nil) {
+        if let ids = ids {
+            for id in ids {
+                searchTextCache.removeObject(forKey: NSNumber(value: id))
+            }
+            log.debug("Invalidated search cache for \(ids.count) items")
+        } else {
+            searchTextCache.removeAllObjects()
+            log.debug("Cleared all search cache")
+        }
+    }
+
+    func clearSearchCache() {
+        invalidateSearchCache()
+    }
+
+    func shrinkMemory() async {
+        _ = await withDBAsync {
+            guard let db = self.db else { return false }
+            try db.run("PRAGMA shrink_memory")
+            return true
+        }
+    }
+}
+
+// MARK: - Database Operations
+
+extension DeckSQLManager {
+    /// Preserve existing user tag when the new payload is untagged (`-1`).
+    /// This prevents duplicate-copy upserts from silently clearing manual tags.
+    private nonisolated static func mergedTagId(incoming: Int, existing: Int?) -> Int {
+        guard incoming == -1, let existing, existing != -1 else { return incoming }
+        return existing
+    }
+
+    /// Preserve LAN-received marker when a duplicate `unique_id` upsert supplies `false` (e.g. local re-copy).
+    private nonisolated static func mergedReceivedFromLAN(incoming: Bool, existing: Bool?) -> Bool {
+        incoming || (existing ?? false)
+    }
+
+    var totalCount: Int {
+        return withReadDB { db, table in
+            return try db.scalar(table.count)
+        } ?? 0
+    }
+
+    private struct InsertPayload: Sendable {
+        let uniqueId: String
+        let pasteboardType: String
+        let itemType: String
+        let data: Data
+        let previewData: Data?
+        let timestamp: Int64
+        let appPath: String
+        let appName: String
+        let customTitle: String?
+        let sourceAnchor: String?
+        let searchText: String
+        let contentLength: Int
+        let tagId: Int
+        let blobPath: String?
+        let isTemporary: Bool
+        let isEncrypted: Bool
+        let receivedFromLAN: Bool
+        let searchTextPlain: String
+    }
+
+    enum ImportError: LocalizedError {
+        case databaseUnavailable
+        case payloadPreparationFailed(String)
+        case insertFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .databaseUnavailable:
+                return NSLocalizedString("数据库当前不可用。", comment: "Import database unavailable")
+            case .payloadPreparationFailed(let uniqueId):
+                return String(
+                    format: NSLocalizedString("准备导入记录失败：%@", comment: "Import payload preparation failed"),
+                    uniqueId
+                )
+            case .insertFailed(let uniqueId):
+                return String(
+                    format: NSLocalizedString("写入导入记录失败：%@", comment: "Import insert failed"),
+                    uniqueId
+                )
+            }
+        }
+    }
+
+    private func makeInsertPayload(
+        for item: ClipboardItem,
+        dataToStore: Data,
+        previewData: Data?,
+        blobPath: String?,
+        isSecurityMode: Bool
+    ) -> InsertPayload? {
+        let encodedSourceAnchor = item.sourceAnchor?.toJSON()
+        let normalizedCustomTitle = ClipboardItem.normalizedCustomTitle(item.customTitle)
+        let encryptedData: Data
+        let encryptedPreviewData: Data?
+        let encryptedSearchText: String
+        let encryptedAppName: String
+        let encryptedCustomTitle: String?
+        let encryptedSourceAnchor: String?
+
+        if isSecurityMode {
+            guard let data = encryptData(dataToStore),
+                  let searchText = encryptString(item.searchText),
+                  let appName = encryptString(item.appName) else {
+                return nil
+            }
+            if let previewData = previewData {
+                guard let encryptedPreview = encryptData(previewData) else { return nil }
+                encryptedPreviewData = encryptedPreview
+            } else {
+                encryptedPreviewData = nil
+            }
+            encryptedData = data
+            encryptedSearchText = searchText
+            encryptedAppName = appName
+            if let normalizedCustomTitle {
+                guard let encryptedTitle = encryptString(normalizedCustomTitle) else { return nil }
+                encryptedCustomTitle = encryptedTitle
+            } else {
+                encryptedCustomTitle = nil
+            }
+            if let encodedSourceAnchor {
+                guard let encryptedAnchor = encryptString(encodedSourceAnchor) else { return nil }
+                encryptedSourceAnchor = encryptedAnchor
+            } else {
+                encryptedSourceAnchor = nil
+            }
+        } else {
+            encryptedData = dataToStore
+            encryptedPreviewData = previewData
+            encryptedSearchText = item.searchText
+            encryptedAppName = item.appName
+            encryptedCustomTitle = normalizedCustomTitle
+            encryptedSourceAnchor = encodedSourceAnchor
+        }
+
+        return InsertPayload(
+            uniqueId: item.uniqueId,
+            pasteboardType: item.pasteboardType.rawValue,
+            itemType: item.itemType.rawValue,
+            data: encryptedData,
+            previewData: encryptedPreviewData,
+            timestamp: item.timestamp,
+            appPath: item.appPath,
+            appName: encryptedAppName,
+            customTitle: encryptedCustomTitle,
+            sourceAnchor: encryptedSourceAnchor,
+            searchText: encryptedSearchText,
+            contentLength: item.contentLength,
+            tagId: item.tagId,
+            blobPath: blobPath,
+            isTemporary: item.isTemporary,
+            isEncrypted: isSecurityMode,
+            receivedFromLAN: item.receivedFromLAN,
+            searchTextPlain: item.searchText
+        )
+    }
+
+    private func shouldScheduleSemanticEmbedding(for payload: InsertPayload) -> Bool {
+        if payload.receivedFromLAN,
+           payload.pasteboardType == PasteboardType.fileURL.rawValue || payload.itemType == ClipItemType.file.rawValue {
+            return false
+        }
+        return true
+    }
+
+    private func prepareInsertPayload(for item: ClipboardItem) async -> InsertPayload? {
+        var dataToStore = item.data
+        var blobPath = item.blobPath
+        var previewData = item.previewData
+        let isSecurityMode = DeckUserDefaults.securityModeEnabled
+
+        if item.itemType == .image && item.data.count > Const.largeBlobThreshold {
+            // Large image blobs can be 10s-100s of MB. Persisting them synchronously on the
+            // caller's executor (often MainActor via UI-driven insert) causes visible UI stalls.
+            // Offload to BlobStorage's IO queue while preserving the exact insert semantics.
+            if let path = await BlobStorage.shared.storeAsync(
+                data: item.data,
+                uniqueId: item.uniqueId,
+                encrypt: isSecurityMode
+            ) {
+                blobPath = path
+
+                if previewData?.isEmpty ?? true {
+                    previewData = await ClipboardItem.generatePreviewThumbnailDataAsync(from: item.data, maxSize: 200)
+                    await log.debug("Pre-generated thumbnail for large image (\(item.data.count) bytes)")
+                }
+
+                dataToStore = Data()
+            }
+        } else if item.isUnsupported && item.data.count > Const.largeBlobThreshold {
+            // Unsupported payloads can be large; offload to blob storage to avoid DB bloat.
+            if let path = await BlobStorage.shared.storeAsync(
+                data: item.data,
+                uniqueId: item.uniqueId,
+                encrypt: isSecurityMode
+            ) {
+                blobPath = path
+                dataToStore = Data()
+            }
+        } else if item.itemType == .image && item.data.count > 50 * 1024 && (previewData?.isEmpty ?? true) {
+            previewData = await ClipboardItem.generatePreviewThumbnailDataAsync(from: item.data, maxSize: 200)
+            await log.debug("Pre-generated thumbnail for medium image (\(item.data.count) bytes)")
+        }
+
+        return makeInsertPayload(
+            for: item,
+            dataToStore: dataToStore,
+            previewData: previewData,
+            blobPath: blobPath,
+            isSecurityMode: isSecurityMode
+        )
+    }
+
+    private func prepareInsertPayloadSynchronously(for item: ClipboardItem) -> InsertPayload? {
+        var dataToStore = item.data
+        var blobPath = item.blobPath
+        var previewData = item.previewData
+        let originalBlobPath = item.blobPath
+        let isSecurityMode = DeckUserDefaults.securityModeEnabled
+
+        if item.itemType == .image && item.data.count > Const.largeBlobThreshold {
+            if let path = BlobStorage.shared.store(
+                data: item.data,
+                uniqueId: item.uniqueId,
+                encrypt: isSecurityMode
+            ) {
+                blobPath = path
+
+                if previewData?.isEmpty ?? true {
+                    previewData = ClipboardItem.generatePreviewThumbnailData(from: item.data, maxSize: 200)
+                    log.debug("Pre-generated thumbnail for large image (\(item.data.count) bytes) during import")
+                }
+
+                dataToStore = Data()
+            }
+        } else if item.isUnsupported && item.data.count > Const.largeBlobThreshold {
+            if let path = BlobStorage.shared.store(
+                data: item.data,
+                uniqueId: item.uniqueId,
+                encrypt: isSecurityMode
+            ) {
+                blobPath = path
+                dataToStore = Data()
+            }
+        } else if item.itemType == .image && item.data.count > 50 * 1024 && (previewData?.isEmpty ?? true) {
+            previewData = ClipboardItem.generatePreviewThumbnailData(from: item.data, maxSize: 200)
+            log.debug("Pre-generated thumbnail for medium image (\(item.data.count) bytes) during import")
+        }
+
+        let payload = makeInsertPayload(
+            for: item,
+            dataToStore: dataToStore,
+            previewData: previewData,
+            blobPath: blobPath,
+            isSecurityMode: isSecurityMode
+        )
+
+        if payload == nil, blobPath != originalBlobPath {
+            BlobStorage.shared.remove(path: blobPath)
+        }
+
+        return payload
+    }
+
+    private func cleanupPreparedImportPayloads(_ payloads: [InsertPayload]) {
+        for payload in payloads where payload.blobPath != nil {
+            BlobStorage.shared.remove(path: payload.blobPath)
+        }
+    }
+
+    private nonisolated func sqliteError(_ db: Connection, operation: String) -> NSError {
+        let message = String(cString: sqlite3_errmsg(db.handle))
+        return NSError(domain: "DeckSQLite", code: Int(sqlite3_errcode(db.handle)), userInfo: [
+            NSLocalizedDescriptionKey: "\(operation): \(message)"
+        ])
+    }
+
+    private nonisolated func checkSQLite(_ rc: Int32, db: Connection, operation: String) throws {
+        guard rc == SQLITE_OK else {
+            throw sqliteError(db, operation: operation)
+        }
+    }
+
+    private nonisolated func finalizeCachedStatements() {
+        if let stmt = upsertClipboardHistoryStatement {
+            sqlite3_finalize(stmt)
+            upsertClipboardHistoryStatement = nil
+        }
+    }
+
+    private nonisolated var cachedUpsertClipboardHistorySQL: String {
+        """
+        INSERT INTO ClipboardHistory (
+            unique_id,
+            type,
+            item_type,
+            data,
+            preview_data,
+            timestamp,
+            app_path,
+            app_name,
+            custom_title,
+            source_anchor,
+            search_text,
+            content_length,
+            tag_id,
+            blob_path,
+            is_temporary,
+            is_encrypted,
+            received_from_lan
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(unique_id) WHERE unique_id <> '' DO UPDATE SET
+            type = excluded.type,
+            item_type = excluded.item_type,
+            data = excluded.data,
+            preview_data = excluded.preview_data,
+            timestamp = excluded.timestamp,
+            app_path = excluded.app_path,
+            app_name = excluded.app_name,
+            custom_title = excluded.custom_title,
+            source_anchor = excluded.source_anchor,
+            search_text = excluded.search_text,
+            content_length = excluded.content_length,
+            tag_id = CASE
+                WHEN excluded.tag_id = -1 AND ClipboardHistory.tag_id != -1
+                THEN ClipboardHistory.tag_id
+                ELSE excluded.tag_id
+            END,
+            blob_path = excluded.blob_path,
+            is_temporary = excluded.is_temporary,
+            is_encrypted = excluded.is_encrypted,
+            received_from_lan = MAX(ClipboardHistory.received_from_lan, excluded.received_from_lan)
+        RETURNING id
+        """
+    }
+
+    private nonisolated func cachedUpsertStatement(using db: Connection) throws -> OpaquePointer {
+        if let stmt = upsertClipboardHistoryStatement {
+            return stmt
+        }
+
+        var statement: OpaquePointer?
+        let rc = sqlite3_prepare_v2(db.handle, cachedUpsertClipboardHistorySQL, -1, &statement, nil)
+        guard rc == SQLITE_OK, let statement else {
+            throw sqliteError(db, operation: "prepare cached clipboard upsert")
+        }
+        upsertClipboardHistoryStatement = statement
+        return statement
+    }
+
+    private nonisolated func bindText(_ value: String?, to index: Int32, statement: OpaquePointer, db: Connection) throws {
+        guard let value else {
+            try checkSQLite(sqlite3_bind_null(statement, index), db: db, operation: "bind null text \(index)")
+            return
+        }
+        let rc = value.withCString { cString in
+            sqlite3_bind_text(statement, index, cString, -1, Self.sqliteTransient)
+        }
+        try checkSQLite(rc, db: db, operation: "bind text \(index)")
+    }
+
+    private nonisolated func bindBlob(_ value: Data?, to index: Int32, statement: OpaquePointer, db: Connection) throws {
+        guard let value else {
+            try checkSQLite(sqlite3_bind_null(statement, index), db: db, operation: "bind null blob \(index)")
+            return
+        }
+        if value.isEmpty {
+            try checkSQLite(sqlite3_bind_zeroblob(statement, index, 0), db: db, operation: "bind empty blob \(index)")
+            return
+        }
+        let rc = value.withUnsafeBytes { rawBuffer in
+            sqlite3_bind_blob(statement, index, rawBuffer.baseAddress, Int32(value.count), Self.sqliteTransient)
+        }
+        try checkSQLite(rc, db: db, operation: "bind blob \(index)")
+    }
+
+    private nonisolated func bindInt64(_ value: Int64, to index: Int32, statement: OpaquePointer, db: Connection) throws {
+        try checkSQLite(sqlite3_bind_int64(statement, index, value), db: db, operation: "bind int64 \(index)")
+    }
+
+    private nonisolated func bindInt(_ value: Int, to index: Int32, statement: OpaquePointer, db: Connection) throws {
+        try checkSQLite(sqlite3_bind_int64(statement, index, Int64(value)), db: db, operation: "bind int \(index)")
+    }
+
+    private nonisolated func bindBool(_ value: Bool, to index: Int32, statement: OpaquePointer, db: Connection) throws {
+        try bindInt(value ? 1 : 0, to: index, statement: statement, db: db)
+    }
+
+    private nonisolated func runCachedUpsert(
+        _ payload: InsertPayload,
+        using db: Connection
+    ) throws -> Int64 {
+        let statement = try cachedUpsertStatement(using: db)
+        var finalizeAfterReset = false
+        defer {
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+            if finalizeAfterReset {
+                finalizeCachedStatements()
+            }
+        }
+
+        try bindText(payload.uniqueId, to: 1, statement: statement, db: db)
+        try bindText(payload.pasteboardType, to: 2, statement: statement, db: db)
+        try bindText(payload.itemType, to: 3, statement: statement, db: db)
+        try bindBlob(payload.data, to: 4, statement: statement, db: db)
+        try bindBlob(payload.previewData, to: 5, statement: statement, db: db)
+        try bindInt64(payload.timestamp, to: 6, statement: statement, db: db)
+        try bindText(payload.appPath, to: 7, statement: statement, db: db)
+        try bindText(payload.appName, to: 8, statement: statement, db: db)
+        try bindText(payload.customTitle, to: 9, statement: statement, db: db)
+        try bindText(payload.sourceAnchor, to: 10, statement: statement, db: db)
+        try bindText(payload.searchText, to: 11, statement: statement, db: db)
+        try bindInt(payload.contentLength, to: 12, statement: statement, db: db)
+        try bindInt(payload.tagId, to: 13, statement: statement, db: db)
+        try bindText(payload.blobPath, to: 14, statement: statement, db: db)
+        try bindBool(payload.isTemporary, to: 15, statement: statement, db: db)
+        try bindBool(payload.isEncrypted, to: 16, statement: statement, db: db)
+        try bindBool(payload.receivedFromLAN, to: 17, statement: statement, db: db)
+
+        let rc = sqlite3_step(statement)
+        if rc == SQLITE_ROW {
+            return sqlite3_column_int64(statement, 0)
+        }
+        if rc == SQLITE_SCHEMA {
+            // Reprepare on next insert, but only after the active statement has
+            // passed through the normal reset/clear cleanup above.
+            finalizeAfterReset = true
+        }
+        throw sqliteError(db, operation: "execute cached clipboard upsert")
+    }
+
+    private nonisolated func insertPreparedPayload(
+        _ payload: InsertPayload,
+        using db: Connection,
+        table: Table
+    ) throws -> (rowId: Int64, usedUpsert: Bool) {
+        // Prefer UPSERT to avoid delete+insert write amplification on hot-path inserts.
+        if supportsUniqueIdUpsert {
+            do {
+                let rowId = try runCachedUpsert(payload, using: db)
+                return (rowId, true)
+            } catch {
+                // Likely reasons:
+                // - SQLite < 3.24 (no UPSERT) / < 3.35 (no RETURNING)
+                // - Unique constraint not present / not matched
+                finalizeCachedStatements()
+                supportsUniqueIdUpsert = false
+                log.debug("UPSERT(unique_id) unavailable, fallback to delete+insert: \(error.localizedDescription)")
+            }
+        }
+
+        let deleteQuery = table.filter(Col.uniqueId == payload.uniqueId)
+        let existingRow = try db.pluck(deleteQuery.select(Col.tagId, Col.receivedFromLan))
+        let existingTagId: Int?
+        let existingReceivedFromLAN: Bool?
+        if let row = existingRow {
+            existingTagId = try row.get(Col.tagId)
+            existingReceivedFromLAN = try row.get(Col.receivedFromLan)
+        } else {
+            existingTagId = nil
+            existingReceivedFromLAN = nil
+        }
+        let mergedTagId = Self.mergedTagId(incoming: payload.tagId, existing: existingTagId)
+        let mergedReceivedFromLAN = Self.mergedReceivedFromLAN(incoming: payload.receivedFromLAN, existing: existingReceivedFromLAN)
+        _ = try db.run(deleteQuery.delete())
+
+        let insert = table.insert(
+            Col.uniqueId <- payload.uniqueId,
+            Col.type <- payload.pasteboardType,
+            Col.itemType <- payload.itemType,
+            Col.data <- payload.data,
+            Col.previewData <- payload.previewData,
+            Col.ts <- payload.timestamp,
+            Col.appPath <- payload.appPath,
+            Col.appName <- payload.appName,
+            Col.customTitle <- payload.customTitle,
+            Col.sourceAnchor <- payload.sourceAnchor,
+            Col.searchText <- payload.searchText,
+            Col.length <- payload.contentLength,
+            Col.tagId <- mergedTagId,
+            Col.blobPath <- payload.blobPath,
+            Col.isTemporary <- payload.isTemporary,
+            Col.isEncrypted <- payload.isEncrypted,
+            Col.receivedFromLan <- mergedReceivedFromLAN
+        )
+
+        return (try db.run(insert), false)
+    }
+
+    func importItemsAtomically(_ items: [ClipboardItem]) async throws -> Int {
+        guard !items.isEmpty else { return 0 }
+
+        var payloads: [InsertPayload] = []
+        payloads.reserveCapacity(items.count)
+
+        for item in items {
+            guard let payload = prepareInsertPayloadSynchronously(for: item) else {
+                cleanupPreparedImportPayloads(payloads)
+                throw ImportError.payloadPreparationFailed(item.uniqueId)
+            }
+            payloads.append(payload)
+        }
+
+        do {
+            let rowIds = try await asyncOnDBQueue { () throws -> [Int64] in
+                guard let db = self.db, let table = self.table else {
+                    throw ImportError.databaseUnavailable
+                }
+
+                return try self.insertPreparedPayloadsInTransaction(payloads, using: db, table: table)
+            }
+
+            invalidateSearchCache()
+            for (index, rowId) in rowIds.enumerated() where rowId > 0 {
+                await log.debug("Imported item with id: \(rowId)")
+                if shouldScheduleSemanticEmbedding(for: payloads[index]) {
+                    scheduleSemanticEmbeddingUpdate(id: rowId, searchText: payloads[index].searchTextPlain)
+                }
+            }
+            return rowIds.count
+        } catch {
+            cleanupPreparedImportPayloads(payloads)
+            handleDBError(error)
+            throw error
+        }
+    }
+
+    private nonisolated func insertPreparedPayloadsInTransaction(
+        _ payloads: [InsertPayload],
+        using db: Connection,
+        table: Table
+    ) throws -> [Int64] {
+        var rowIds: [Int64] = []
+        rowIds.reserveCapacity(payloads.count)
+
+        try db.transaction {
+            for payload in payloads {
+                let result = try insertPreparedPayload(payload, using: db, table: table)
+                guard result.rowId > 0 else {
+                    throw ImportError.insertFailed(payload.uniqueId)
+                }
+                rowIds.append(result.rowId)
+            }
+        }
+
+        return rowIds
+    }
+
+    func insert(item: ClipboardItem, scheduleSemanticEmbedding: Bool = true) async -> Int64 {
+        guard let payload = await prepareInsertPayload(for: item) else { return -1 }
+
+        let result: (rowId: Int64, usedUpsert: Bool)? = await withDBAsync {
+            guard let db = self.db, let table = self.table else { return (-1, false) }
+            return try self.insertPreparedPayload(payload, using: db, table: table)
+        }
+
+        guard let result, result.rowId > 0 else { return -1 }
+
+        // Invalidate only this id in the search cache (cheaper than nuking everything).
+        invalidateSearchCache(ids: [result.rowId])
+
+        await log.debug("Inserted item with id: \(result.rowId)")
+        if scheduleSemanticEmbedding,
+           shouldScheduleSemanticEmbedding(for: payload) {
+            scheduleSemanticEmbeddingUpdate(id: result.rowId, searchText: payload.searchTextPlain)
+        }
+        return result.rowId
+    }
+
+    func insertBatch(_ items: [ClipboardItem]) async -> [Int64] {
+        guard !items.isEmpty else { return [] }
+
+        var payloads: [InsertPayload] = []
+        payloads.reserveCapacity(items.count)
+        for item in items {
+            if let payload = await prepareInsertPayload(for: item) {
+                payloads.append(payload)
+            }
+        }
+
+        guard !payloads.isEmpty else { return [] }
+
+        let rowIds: [Int64]? = await withDBAsync {
+            guard let db = self.db, let table = self.table else { return [] }
+            return try self.insertPreparedPayloadsInTransaction(payloads, using: db, table: table)
+        }
+
+        guard let rowIds else { return [] }
+        invalidateSearchCache(ids: rowIds.filter { $0 > 0 })
+
+        for (index, rowId) in rowIds.enumerated() where rowId > 0 {
+            await log.debug("Inserted item with id: \(rowId)")
+            if shouldScheduleSemanticEmbedding(for: payloads[index]) {
+                scheduleSemanticEmbeddingUpdate(id: rowId, searchText: payloads[index].searchTextPlain)
+            }
+        }
+
+        return rowIds.filter { $0 > 0 }
+    }
+    
+    func delete(filter: SQLite.Expression<Bool>) async {
+        if let count: Int = await withDBAsync({
+            guard let db = self.db, let table = self.table else { return 0 }
+            let query = table.filter(filter)
+            return try db.run(query.delete())
+        }) {
+            await log.debug("Deleted \(count) items")
+            // 无法确定具体删除了哪些 ID，清空所有缓存
+            invalidateSearchCache()
+        }
+    }
+
+    func deleteAll() {
+        let preferTrigram = syncOnDBQueue { ftsUsesTrigram }
+        dropFTS5TableAndTriggers(reason: "delete all")
+        dropVecTables()
+
+        let deletedMainRows = withDB {
+            guard let db = self.db, let table = self.table else { return false }
+            try db.run(table.delete())
+            return true
+        } ?? false
+        _ = withDB {
+            guard let db = self.db else { return false }
+            try db.run("DELETE FROM ClipboardHistory_embedding")
+            return true
+        }
+        if deletedMainRows {
+            createFTS5Table(forceRecreate: true, preferTrigram: preferTrigram)
+            log.info("Deleted all items from database")
+        } else {
+            rebuildFTSIndex(preferTrigram: preferTrigram)
+            log.warn("Delete all items did not complete; FTS index was rebuilt from remaining rows")
+        }
+        invalidateSearchCache()  // 清空所有搜索缓存
+        scheduleDatabaseVacuum(reason: "delete all")
+    }
+
+    func delete(id: Int64) async {
+        if let count: Int = await withDBAsync({
+            guard let db = self.db, let table = self.table else { return 0 }
+            let query = table.filter(Col.id == id)
+            return try db.run(query.delete())
+        }) {
+            await log.debug("Deleted item with id \(id): \(count) rows")
+            invalidateSearchCache(ids: [id])  // 只失效被删除的项
+        }
+    }
+
+    func update(id: Int64, item: ClipboardItem) async {
+        // Keep update behavior aligned with insert, including blob storage handling.
+        var dataToStore = item.data
+        var previewData = item.previewData
+        var blobPathToStore = item.blobPath
+        let isSecurityMode = DeckUserDefaults.securityModeEnabled
+
+        if item.itemType == .image, item.hasFullData, item.data.count > Const.largeBlobThreshold {
+            // Large updates can also be triggered from UI flows (e.g., edits / reprocessing).
+            // Persist off the caller's executor to keep UI responsive.
+            if let path = await BlobStorage.shared.storeAsync(
+                data: item.data,
+                uniqueId: item.uniqueId,
+                encrypt: isSecurityMode
+            ) {
+                blobPathToStore = path
+
+                if previewData?.isEmpty ?? true {
+                    previewData = await ClipboardItem.generatePreviewThumbnailDataAsync(from: item.data, maxSize: 200)
+                    await log.debug("Pre-generated thumbnail for large image (\(item.data.count) bytes) during update")
+                }
+
+                dataToStore = Data()
+            }
+        } else if item.isUnsupported, item.hasFullData, item.data.count > Const.largeBlobThreshold {
+            if let path = await BlobStorage.shared.storeAsync(
+                data: item.data,
+                uniqueId: item.uniqueId,
+                encrypt: isSecurityMode
+            ) {
+                blobPathToStore = path
+                dataToStore = Data()
+            }
+        } else if item.itemType == .image, item.data.count > 50 * 1024, (previewData?.isEmpty ?? true) {
+            previewData = await ClipboardItem.generatePreviewThumbnailDataAsync(from: item.data, maxSize: 200)
+            await log.debug("Pre-generated thumbnail for medium image (\(item.data.count) bytes) during update")
+        }
+
+        if blobPathToStore != nil {
+            if let preview = previewData, !preview.isEmpty {
+                dataToStore = Data()
+            } else {
+                dataToStore = previewData ?? dataToStore
+            }
+        } else if !item.hasFullData, let fullData = item.loadFullData() {
+            dataToStore = fullData
+        }
+
+        let encryptedData: Data
+        let encryptedPreviewData: Data?
+        let encryptedSearchText: String
+        let encryptedAppName: String
+        let encryptedCustomTitle: String?
+        let encryptedSourceAnchor: String?
+        let encodedSourceAnchor = item.sourceAnchor?.toJSON()
+        let normalizedCustomTitle = ClipboardItem.normalizedCustomTitle(item.customTitle)
+
+        if isSecurityMode {
+            guard let data = encryptData(dataToStore),
+                  let searchText = encryptString(item.searchText),
+                  let appName = encryptString(item.appName) else {
+                return
+            }
+            if let previewData {
+                guard let encryptedPreview = encryptData(previewData) else { return }
+                encryptedPreviewData = encryptedPreview
+            } else {
+                encryptedPreviewData = nil
+            }
+            encryptedData = data
+            encryptedSearchText = searchText
+            encryptedAppName = appName
+            if let normalizedCustomTitle {
+                guard let encryptedTitle = encryptString(normalizedCustomTitle) else { return }
+                encryptedCustomTitle = encryptedTitle
+            } else {
+                encryptedCustomTitle = nil
+            }
+            if let encodedSourceAnchor {
+                guard let encryptedAnchor = encryptString(encodedSourceAnchor) else { return }
+                encryptedSourceAnchor = encryptedAnchor
+            } else {
+                encryptedSourceAnchor = nil
+            }
+        } else {
+            encryptedData = dataToStore
+            encryptedPreviewData = previewData
+            encryptedSearchText = item.searchText
+            encryptedAppName = item.appName
+            encryptedCustomTitle = normalizedCustomTitle
+            encryptedSourceAnchor = encodedSourceAnchor
+        }
+
+        let result: (count: Int, oldBlobPathToRemove: String?)? = await withDBAsync({
+            guard let db = self.db, let table = self.table else { return (0, nil) }
+            let query = table.filter(Col.id == id)
+            let oldBlobPath = try? db.pluck(query.select(Col.blobPath))?.get(Col.blobPath)
+            let update = query.update(
+                Col.type <- item.pasteboardType.rawValue,
+                Col.itemType <- item.itemType.rawValue,
+                Col.data <- encryptedData,
+                Col.previewData <- encryptedPreviewData,
+                Col.ts <- item.timestamp,
+                Col.appPath <- item.appPath,
+                Col.appName <- encryptedAppName,
+                Col.customTitle <- encryptedCustomTitle,
+                Col.sourceAnchor <- encryptedSourceAnchor,
+                Col.searchText <- encryptedSearchText,
+                Col.length <- item.contentLength,
+                Col.tagId <- item.tagId,
+                Col.blobPath <- blobPathToStore,
+                Col.isTemporary <- item.isTemporary,
+                Col.isEncrypted <- isSecurityMode,
+                Col.receivedFromLan <- item.receivedFromLAN
+            )
+            let count = try db.run(update)
+            if count > 0, let old = oldBlobPath, old != blobPathToStore {
+                return (count, old)
+            }
+            return (count, nil)
+        })
+
+        if let result {
+            await log.debug("Updated \(result.count) items")
+            invalidateSearchCache(ids: [id])  // 失效被更新的项（searchText 可能已变化）
+            scheduleSemanticEmbeddingUpdate(id: id, searchText: item.searchText)
+
+            if let oldPath = result.oldBlobPathToRemove {
+                BlobStorage.shared.remove(path: oldPath)
+            }
+        }
+    }
+    
+    func updateItemTag(id: Int64, tagId: Int) async {
+        if let count: Int = await withDBAsync({
+            guard let db = self.db, let table = self.table else { return 0 }
+            var query = table.filter(Col.id == id)
+            if tagId == DeckTag.importantTagId {
+                query = query.filter(Col.isTemporary == false)
+            }
+            let update = query.update(Col.tagId <- tagId)
+            return try db.run(update)
+        }) {
+            await log.debug("Updated tag for \(count) items")
+        }
+    }
+
+    func clearTagFromItems(tagId: Int) async {
+        guard tagId != -1 else { return }
+        if let count: Int = await withDBAsync({
+            guard let db = self.db, let table = self.table else { return 0 }
+            let query = table.filter(Col.tagId == tagId)
+            return try db.run(query.update(Col.tagId <- -1))
+        }) {
+            await log.debug("Cleared tag \(tagId) from \(count) items")
+            if count > 0 {
+                invalidateSearchCache()
+            }
+        }
+    }
+
+    func updateItemTemporary(id: Int64, isTemporary: Bool) async {
+        if let count: Int = await withDBAsync({
+            guard let db = self.db, let table = self.table else { return 0 }
+            var query = table.filter(Col.id == id)
+            if isTemporary {
+                query = query.filter(Col.tagId != DeckTag.importantTagId)
+            }
+            let update = query.update(Col.isTemporary <- isTemporary)
+            return try db.run(update)
+        }) {
+            await log.debug("Updated temporary flag for \(count) items")
+        }
+    }
+
+    func updateCustomTitle(id: Int64, customTitle: String?) async {
+        let normalized = ClipboardItem.normalizedCustomTitle(customTitle)
+        let isSecurityMode = DeckUserDefaults.securityModeEnabled
+        let encryptedTitle: String?
+
+        if isSecurityMode {
+            if let normalized {
+                guard let encrypted = encryptString(normalized) else {
+                    await log.error("Failed to encrypt customTitle for item \(id)")
+                    return
+                }
+                encryptedTitle = encrypted
+            } else {
+                encryptedTitle = nil
+            }
+        } else {
+            encryptedTitle = normalized
+        }
+
+        if let count: Int = await withDBAsync({
+            guard let db = self.db, let table = self.table else { return 0 }
+            let query = table.filter(Col.id == id)
+            let update = query.update(Col.customTitle <- encryptedTitle)
+            return try db.run(update)
+        }) {
+            if count > 0 {
+                invalidateSearchCache(ids: [id])
+            }
+            await log.debug("Updated customTitle for \(count) items")
+        }
+    }
+
+    /// 更新项目的 searchText（用于 OCR 结果）
+    /// 注意：FTS 索引会通过 ClipboardHistory_au 触发器自动更新
+    /// 更新 searchText（主要由 OCR / 文件索引回填触发）。默认走后台 DB 队列，避免与用户交互抢 CPU。
+    func updateSearchText(id: Int64, searchText: String, useBackgroundQueue: Bool = true) async {
+        let isReady: Bool = useBackgroundQueue
+            ? syncOnDBBackgroundQueue({ db != nil && table != nil })
+            : syncOnDBQueue({ db != nil && table != nil })
+
+        guard isReady else {
+            await log.error("OCR DB: Database not initialized")
+            return
+        }
+
+        await log.info("OCR DB: Updating searchText for item \(id), text length: \(searchText.count)")
+
+        // 根据安全模式决定是否加密
+        guard let textToStore = encryptString(searchText) else {
+            await log.error("OCR DB: Failed to encrypt searchText for item \(id)")
+            return
+        }
+
+        let count: Int? = useBackgroundQueue
+            ? await withDBAsyncBackground({
+                guard let db = self.db, let table = self.table else { return 0 }
+                let query = table.filter(Col.id == id)
+                let update = query.update(Col.searchText <- textToStore)
+                return try db.run(update)
+            })
+            : await withDBAsync({
+                guard let db = self.db, let table = self.table else { return 0 }
+                let query = table.filter(Col.id == id)
+                let update = query.update(Col.searchText <- textToStore)
+                return try db.run(update)
+            })
+
+        if let count {
+            await log.info("OCR DB: Successfully updated searchText for \(count) items (FTS auto-synced via trigger)")
+            invalidateSearchCache(ids: [id])
+            scheduleSemanticEmbeddingUpdate(id: id, searchText: searchText)
+        } else {
+            await log.error("OCR DB: Failed to update searchText for item \(id)")
+        }
+    }
+
+    func search(
+        filter: SQLite.Expression<Bool>? = nil,
+        order: [Expressible]? = nil,
+        limit: Int? = nil,
+        offset: Int? = nil
+    ) async -> [Row] {
+        guard !Task.isCancelled else { return [] }
+        let ord = order ?? [Col.ts.desc, Col.id.desc]
+
+        return await withReadDBAsync { db, table in
+            var query = table.order(ord)
+            if let f = filter { query = query.filter(f) }
+            if let l = limit { query = query.limit(l, offset: offset ?? 0) }
+            return Array(try db.prepare(query))
+        } ?? []
+    }
+
+    // MARK: - List-mode Queries (避免加载大 blob)
+
+    /// 列表模式下的轻量查询：
+    /// - 投影 `data` 列（大内容返回空 BLOB），避免把大 blob materialize 到 Swift Data
+    /// - 维持与 UI 一致的排序：timestamp DESC, id DESC
+    private nonisolated func listModeBaseQuery(table: Table) -> Table {
+        table.select(
+            Col.id,
+            Col.uniqueId,
+            Col.type,
+            Col.itemType,
+            listModeProjectedDataExpr,
+            Col.previewData,
+            Col.ts,
+            Col.appPath,
+            Col.appName,
+            Col.customTitle,
+            Col.sourceAnchor,
+            Col.searchText,
+            Col.length,
+            Col.tagId,
+            Col.blobPath,
+            Col.isTemporary,
+            Col.isEncrypted,
+            Col.receivedFromLan
+        )
+    }
+
+    struct RowCursor: Sendable, Equatable {
+        let timestamp: Int64
+        let id: Int64
+    }
+
+    nonisolated func cursor(from row: Row?) -> RowCursor? {
+        guard let row else { return nil }
+        guard let ts = try? row.get(Col.ts), let id = try? row.get(Col.id) else { return nil }
+        return RowCursor(timestamp: ts, id: id)
+    }
+
+    func cursor(from item: ClipboardItem?) -> RowCursor? {
+        guard let item, let id = item.id else { return nil }
+        return RowCursor(timestamp: item.timestamp, id: id)
+    }
+
+    /// Cursor-based pagination for the main list (keyset pagination).
+    /// - This avoids OFFSET scans which get slower as the list grows.
+    nonisolated func fetchListPage(
+        filter: SQLite.Expression<Bool>? = nil,
+        limit: Int,
+        cursor: RowCursor? = nil
+    ) async -> [Row] {
+        guard !Task.isCancelled else { return [] }
+
+        return await withReadDBAsync { db, table in
+            var query = self.listModeBaseQuery(table: table)
+
+            if let f = filter { query = query.filter(f) }
+            if let cursor {
+                let cursorFilter = (Col.ts < cursor.timestamp) || (Col.ts == cursor.timestamp && Col.id < cursor.id)
+                query = query.filter(cursorFilter)
+            }
+
+            query = query.order(Col.ts.desc, Col.id.desc).limit(limit)
+            return Array(try db.prepare(query))
+        } ?? []
+    }
+
+    /// 取当前过滤条件下「最旧」的一段行（`timestamp ASC, id ASC`），用于一次跳到列表末尾而无需 OFFSET 扫全表。
+    func fetchListTailPage(
+        filter: SQLite.Expression<Bool>? = nil,
+        limit: Int
+    ) async -> [Row] {
+        guard !Task.isCancelled else { return [] }
+        let safeLimit = max(1, limit)
+
+        return await withReadDBAsync { db, table in
+            var query = self.listModeBaseQuery(table: table)
+            if let f = filter { query = query.filter(f) }
+            query = query.order(Col.ts.asc, Col.id.asc).limit(safeLimit)
+            return Array(try db.prepare(query))
+        } ?? []
+    }
+
+    /// 从当前窗口开头继续向「更新记录」方向取相邻一页。
+    ///
+    /// 主列表显示顺序是 `timestamp DESC, id DESC`；这里反向用 `ASC` 取 cursor 之前
+    /// 最近的一段，调用方再反转后 prepend 到当前窗口前面。
+    func fetchListNewerPage(
+        filter: SQLite.Expression<Bool>? = nil,
+        limit: Int,
+        cursor: RowCursor
+    ) async -> [Row] {
+        guard !Task.isCancelled else { return [] }
+        let safeLimit = max(1, limit)
+
+        return await withReadDBAsync { db, table in
+            var query = self.listModeBaseQuery(table: table)
+            if let f = filter { query = query.filter(f) }
+            let cursorFilter = (Col.ts > cursor.timestamp) || (Col.ts == cursor.timestamp && Col.id > cursor.id)
+            query = query
+                .filter(cursorFilter)
+                .order(Col.ts.asc, Col.id.asc)
+                .limit(safeLimit)
+            return Array(try db.prepare(query))
+        } ?? []
+    }
+
+    private func buildFTSQuery(from keyword: String, useTrigram: Bool) -> String {
+        let terms = keyword
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .filter { !useTrigram || $0.count >= ftsTrigramMinQueryLength }
+            .map { term -> String in
+                let escaped = term
+                    .replacingOccurrences(of: "\"", with: "\"\"")
+                    .replacingOccurrences(of: "*", with: "")
+                if useTrigram {
+                    return "\"\(escaped)\""
+                }
+                return "\"\(escaped)\"*"
+            }
+
+        return terms.joined(separator: " OR ")
+    }
+
+    private func containsCJKCharacters(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            // CJK Unified Ideographs and extensions
+            (0x4E00...0x9FFF).contains(scalar.value) ||   // CJK Unified
+            (0x3400...0x4DBF).contains(scalar.value) ||   // CJK Extension A
+            (0x20000...0x2A6DF).contains(scalar.value) || // CJK Extension B
+            (0x3000...0x303F).contains(scalar.value) ||   // CJK Symbols
+            (0x3040...0x309F).contains(scalar.value) ||   // Hiragana
+            (0x30A0...0x30FF).contains(scalar.value) ||   // Katakana
+            (0xAC00...0xD7AF).contains(scalar.value)      // Korean Hangul
+        }
+    }
+
+    private func canExpandFTSCandidateWindow(for keyword: String) -> Bool {
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard !DeckUserDefaults.securityModeEnabled else { return false }
+        guard syncOnDBQueue({ db != nil }) else { return false }
+
+        let usesTrigram = syncOnDBQueue { ftsUsesTrigram }
+        if usesTrigram {
+            return !buildFTSQuery(from: trimmed, useTrigram: true).isEmpty
+        }
+
+        guard !containsCJKCharacters(trimmed) else { return false }
+        return !buildFTSQuery(from: trimmed, useTrigram: false).isEmpty
+    }
+
+    private func runFTSQuery(_ ftsQuery: String, limit: Int) async -> [Int64] {
+        await runFTSQuery(ftsQuery, typeFilter: nil, tagId: nil, limit: limit)
+    }
+
+    private func runFTSQuery(
+        _ ftsQuery: String,
+        typeFilter: [String]?,
+        tagId: Int?,
+        limit: Int
+    ) async -> [Int64] {
+        let safeLimit = max(1, limit)
+        return await withReadDBAsync { db, _ in
+            let hasFilters = (typeFilter?.isEmpty == false) || (tagId != nil && tagId != -1)
+            if !hasFilters {
+                let sql = """
+                    SELECT h.id
+                    FROM ClipboardHistory_fts
+                    JOIN ClipboardHistory h ON h.id = ClipboardHistory_fts.rowid
+                    WHERE ClipboardHistory_fts MATCH ?
+                      AND h.is_encrypted = 0
+                    ORDER BY h.timestamp DESC, h.id DESC
+                    LIMIT ?
+                """
+                let stmt = try db.prepare(sql).bind(ftsQuery, safeLimit)
+                var ids: [Int64] = []
+                ids.reserveCapacity(safeLimit)
+                while let row = try stmt.failableNext() {
+                    if let id = self.bindingToInt64(row[0]) {
+                        ids.append(id)
+                    }
+                }
+                return ids
+            }
+
+            var filters = [
+                "h.is_encrypted = 0"
+            ]
+            var bindings: [Binding?] = [ftsQuery, safeLimit]
+
+            if let types = typeFilter, !types.isEmpty {
+                let placeholders = Array(repeating: "?", count: types.count).joined(separator: ",")
+                filters.append("h.item_type IN (\(placeholders))")
+                for type in types {
+                    bindings.append(type)
+                }
+            }
+
+            if let tagId, tagId != -1 {
+                filters.append("h.tag_id = ?")
+                bindings.append(tagId)
+            }
+
+            bindings.append(safeLimit)
+            let sql = """
+                WITH fts_ids(rowid) AS (
+                    SELECT rowid
+                    FROM ClipboardHistory_fts
+                    WHERE ClipboardHistory_fts MATCH ?
+                    ORDER BY rowid DESC
+                    LIMIT ?
+                )
+                SELECT h.id
+                FROM fts_ids
+                JOIN ClipboardHistory h ON h.id = fts_ids.rowid
+                WHERE \(filters.joined(separator: " AND "))
+                ORDER BY h.timestamp DESC, h.id DESC
+                LIMIT ?
+            """
+            let stmt = try db.prepare(sql).bind(bindings)
+            var ids: [Int64] = []
+            ids.reserveCapacity(safeLimit)
+            while let row = try stmt.failableNext() {
+                if let id = self.bindingToInt64(row[0]) {
+                    ids.append(id)
+                }
+            }
+            return ids
+        } ?? []
+    }
+
+    private func escapeForLike(_ keyword: String) -> String {
+        var escaped = keyword
+        escaped = escaped.replacingOccurrences(of: "\\", with: "\\\\")
+        escaped = escaped.replacingOccurrences(of: "%", with: "\\%")
+        escaped = escaped.replacingOccurrences(of: "_", with: "\\_")
+        return escaped
+    }
+
+    func searchWithSQLLikeRows(
+        keyword: String,
+        typeFilter: [String]? = nil,
+        tagId: Int? = nil,
+        limit: Int
+    ) async -> [Row] {
+        let ids = await searchWithSQLLikeIds(
+            keyword: keyword,
+            typeFilter: typeFilter,
+            tagId: tagId,
+            limit: limit
+        )
+        return await fetchRowsForIds(ids, typeFilter: typeFilter, tagId: tagId)
+    }
+
+    private func searchWithSQLLikeIds(
+        keyword: String,
+        typeFilter: [String]?,
+        tagId: Int?,
+        limit: Int
+    ) async -> [Int64] {
+        let escaped = escapeForLike(keyword)
+        let pattern = "%\(escaped)%"
+
+        return await withReadDBAsync { db, _ in
+            var filters = [
+                "(search_text LIKE ? ESCAPE '\\' OR app_name LIKE ? ESCAPE '\\' OR IFNULL(custom_title, '') LIKE ? ESCAPE '\\')"
+            ]
+            var bindings: [Binding?] = [pattern, pattern, pattern]
+
+            if let types = typeFilter, !types.isEmpty {
+                let placeholders = Array(repeating: "?", count: types.count).joined(separator: ",")
+                filters.append("item_type IN (\(placeholders))")
+                for type in types {
+                    bindings.append(type)
+                }
+            }
+
+            if let tagId, tagId != -1 {
+                filters.append("tag_id = ?")
+                bindings.append(tagId)
+            }
+
+            bindings.append(limit)
+            let sql = """
+                SELECT id FROM ClipboardHistory
+                WHERE \(filters.joined(separator: " AND "))
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ?
+            """
+            let stmt = try db.prepare(sql).bind(bindings)
+            var ids: [Int64] = []
+            ids.reserveCapacity(limit)
+            while let row = try stmt.failableNext() {
+                if let id = self.bindingToInt64(row[0]) {
+                    ids.append(id)
+                }
+            }
+            return ids
+        } ?? []
+    }
+
+    /// Fast full-text search using FTS5
+    /// Returns row IDs matching the search term
+    func searchFTS(
+        keyword: String,
+        typeFilter: [String]? = nil,
+        tagId: Int? = nil,
+        limit: Int = 50
+    ) async -> [Int64] {
+        guard !Task.isCancelled else { return [] }
+        guard !keyword.isEmpty else { return [] }
+        guard syncOnDBQueue({ db != nil }) else { return [] }
+
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 安全模式下 FTS 索引存储的是加密内容，无法直接匹配
+        // 需要使用内存解密搜索
+        if DeckUserDefaults.securityModeEnabled {
+            return await searchWithLike(keyword: trimmed, typeFilter: typeFilter, tagId: tagId, limit: limit)
+        }
+
+        let usesTrigram = syncOnDBQueue { ftsUsesTrigram }
+        if usesTrigram {
+            let ftsQuery = buildFTSQuery(from: trimmed, useTrigram: true)
+            guard !ftsQuery.isEmpty else {
+                return await searchWithSQLLikeIds(keyword: trimmed, typeFilter: typeFilter, tagId: tagId, limit: limit)
+            }
+            return await runFTSQuery(ftsQuery, typeFilter: typeFilter, tagId: tagId, limit: limit)
+        }
+
+        // 检测是否包含 CJK 字符（中日韩）
+        // FTS5 默认分词器对 CJK 支持不好，保留内存搜索兜底
+        if containsCJKCharacters(trimmed) {
+            return await searchWithSQLLikeIds(keyword: trimmed, typeFilter: typeFilter, tagId: tagId, limit: limit)
+        }
+
+        let ftsQuery = buildFTSQuery(from: trimmed, useTrigram: false)
+        guard !ftsQuery.isEmpty else { return [] }
+        return await runFTSQuery(ftsQuery, typeFilter: typeFilter, tagId: tagId, limit: limit)
+    }
+
+    /// In-memory fallback search (security mode or CJK without trigram support)
+    /// 安全模式/无 trigram 时使用内存搜索，避免 FTS5 无法匹配
+    /// 使用缓存避免重复解密和 lowercased 转换，显著提升频繁搜索性能
+    /// 采用分批流式扫描，覆盖全量数据
+    private func searchWithLike(
+        keyword: String,
+        typeFilter: [String]? = nil,
+        tagId: Int? = nil,
+        limit: Int
+    ) async -> [Int64] {
+        var matchingIds: [Int64] = []
+        let lowercasedKeyword = keyword.lowercased()
+        let isSecurityMode = DeckUserDefaults.securityModeEnabled
+
+        // 分批扫描参数
+        let batchSize = 500
+        // 关键优化：用 (timestamp,id) cursor 做 keyset pagination，
+        // 避免 OFFSET 在大表上越来越慢（SQLite 需要扫描+丢弃 offset 行）
+        var cursor: RowCursor? = nil
+        var scanned = 0
+        // 安全模式下最多扫描 5000 条（解密开销大），普通模式扫描全量
+        let maxScan = isSecurityMode
+            ? min(max(5000, limit * 200), 20000)
+            : Int.max
+
+        while matchingIds.count < limit && scanned < maxScan {
+            // 支持任务取消
+            guard !Task.isCancelled else { break }
+
+            let rows: [Row] = await withReadDBAsync { db, table in
+                var query = table
+                    .select(Col.id, Col.ts, Col.searchText, Col.appName, Col.customTitle)
+                    .order(Col.ts.desc, Col.id.desc)
+                    .limit(batchSize)
+
+                if let cursor {
+                    let cursorFilter = (Col.ts < cursor.timestamp) || (Col.ts == cursor.timestamp && Col.id < cursor.id)
+                    query = query.filter(cursorFilter)
+                }
+
+                if let types = typeFilter, !types.isEmpty {
+                    query = query.filter(types.contains(Col.itemType))
+                }
+
+                if let tagId = tagId, tagId != -1 {
+                    query = query.filter(Col.tagId == tagId)
+                }
+
+                return Array(try db.prepare(query))
+            } ?? []
+
+            // 没有更多数据
+            if rows.isEmpty { break }
+
+            // 记录下一批 cursor（用最后一条记录）
+            cursor = self.cursor(from: rows.last)
+
+            for row in rows {
+                // 早停：已找到足够的匹配项
+                guard matchingIds.count < limit else { break }
+
+                // 支持任务取消
+                guard !Task.isCancelled else { break }
+
+                do {
+                    let id = try row.get(Col.id)
+                    let rawSearchText = try row.get(Col.searchText)
+                    let appName = try row.get(Col.appName)
+                    let rawCustomTitle = (try? row.get(Col.customTitle)) ?? nil
+
+                    // 使用缓存获取解密且小写化后的搜索文本
+                    // 热路径优化：避免重复解密和 lowercased 转换
+                    let cached = getCachedSearchEntry(
+                        id: id,
+                        rawSearchText: rawSearchText,
+                        appName: appName,
+                        rawCustomTitle: rawCustomTitle,
+                        isSecurityMode: isSecurityMode
+                    )
+
+                    // 匹配搜索文本或应用名称（都已预先小写化）
+                    if cached.searchText.contains(lowercasedKeyword) ||
+                       cached.appName.contains(lowercasedKeyword) ||
+                       cached.customTitle.contains(lowercasedKeyword) {
+                        matchingIds.append(id)
+                    }
+                } catch {
+                    continue
+                }
+            }
+
+            scanned += rows.count
+            if rows.count < batchSize { break }
+
+            // 批次间让出 CPU，避免长时间阻塞
+            await Task.yield()
+        }
+
+        // 安全模式下如果达到扫描上限且未找到足够结果，记录日志提示
+        if isSecurityMode && scanned >= maxScan && matchingIds.count < limit {
+            await log.info("Security mode search reached scan limit (\(maxScan) items), results may be incomplete")
+        }
+
+        return matchingIds
+    }
+
+    /// Search using FTS5 and return full ClipboardItem objects
+    func searchWithFTS(
+        keyword: String,
+        typeFilter: [String]? = nil,
+        tagId: Int? = nil,
+        limit: Int = 50
+    ) async -> [Row] {
+        guard !Task.isCancelled else { return [] }
+
+        let hasFilters = (typeFilter?.isEmpty == false) || (tagId != nil && tagId != -1)
+        let shouldExpandCandidateWindow = hasFilters && canExpandFTSCandidateWindow(for: keyword)
+        let initialLimit = shouldExpandCandidateWindow ? max(limit * 2, limit) : max(1, limit)
+        let maxLimit = min(max(limit * 20, 2000), 5000)
+
+        var searchLimit = initialLimit
+        var matchingIds: [Int64] = []
+        var rows: [Row] = []
+        while true {
+            // Only expand the candidate window for real FTS searches. Fallback paths
+            // (security-mode in-memory search and SQL LIKE) already apply type/tag
+            // filters while scanning, so increasing the limit just repeats expensive
+            // work without discovering a later FTS candidate page.
+            matchingIds = await searchFTS(
+                keyword: keyword,
+                typeFilter: shouldExpandCandidateWindow ? nil : typeFilter,
+                tagId: shouldExpandCandidateWindow ? nil : tagId,
+                limit: searchLimit
+            )
+            if matchingIds.isEmpty {
+                return []
+            }
+
+            rows = await fetchRowsForIds(matchingIds, typeFilter: typeFilter, tagId: tagId)
+
+            if !shouldExpandCandidateWindow ||
+                rows.count >= limit ||
+                matchingIds.count < searchLimit ||
+                searchLimit >= maxLimit {
+                break
+            }
+            searchLimit = min(searchLimit * 2, maxLimit)
+        }
+        guard rows.count > 1 else { return rows }
+
+        var rowsById: [Int64: Row] = [:]
+        rowsById.reserveCapacity(rows.count)
+        for row in rows {
+            if let id = try? row.get(Col.id) {
+                rowsById[id] = row
+            }
+        }
+
+        var ordered: [Row] = []
+        ordered.reserveCapacity(min(limit, matchingIds.count))
+        for id in matchingIds {
+            guard let row = rowsById[id] else { continue }
+            ordered.append(row)
+            if ordered.count >= limit { break }
+        }
+        return ordered
+    }
+
+    private func fetchRowsForIds(
+        _ ids: [Int64],
+        typeFilter: [String]?,
+        tagId: Int?
+    ) async -> [Row] {
+        guard !ids.isEmpty else { return [] }
+
+        // 分块查询避免 SQLite 变量上限
+        let chunkSize = 900
+        var rows: [Row] = []
+        rows.reserveCapacity(ids.count)
+        var start = 0
+        while start < ids.count {
+            guard !Task.isCancelled else { break }
+            let end = min(start + chunkSize, ids.count)
+            let chunk = Array(ids[start..<end])
+            let chunkRows: [Row] = await withReadDBAsync { db, table in
+                var query = self.listModeBaseQuery(table: table).filter(chunk.contains(Col.id))
+
+                if let types = typeFilter, !types.isEmpty {
+                    query = query.filter(types.contains(Col.itemType))
+                }
+
+                if let tagId = tagId, tagId != -1 {
+                    query = query.filter(Col.tagId == tagId)
+                }
+
+                return Array(try db.prepare(query))
+            } ?? []
+            rows.append(contentsOf: chunkRows)
+            start = end
+        }
+        return rows
+    }
+    
+    func fetchAll(limit: Int = 10000, offset: Int = 0, loadFullData: Bool = false) async -> [ClipboardItem] {
+        let rows: [Row] = await withReadDBAsync { db, table in
+            let query = table.order(Col.ts.desc).limit(limit, offset: offset)
+            return Array(try db.prepare(query))
+        } ?? []
+        return rows.compactMap { rowToClipboardItem($0, loadFullData: loadFullData) }
+    }
+
+    func fetchAllBeforeCursor(
+        limit: Int = 10000,
+        beforeTimestamp: Int64? = nil,
+        beforeId: Int64? = nil,
+        loadFullData: Bool = false
+    ) async -> [ClipboardItem] {
+        let rows: [Row] = await withReadDBAsync { db, table in
+            var query = table
+            if let beforeTimestamp, let beforeId {
+                let cursorFilter = (Col.ts < beforeTimestamp) || (Col.ts == beforeTimestamp && Col.id < beforeId)
+                query = query.filter(cursorFilter)
+            }
+            query = query.order(Col.ts.desc, Col.id.desc).limit(limit)
+            return Array(try db.prepare(query))
+        } ?? []
+        return rows.compactMap { rowToClipboardItem($0, loadFullData: loadFullData) }
+    }
+
+    struct ExportRow: Sendable {
+        let id: Int64
+        let uniqueId: String
+        let pasteboardType: String
+        let itemType: String
+        let data: Data
+        let previewData: Data?
+        let timestamp: Int64
+        let appPath: String
+        let appName: String
+        let customTitle: String?
+        let sourceAnchor: SourceAnchor?
+        let searchText: String
+        let contentLength: Int
+        let tagId: Int
+        let isTemporary: Bool
+        let receivedFromLAN: Bool
+        let blobPath: String?
+    }
+
+    /// Export-only row mapper.
+    ///
+    /// This intentionally avoids constructing `ClipboardItem`: its initializer
+    /// re-detects item type and runs SmartTextService heuristics, which is useful
+    /// for capture/UI but pure overhead when rows already contain persisted
+    /// metadata. Export still loads full payload bytes (including blobs) and
+    /// decrypts only the fields that can be encrypted on disk.
+    func fetchExportRowsBeforeCursor(
+        limit: Int = 10000,
+        beforeTimestamp: Int64? = nil,
+        beforeId: Int64? = nil
+    ) async -> [ExportRow] {
+        let rows: [Row] = await withReadDBAsync { db, table in
+            var query = table.select(
+                Col.id,
+                Col.uniqueId,
+                Col.type,
+                Col.itemType,
+                Col.data,
+                Col.previewData,
+                Col.ts,
+                Col.appPath,
+                Col.appName,
+                Col.customTitle,
+                Col.sourceAnchor,
+                Col.searchText,
+                Col.length,
+                Col.tagId,
+                Col.blobPath,
+                Col.isTemporary,
+                Col.isEncrypted,
+                Col.receivedFromLan
+            )
+            if let beforeTimestamp, let beforeId {
+                let cursorFilter = (Col.ts < beforeTimestamp) || (Col.ts == beforeTimestamp && Col.id < beforeId)
+                query = query.filter(cursorFilter)
+            }
+            query = query.order(Col.ts.desc, Col.id.desc).limit(limit)
+            return Array(try db.prepare(query))
+        } ?? []
+
+        let generatedUniqueIds = generatedUniqueIdsForLegacyExportRows(rows)
+        let resolvedGeneratedUniqueIds = await persistGeneratedUniqueIdsForExport(generatedUniqueIds)
+        return rows.compactMap { exportRow(from: $0, generatedUniqueIds: resolvedGeneratedUniqueIds) }
+    }
+
+    private func exportRow(from row: Row, generatedUniqueIds: [Int64: String]) -> ExportRow? {
+        do {
+            let id = try row.get(Col.id)
+            let storedUniqueId = try row.get(Col.uniqueId)
+            let uniqueId: String
+            if storedUniqueId.isEmpty {
+                uniqueId = generatedUniqueIds[id] ?? stablePendingUniqueId(for: id)
+            } else {
+                uniqueId = storedUniqueId
+            }
+
+            let type = try row.get(Col.type)
+            let itemType = try row.get(Col.itemType)
+            let rawData = try row.get(Col.data)
+            let rawPreviewData = try row.get(Col.previewData)
+            let timestamp = try row.get(Col.ts)
+            let appPath = try row.get(Col.appPath)
+            let rawAppName = try row.get(Col.appName)
+            let rawCustomTitle = (try? row.get(Col.customTitle)) ?? nil
+            let rawSourceAnchor = (try? row.get(Col.sourceAnchor)) ?? nil
+            let rawSearchText = try row.get(Col.searchText)
+            let contentLength = try row.get(Col.length)
+            let tagId = try row.get(Col.tagId)
+            let blobPath = try row.get(Col.blobPath)
+            let rawIsTemporary = (try? row.get(Col.isTemporary)) ?? false
+            let isEncrypted = (try? row.get(Col.isEncrypted)) ?? DeckUserDefaults.securityModeEnabled
+            let receivedFromLAN = (try? row.get(Col.receivedFromLan)) ?? false
+            let isTemporary = tagId == DeckTag.importantTagId ? false : rawIsTemporary
+
+            let previewData = rawPreviewData.map { decryptData($0, force: isEncrypted) }
+            let data: Data
+            if let blobPath, let blobData = BlobStorage.shared.load(path: blobPath) {
+                data = blobData
+            } else if blobPath != nil, let previewData, !previewData.isEmpty {
+                // Preserve the previous export fallback: if a referenced blob is
+                // unavailable, the ClipboardItem path exported its lightweight
+                // inline preview instead of crashing the whole export.
+                data = previewData
+            } else {
+                data = decryptData(rawData, force: isEncrypted)
+            }
+
+            let appName = decryptString(rawAppName, force: isEncrypted)
+            let customTitle = rawCustomTitle.map { decryptString($0, force: isEncrypted) }
+            let sourceAnchor = SourceAnchor.fromJSON(rawSourceAnchor.map { decryptString($0, force: isEncrypted) })
+            let searchText = decryptString(rawSearchText, force: isEncrypted)
+
+            return ExportRow(
+                id: id,
+                uniqueId: uniqueId,
+                pasteboardType: type,
+                itemType: itemType,
+                data: data,
+                previewData: previewData,
+                timestamp: timestamp,
+                appPath: appPath,
+                appName: appName,
+                customTitle: customTitle,
+                sourceAnchor: sourceAnchor,
+                searchText: searchText,
+                contentLength: contentLength,
+                tagId: tagId,
+                isTemporary: isTemporary,
+                receivedFromLAN: receivedFromLAN,
+                blobPath: blobPath
+            )
+        } catch {
+            log.error("Failed to convert row for export: \(error)")
+            return nil
+        }
+    }
+
+    private nonisolated func generatedUniqueIdsForLegacyExportRows(_ rows: [Row]) -> [Int64: String] {
+        var uniqueIdsByRowId: [Int64: String] = [:]
+        uniqueIdsByRowId.reserveCapacity(rows.count)
+
+        for row in rows {
+            guard let id = try? row.get(Col.id),
+                  let storedUniqueId = try? row.get(Col.uniqueId),
+                  storedUniqueId.isEmpty else {
+                continue
+            }
+            uniqueIdsByRowId[id] = stablePendingUniqueId(for: id)
+        }
+
+        return uniqueIdsByRowId
+    }
+
+    private nonisolated func persistGeneratedUniqueIdsForExport(_ uniqueIdsByRowId: [Int64: String]) async -> [Int64: String] {
+        guard !uniqueIdsByRowId.isEmpty else { return [:] }
+
+        let result = await withDBAsync {
+            guard let db = self.db else {
+                return uniqueIdsByRowId
+            }
+
+            let updateSQL = "UPDATE ClipboardHistory SET unique_id = ? WHERE id = ? AND unique_id = ''"
+            let selectSQL = "SELECT unique_id FROM ClipboardHistory WHERE id = ? LIMIT 1"
+            let updateStmt = try db.prepare(updateSQL)
+            var resolvedUniqueIds = uniqueIdsByRowId
+            var removablePendingUniqueIds: [Int64: String] = [:]
+            removablePendingUniqueIds.reserveCapacity(uniqueIdsByRowId.count)
+
+            try db.transaction {
+                for (id, generatedUniqueId) in uniqueIdsByRowId.sorted(by: { $0.key < $1.key }) {
+                    try updateStmt.run(generatedUniqueId, id)
+                    if Int(db.changes) > 0 {
+                        resolvedUniqueIds[id] = generatedUniqueId
+                        removablePendingUniqueIds[id] = generatedUniqueId
+                        continue
+                    }
+
+                    // If another maintenance path won the race after the export
+                    // read saw an empty unique_id, export the committed DB value
+                    // instead of a stale pending UUID.
+                    let selectStmt = try db.prepare(selectSQL).bind(id)
+                    if let row = try selectStmt.failableNext(),
+                       let existingUniqueId = row[0] as? String,
+                       !existingUniqueId.isEmpty {
+                        resolvedUniqueIds[id] = existingUniqueId
+                        removablePendingUniqueIds[id] = generatedUniqueId
+                    }
+                }
+            }
+
+            self.removePendingUniqueIdsIfMatching(removablePendingUniqueIds)
+            return resolvedUniqueIds
+        }
+
+        return result ?? uniqueIdsByRowId
+    }
+
+    func fetchAll(limit: Int = 10000, offset: Int = 0, loadFullData: Bool = false) -> [ClipboardItem] {
+        let rows: [Row] = withReadDB { db, table in
+            let query = table.order(Col.ts.desc).limit(limit, offset: offset)
+            return Array(try db.prepare(query))
+        } ?? []
+        return rows.compactMap { rowToClipboardItem($0, loadFullData: loadFullData) }
+    }
+    
+    func fetch(id: Int64) async -> Row? {
+        return await withReadDBAsync { db, table in
+            let query = table.filter(Col.id == id)
+            return try db.pluck(query)
+        } ?? nil
+    }
+
+    func fetchRow(uniqueId: String) async -> Row? {
+        return await withReadDBAsync { db, table in
+            let query = table.filter(Col.uniqueId == uniqueId).order(Col.ts.desc).limit(1)
+            return try db.pluck(query)
+        } ?? nil
+    }
+
+    func fetchTagId(uniqueId: String) async -> Int? {
+        return await withReadDBAsync { db, table in
+            let query = table.select(Col.tagId).filter(Col.uniqueId == uniqueId).order(Col.ts.desc).limit(1)
+            return try db.pluck(query)?.get(Col.tagId)
+        } ?? nil
+    }
+
+    /// Ensure a non-empty unique_id for the given item, backfilling legacy rows if needed.
+    func ensureNonEmptyUniqueId(for item: ClipboardItem) async -> String {
+        if !item.uniqueId.isEmpty { return item.uniqueId }
+        guard let id = item.id else { return UUID().uuidString }
+
+        if let row = await fetch(id: id),
+           let existing = try? row.get(Col.uniqueId),
+           !existing.isEmpty {
+            return existing
+        }
+
+        let resolvedUniqueId = stablePendingUniqueId(for: id)
+
+        backfillUniqueIdIfNeeded(id: id, uniqueId: resolvedUniqueId)
+        return resolvedUniqueId
+    }
+
+    /// Fetch raw data payload for a single item (used for lazy loading).
+    func fetchData(for id: Int64, isEncrypted: Bool? = nil) -> Data? {
+        return withReadDB { db, table in
+            let query = table.select(Col.data).filter(Col.id == id).limit(1)
+            guard let row = try db.pluck(query) else { return nil }
+            let rawData = try row.get(Col.data)
+            let shouldDecrypt = isEncrypted ?? DeckUserDefaults.securityModeEnabled
+            return self.decryptData(rawData, force: shouldDecrypt)
+        } ?? nil
+    }
+
+    /// 批量获取多个 ID 的记录（自动分块避免 SQLite 变量上限）
+    func fetchBatch(ids: [Int64]) async -> [Row] {
+        guard !ids.isEmpty else { return [] }
+        // SQLite 默认变量限制 999，分块查询避免超限
+        let chunkSize = 900
+        var results: [Row] = []
+        results.reserveCapacity(ids.count)
+
+        var start = 0
+        while start < ids.count {
+            let end = min(start + chunkSize, ids.count)
+            let chunk = Array(ids[start..<end])
+            let rows: [Row] = await withReadDBAsync { db, table in
+                let query = self.listModeBaseQuery(table: table).filter(chunk.contains(Col.id))
+                return Array(try db.prepare(query))
+            } ?? []
+            results.append(contentsOf: rows)
+            start = end
+        }
+
+        return results
+    }
+
+    /// Fetch lightweight list rows by id without adding timestamp ordering.
+    /// The caller owns final ordering (e.g. semantic/vector ranking), so this
+    /// avoids the extra timestamp sort that `fetchListPage` always performs.
+    func fetchRowsByIdsUnordered(ids: [Int64], filter: Expression<Bool>? = nil) async -> [Row] {
+        guard !ids.isEmpty else { return [] }
+        let chunkSize = 900
+        var results: [Row] = []
+        results.reserveCapacity(ids.count)
+
+        var start = 0
+        while start < ids.count {
+            guard !Task.isCancelled else { break }
+            let end = min(start + chunkSize, ids.count)
+            let chunk = Array(ids[start..<end])
+            let rows: [Row] = await withReadDBAsync { db, table in
+                var query = self.listModeBaseQuery(table: table).filter(chunk.contains(Col.id))
+                if let filter {
+                    query = query.filter(filter)
+                }
+                return Array(try db.prepare(query))
+            } ?? []
+            results.append(contentsOf: rows)
+            start = end
+        }
+
+        return results
+    }
+
+    func count(typeFilter: [String]? = nil) async -> Int {
+        return await withReadDBAsync { db, table in
+            var query = table
+            if let types = typeFilter, !types.isEmpty {
+                query = query.filter(types.contains(Col.itemType))
+            }
+            return try db.scalar(query.count)
+        } ?? 0
+    }
+
+    // MARK: - Lightweight Statistics Queries (avoid loading large blobs)
+
+    func count(since timestamp: Int64) async -> Int {
+        return await withReadDBAsync { db, table in
+            let query = table.filter(Col.ts >= timestamp)
+            return try db.scalar(query.count)
+        } ?? 0
+    }
+
+    struct StatisticsSummaryRow: Sendable {
+        let total: Int
+        let today: Int
+        let week: Int
+    }
+
+    struct TimestampRange: Sendable {
+        let start: Int64
+        let end: Int64
+    }
+
+    /// Summary counters in one SQLite statement. Keep each count as an
+    /// independent subquery so timestamp ranges can use the timestamp index
+    /// instead of forcing a full-table SUM(CASE...) scan.
+    func fetchStatisticsSummary(todayStart: Int64, weekStart: Int64) async -> StatisticsSummaryRow {
+        return await withReadDBAsync { db, _ in
+            let sql = """
+            SELECT
+                (SELECT COUNT(*) FROM ClipboardHistory) AS total_count,
+                (SELECT COUNT(*) FROM ClipboardHistory WHERE timestamp >= ?) AS today_count,
+                (SELECT COUNT(*) FROM ClipboardHistory WHERE timestamp >= ?) AS week_count
+            """
+
+            let stmt = try db.prepare(sql).bind(todayStart, weekStart)
+            guard let row = try stmt.failableNext() else {
+                return StatisticsSummaryRow(total: 0, today: 0, week: 0)
+            }
+
+            return StatisticsSummaryRow(
+                total: Int(self.bindingToInt64(row[0]) ?? 0),
+                today: Int(self.bindingToInt64(row[1]) ?? 0),
+                week: Int(self.bindingToInt64(row[2]) ?? 0)
+            )
+        } ?? StatisticsSummaryRow(total: 0, today: 0, week: 0)
+    }
+
+    /// Counts rows inside fixed timestamp ranges in one query. The statistics
+    /// page passes local-calendar day boundaries, so DST/local-day semantics are
+    /// preserved while avoiding fetching every timestamp into Swift.
+    func fetchTimestampRangeCounts(_ ranges: [TimestampRange]) async -> [Int] {
+        guard !ranges.isEmpty else { return [] }
+        guard ranges.count <= 31, ranges.allSatisfy({ $0.end > $0.start }) else {
+            return Array(repeating: 0, count: ranges.count)
+        }
+
+        let rangeQuery = Self.timestampRangeCountQuery(for: ranges)
+        return await withReadDBAsync { db, _ in
+            let sql = """
+            SELECT \(rangeQuery.selectClauses)
+            FROM ClipboardHistory
+            WHERE timestamp >= \(rangeQuery.minStart) AND timestamp < \(rangeQuery.maxEnd)
+            """
+
+            let stmt = try db.prepare(sql)
+            guard let row = try stmt.failableNext() else {
+                return Array(repeating: 0, count: ranges.count)
+            }
+
+            var counts: [Int] = []
+            counts.reserveCapacity(ranges.count)
+            for index in ranges.indices {
+                counts.append(Int(self.bindingToInt64(row[index]) ?? 0))
+            }
+            return counts
+        } ?? Array(repeating: 0, count: ranges.count)
+    }
+
+    private nonisolated static func timestampRangeCountQuery(
+        for ranges: [TimestampRange]
+    ) -> (selectClauses: String, minStart: Int64, maxEnd: Int64) {
+        var clauses: [String] = []
+        clauses.reserveCapacity(ranges.count)
+        var minStart = ranges[0].start
+        var maxEnd = ranges[0].end
+
+        for (index, range) in ranges.enumerated() {
+            clauses.append(
+                "COALESCE(SUM(CASE WHEN timestamp >= \(range.start) AND timestamp < \(range.end) THEN 1 ELSE 0 END), 0) AS c\(index)"
+            )
+            if range.start < minStart { minStart = range.start }
+            if range.end > maxEnd { maxEnd = range.end }
+        }
+
+        return (clauses.joined(separator: ", "), minStart, maxEnd)
+    }
+
+    /// Fetch timestamps since the given unix timestamp (seconds).
+    /// Only selects the `ts` column to keep memory stable.
+    func fetchTimestamps(since timestamp: Int64) async -> [Int64] {
+        guard !Task.isCancelled else { return [] }
+        return await withReadDBAsync { db, table in
+            let query = table
+                .select(Col.ts)
+                .filter(Col.ts >= timestamp)
+                .order(Col.ts.desc)
+
+            var results: [Int64] = []
+            for row in try db.prepare(query) {
+                results.append(try row.get(Col.ts))
+
+                // Allow cooperative cancellation for very large datasets.
+                if results.count % 2000 == 0, Task.isCancelled { break }
+            }
+            return results
+        } ?? []
+    }
+
+    struct TypeCountRow: Sendable {
+        let type: String
+        let count: Int
+    }
+
+    struct AppPathCountRow: Sendable {
+        let appPath: String
+        let count: Int
+    }
+
+    /// Type distribution across the whole database (metadata-only, no blobs).
+    func fetchTypeCounts() async -> [TypeCountRow] {
+        guard !Task.isCancelled else { return [] }
+        return await withReadDBAsync { db, _ in
+            let sql = """
+            SELECT item_type, COUNT(*) AS c
+            FROM ClipboardHistory
+            GROUP BY item_type
+            ORDER BY c DESC
+            """
+
+            var results: [TypeCountRow] = []
+            let stmt = try db.prepare(sql)
+            while let row = try stmt.failableNext() {
+                guard let type = row[0] as? String,
+                      let countValue = self.bindingToInt64(row[1]) else {
+                    continue
+                }
+                results.append(
+                    TypeCountRow(
+                        type: type,
+                        count: Int(countValue)
+                    )
+                )
+
+                if results.count % 50 == 0, Task.isCancelled { break }
+            }
+            return results
+        } ?? []
+    }
+
+    /// Top app paths across the whole database (metadata-only, no blobs).
+    func fetchTopAppPaths(limit: Int = 5) async -> [AppPathCountRow] {
+        guard limit > 0 else { return [] }
+        guard !Task.isCancelled else { return [] }
+
+        // Avoid pathological values.
+        let safeLimit = max(1, min(limit, 50))
+
+        return await withReadDBAsync { db, _ in
+            let sql = """
+            SELECT app_path, COUNT(*) AS c
+            FROM ClipboardHistory
+            GROUP BY app_path
+            ORDER BY c DESC
+            LIMIT \(safeLimit)
+            """
+
+            var results: [AppPathCountRow] = []
+            results.reserveCapacity(safeLimit)
+
+            let stmt = try db.prepare(sql)
+            while let row = try stmt.failableNext() {
+                guard let appPath = row[0] as? String,
+                      let countValue = self.bindingToInt64(row[1]) else {
+                    continue
+                }
+                results.append(
+                    AppPathCountRow(
+                        appPath: appPath,
+                        count: Int(countValue)
+                    )
+                )
+            }
+            return results
+        } ?? []
+    }
+
+    private nonisolated func stablePendingUniqueId(for id: Int64) -> String {
+        syncOnDBQueue {
+            if let pending = pendingUniqueIdBackfill[id] {
+                return pending
+            }
+            let newId = UUID().uuidString
+            pendingUniqueIdBackfill[id] = newId
+            return newId
+        }
+    }
+
+    private nonisolated func existingPendingUniqueIds(for ids: [Int64]) -> [Int64: String] {
+        syncOnDBQueue {
+            var result: [Int64: String] = [:]
+            result.reserveCapacity(ids.count)
+            for id in ids {
+                if let pending = pendingUniqueIdBackfill[id] {
+                    result[id] = pending
+                }
+            }
+            return result
+        }
+    }
+
+    private nonisolated func removePendingUniqueIdIfMatching(id: Int64, uniqueId: String) {
+        removePendingUniqueIdsIfMatching([id: uniqueId])
+    }
+
+    private nonisolated func removePendingUniqueIdsIfMatching(_ uniqueIdsByRowId: [Int64: String]) {
+        guard !uniqueIdsByRowId.isEmpty else { return }
+        syncOnDBQueue {
+            for (id, uniqueId) in uniqueIdsByRowId {
+                guard pendingUniqueIdBackfill[id] == uniqueId else { continue }
+                pendingUniqueIdBackfill.removeValue(forKey: id)
+            }
+        }
+    }
+
+    private func backfillUniqueIdIfNeeded(id: Int64, uniqueId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            let didUpdate = await self.withDBAsync {
+                guard let db = self.db, let table = self.table else { return false }
+                let query = table.filter(Col.id == id && Col.uniqueId == "")
+                return try db.run(query.update(Col.uniqueId <- uniqueId)) > 0
+            } ?? false
+
+            if didUpdate {
+                self.removePendingUniqueIdIfMatching(id: id, uniqueId: uniqueId)
+            }
+        }
+    }
+
+    private nonisolated func scheduleReadPathMetadataBackfillIfNeeded() {
+        let shouldSchedule = syncOnDBQueue { () -> Bool in
+            guard !readPathMetadataBackfillScheduled else { return false }
+            readPathMetadataBackfillScheduled = true
+            return true
+        }
+        guard shouldSchedule else { return }
+
+        enqueueReadPathMetadataBackfillTask()
+    }
+
+    private nonisolated func enqueueReadPathMetadataBackfillTask() {
+        Task.detached(priority: .utility) { [weak self] in
+            await self?.performReadPathMetadataBackfill()
+        }
+    }
+
+    private nonisolated func performReadPathMetadataBackfill() async {
+        let batchSize = 200
+        let maxUniqueRowsPerRun = 5_000
+        var totalUniqueBackfilled = 0
+        var shouldScheduleNextRun = false
+        defer {
+            let shouldSchedule = syncOnDBQueue { () -> Bool in
+                readPathMetadataBackfillScheduled = false
+                guard shouldScheduleNextRun else { return false }
+                readPathMetadataBackfillScheduled = true
+                return true
+            }
+            if shouldSchedule {
+                enqueueReadPathMetadataBackfillTask()
+            }
+        }
+
+        while !Task.isCancelled && totalUniqueBackfilled < maxUniqueRowsPerRun {
+            let remainingLimit = max(1, min(batchSize, maxUniqueRowsPerRun - totalUniqueBackfilled))
+            let updated = await withDBAsyncBackground {
+                guard let db = self.db else { return 0 }
+                let selectSQL = """
+                    SELECT id
+                    FROM ClipboardHistory
+                    WHERE unique_id = ''
+                    ORDER BY id ASC
+                    LIMIT ?
+                """
+                let stmt = try db.prepare(selectSQL).bind(remainingLimit)
+                var ids: [Int64] = []
+                ids.reserveCapacity(batchSize)
+                while let row = try stmt.failableNext() {
+                    if let id = self.bindingToInt64(row[0]) {
+                        ids.append(id)
+                    }
+                }
+                guard !ids.isEmpty else { return 0 }
+
+                let updateSQL = "UPDATE ClipboardHistory SET unique_id = ? WHERE id = ? AND unique_id = ''"
+                let updateStmt = try db.prepare(updateSQL)
+                let pendingUniqueIds = self.existingPendingUniqueIds(for: ids)
+                var committedPendingUniqueIds: [Int64: String] = [:]
+                committedPendingUniqueIds.reserveCapacity(pendingUniqueIds.count)
+                var updated = 0
+                try db.transaction {
+                    for id in ids {
+                        let pendingUniqueId = pendingUniqueIds[id]
+                        let uniqueId = pendingUniqueId ?? UUID().uuidString
+                        try updateStmt.run(uniqueId, id)
+                        let changes = Int(db.changes)
+                        if changes > 0 {
+                            updated += changes
+                            if let pendingUniqueId {
+                                committedPendingUniqueIds[id] = pendingUniqueId
+                            }
+                        }
+                    }
+                }
+                self.removePendingUniqueIdsIfMatching(committedPendingUniqueIds)
+                return updated
+            } ?? 0
+
+            guard updated > 0 else { break }
+            totalUniqueBackfilled += updated
+            await Task.yield()
+        }
+
+        let fixedTemporary = await withDBAsyncBackground {
+            guard let db = self.db else { return 0 }
+            let sql = """
+                UPDATE ClipboardHistory
+                SET is_temporary = 0
+                WHERE tag_id = ? AND is_temporary = 1
+            """
+            try db.run(sql, DeckTag.importantTagId)
+            return Int(db.changes)
+        } ?? 0
+
+        shouldScheduleNextRun = !Task.isCancelled && totalUniqueBackfilled >= maxUniqueRowsPerRun
+
+        if totalUniqueBackfilled > 0 || fixedTemporary > 0 {
+            await log.info("Read-path metadata backfill completed: unique_id=\(totalUniqueBackfilled), temporary=\(fixedTemporary)")
+        }
+    }
+    
+    func rowToClipboardItem(_ row: Row, isEncrypted: Bool? = nil, loadFullData: Bool = true) -> ClipboardItem? {
+        do {
+            let type = try row.get(Col.type)
+            let rawData: Data
+            do {
+                rawData = try row.get(Col.data)
+            } catch {
+                // 列表模式 select 的是 listModeProjectedDataExpr（CASE ... AS data）
+                rawData = (try? row.get(listModeProjectedDataExpr)) ?? Data()
+            }
+            let timestamp = try row.get(Col.ts)
+            let id = try row.get(Col.id)
+            let rawAppName = try row.get(Col.appName)
+            let rawCustomTitle = (try? row.get(Col.customTitle)) ?? nil
+            let rawSourceAnchor = (try? row.get(Col.sourceAnchor)) ?? nil
+            let appPath = try row.get(Col.appPath)
+            let rawPreviewData = try row.get(Col.previewData)
+            let rawSearchText = try row.get(Col.searchText)
+            let length = try row.get(Col.length)
+            let tagId = try row.get(Col.tagId)
+            let blobPath = try row.get(Col.blobPath)
+            let storedUniqueId = try row.get(Col.uniqueId)
+            let resolvedUniqueId: String
+            if storedUniqueId.isEmpty {
+                resolvedUniqueId = stablePendingUniqueId(for: id)
+            } else {
+                resolvedUniqueId = storedUniqueId
+            }
+            let storedItemType = try row.get(Col.itemType)
+            let rawIsTemporary = (try? row.get(Col.isTemporary)) ?? false
+            let receivedFromLAN = (try? row.get(Col.receivedFromLan)) ?? false
+            let storedIsEncrypted = try? row.get(Col.isEncrypted)
+            let isTemporary = tagId == DeckTag.importantTagId ? false : rawIsTemporary
+            
+            // Decrypt lightweight fields up-front (needed for list rendering / filtering).
+            let shouldDecrypt = isEncrypted ?? storedIsEncrypted ?? DeckUserDefaults.securityModeEnabled
+            let previewData = rawPreviewData.map { decryptData($0, force: shouldDecrypt) }
+            let searchText = decryptString(rawSearchText, force: shouldDecrypt)
+            let appName = decryptString(rawAppName, force: shouldDecrypt)
+            let customTitle = rawCustomTitle.map { decryptString($0, force: shouldDecrypt) }
+            let sourceAnchorString = rawSourceAnchor.map { decryptString($0, force: shouldDecrypt) }
+            let sourceAnchor = SourceAnchor.fromJSON(sourceAnchorString)
+
+            // IMPORTANT:
+            // The history panel loads items with `loadFullData == false` (pagination).
+            // Previously we decrypted & inlined the full `data` blob for every item regardless,
+            // which caused memory to grow with scroll distance and spiked CPU during fast scrolling.
+            // Here we keep only lightweight inline payloads and lazily fetch full data on demand.
+
+            var inlineData = Data()
+            var dataIsFull = loadFullData
+
+            // Keep small payloads inline to avoid extra DB fetch for common items,
+            // but never keep large payloads inline when loadFullData == false.
+            let maxInlineBytesForNonImage: Int = 32 * 1024
+            // File URL payloads are typically small (newline-separated paths), but keep a higher
+            // ceiling to avoid breaking paste for multi-select file copies.
+            let maxInlineBytesForFile: Int = 256 * 1024
+            // If an image has no preview (e.g. very small images), keep a slightly larger inline
+            // budget so the UI can still render a thumbnail without fetching.
+            let maxInlineBytesForImageWithoutPreview: Int = 256 * 1024
+
+            let itemType = ClipItemType(rawValue: storedItemType)
+            // 当列表查询使用了 data 列投影（大内容返回 X''）时，这里 rawData 会是空，但 content_length 仍然是原始长度。
+            // 如果不特殊处理，会被误判为 dataIsFull=true，导致后续无法懒加载真实数据。
+            let projectedEmptyData = (!loadFullData && blobPath == nil && rawData.isEmpty && length > 0)
+
+            if let blobPath {
+                // Full payload is stored in an external blob. Only load it if explicitly requested.
+                if loadFullData, let fullData = BlobStorage.shared.load(path: blobPath) {
+                    inlineData = fullData
+                    dataIsFull = true
+                } else {
+                    dataIsFull = false
+                    if let preview = previewData, !preview.isEmpty {
+                        inlineData = preview
+                    }
+                }
+            } else if loadFullData {
+                // Caller explicitly asked for full data.
+                inlineData = decryptData(rawData, force: shouldDecrypt)
+                dataIsFull = true
+            } else if projectedEmptyData {
+                // List-mode query projected `data` to an empty blob to avoid loading large payloads.
+                // Keep preview for images; otherwise keep empty and rely on lazy-load when needed.
+                if itemType == .image, let preview = previewData, !preview.isEmpty {
+                    if PasteboardType(type) == .fileURL {
+                        // `public.file-url` 的 data 必须是 URL 字符串；不能用缩略图顶替，否则 filePaths 解析失败（面板空白、无法粘贴）。
+                        inlineData = decryptData(rawData, force: shouldDecrypt)
+                        dataIsFull = !rawData.isEmpty
+                    } else {
+                        inlineData = preview
+                        dataIsFull = false
+                    }
+                } else {
+                    inlineData = Data()
+                    dataIsFull = false
+                }
+            } else if itemType == .image, let preview = previewData, !preview.isEmpty {
+                // Image list mode: keep only thumbnail inline，但 fileURL 仍以路径字符串为 data，缩略图仅走 previewData。
+                if PasteboardType(type) == .fileURL {
+                    inlineData = decryptData(rawData, force: shouldDecrypt)
+                    dataIsFull = true
+                } else {
+                    inlineData = preview
+                    dataIsFull = false
+                }
+            } else {
+                // Non-image list mode: inline only very small payloads; otherwise lazy-load.
+                let maxInlineBytes = (itemType == .file) ? maxInlineBytesForFile : maxInlineBytesForNonImage
+
+                if rawData.count <= maxInlineBytes || (itemType == .image && rawData.count <= maxInlineBytesForImageWithoutPreview) {
+                    inlineData = decryptData(rawData, force: shouldDecrypt)
+                    dataIsFull = true
+                } else {
+                    inlineData = Data()
+                    dataIsFull = false
+                }
+            }
+            
+            let item = ClipboardItem(
+                pasteboardType: PasteboardType(type),
+                data: inlineData,
+                previewData: previewData,
+                timestamp: timestamp,
+                appPath: appPath,
+                appName: appName,
+                customTitle: customTitle,
+                sourceAnchor: sourceAnchor,
+                searchText: searchText,
+                contentLength: length,
+                tagId: tagId,
+                isTemporary: isTemporary,
+                receivedFromLAN: receivedFromLAN,
+                id: id,
+                uniqueId: resolvedUniqueId,
+                blobPath: blobPath,
+                dataIsFull: dataIsFull,
+                itemType: itemType
+            )
+
+            if !dataIsFull, blobPath == nil {
+                item.setDeferredDataLoader { [weak self] in
+                    self?.fetchData(for: id, isEncrypted: shouldDecrypt)
+                }
+            }
+
+            return item
+        } catch {
+            log.error("Failed to convert row to ClipboardItem: \(error)")
+            return nil
+        }
+    }
+
+    func mapRowsToClipboardItems(_ rows: [Row], loadFullData: Bool = false) async -> [ClipboardItem] {
+        guard !rows.isEmpty else { return [] }
+        guard !Task.isCancelled else { return [] }
+        return rows.compactMap { rowToClipboardItem($0, loadFullData: loadFullData) }
+    }
+    
+    // MARK: - Encryption Migration
+
+    /// Re-encrypt or decrypt all existing data when security mode changes
+    /// - Parameter encrypt: true to encrypt, false to decrypt
+    /// - Returns: true if migration succeeded, false if failed
+    func migrateEncryption(encrypt: Bool) async -> Bool {
+        guard syncOnDBQueue({ db != nil && table != nil }) else {
+            await log.error("Database not initialized for encryption migration")
+            return false
+        }
+        guard let migrationKey = SecurityService.shared.getOrCreateEncryptionKey() else {
+            notifyEncryptionFailureIfNeeded()
+            await log.error("Encryption migration failed: encryption key unavailable")
+            return false
+        }
+
+        await log.info("Starting encryption migration: encrypt=\(encrypt)")
+
+        let ftsPreferTrigram = syncOnDBQueue { ftsUsesTrigram }
+        let shouldRestoreFTSOnFailure = !DeckUserDefaults.securityModeEnabled
+        dropFTS5TableAndTriggers(reason: "encryption migration")
+
+        // 使用分批处理避免一次性加载全表到内存
+        let batchSize = 100
+        var lastId: Int64 = 0
+        var totalProcessed = 0
+        var hasError = false
+
+        while !hasError {
+            // 分批查询，只获取 id 和需要迁移的字段
+            let batchResult: (rows: [Row], count: Int)? = await withDBAsync {
+                guard let db = self.db, let table = self.table else { return ([], 0) }
+                let query = table
+                    .select(Col.id, Col.data, Col.previewData, Col.searchText, Col.appName, Col.customTitle, Col.sourceAnchor, Col.isEncrypted)
+                    .filter(Col.id > lastId)
+                    .filter(Col.isEncrypted != encrypt)
+                    .order(Col.id.asc)
+                    .limit(batchSize)
+                let rows = Array(try db.prepare(query))
+                return (rows, rows.count)
+            }
+
+            guard let batch = batchResult else {
+                hasError = true
+                break
+            }
+
+            // 没有更多数据，退出循环
+            if batch.rows.isEmpty {
+                break
+            }
+
+            // 处理当前批次
+            let batchSuccess = await withDBAsync {
+                guard let db = self.db else { return false }
+                return self.migrateEncryptionBatch(batch.rows, encrypt: encrypt, using: migrationKey, db: db)
+            }
+
+            if batchSuccess != true {
+                hasError = true
+                break
+            }
+
+            totalProcessed += batch.count
+            if let lastRow = batch.rows.last, let newLastId = try? lastRow.get(Col.id) {
+                if newLastId <= lastId { break }
+                lastId = newLastId
+            } else {
+                break
+            }
+
+            // 批次间让出 CPU，避免长时间阻塞
+            await Task.yield()
+        }
+
+        if hasError {
+            if shouldRestoreFTSOnFailure {
+                rebuildFTSIndex(preferTrigram: ftsPreferTrigram, respectSecurityMode: false)
+            }
+            await log.error("Encryption migration failed after processing \(totalProcessed) items")
+            return false
+        }
+
+        await log.info("Encryption migration completed: \(totalProcessed) items processed")
+
+        // 迁移 blob 文件的加密状态
+        let blobMigrated = await BlobStorage.shared.migrateEncryption(encrypt: encrypt)
+        guard blobMigrated else {
+            if shouldRestoreFTSOnFailure {
+                rebuildFTSIndex(preferTrigram: ftsPreferTrigram, respectSecurityMode: false)
+            }
+            await log.error("Encryption migration failed: blob migration failed")
+            return false
+        }
+
+        // 更新数据库中的 blob_path（加密后缀变化）
+        let blobPathUpdated = await updateBlobPathsAfterMigration(encrypt: encrypt)
+        guard blobPathUpdated else {
+            if shouldRestoreFTSOnFailure {
+                rebuildFTSIndex(preferTrigram: ftsPreferTrigram, respectSecurityMode: false)
+            }
+            await log.error("Encryption migration failed: blob_path update failed")
+            return false
+        }
+
+        // 迁移语义向量缓存表的加密状态
+        await migrateEmbeddingEncryption(encrypt: encrypt, using: migrationKey)
+
+        if !encrypt {
+            rebuildFTSIndex(preferTrigram: ftsPreferTrigram, respectSecurityMode: false)
+        }
+
+        // 加密状态变化后，缓存的解密文本全部失效
+        invalidateSearchCache()
+        return true
+    }
+
+    /// Executes the transaction body from a nonisolated context. Under Swift 6's
+    /// default MainActor isolation, creating the SQLite transaction closure inside
+    /// `migrateEncryption(...)` makes SQLite.swift execute an actor-isolated block
+    /// on `com.deck.sqlite.queue.*`, which trips libdispatch's queue assertion.
+    private nonisolated func migrateEncryptionBatch(
+        _ rows: [Row],
+        encrypt: Bool,
+        using migrationKey: SymmetricKey,
+        db: Connection
+    ) -> Bool {
+        var currentID: Int64?
+        do {
+            try db.transaction {
+                let updateStatement = try db.prepare("""
+                    UPDATE ClipboardHistory
+                    SET data = ?,
+                        preview_data = ?,
+                        search_text = ?,
+                        app_name = ?,
+                        custom_title = ?,
+                        source_anchor = ?,
+                        is_encrypted = ?
+                    WHERE id = ?
+                    """)
+                let targetEncryptedValue = encrypt ? 1 : 0
+
+                for row in rows {
+                    let id = try row.get(Col.id)
+                    currentID = id
+                    let rawData = try row.get(Col.data)
+                    let rawPreviewData = try row.get(Col.previewData)
+                    let rawSearchText = try row.get(Col.searchText)
+                    let rawAppName = try row.get(Col.appName)
+                    let rawCustomTitle = try row.get(Col.customTitle)
+                    let rawSourceAnchor = try row.get(Col.sourceAnchor)
+                    let rawIsEncrypted = (try? row.get(Col.isEncrypted)) ?? false
+
+                    let newData: Data
+                    let newPreviewData: Data?
+                    let newSearchText: String
+                    let newAppName: String
+                    let newCustomTitle: String?
+                    let newSourceAnchor: String?
+
+                    if encrypt {
+                        guard !rawIsEncrypted else { continue }
+                        guard let encryptedData = encryptDataForMigration(rawData, using: migrationKey) else {
+                            notifyEncryptionFailureIfNeeded()
+                            throw NSError(domain: "DeckSQL", code: -10, userInfo: nil)
+                        }
+                        newData = encryptedData
+                        if let rawPreviewData {
+                            guard let encryptedPreview = encryptDataForMigration(rawPreviewData, using: migrationKey) else {
+                                notifyEncryptionFailureIfNeeded()
+                                throw NSError(domain: "DeckSQL", code: -11, userInfo: nil)
+                            }
+                            newPreviewData = encryptedPreview
+                        } else {
+                            newPreviewData = nil
+                        }
+                        guard let encryptedSearch = encryptStringForMigration(rawSearchText, using: migrationKey) else {
+                            notifyEncryptionFailureIfNeeded()
+                            throw NSError(domain: "DeckSQL", code: -12, userInfo: nil)
+                        }
+                        newSearchText = encryptedSearch
+                        guard let encryptedAppName = encryptStringForMigration(rawAppName, using: migrationKey) else {
+                            notifyEncryptionFailureIfNeeded()
+                            throw NSError(domain: "DeckSQL", code: -13, userInfo: nil)
+                        }
+                        newAppName = encryptedAppName
+                        if let rawCustomTitle {
+                            guard let encryptedTitle = encryptStringForMigration(rawCustomTitle, using: migrationKey) else {
+                                notifyEncryptionFailureIfNeeded()
+                                throw NSError(domain: "DeckSQL", code: -15, userInfo: nil)
+                            }
+                            newCustomTitle = encryptedTitle
+                        } else {
+                            newCustomTitle = nil
+                        }
+                        if let rawSourceAnchor {
+                            guard let encryptedAnchor = encryptStringForMigration(rawSourceAnchor, using: migrationKey) else {
+                                notifyEncryptionFailureIfNeeded()
+                                throw NSError(domain: "DeckSQL", code: -14, userInfo: nil)
+                            }
+                            newSourceAnchor = encryptedAnchor
+                        } else {
+                            newSourceAnchor = nil
+                        }
+                    } else {
+                        guard rawIsEncrypted else { continue }
+                        guard let decryptedData = decryptDataForMigration(rawData, using: migrationKey) else {
+                            throw NSError(domain: "DeckSQL", code: -16, userInfo: nil)
+                        }
+                        newData = decryptedData
+
+                        if let rawPreviewData {
+                            guard let decryptedPreview = decryptDataForMigration(rawPreviewData, using: migrationKey) else {
+                                throw NSError(domain: "DeckSQL", code: -17, userInfo: nil)
+                            }
+                            newPreviewData = decryptedPreview
+                        } else {
+                            newPreviewData = nil
+                        }
+
+                        guard let maybeDecryptedSearch = decryptStringForMigration(rawSearchText, using: migrationKey) else {
+                            throw NSError(domain: "DeckSQL", code: -18, userInfo: nil)
+                        }
+                        newSearchText = maybeDecryptedSearch
+
+                        guard let maybeDecryptedAppName = decryptStringForMigration(rawAppName, using: migrationKey) else {
+                            throw NSError(domain: "DeckSQL", code: -19, userInfo: nil)
+                        }
+                        newAppName = maybeDecryptedAppName
+
+                        if let rawCustomTitle {
+                            guard let maybeDecryptedTitle = decryptStringForMigration(rawCustomTitle, using: migrationKey) else {
+                                throw NSError(domain: "DeckSQL", code: -20, userInfo: nil)
+                            }
+                            newCustomTitle = maybeDecryptedTitle
+                        } else {
+                            newCustomTitle = nil
+                        }
+
+                        if let rawSourceAnchor {
+                            guard let maybeDecryptedAnchor = decryptStringForMigration(rawSourceAnchor, using: migrationKey) else {
+                                throw NSError(domain: "DeckSQL", code: -21, userInfo: nil)
+                            }
+                            newSourceAnchor = maybeDecryptedAnchor
+                        } else {
+                            newSourceAnchor = nil
+                        }
+                    }
+
+                    let dataBinding: Binding? = SQLite.Blob(bytes: [UInt8](newData))
+                    let previewBinding: Binding?
+                    if let newPreviewData {
+                        previewBinding = SQLite.Blob(bytes: [UInt8](newPreviewData))
+                    } else {
+                        previewBinding = nil
+                    }
+                    try updateStatement.run([
+                        dataBinding,
+                        previewBinding,
+                        newSearchText,
+                        newAppName,
+                        newCustomTitle,
+                        newSourceAnchor,
+                        targetEncryptedValue,
+                        id
+                    ])
+                }
+            }
+            return true
+        } catch {
+            if let currentID {
+                log.error("Encryption migration batch failed at id=\(currentID): \(error.localizedDescription)")
+            } else {
+                log.error("Encryption migration batch failed before row id was read: \(error.localizedDescription)")
+            }
+            log.debug("Encryption migration batch error detail: \(String(reflecting: error))")
+            return false
+        }
+    }
+
+    /// 更新数据库中的 blob_path 字段（加密迁移后路径后缀变化）
+    private func updateBlobPathsAfterMigration(encrypt: Bool) async -> Bool {
+        let rows: [Row] = await withDBAsync {
+            guard let db = self.db, let table = self.table else { return [] }
+            // 查找所有有 blob_path 的记录
+            let query = table.select(Col.id, Col.blobPath)
+                .filter(Col.blobPath != nil)
+            return Array(try db.prepare(query))
+        } ?? []
+
+        var hasError = false
+        for row in rows {
+            do {
+                let id = try row.get(Col.id)
+                guard let oldPath = try row.get(Col.blobPath) else { continue }
+
+                let newPath: String
+                if encrypt {
+                    // 添加 .enc 后缀
+                    newPath = oldPath.hasSuffix(".enc") ? oldPath : "\(oldPath).enc"
+                } else {
+                    // 移除 .enc 后缀
+                    newPath = oldPath.hasSuffix(".enc") ? String(oldPath.dropLast(4)) : oldPath
+                }
+
+                if newPath != oldPath {
+                    let oldFileExists = FileManager.default.fileExists(atPath: oldPath)
+                    let newFileExists = FileManager.default.fileExists(atPath: newPath)
+                    if !newFileExists {
+                        if oldFileExists {
+                            hasError = true
+                            await log.error("Blob path migration expected migrated file for id=\(id): \(newPath)")
+                            continue
+                        }
+                        // Legacy recovery backups used to copy only Deck.sqlite3. If the user
+                        // cleared data after such a backup, restored rows can reference external
+                        // blobs that no longer exist. Do not keep suffix-flipping stale paths
+                        // around forever; clear the reference so backup/restore and future
+                        // security-mode toggles stop treating the row as externally recoverable.
+                        await log.warn("Blob path migration found missing blob for id=\(id); clearing stale blob reference")
+                        let cleared: Bool = await withDBAsync {
+                            guard let db = self.db, let table = self.table else { return false }
+                            let updateQuery = table.filter(Col.id == id)
+                            return try db.run(updateQuery.update(Col.blobPath <- nil)) > 0
+                        } ?? false
+                        if !cleared {
+                            hasError = true
+                        }
+                        continue
+                    }
+                    let updated: Bool = await withDBAsync {
+                        guard let db = self.db, let table = self.table else { return false }
+                        let updateQuery = table.filter(Col.id == id)
+                        return try db.run(updateQuery.update(Col.blobPath <- newPath)) > 0
+                    } ?? false
+                    if !updated {
+                        hasError = true
+                    }
+                }
+            } catch {
+                hasError = true
+                continue
+            }
+        }
+        return !hasError
+    }
+
+    private func migrateEmbeddingEncryption(encrypt: Bool, using migrationKey: SymmetricKey) async {
+        let tab = Table("ClipboardHistory_embedding")
+        let batchSize = 200
+        var lastId: Int64 = 0
+
+        while true {
+            guard !Task.isCancelled else { break }
+
+            let rows: [Row] = await withDBAsync {
+                guard let db = self.db else { return [] }
+                let query = tab.select(EmbeddingCol.id, EmbeddingCol.embedding)
+                    .filter(EmbeddingCol.id > lastId)
+                    .order(EmbeddingCol.id.asc)
+                    .limit(batchSize)
+                return Array(try db.prepare(query))
+            } ?? []
+
+            guard !rows.isEmpty else { break }
+
+            var lastBatchId = lastId
+            if let lastRow = rows.last, let id = try? lastRow.get(EmbeddingCol.id) {
+                lastBatchId = id
+            }
+            let batchSuccess = await withDBAsync {
+                guard let db = self.db else { return false }
+                return self.migrateEmbeddingEncryptionBatch(rows, encrypt: encrypt, using: migrationKey, table: tab, db: db)
+            }
+
+            guard batchSuccess == true else { return }
+            if lastBatchId <= lastId { break }
+            lastId = lastBatchId
+
+            if rows.count < batchSize { break }
+            await Task.yield()
+        }
+
+        if encrypt {
+            dropVecTables()
+        } else {
+            loadSQLiteVecExtensionIfAvailable()
+            if syncOnDBQueue({ vecIndexEnabled }) {
+                scheduleVecIndexBackfillIfNeeded()
+            }
+        }
+    }
+
+    private nonisolated func migrateEmbeddingEncryptionBatch(
+        _ rows: [Row],
+        encrypt: Bool,
+        using migrationKey: SymmetricKey,
+        table tab: Table,
+        db: Connection
+    ) -> Bool {
+        var shouldAbort = false
+        do {
+            try db.transaction {
+                for row in rows {
+                    if shouldAbort { break }
+                    do {
+                        let id = try row.get(EmbeddingCol.id)
+                        let rawEmbedding = try row.get(EmbeddingCol.embedding)
+
+                        let newEmbedding: Data
+                        if encrypt {
+                            if SecurityService.decryptWithKeySilently(rawEmbedding, using: migrationKey) != nil {
+                                newEmbedding = rawEmbedding
+                            } else if let encrypted = SecurityService.encryptWithKey(rawEmbedding, using: migrationKey) {
+                                newEmbedding = encrypted
+                            } else {
+                                notifyEncryptionFailureIfNeeded()
+                                shouldAbort = true
+                                break
+                            }
+                        } else {
+                            newEmbedding = SecurityService.decryptWithKeySilently(rawEmbedding, using: migrationKey) ?? rawEmbedding
+                        }
+
+                        let updateQuery = tab.filter(EmbeddingCol.id == id)
+                        try db.run(updateQuery.update(EmbeddingCol.embedding <- newEmbedding))
+                    } catch {
+                        continue
+                    }
+                }
+            }
+            return !shouldAbort
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Storage Migration
+
+    /// Update blob paths in a database file (used during storage migration)
+    static func updateBlobPaths(inDatabaseAt dbPath: String, oldBlobsPath: String, newBlobsPath: String) {
+        guard let db = try? Connection(dbPath) else {
+            log.error("Failed to open database for blob path migration: \(dbPath)")
+            return
+        }
+
+        do {
+            let sql = """
+                UPDATE ClipboardHistory
+                SET blob_path = REPLACE(blob_path, ?, ?)
+                WHERE blob_path IS NOT NULL AND blob_path LIKE ?
+            """
+            try db.run(sql, oldBlobsPath, newBlobsPath, oldBlobsPath + "%")
+            log.info("Blob paths updated in migrated database")
+        } catch {
+            log.error("Failed to update blob paths: \(error)")
+        }
+    }
+
+    /// Checkpoint WAL to ensure all transactions are written to the main database file
+    /// - Parameter dbPath: Path to the SQLite database
+    /// - Returns: true if checkpoint succeeded, false otherwise
+    static func checkpointWAL(at dbPath: String) -> Bool {
+        guard let db = try? Connection(dbPath) else {
+            log.error("Failed to open database for WAL checkpoint: \(dbPath)")
+            return false
+        }
+
+        do {
+            try db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            log.info("WAL checkpoint completed for \(dbPath)")
+            return true
+        } catch {
+            log.warn("Failed to checkpoint WAL: \(error)")
+            return false
+        }
+    }
+}

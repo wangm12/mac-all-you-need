@@ -76,6 +76,30 @@ final class AppController {
     // Plan 06: Dock-Hover Window Previews runtime (AX hover observer + panel).
     private let dockPreviews: DockPreviewRuntime
 
+    // AI File Organizer coordinator. Stored as optional; initialized once on first access.
+    // Cannot use `lazy` with @Observable, so we use a private backing var + nonisolated storage.
+    private var _fileOrganizerCoordinator: FileOrganizerCoordinator?
+    private var _fileOrganizerCoordinatorLoaded = false
+
+    var fileOrganizerCoordinator: FileOrganizerCoordinator? {
+        if !_fileOrganizerCoordinatorLoaded {
+            _fileOrganizerCoordinatorLoaded = true
+            let settings = VoiceCleanupSettingsStore.load()
+            let keychain = SystemKeychain()
+            let keyStore = VoiceCleanupKeyStore(keychain: keychain)
+            _fileOrganizerCoordinator = try? FileOrganizerCoordinator(llmGenerate: { systemPrompt, userText in
+                guard let provider = try VoiceCleanupProviderFactory.makeTextGenerationProvider(
+                    settings: settings,
+                    keyStore: keyStore
+                ) else {
+                    throw CocoaError(.coderInvalidValue)
+                }
+                return try await provider.generate(systemPrompt: systemPrompt, userText: userText)
+            })
+        }
+        return _fileOrganizerCoordinator
+    }
+
     // Phase 7 W1: hotkey registry + action dispatch table extracted to
     // HotkeyOrchestrator. AppController forwards `performHotkeyAction` to it.
     private let hotkeys: HotkeyOrchestrator
@@ -214,7 +238,8 @@ final class AppController {
         hotkeys = HotkeyOrchestrator(
             onClipboardToggle: { [weak clipboardDock] in clipboardDock?.toggle() },
             onBrowseFolder: { [weak browser] in browser?.openPanelAndBrowse() },
-            onWindowAction: { [weak windowControl] action in windowControl?.perform(action: action) }
+            onWindowAction: { [weak windowControl] action in windowControl?.perform(action: action) },
+            onRadialMenu: { [weak windowControl] in windowControl?.openRadialMenu() }
         )
 
         // Notification adapter — registers all 9 NC observers and surfaces

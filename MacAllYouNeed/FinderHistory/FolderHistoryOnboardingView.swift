@@ -8,7 +8,7 @@ struct FolderHistoryOnboardingView: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Image(systemName: "folder.badge.clock")
+            Image(systemName: "clock.badge.checkmark")
                 .font(.system(size: 48))
                 .foregroundStyle(MAYNTheme.muted)
             Text("Track Finder Navigation?")

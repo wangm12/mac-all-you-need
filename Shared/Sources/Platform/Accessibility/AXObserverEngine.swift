@@ -14,7 +14,7 @@ public struct AXObserverHandle {
 }
 
 public protocol AXObserverEngine: Sendable {
-    func makeObserver(pid: pid_t) -> AXObserverHandle?
+    func makeObserver(pid: pid_t, onEvent: @escaping (String) -> Void) -> AXObserverHandle?
     func subscribe(_ handle: AXObserverHandle, notification: String) -> Bool
     func unsubscribe(_ handle: AXObserverHandle, notification: String)
     func teardown(_ handle: AXObserverHandle)
@@ -27,13 +27,10 @@ public final class SystemAXObserverEngine: AXObserverEngine, @unchecked Sendable
     }
     private var boxes: [Int: Box] = [:]
     private var nextToken = 0
-    private let onEventFactory: (pid_t) -> (String) -> Void
 
-    public init(onEventFactory: @escaping (pid_t) -> (String) -> Void = { _ in { _ in } }) {
-        self.onEventFactory = onEventFactory
-    }
+    public init() {}
 
-    public func makeObserver(pid: pid_t) -> AXObserverHandle? {
+    public func makeObserver(pid: pid_t, onEvent: @escaping (String) -> Void) -> AXObserverHandle? {
         var observer: AXObserver?
         let callback: AXObserverCallback = { _, _, notification, refcon in
             guard let refcon else { return }
@@ -42,7 +39,7 @@ public final class SystemAXObserverEngine: AXObserverEngine, @unchecked Sendable
         guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return nil }
         CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
         nextToken += 1
-        boxes[nextToken] = Box(onEventFactory(pid))
+        boxes[nextToken] = Box(onEvent)
         let appElement = AXUIElementCreateApplication(pid)
         return AXObserverHandle(pid: pid, token: nextToken, axObserver: observer, appElement: appElement)
     }

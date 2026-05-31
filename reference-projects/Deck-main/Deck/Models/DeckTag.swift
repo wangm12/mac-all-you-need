@@ -1,0 +1,121 @@
+// Copyright © 2024–2026 Yuze Pan. 保留一切权利。
+
+//
+//  DeckTag.swift
+//  Deck
+//
+//  Deck Clipboard Manager
+//
+
+import SwiftUI
+
+struct DeckTag: Identifiable, Equatable, Codable {
+    let id: Int
+    var name: String
+    var colorIndex: Int
+    var isSystem: Bool
+
+    nonisolated static let importantTagId: Int = -2
+    
+    static let colorPalette: [Color] = [
+        .gray.opacity(0.8),
+        // Row 1
+        .blue,
+        .green,
+        .purple,
+        .red,
+        .orange,
+        .yellow,
+        .pink,
+        Color(red: 0.95, green: 0.3, blue: 0.3),  // 亮红
+        // Row 2
+        .cyan,
+        .brown,
+        .indigo,
+        .mint,
+        .teal,
+        Color(red: 0.6, green: 0.4, blue: 0.8),   // 淡紫色
+        Color(red: 0.95, green: 0.6, blue: 0.7),  // 珊瑚粉
+        Color(red: 0.4, green: 0.7, blue: 0.4),   // 草绿
+        Color(red: 0.28, green: 0.55, blue: 0.9)  // 天蓝
+    ]
+    
+    var color: Color {
+        get {
+            guard colorIndex >= 0, colorIndex < DeckTag.colorPalette.count else {
+                return .gray
+            }
+            return DeckTag.colorPalette[colorIndex]
+        }
+        set {
+            if let index = DeckTag.colorPalette.firstIndex(of: newValue) {
+                colorIndex = index
+            } else {
+                colorIndex = 0
+            }
+        }
+    }
+
+    /// 颜色的十六进制字符串表示（用于共享）
+    var colorHex: String {
+        // 使用 colorIndex 作为简单的标识
+        return String(colorIndex)
+    }
+
+    /// 从十六进制字符串创建标签时的颜色索引
+    static func colorIndex(from hex: String) -> Int {
+        return Int(hex) ?? 0
+    }
+    
+    var typeFilter: [String]? {
+        guard isSystem else { return nil }
+        
+        // Filter by itemType (ClipItemType.rawValue), not pasteboardType
+        // Use internal tag IDs for system tags
+        switch id {
+        case 2: // 文本
+            return ["text", "richText", "url", "color", "code"]
+        case 3: // 图片
+            return ["image"]
+        case 4: // 文件
+            return ["file"]
+        default:
+            return nil
+        }
+    }
+
+    var isImportant: Bool {
+        id == DeckTag.importantTagId
+    }
+    
+    init(id: Int, name: String, color: Color, isSystem: Bool) {
+        self.id = id
+        self.name = name
+        self.isSystem = isSystem
+
+        if let index = DeckTag.colorPalette.firstIndex(of: color) {
+            colorIndex = index
+        } else {
+            colorIndex = 0
+        }
+    }
+
+    /// 使用 colorIndex 直接创建标签（用于接收共享分组）
+    init(id: Int, name: String, colorIndex: Int, isSystem: Bool) {
+        self.id = id
+        self.name = name
+        self.colorIndex = min(max(colorIndex, 0), DeckTag.colorPalette.count - 1)
+        self.isSystem = isSystem
+    }
+    
+    /// 获取本地化的系统标签
+    static var systemTags: [DeckTag] {
+        [
+            DeckTag(id: 1, name: String(localized: "全部"), color: .gray.opacity(0.8), isSystem: true),
+            DeckTag(id: 2, name: String(localized: "文本"), color: .blue, isSystem: true),
+            DeckTag(id: 3, name: String(localized: "图片"), color: .green, isSystem: true),
+            DeckTag(id: 4, name: String(localized: "文件"), color: .purple, isSystem: true),
+            DeckTag(id: DeckTag.importantTagId, name: String(localized: "重要"), color: .red, isSystem: true)
+        ]
+    }
+}

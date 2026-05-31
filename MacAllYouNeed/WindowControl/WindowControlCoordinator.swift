@@ -75,7 +75,7 @@ final class WindowControlCoordinator {
     private(set) var lastAction: WindowAction?
     private(set) var lastMovementResult: WindowMovementResult?
 
-    private let tap: any WindowControlTapLifecycle
+    let tap: any WindowControlTapLifecycle
     private let actionPerformer: any WindowControlActionPerforming
     private let restoreHistory: WindowRestoreHistory
     private let accessibilityTrust: () -> Bool
@@ -98,6 +98,7 @@ final class WindowControlCoordinator {
     @ObservationIgnored let radialPreviewViewModel = RadialPreviewViewModel()
     @ObservationIgnored lazy var radialMenuController = RadialMenuController(viewModel: radialMenuViewModel)
     @ObservationIgnored lazy var radialPreviewController = RadialPreviewController(viewModel: radialPreviewViewModel)
+    @ObservationIgnored var radialEscMonitor: Any?
 
     init(
         settings: WindowControlSettings = WindowControlSettingsStore.load(),

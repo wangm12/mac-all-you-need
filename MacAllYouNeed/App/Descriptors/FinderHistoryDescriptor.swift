@@ -7,7 +7,7 @@ enum FinderHistoryDescriptor {
         FeatureDescriptor(
             id: .folderHistory,
             displayName: "Finder Folder History",
-            icon: "folder.badge.clock",
+            icon: "clock.badge.checkmark",
             summary: "Jump back to recently visited folders instantly.",
             detailDescription: "Records the folders you open in Finder via accessibility observation and lets you "
                 + "reopen them from a hotkey quick-switcher or the menu bar. Only folder paths are stored — never "

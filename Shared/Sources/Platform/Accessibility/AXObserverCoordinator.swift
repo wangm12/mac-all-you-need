@@ -20,15 +20,17 @@ public final class AXObserverCoordinator {
     }
 
     public func start(pid: pid_t, notifications: [String], onEvent: @escaping EventCallback) {
-        stop()
-        self.pid = pid; self.notifications = notifications; callback = onEvent
-        subscribeAll()
-        startHealthCheckTimer()
+        start(pid: pid, targetElement: nil, notifications: notifications, onEvent: onEvent)
     }
 
     public func start(pid: pid_t, targetElement: AXUIElement? = nil, notifications: [String], onEvent: @escaping EventCallback) {
-        self.targetElement = targetElement
-        start(pid: pid, notifications: notifications, onEvent: onEvent)
+        stop() // clears everything including targetElement
+        self.targetElement = targetElement  // set AFTER stop
+        self.pid = pid
+        self.notifications = notifications
+        self.callback = onEvent
+        subscribeAll()
+        startHealthCheckTimer()
     }
 
     public func stop() {
@@ -60,7 +62,9 @@ public final class AXObserverCoordinator {
 
     private func subscribeAll() {
         guard let pid else { return }
-        guard var newHandle = engine.makeObserver(pid: pid) else { handle = nil; return }
+        guard var newHandle = engine.makeObserver(pid: pid, onEvent: { [weak self] notification in
+            self?.dispatch(notification: notification)
+        }) else { handle = nil; return }
         if let targetElement { newHandle.targetElement = targetElement }
         var allOK = true
         for notification in notifications where !engine.subscribe(newHandle, notification: notification) { allOK = false }

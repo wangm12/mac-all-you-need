@@ -67,13 +67,22 @@ final class DockHoverObserver {
             onHoverEnded?()
             return
         }
-        // Resolve the app this icon represents via its file URL attribute.
+
+        // Prefer matching by URL to a running app; fall back to the AX title.
         var urlRef: CFTypeRef?
         AXUIElementCopyAttributeValue(item, kAXURLAttribute as CFString, &urlRef)
-        guard let url = urlRef as? URL else { return }
-        let fallbackName = url.deletingPathExtension().lastPathComponent
-        if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleURL == url }) {
-            onHoverBegan?(app.processIdentifier, app.localizedName ?? fallbackName)
+        let url = urlRef as? URL
+
+        if let url, let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleURL == url }) {
+            onHoverBegan?(app.processIdentifier, app.localizedName ?? url.deletingPathExtension().lastPathComponent)
+            return
         }
+
+        // App not running — read the AX title for the name
+        var titleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
+        let title = titleRef as? String ?? url?.deletingPathExtension().lastPathComponent ?? "App"
+        // No PID for non-running app; notify with pid=0 so caller can show a placeholder
+        onHoverBegan?(0, title)
     }
 }

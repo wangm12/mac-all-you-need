@@ -21,6 +21,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     case windowRestore
     case windowNextDisplay
     case windowPreviousDisplay
+    case radialMenu
 
     var id: String { rawValue }
 
@@ -58,6 +59,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
             return "Window Layouts: Next display"
         case .windowPreviousDisplay:
             return "Window Layouts: Previous display"
+        case .radialMenu:
+            return "Radial Menu"
         }
     }
 
@@ -84,6 +87,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowAlmostMaximize, .windowNextDisplay, .windowPreviousDisplay:
             return []
+        case .radialMenu:
+            return []
         }
     }
 
@@ -98,7 +103,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
-             .windowNextDisplay, .windowPreviousDisplay:
+             .windowNextDisplay, .windowPreviousDisplay, .radialMenu:
             return true
         }
     }
@@ -110,7 +115,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
-             .windowNextDisplay, .windowPreviousDisplay:
+             .windowNextDisplay, .windowPreviousDisplay, .radialMenu:
             return false
         }
     }

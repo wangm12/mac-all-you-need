@@ -11,7 +11,7 @@ struct RadialMenuSettingsSection: View {
     var body: some View {
         MAYNSection(
             title: "Radial Menu",
-            subtitle: "Hold Control-Option to open a radial layout picker; release over a direction to apply it."
+            subtitle: "Hold the configured modifier combination to open a radial layout picker; release over a direction to apply it."
         ) {
             MAYNSettingsRow(
                 title: "Radial menu",
@@ -21,6 +21,16 @@ struct RadialMenuSettingsSection: View {
                     .labelsHidden()
             }
             if settings.radialMenuEnabled {
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: "Trigger modifier",
+                    subtitle: "Hold this modifier combination to open the radial menu."
+                ) {
+                    WindowGestureModifierPicker(
+                        selection: modifierBinding(\.radialTriggerModifier),
+                        defaultModifier: WindowControlSettings.default.radialTriggerModifier
+                    )
+                }
                 MAYNDivider()
                 MAYNSettingsRow(
                     title: "Lock to screen center",
@@ -48,6 +58,17 @@ struct RadialMenuSettingsSection: View {
     }
 
     private func boolBinding(_ keyPath: WritableKeyPath<WindowControlSettings, Bool>) -> Binding<Bool> {
+        Binding {
+            settings[keyPath: keyPath]
+        } set: { value in
+            var next = settings
+            next[keyPath: keyPath] = value
+            settings = next
+            onChange(next)
+        }
+    }
+
+    private func modifierBinding(_ keyPath: WritableKeyPath<WindowControlSettings, WindowGestureModifier>) -> Binding<WindowGestureModifier> {
         Binding {
             settings[keyPath: keyPath]
         } set: { value in

@@ -60,7 +60,10 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
     var radialPhaseHandler: (@MainActor (RadialPhase) -> Void)?
 
     /// The modifier combo that, when held alone, arms the radial menu.
-    static let radialTriggerModifier: WindowGestureModifier = [.control, .option]
+    /// Read from settings so the user can configure it.
+    var radialTriggerModifier: WindowGestureModifier {
+        runtime.settings.radialTriggerModifier
+    }
 
     var radialActive = false
 
@@ -142,6 +145,8 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         stateMachine.stop()
         tapController?.uninstall()
         tapController = nil
+        radialActive = false
+        radialKeysInstalled = false
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -166,6 +171,15 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             if handleRadialEvent(type: type, flags: event.flags, location: event.location) {
                 return nil
             }
+        }
+
+        // When the radial menu is open, a left click commits the current selection.
+        if radialActive, type == .leftMouseDown {
+            radialActive = false
+            if let radialPhaseHandler {
+                Task { @MainActor in radialPhaseHandler(.commit) }
+            }
+            return nil // consume the click
         }
 
         switch type {

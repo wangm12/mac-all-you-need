@@ -4,17 +4,15 @@ import Core
 import Foundation
 import Platform
 
-/// Records folder navigation events from Finder via AX observation.
+/// Records folder navigation events from Finder via polling.
 ///
-/// Owned by AppController. Consumes the shared `AXObserverCoordinator` (S1):
-/// subscribes to Finder's focused-window-changed notification, reads the
-/// document path off the focused window, applies skip/dedup rules, and upserts
-/// into the `FolderHistoryStore`. Finder can quit/relaunch, so a lightweight
-/// poller re-subscribes when Finder's PID changes.
+/// Owned by AppController. Every 1.5s checks if Finder is frontmost, reads the
+/// focused window's document path, and records if it changed. This avoids relying
+/// on `kAXFocusedWindowChangedNotification` which does not fire during
+/// within-window folder navigation.
 @MainActor
 final class FolderHistoryRecorder {
     private let store: FolderHistoryStore
-    private let coordinator: AXObserverCoordinator
     private let axReader: FolderHistoryAXReader
     private let exclusions: () -> Set<String>
     private let retentionMax: Int
@@ -22,60 +20,37 @@ final class FolderHistoryRecorder {
     private var lastPath: String?
     private var lastDate: Date?
     private var isRunning = false
-    private var finderPID: pid_t?
-    private var finderPIDTask: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
+    private var pollInterval: TimeInterval
 
     init(
         store: FolderHistoryStore,
-        coordinator: AXObserverCoordinator,
+        coordinator: AXObserverCoordinator? = nil, // kept for API compat, unused
         axReader: FolderHistoryAXReader = SystemFolderHistoryAXReader(),
         exclusions: @escaping () -> Set<String> = { [] },
-        retentionMax: Int = 500
+        retentionMax: Int = 500,
+        pollInterval: TimeInterval = 1.5
     ) {
         self.store = store
-        self.coordinator = coordinator
         self.axReader = axReader
         self.exclusions = exclusions
         self.retentionMax = retentionMax
+        self.pollInterval = pollInterval
     }
 
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        observeFinder()
-        startFinderPIDMonitor()
+        startPolling()
     }
 
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        coordinator.stop()
-        finderPIDTask?.cancel()
-        finderPIDTask = nil
-        finderPID = nil
+        pollTask?.cancel()
+        pollTask = nil
     }
 
-    private func observeFinder() {
-        guard let pid = findFinderPID() else { return }
-        finderPID = pid
-        coordinator.start(pid: pid, notifications: [kAXFocusedWindowChangedNotification as String]) { [weak self] _, pid in
-            Task { @MainActor [weak self] in
-                self?.handleFinderEvent(pid: pid)
-            }
-        }
-        // Record the folder already focused at subscription time.
-        handleFinderEvent(pid: pid)
-    }
-
-    /// Reads the focused Finder window's folder path and records it if it passes
-    /// the skip and dedup rules. Internal so tests can drive it directly.
-    func handleFinderEvent(pid: pid_t) {
-        guard let path = focusedFolderPath(pid: pid) else { return }
-        record(path: path)
-    }
-
-    /// Pure-ish recording step (no AX): applies skip + dedup, then upserts.
-    /// Internal for unit testing without an accessibility connection.
     func record(path: String, now: Date = Date()) {
         guard !FolderHistorySkipRules.shouldSkip(path: path, exclusions: exclusions()) else { return }
         guard FolderHistoryDedup.shouldRecord(
@@ -86,9 +61,40 @@ final class FolderHistoryRecorder {
         do {
             _ = try store.upsert(path: path, now: now)
             try store.evictStale(maxCount: retentionMax)
-        } catch {
-            // Best-effort recording; a single failure should not crash dictation-like flows.
+        } catch {}
+    }
+
+    // Internal for tests
+    func handleFinderEvent(pid: pid_t) {
+        guard let path = focusedFolderPath(pid: pid) else { return }
+        record(path: path)
+    }
+
+    private func startPolling() {
+        pollTask?.cancel()
+        let interval = pollInterval
+        pollTask = Task { @MainActor [weak self] in
+            while let self, self.isRunning, !Task.isCancelled {
+                self.pollFinder()
+                try? await Task.sleep(for: .seconds(interval))
+            }
         }
+    }
+
+    private func pollFinder() {
+        guard let finderApp = NSWorkspace.shared.runningApplications.first(where: {
+            $0.bundleIdentifier == "com.apple.finder"
+        }) else { return }
+
+        // Record when Finder is frontmost OR when MAYN is frontmost (user checking history)
+        // but skip other unrelated foreground apps to avoid unnecessary AX reads.
+        let frontmostID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        guard frontmostID == "com.apple.finder"
+            || frontmostID == Bundle.main.bundleIdentifier
+        else { return }
+
+        let pid = finderApp.processIdentifier
+        handleFinderEvent(pid: pid)
     }
 
     private func focusedFolderPath(pid: pid_t) -> String? {
@@ -97,28 +103,7 @@ final class FolderHistoryRecorder {
         guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
               let window = value
         else { return nil }
-        // Force-cast is safe: AX focused-window attribute always returns an AXUIElement.
         // swiftlint:disable:next force_cast
         return axReader.documentPath(for: window as! AXUIElement)
-    }
-
-    private func findFinderPID() -> pid_t? {
-        NSWorkspace.shared.runningApplications
-            .first { $0.bundleIdentifier == "com.apple.finder" }?
-            .processIdentifier
-    }
-
-    private func startFinderPIDMonitor() {
-        finderPIDTask?.cancel()
-        finderPIDTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
-                guard let self, self.isRunning, !Task.isCancelled else { return }
-                if let newPID = self.findFinderPID(), newPID != self.finderPID {
-                    self.coordinator.stop()
-                    self.observeFinder()
-                }
-            }
-        }
     }
 }

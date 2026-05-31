@@ -382,7 +382,8 @@ struct WindowControlSettingsView: View {
         .windowCenter,
         .windowRestore,
         .windowNextDisplay,
-        .windowPreviousDisplay
+        .windowPreviousDisplay,
+        .radialMenu
     ]
 }
 

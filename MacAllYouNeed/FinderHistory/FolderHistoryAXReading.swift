@@ -8,14 +8,26 @@ protocol FolderHistoryAXReader: Sendable {
     func documentPath(for windowElement: AXUIElement) -> String?
 }
 
-/// Production reader: pulls `kAXDocumentAttribute` from the focused window and
-/// normalizes it to a canonical POSIX path.
+/// Production reader: tries kAXDocumentAttribute first (most Finder windows),
+/// then kAXURLAttribute as a fallback for modern macOS Finder variants.
 struct SystemFolderHistoryAXReader: FolderHistoryAXReader {
     func documentPath(for windowElement: AXUIElement) -> String? {
+        // kAXDocumentAttribute returns a file URL string on most Finder windows.
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(windowElement, kAXDocumentAttribute as CFString, &value) == .success,
-              let urlString = value as? String
-        else { return nil }
-        return FolderPathNormalizer.normalize(urlString)
+        if AXUIElementCopyAttributeValue(windowElement, kAXDocumentAttribute as CFString, &value) == .success,
+           let raw = value as? String,
+           let normalized = FolderPathNormalizer.normalize(raw) {
+            return normalized
+        }
+        // Fallback: some modern macOS Finder windows expose kAXURLAttribute instead.
+        if AXUIElementCopyAttributeValue(windowElement, kAXURLAttribute as CFString, &value) == .success {
+            if let url = value as? URL {
+                return FolderPathNormalizer.normalize(url.absoluteString)
+            }
+            if let raw = value as? String {
+                return FolderPathNormalizer.normalize(raw)
+            }
+        }
+        return nil
     }
 }

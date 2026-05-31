@@ -4,6 +4,8 @@ import XCTest
 
 @MainActor
 final class RadialEventTapGatingTests: XCTestCase {
+    private let defaultTrigger: WindowGestureModifier = [.control, .option]
+
     func testRadialKeysNotInMaskWhenDisabled() {
         let tap = WindowControlEventTap()
         let withoutRadial = tap.eventMask(includeRadialKeys: false)
@@ -28,7 +30,8 @@ final class RadialEventTapGatingTests: XCTestCase {
             active: false,
             type: .flagsChanged,
             flags: flags,
-            location: CGPoint(x: 10, y: 20)
+            location: CGPoint(x: 10, y: 20),
+            triggerModifier: defaultTrigger
         )
         XCTAssertEqual(phase, .open(center: CGPoint(x: 10, y: 20)))
     }
@@ -38,7 +41,8 @@ final class RadialEventTapGatingTests: XCTestCase {
             active: true,
             type: .flagsChanged,
             flags: [],
-            location: .zero
+            location: .zero,
+            triggerModifier: defaultTrigger
         )
         XCTAssertEqual(phase, .commit)
     }
@@ -48,7 +52,8 @@ final class RadialEventTapGatingTests: XCTestCase {
             active: true,
             type: .mouseMoved,
             flags: [.maskControl, .maskAlternate],
-            location: CGPoint(x: 5, y: 5)
+            location: CGPoint(x: 5, y: 5),
+            triggerModifier: defaultTrigger
         )
         XCTAssertEqual(phase, .update(cursor: CGPoint(x: 5, y: 5)))
     }
@@ -59,7 +64,8 @@ final class RadialEventTapGatingTests: XCTestCase {
             active: false,
             type: .flagsChanged,
             flags: [.maskControl, .maskAlternate, .maskCommand],
-            location: .zero
+            location: .zero,
+            triggerModifier: defaultTrigger
         )
         XCTAssertNil(phase)
     }

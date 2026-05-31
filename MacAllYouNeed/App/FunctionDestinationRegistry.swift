@@ -79,7 +79,7 @@ struct DashboardToolTileItem: Equatable, Identifiable {
     /// When set, enable/disable on this tile proxies to this FeatureID instead.
     var proxiesFeatureID: FeatureID? = nil
 
-    var id: String { destination.rawValue }
+    var id: String { title }
 }
 
 enum DashboardToolTilePresentation {
@@ -172,17 +172,6 @@ enum DashboardToolTilePresentation {
                 featureID: .windowGrab
             ),
             DashboardToolTileItem(
-                destination: .clipboard,
-                title: "Clipboard Smart Text",
-                metric: nil,
-                detail: "Calculations, link cleaning, type detection, OCR, and semantic search.",
-                symbolName: "wand.and.stars",
-                shortcutDisplay: nil,
-                statusText: nil,
-                statusKind: nil,
-                featureID: .clipboardSmartText
-            ),
-            DashboardToolTileItem(
                 destination: .voice,
                 title: "Voice Reminders",
                 metric: nil,
@@ -198,7 +187,7 @@ enum DashboardToolTilePresentation {
                 title: "Finder Folder History",
                 metric: nil,
                 detail: "Jump back to recently visited Finder folders via hotkey.",
-                symbolName: "folder.badge.clock",
+                symbolName: "clock.badge.checkmark",
                 shortcutDisplay: nil,
                 statusText: nil,
                 statusKind: nil,
@@ -296,7 +285,8 @@ enum MainSidebarBadgePresentation {
         case .downloads:
             let count = inProgressDownloadCount(in: records)
             return count > 0 ? "\(count)" : nil
-        case .dashboard, .clipboard, .voice, .folderPreview, .snippets, .windowLayouts, .grabAnywhere, .settings:
+        case .dashboard, .clipboard, .voice, .voiceReminders, .folderPreview, .finderHistory,
+             .snippets, .windowLayouts, .grabAnywhere, .dockPreviews, .aiFileOrganizer, .settings:
             return nil
         }
     }
@@ -310,11 +300,15 @@ enum MainSidebarDestinationPresentation {
     static let destinationFeatureIDs: [MainAppDestination: FeatureID] = [
         .clipboard: .clipboard,
         .voice: .voice,
+        .voiceReminders: .voiceReminders,
         .downloads: .downloader,
+        .aiFileOrganizer: .aiFileOrganizer,
         .folderPreview: .folderPreview,
+        .finderHistory: .folderHistory,
         .snippets: .clipboard,
         .windowLayouts: .windowLayouts,
         .grabAnywhere: .windowGrab,
+        .dockPreviews: .dockPreviews,
     ]
 
     static func featureID(for destination: MainAppDestination) -> FeatureID? {
@@ -367,7 +361,8 @@ enum DashboardToolSettingsNavigation {
                 tabStorageKey: SnippetsFunctionTab.storageKey,
                 tabRawValue: SnippetsFunctionTab.settings.rawValue
             )
-        case .windowLayouts, .grabAnywhere, .dashboard, .settings:
+        case .windowLayouts, .grabAnywhere, .dashboard, .settings,
+             .voiceReminders, .finderHistory, .aiFileOrganizer, .dockPreviews:
             DashboardToolSettingsRoute(
                 destination: destination,
                 tabStorageKey: nil,
@@ -380,7 +375,8 @@ enum DashboardToolSettingsNavigation {
 enum DashboardToolOpenNavigation {
     static func route(for destination: MainAppDestination) -> DashboardToolSettingsRoute {
         switch destination {
-        case .dashboard, .clipboard, .voice, .downloads, .folderPreview, .snippets, .windowLayouts, .grabAnywhere, .settings:
+        case .dashboard, .clipboard, .voice, .voiceReminders, .downloads, .aiFileOrganizer,
+             .folderPreview, .finderHistory, .snippets, .windowLayouts, .grabAnywhere, .dockPreviews, .settings:
             DashboardToolSettingsRoute(destination: destination, tabStorageKey: nil, tabRawValue: nil)
         }
     }
@@ -430,7 +426,8 @@ enum MainToolHeaderShortcutModel {
             voiceSettings.shortcut.display
         case .folderPreview:
             "Space"
-        case .windowLayouts, .grabAnywhere, .dashboard, .settings:
+        case .windowLayouts, .grabAnywhere, .dashboard, .settings,
+             .voiceReminders, .finderHistory, .aiFileOrganizer, .dockPreviews:
             nil
         }
     }
@@ -457,7 +454,8 @@ enum MainToolHeaderShortcutModel {
                 appHotkeys: hotkeys,
                 systemHotkeys: systemHotkeys
             )?.message
-        case .folderPreview, .snippets, .windowLayouts, .grabAnywhere, .dashboard, .settings:
+        case .folderPreview, .snippets, .windowLayouts, .grabAnywhere, .dashboard, .settings,
+             .voiceReminders, .finderHistory, .aiFileOrganizer, .dockPreviews:
             return nil
         }
     }

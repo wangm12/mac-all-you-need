@@ -20,6 +20,7 @@ final class HotkeyOrchestrator {
     private let onClipboardToggle: () -> Void
     private let onBrowseFolder: () -> Void
     private let onWindowAction: (WindowAction) -> Void
+    private let onRadialMenu: () -> Void
 
     let registry: HotkeyRegistry
     private var fallbackHotkey: GlobalHotkey?
@@ -28,12 +29,14 @@ final class HotkeyOrchestrator {
         registry: HotkeyRegistry? = nil,
         onClipboardToggle: @escaping () -> Void,
         onBrowseFolder: @escaping () -> Void,
-        onWindowAction: @escaping (WindowAction) -> Void
+        onWindowAction: @escaping (WindowAction) -> Void,
+        onRadialMenu: @escaping () -> Void = {}
     ) {
         self.registry = registry ?? HotkeyRegistry()
         self.onClipboardToggle = onClipboardToggle
         self.onBrowseFolder = onBrowseFolder
         self.onWindowAction = onWindowAction
+        self.onRadialMenu = onRadialMenu
     }
 
     /// Translate a `HotkeyAction` into its concrete runtime side-effect.
@@ -44,6 +47,8 @@ final class HotkeyOrchestrator {
             onClipboardToggle()
         case .browseFolder:
             onBrowseFolder()
+        case .radialMenu:
+            onRadialMenu()
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
@@ -108,7 +113,7 @@ extension HotkeyAction {
         case .windowRestore: return .restore
         case .windowNextDisplay: return .nextDisplay
         case .windowPreviousDisplay: return .previousDisplay
-        case .clipboard, .browseFolder: return nil
+        case .clipboard, .browseFolder, .radialMenu: return nil
         }
     }
 }

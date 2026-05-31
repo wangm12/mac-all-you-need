@@ -1,0 +1,677 @@
+// Copyright © 2024–2026 Yuze Pan. 保留一切权利。
+
+//
+//  DataExportService.swift
+//  Deck
+//
+//  Deck Clipboard Manager
+//
+
+import Foundation
+import AppKit
+import UniformTypeIdentifiers
+
+final class DataExportService {
+    static let shared = DataExportService()
+    
+    /// 当前正在导出的临时文件 URL（用于清理）
+    private var currentExportTempURL: URL?
+    /// 最近一次导出的记录数量（用于提示）
+    private var lastExportedCount: Int = 0
+    
+    private init() {
+        cleanupExportTempDirectory()
+        // 注册应用终止通知，确保清理临时文件
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.cleanupTempFile()
+            }
+        }
+    }
+
+    /// 清理临时文件
+    private func cleanupTempFile() {
+        guard let url = currentExportTempURL else { return }
+        try? FileManager.default.removeItem(at: url)
+        currentExportTempURL = nil
+        log.debug("Cleaned up export temp file")
+    }
+
+    /// 启动时清理可能残留的导出临时目录
+    private func cleanupExportTempDirectory() {
+        guard let containerURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return
+        }
+        let privateTempDir = containerURL.appendingPathComponent("Deck/ExportTemp", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: privateTempDir.path) else { return }
+        let contents = (try? FileManager.default.contentsOfDirectory(at: privateTempDir, includingPropertiesForKeys: nil)) ?? []
+        for url in contents {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+    
+    /// 获取安全的临时目录（优先使用应用私有目录）
+    private func getSecureTempDirectory() -> URL {
+        // 优先使用应用私有的临时目录
+        if let containerURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let privateTempDir = containerURL.appendingPathComponent("Deck/ExportTemp", isDirectory: true)
+            try? FileManager.default.createDirectory(at: privateTempDir, withIntermediateDirectories: true)
+            return privateTempDir
+        }
+        // 回退到系统临时目录
+        return FileManager.default.temporaryDirectory
+    }
+    
+    // MARK: - Export Format
+    
+    nonisolated struct ExportData: Codable, Sendable {
+        let version: Int
+        let exportDate: Date
+        let items: [ExportItem]
+    }
+    
+    nonisolated struct ExportItem: Codable, Sendable {
+        let uniqueId: String
+        let type: String
+        let itemType: String
+        let data: Data
+        let previewData: Data?
+        let timestamp: Int64
+        let appPath: String
+        let appName: String
+        let customTitle: String?
+        let sourceAnchor: SourceAnchor?
+        let searchText: String
+        let contentLength: Int
+        let tagId: Int
+        let isTemporary: Bool?
+        /// 本机局域网共享接收（可选，旧导出文件无此字段时按 false）
+        let receivedFromLAN: Bool?
+        // 标记是否为大图（用于导入时重建 blob）
+        let isLargeBlob: Bool?
+    }
+    
+    // MARK: - Export
+    
+    func exportData(completion: @escaping (Result<URL, Error>) -> Void) {
+        exportDataInternal(targetURL: nil, completion: completion)
+    }
+
+    func exportData(to targetURL: URL, completion: @escaping (Result<URL, Error>) -> Void) {
+        exportDataInternal(targetURL: targetURL, completion: completion)
+    }
+
+    private static func makeStagingExportURL(for outputURL: URL) -> URL {
+        let directory = outputURL.deletingLastPathComponent()
+        let name = ".\(outputURL.lastPathComponent).\(UUID().uuidString).tmp"
+        return directory.appendingPathComponent(name)
+    }
+
+    private static func promoteStagingExport(from stagingURL: URL, to outputURL: URL) throws {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: outputURL.path) {
+            _ = try fileManager.replaceItemAt(outputURL, withItemAt: stagingURL)
+        } else {
+            try fileManager.moveItem(at: stagingURL, to: outputURL)
+        }
+    }
+
+    private nonisolated static let lineSeparatorLSEscaped = Data("\\u2028".utf8)
+    private nonisolated static let lineSeparatorPSEscaped = Data("\\u2029".utf8)
+
+    private nonisolated static func sanitizeEncodedJSONForIDE(_ data: Data) -> Data {
+        guard data.count >= 3 else { return data }
+
+        return data.withUnsafeBytes { rawBuffer in
+            let bytes = rawBuffer.bindMemory(to: UInt8.self)
+            guard let base = bytes.baseAddress else { return data }
+            let count = bytes.count
+
+            var index = 0
+            while index <= count - 3 {
+                if base[index] == 0xE2, base[index + 1] == 0x80 {
+                    let marker = base[index + 2]
+                    if marker == 0xA8 || marker == 0xA9 {
+                        return sanitizeEncodedJSONForIDE(data, base: base, count: count, firstSeparatorIndex: index)
+                    }
+                }
+                index += 1
+            }
+
+            return data
+        }
+    }
+
+    private nonisolated static func sanitizeEncodedJSONForIDE(
+        _ data: Data,
+        base: UnsafePointer<UInt8>,
+        count: Int,
+        firstSeparatorIndex: Int
+    ) -> Data {
+        var sanitized = Data()
+        sanitized.reserveCapacity(data.count + 32)
+        if firstSeparatorIndex > 0 {
+            sanitized.append(base, count: firstSeparatorIndex)
+        }
+
+        var index = firstSeparatorIndex
+        while index < count {
+            if index <= count - 3, base[index] == 0xE2, base[index + 1] == 0x80 {
+                let marker = base[index + 2]
+                if marker == 0xA8 {
+                    sanitized.append(lineSeparatorLSEscaped)
+                    index += 3
+                    continue
+                } else if marker == 0xA9 {
+                    sanitized.append(lineSeparatorPSEscaped)
+                    index += 3
+                    continue
+                }
+            }
+
+            sanitized.append(base[index])
+            index += 1
+        }
+
+        return sanitized
+    }
+
+    private func exportDataInternal(targetURL: URL?, completion: @escaping (Result<URL, Error>) -> Void) {
+        Task { @MainActor in
+            let isSecurityMode = DeckUserDefaults.securityModeEnabled
+            if isSecurityMode {
+                let authenticated = await SecurityService.shared.authenticate(reason: NSLocalizedString("验证身份以导出数据", comment: "Authenticate to export data"))
+                guard authenticated else {
+                    completion(.failure(ExportError.authenticationFailed))
+                    return
+                }
+            }
+
+            // 清理之前可能残留的临时文件
+            cleanupTempFile()
+
+            var outputURL: URL?
+            var stagingURL: URL?
+            do {
+                let resolvedOutputURL: URL
+                if let targetURL {
+                    resolvedOutputURL = targetURL
+                } else {
+                    let tempDir = getSecureTempDirectory()
+                    let fileName = "Deck_Export_\(formatDate(Date())).json"
+                    let tempURL = tempDir.appendingPathComponent(fileName)
+                    resolvedOutputURL = tempURL
+                    currentExportTempURL = tempURL
+                }
+
+                outputURL = resolvedOutputURL
+                let resolvedStagingURL = Self.makeStagingExportURL(for: resolvedOutputURL)
+                stagingURL = resolvedStagingURL
+                try? FileManager.default.removeItem(at: resolvedStagingURL)
+
+                let exportedCount = try await Task.detached(priority: .utility) {
+                    try await Self.exportLargeDataset(to: resolvedStagingURL)
+                }.value
+
+                try Self.promoteStagingExport(from: resolvedStagingURL, to: resolvedOutputURL)
+                lastExportedCount = exportedCount
+                completion(.success(resolvedOutputURL))
+            } catch {
+                if let stagingURL {
+                    try? FileManager.default.removeItem(at: stagingURL)
+                }
+                if targetURL == nil, let tempURL = currentExportTempURL {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    currentExportTempURL = nil
+                } else if targetURL != nil, let outputURL {
+                    // 目标文件导出失败时不要删除用户已有备份，仅清理临时中间文件。
+                    await log.warn("Export failed; keeping existing file at \(outputURL.path)")
+                }
+                lastExportedCount = 0
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private nonisolated static func exportLargeDataset(to outputURL: URL) async throws -> Int {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        let dateString = Date().ISO8601Format()
+        let header = #"{"version":1,"exportDate":"\#(dateString)","items":["#
+        guard let headerData = header.data(using: .utf8) else {
+            throw ExportError.invalidFormat
+        }
+        try headerData.write(to: outputURL)
+
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: outputURL.path
+        )
+
+        let handle = try FileHandle(forWritingTo: outputURL)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+
+        // 大数据导出时控制单批内存占用，避免一次拉太多大图/大文本。
+        let batchSize = 200
+        let commaData = Data([UInt8(ascii: ",")])
+        let flushThreshold = 1 * 1024 * 1024
+        var writeBuffer = Data()
+        writeBuffer.reserveCapacity(flushThreshold + 64 * 1024)
+        var isFirst = true
+        var exportedCount = 0
+        var cursorTimestamp: Int64?
+        var cursorId: Int64?
+
+        while true {
+            let batch = await DeckSQLManager.shared.fetchExportRowsBeforeCursor(
+                limit: batchSize,
+                beforeTimestamp: cursorTimestamp,
+                beforeId: cursorId
+            )
+            if batch.isEmpty { break }
+
+            for row in batch {
+                let exportItem = ExportItem(
+                    uniqueId: row.uniqueId,
+                    type: row.pasteboardType,
+                    itemType: row.itemType,
+                    data: row.data,
+                    previewData: row.previewData,
+                    timestamp: row.timestamp,
+                    appPath: row.appPath,
+                    appName: row.appName,
+                    customTitle: row.customTitle,
+                    sourceAnchor: row.sourceAnchor,
+                    searchText: row.searchText,
+                    contentLength: row.contentLength,
+                    tagId: row.tagId,
+                    isTemporary: row.isTemporary,
+                    receivedFromLAN: row.receivedFromLAN,
+                    isLargeBlob: row.blobPath != nil
+                )
+                let encodedData = try encoder.encode(exportItem)
+                let data = Self.sanitizeEncodedJSONForIDE(encodedData)
+                if !isFirst {
+                    writeBuffer.append(commaData)
+                }
+                writeBuffer.append(data)
+                if writeBuffer.count >= flushThreshold {
+                    try handle.write(contentsOf: writeBuffer)
+                    writeBuffer.removeAll(keepingCapacity: true)
+                }
+                isFirst = false
+                exportedCount += 1
+            }
+
+            if batch.count < batchSize { break }
+
+            guard let last = batch.last else { break }
+            cursorTimestamp = last.timestamp
+            cursorId = last.id
+        }
+
+        if !writeBuffer.isEmpty {
+            try handle.write(contentsOf: writeBuffer)
+        }
+        try handle.write(contentsOf: Data([UInt8(ascii: "]"), UInt8(ascii: "}"), UInt8(ascii: "\n")]))
+        return exportedCount
+    }
+    
+    // MARK: - Import
+    
+    func importData(from url: URL, completion: @escaping (Result<Int, Error>) -> Void) {
+        Task {
+            // Check if security mode is enabled - require authentication
+            if DeckUserDefaults.securityModeEnabled {
+                let authenticated = await SecurityService.shared.authenticate(reason: NSLocalizedString("验证身份以导入数据", comment: "Authenticate to import data"))
+                guard authenticated else {
+                    await MainActor.run {
+                        completion(.failure(ExportError.authenticationFailed))
+                    }
+                    return
+                }
+            }
+
+            do {
+                let importedCount = try await Task.detached(priority: .utility) {
+                    // 检查文件大小，对于大文件使用内存映射减少复制
+                    let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+                    let fileSize = (attrs[.size] as? NSNumber)?.int64Value ?? (attrs[.size] as? Int64) ?? 0
+                    let isLargeFile = fileSize > 50 * 1024 * 1024  // > 50MB
+
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    
+                    if isLargeFile {
+                        await log.info("Importing large file (\(fileSize / 1024 / 1024) MB) using streaming parser + batched DB import")
+                        return try await Self.parseLargeExportFileStreamingImport(from: url, decoder: decoder)
+                    }
+
+                    let data = try Data(contentsOf: url)
+                    let exportData = try decoder.decode(ExportData.self, from: data)
+                    return try await Self.importExportItems(exportData.items)
+                }.value
+
+                await DeckDataStore.shared.loadInitialData()
+
+                await MainActor.run {
+                    completion(.success(importedCount))
+                }
+            } catch {
+                await MainActor.run {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
+    /// Stream-parse a large export file and commit rows in batches (F8: avoid holding all `ExportItem` in memory).
+    private static func parseLargeExportFileStreamingImport(from url: URL, decoder: JSONDecoder, sqlImportBatchSize: Int = 200) async throws -> Int {
+        enum ParseState {
+            case seekingItemsKey
+            case seekingArrayStart
+            case readingItems
+            case done
+        }
+
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        let itemsKey = Data(#""items""#.utf8)
+        let openBrace = UInt8(ascii: "{")
+        let closeBrace = UInt8(ascii: "}")
+        let openBracket = UInt8(ascii: "[")
+        let closeBracket = UInt8(ascii: "]")
+        let quote = UInt8(ascii: "\"")
+        let backslash = UInt8(ascii: "\\")
+
+        let chunkSize = 64 * 1024
+        let maxObjectBytes = 200 * 1024 * 1024
+        let logProgressEvery = 500
+
+        var buffer = Data()
+        var bufferStart = 0
+        var state: ParseState = .seekingItemsKey
+        var objectBuffer = Data()
+        var inString = false
+        var isEscaped = false
+        var depth = 0
+        var pendingBatch: [ExportItem] = []
+        var totalImported = 0
+        var parsedObjectCount = 0
+        var reachedEOF = false
+
+        func compactBufferIfNeeded(force: Bool = false) {
+            guard bufferStart > 0 else { return }
+            if force || bufferStart >= chunkSize || bufferStart * 2 >= buffer.count {
+                buffer.removeSubrange(..<bufferStart)
+                bufferStart = 0
+            }
+        }
+
+        while !reachedEOF || bufferStart < buffer.count {
+            if !reachedEOF && (buffer.count - bufferStart) < chunkSize {
+                let chunk = try handle.read(upToCount: chunkSize) ?? Data()
+                if chunk.isEmpty {
+                    reachedEOF = true
+                } else {
+                    buffer.append(chunk)
+                }
+            }
+
+            var madeProgress = false
+
+            switch state {
+            case .seekingItemsKey:
+                let available = buffer[bufferStart...]
+                if let range = available.range(of: itemsKey) {
+                    bufferStart = range.upperBound
+                    state = .seekingArrayStart
+                    compactBufferIfNeeded()
+                    madeProgress = true
+                } else if available.count > itemsKey.count {
+                    bufferStart = buffer.count - (itemsKey.count - 1)
+                    compactBufferIfNeeded(force: true)
+                    madeProgress = true
+                }
+
+            case .seekingArrayStart:
+                let available = buffer[bufferStart...]
+                if let idx = available.firstIndex(of: openBracket) {
+                    bufferStart = idx + 1
+                    state = .readingItems
+                    compactBufferIfNeeded()
+                    madeProgress = true
+                } else if available.count > 1 {
+                    bufferStart = buffer.count - 1
+                    compactBufferIfNeeded(force: true)
+                    madeProgress = true
+                }
+
+            case .readingItems:
+                var cursor = bufferStart
+                while cursor < buffer.count {
+                    let byte = buffer[cursor]
+                    if depth == 0 {
+                        if byte == openBrace {
+                            depth = 1
+                            inString = false
+                            isEscaped = false
+                            objectBuffer.removeAll(keepingCapacity: true)
+                            objectBuffer.append(byte)
+                            if objectBuffer.count > maxObjectBytes { throw ExportError.invalidFormat }
+                        } else if byte == closeBracket {
+                            state = .done
+                            cursor += 1
+                            break
+                        }
+                    } else {
+                        objectBuffer.append(byte)
+                        if objectBuffer.count > maxObjectBytes { throw ExportError.invalidFormat }
+                        if inString {
+                            if isEscaped {
+                                isEscaped = false
+                            } else if byte == backslash {
+                                isEscaped = true
+                            } else if byte == quote {
+                                inString = false
+                            }
+                        } else {
+                            if byte == quote {
+                                inString = true
+                            } else if byte == openBrace {
+                                depth += 1
+                            } else if byte == closeBrace {
+                                depth -= 1
+                                if depth == 0 {
+                                    let exportItem = try decoder.decode(ExportItem.self, from: objectBuffer)
+                                    objectBuffer.removeAll(keepingCapacity: true)
+                                    pendingBatch.append(exportItem)
+                                    parsedObjectCount += 1
+
+                                    if pendingBatch.count >= sqlImportBatchSize {
+                                        let mapped = pendingBatch.map(Self.clipboardItem(from:))
+                                        totalImported += try await DeckSQLManager.shared.importItemsAtomically(mapped)
+                                        pendingBatch.removeAll(keepingCapacity: true)
+                                    }
+
+                                    if parsedObjectCount % logProgressEvery == 0 {
+                                        await MainActor.run {
+                                            log.debug("Import streaming progress: parsed \(parsedObjectCount), committed \(totalImported)")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    cursor += 1
+                }
+
+                if cursor > bufferStart {
+                    bufferStart = cursor
+                    compactBufferIfNeeded()
+                    madeProgress = true
+                }
+
+            case .done:
+                break
+            }
+
+            if state == .done {
+                break
+            }
+
+            if reachedEOF && !madeProgress {
+                break
+            }
+        }
+
+        if state != .done || depth != 0 || inString {
+            throw ExportError.invalidFormat
+        }
+
+        if !pendingBatch.isEmpty {
+            let mapped = pendingBatch.map(Self.clipboardItem(from:))
+            totalImported += try await DeckSQLManager.shared.importItemsAtomically(mapped)
+        }
+
+        return totalImported
+    }
+
+    private static func clipboardItem(from exportItem: ExportItem) -> ClipboardItem {
+        // 对于大图，insert 方法会自动处理 blob offload
+        ClipboardItem(
+            pasteboardType: PasteboardType(exportItem.type),
+            data: exportItem.data,
+            previewData: exportItem.previewData,
+            timestamp: exportItem.timestamp,
+            appPath: exportItem.appPath,
+            appName: exportItem.appName,
+            customTitle: exportItem.customTitle,
+            sourceAnchor: exportItem.sourceAnchor,
+            searchText: exportItem.searchText,
+            contentLength: exportItem.contentLength,
+            tagId: exportItem.tagId,
+            isTemporary: exportItem.isTemporary ?? false,
+            receivedFromLAN: exportItem.receivedFromLAN ?? false,
+            uniqueId: exportItem.uniqueId
+        )
+    }
+
+    private static func importExportItems(_ exportItems: [ExportItem]) async throws -> Int {
+        guard !exportItems.isEmpty else { return 0 }
+        let items = exportItems.map(Self.clipboardItem(from:))
+        return try await DeckSQLManager.shared.importItemsAtomically(items)
+    }
+    
+    // MARK: - Helpers
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        return formatter.string(from: date)
+    }
+    
+    // MARK: - Errors
+    
+    enum ExportError: LocalizedError {
+        case authenticationFailed
+        case noData
+        case invalidFormat
+        
+        var errorDescription: String? {
+            switch self {
+            case .authenticationFailed:
+                return NSLocalizedString("身份验证失败", comment: "Authentication failed")
+            case .noData:
+                return NSLocalizedString("没有可导出的数据", comment: "No data to export")
+            case .invalidFormat:
+                return NSLocalizedString("文件格式无效", comment: "Invalid file format")
+            }
+        }
+    }
+}
+
+// MARK: - Save Panel Helper
+
+extension DataExportService {
+    func showExportPanel() {
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.json]
+        savePanel.nameFieldStringValue = "Deck_Export_\(formatDate(Date())).json"
+        savePanel.canCreateDirectories = true
+        savePanel.title = NSLocalizedString("导出剪贴板历史", comment: "Export clipboard history title")
+        savePanel.message = NSLocalizedString("选择保存位置", comment: "Choose export destination")
+        
+        savePanel.begin { [weak self] response in
+            guard response == .OK, let targetURL = savePanel.url else { return }
+            
+            self?.exportData(to: targetURL) { [weak self] result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let url):
+                        NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
+                        
+                        let alert = NSAlert()
+                        alert.messageText = NSLocalizedString("导出成功", comment: "Export success")
+                        alert.informativeText = String(
+                            format: NSLocalizedString("已导出 %@ 条记录", comment: "Exported record count"),
+                            "\(self?.lastExportedCount ?? 0)"
+                        )
+                        alert.alertStyle = .informational
+                        alert.runModal()
+                        
+                    case .failure(let error):
+                        let alert = NSAlert()
+                        alert.messageText = NSLocalizedString("导出失败", comment: "Export failed")
+                        alert.informativeText = error.localizedDescription
+                        alert.alertStyle = .warning
+                        alert.runModal()
+                    }
+                }
+            }
+        }
+    }
+    
+    func showImportPanel() {
+        let openPanel = NSOpenPanel()
+        openPanel.allowedContentTypes = [.json]
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = false
+        openPanel.title = NSLocalizedString("导入剪贴板历史", comment: "Import clipboard history title")
+        openPanel.message = NSLocalizedString("选择要导入的 JSON 文件", comment: "Choose JSON file to import")
+        
+        openPanel.begin { [weak self] response in
+            guard response == .OK, let url = openPanel.url else { return }
+            
+            self?.importData(from: url) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let count):
+                        let alert = NSAlert()
+                        alert.messageText = NSLocalizedString("导入成功", comment: "Import success")
+                        alert.informativeText = String(
+                            format: NSLocalizedString("已导入 %@ 条剪贴板记录", comment: "Imported clipboard record count"),
+                            "\(count)"
+                        )
+                        alert.alertStyle = .informational
+                        alert.runModal()
+                        
+                    case .failure(let error):
+                        let alert = NSAlert()
+                        alert.messageText = NSLocalizedString("导入失败", comment: "Import failed")
+                        alert.informativeText = error.localizedDescription
+                        alert.alertStyle = .warning
+                        alert.runModal()
+                    }
+                }
+            }
+        }
+    }
+}

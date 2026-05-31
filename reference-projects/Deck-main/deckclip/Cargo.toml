@@ -1,0 +1,23 @@
+[workspace]
+members = ["deckclip", "deckclip-core", "deckclip-protocol"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.4"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "z"
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+debug = 0
+strip = "debuginfo"
+
+[profile.test]
+debug = 0
+strip = "debuginfo"

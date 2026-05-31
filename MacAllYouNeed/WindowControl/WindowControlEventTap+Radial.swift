@@ -49,17 +49,17 @@ extension WindowControlEventTap {
         active: Bool,
         type: CGEventType,
         flags: CGEventFlags,
-        location: CGPoint
+        location: CGPoint,
+        triggerModifier: WindowGestureModifier
     ) -> RadialPhase? {
         let modifiers = WindowGestureModifier(cgEventFlags: flags)
-        let triggerHeld = modifiers.radialExactMatch(radialTriggerModifier)
+        let triggerHeld = modifiers.radialExactMatch(triggerModifier)
         switch type {
         case .flagsChanged:
+            // Tap-to-open: first press opens. Releasing the modifier does NOT commit
+            // (the menu stays open). The user clicks to apply or presses Esc to cancel.
             if triggerHeld, !active {
                 return .open(center: location)
-            }
-            if !triggerHeld, active {
-                return .commit
             }
             return nil
         case .mouseMoved:
@@ -72,7 +72,13 @@ extension WindowControlEventTap {
     /// Applies the radial phase decision and drives the handler. Returns `true`
     /// when the event was consumed by the radial menu.
     func handleRadialEvent(type: CGEventType, flags: CGEventFlags, location: CGPoint) -> Bool {
-        guard let phase = Self.radialPhase(active: radialActive, type: type, flags: flags, location: location) else {
+        guard let phase = Self.radialPhase(
+            active: radialActive,
+            type: type,
+            flags: flags,
+            location: location,
+            triggerModifier: radialTriggerModifier
+        ) else {
             return false
         }
         switch phase {
@@ -97,13 +103,14 @@ extension WindowGestureModifier {
     /// left/right hardware variants into their base flag.
     fileprivate static let radialPrimaryMask: WindowGestureModifier = [.option, .control, .command, .shift]
 
-    /// Exact match against `target` considering only the primary modifiers, so
-    /// holding additional keys (Command, Shift) does not arm the radial menu.
+    /// Exact match comparing only normalized primary modifiers on both sides so
+    /// that left/right variants (e.g. .leftControl) resolve correctly against
+    /// generic stored values (e.g. .control) and vice-versa.
     func radialExactMatch(_ target: WindowGestureModifier) -> Bool {
-        normalizedPrimary == target.intersection(Self.radialPrimaryMask)
+        normalizedPrimary == target.normalizedPrimary
     }
 
-    private var normalizedPrimary: WindowGestureModifier {
+    var normalizedPrimary: WindowGestureModifier {
         var result: WindowGestureModifier = []
         if contains(.option) || contains(.leftOption) || contains(.rightOption) { result.insert(.option) }
         if contains(.control) || contains(.leftControl) || contains(.rightControl) { result.insert(.control) }

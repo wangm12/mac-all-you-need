@@ -113,16 +113,24 @@ struct MainWindowRoot: View {
             AnyView(ClipboardDestinationView(controller: controller))
         case .voice:
             AnyView(VoiceDestinationView(controller: controller))
+        case .voiceReminders:
+            AnyView(VoiceRemindersPage(controller: controller))
         case .downloads:
             AnyView(DownloadsDestinationView(controller: controller))
+        case .aiFileOrganizer:
+            AnyView(AIFileOrganizerPage(controller: controller))
         case .folderPreview:
             AnyView(FolderPreviewDestinationView(controller: controller))
+        case .finderHistory:
+            AnyView(FinderFolderHistoryPage(controller: controller))
         case .snippets:
             AnyView(SnippetsDestinationView(controller: controller))
         case .windowLayouts:
             AnyView(WindowLayoutsDestinationView(controller: controller))
         case .grabAnywhere:
             AnyView(WindowGrabDestinationView(controller: controller))
+        case .dockPreviews:
+            AnyView(DockHoverPreviewsPage(controller: controller))
         case .settings:
             AnyView(SettingsDestinationView(controller: controller))
         }
@@ -231,11 +239,15 @@ enum MainWindowDestinationRouter {
         case .dashboard: String(describing: DashboardDestinationView.self)
         case .clipboard: String(describing: ClipboardDestinationView.self)
         case .voice: String(describing: VoiceDestinationView.self)
+        case .voiceReminders: String(describing: VoiceRemindersPage.self)
         case .downloads: String(describing: DownloadsDestinationView.self)
+        case .aiFileOrganizer: String(describing: AIFileOrganizerPage.self)
         case .folderPreview: String(describing: FolderPreviewDestinationView.self)
+        case .finderHistory: String(describing: FinderFolderHistoryPage.self)
         case .snippets: String(describing: SnippetsDestinationView.self)
         case .windowLayouts: String(describing: WindowLayoutsDestinationView.self)
         case .grabAnywhere: String(describing: WindowGrabDestinationView.self)
+        case .dockPreviews: String(describing: DockHoverPreviewsPage.self)
         case .settings: String(describing: SettingsDestinationView.self)
         }
     }

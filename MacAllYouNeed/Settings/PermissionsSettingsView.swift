@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import AVFoundation
+import CoreGraphics
 import SwiftUI
 import UI
 import UserNotifications
@@ -83,6 +84,10 @@ enum PermissionStatusProvider {
         optionalPermission(isGranted: FullDiskAccessProbe.isGranted())
     }
 
+    static func currentScreenRecordingStatus() -> PermissionDisplayState {
+        optionalPermission(isGranted: CGPreflightScreenCaptureAccess())
+    }
+
     static func notificationStatus(_ status: UNAuthorizationStatus) -> PermissionDisplayState {
         switch status {
         case .authorized, .provisional, .ephemeral:
@@ -121,6 +126,7 @@ struct PermissionInstruction: Equatable {
 enum PermissionInstructionTarget: String, Equatable, Identifiable {
     case accessibility
     case microphone
+    case screenRecording
     case fullDiskAccess
     case notifications
 
@@ -129,6 +135,7 @@ enum PermissionInstructionTarget: String, Equatable, Identifiable {
     static func defaultTarget(
         accessibilityStatus: PermissionDisplayState,
         microphoneStatus: PermissionDisplayState,
+        screenRecordingStatus: PermissionDisplayState,
         fullDiskAccessStatus: PermissionDisplayState,
         notificationsStatus: PermissionDisplayState
     ) -> PermissionInstructionTarget {
@@ -141,6 +148,7 @@ enum PermissionInstructionTarget: String, Equatable, Identifiable {
         }
 
         let optional: [(PermissionInstructionTarget, PermissionDisplayState)] = [
+            (.screenRecording, screenRecordingStatus),
             (.fullDiskAccess, fullDiskAccessStatus),
             (.notifications, notificationsStatus)
         ]
@@ -168,6 +176,14 @@ enum PermissionInstructionTarget: String, Equatable, Identifiable {
                 systemSettingsAnchor: "Privacy_Microphone",
                 symbol: "mic.badge.plus",
                 supportsAppDrag: true
+            )
+        case .screenRecording:
+            PermissionInstruction(
+                primaryText: "Allow Screen Recording for \(appName).",
+                secondaryText: "Dock Previews needs Screen Recording to capture live window thumbnails. Without it, the panel shows window titles only.",
+                systemSettingsAnchor: "Privacy_ScreenCapture",
+                symbol: "rectangle.on.rectangle.angled",
+                supportsAppDrag: false
             )
         case .fullDiskAccess:
             PermissionInstruction(
@@ -198,6 +214,7 @@ enum PermissionInstructionPresentation {
         requestedTarget: PermissionInstructionTarget?,
         accessibilityStatus: PermissionDisplayState,
         microphoneStatus: PermissionDisplayState,
+        screenRecordingStatus: PermissionDisplayState,
         fullDiskAccessStatus: PermissionDisplayState,
         notificationsStatus: PermissionDisplayState
     ) -> PermissionInstructionTarget? {
@@ -209,6 +226,8 @@ enum PermissionInstructionPresentation {
             requestedStatus = accessibilityStatus
         case .microphone:
             requestedStatus = microphoneStatus
+        case .screenRecording:
+            requestedStatus = screenRecordingStatus
         case .fullDiskAccess:
             requestedStatus = fullDiskAccessStatus
         case .notifications:
@@ -562,6 +581,7 @@ struct PermissionsSettingsView: View {
     @State private var accessibilityStatus = PermissionStatusProvider.requiredPermission(isGranted: AXIsProcessTrusted())
     @State private var fullDiskAccessStatus = PermissionStatusProvider.currentFullDiskAccessStatus()
     @State private var microphoneStatus = PermissionStatusProvider.currentMicrophoneStatus()
+    @State private var screenRecordingStatus = PermissionStatusProvider.currentScreenRecordingStatus()
     @State private var notificationsStatus = PermissionDisplayState.optional
     @State private var requestedInstructionTarget: PermissionInstructionTarget?
     @State private var highlightedPermission: PermissionInstructionTarget?
@@ -599,6 +619,14 @@ struct PermissionsSettingsView: View {
                 title: "Optional Access",
                 subtitle: "Useful for cookie import and status feedback, but not required for local capture or downloads."
             ) {
+                ScreenRecordingPermissionRow(
+                    status: screenRecordingStatus,
+                    isHighlighted: highlightedPermission == .screenRecording,
+                    onAction: requestScreenRecording
+                )
+
+                MAYNDivider()
+
                 FullDiskAccessPermissionRow(
                     status: fullDiskAccessStatus,
                     isHighlighted: highlightedPermission == .fullDiskAccess,
@@ -643,6 +671,7 @@ struct PermissionsSettingsView: View {
             requestedTarget: requestedInstructionTarget,
             accessibilityStatus: accessibilityStatus,
             microphoneStatus: microphoneStatus,
+            screenRecordingStatus: screenRecordingStatus,
             fullDiskAccessStatus: fullDiskAccessStatus,
             notificationsStatus: notificationsStatus
         )
@@ -668,7 +697,14 @@ struct PermissionsSettingsView: View {
         accessibilityStatus = PermissionStatusProvider.requiredPermission(isGranted: AXIsProcessTrusted())
         microphoneStatus = PermissionStatusProvider.currentMicrophoneStatus()
         fullDiskAccessStatus = PermissionStatusProvider.currentFullDiskAccessStatus()
+        screenRecordingStatus = PermissionStatusProvider.currentScreenRecordingStatus()
         advanceInstructionIfCurrentTargetIsGranted()
+    }
+
+    private func requestScreenRecording() {
+        focusInstruction(.screenRecording)
+        CGRequestScreenCaptureAccess()
+        openPrivacyPane("Privacy_ScreenCapture")
     }
 
     private func requestAccessibility() {
@@ -753,6 +789,8 @@ struct PermissionsSettingsView: View {
             accessibilityStatus
         case .microphone:
             microphoneStatus
+        case .screenRecording:
+            screenRecordingStatus
         case .fullDiskAccess:
             fullDiskAccessStatus
         case .notifications:

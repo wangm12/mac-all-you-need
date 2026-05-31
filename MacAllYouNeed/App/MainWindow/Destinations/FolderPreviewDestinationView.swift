@@ -22,8 +22,11 @@ struct FolderPreviewDestinationView: View {
             subtitle: "Configure the Finder Space preview for folders and archives.",
             selection: selectedTab
         ) {
-            FunctionPageScrollContent {
-                folderSettingsSection
+            switch FolderPreviewFunctionTab.storedSelection(selectedTabRaw) {
+            case .settings:
+                FunctionPageScrollContent {
+                    folderSettingsSection
+                }
             }
         }
     }

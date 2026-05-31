@@ -1,0 +1,11 @@
+# Voice cloning evaluation script (~100 words)
+# Read exactly as written for synthesis comparison across vendors.
+# Names and numbers are intentional stress tests.
+
+Hi — this is a quick voice clone test for Mac All You Need. I'm checking whether typed text can sound like my normal speaking voice.
+
+Yesterday I messaged Mingjie about the Qwen3 ASR pilot, Groq Whisper, and a 39-clip export. The total runtime was only four point one minutes, which is far below the thirty-minute guidance.
+
+Please pronounce these carefully: Kubernetes, ffmpeg, Typeless, and accessibility. Numbers: call me at 415-555-0199, room 204B, version 2.0.1.
+
+If this sounds natural, I'll use it for async voice notes — not for impersonation. Thanks.

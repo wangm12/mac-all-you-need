@@ -4,11 +4,15 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
     case dashboard
     case clipboard
     case voice
+    case voiceReminders
     case downloads
+    case aiFileOrganizer
     case folderPreview
+    case finderHistory
     case snippets
     case windowLayouts
     case grabAnywhere
+    case dockPreviews
     case settings
 
     static let storageKey = "main.selectedDestination"
@@ -17,10 +21,14 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         .clipboard,
         .snippets,
         .voice,
+        .voiceReminders,
         .downloads,
+        .aiFileOrganizer,
         .folderPreview,
+        .finderHistory,
         .windowLayouts,
-        .grabAnywhere
+        .grabAnywhere,
+        .dockPreviews,
     ]
 
     var id: String { rawValue }
@@ -30,11 +38,15 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .dashboard: "Dashboard"
         case .clipboard: "Clipboard"
         case .voice: "Voice"
+        case .voiceReminders: "Voice Reminders"
         case .downloads: "Downloads"
+        case .aiFileOrganizer: "AI File Organizer"
         case .folderPreview: "Folder Preview"
+        case .finderHistory: "Finder History"
         case .snippets: "Snippets"
         case .windowLayouts: "Window Layouts"
         case .grabAnywhere: "Window Grab"
+        case .dockPreviews: "Dock Previews"
         case .settings: "Settings"
         }
     }
@@ -44,11 +56,15 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .dashboard: "Status and quick actions"
         case .clipboard: "Recent captured items"
         case .voice: "Dictation controls"
+        case .voiceReminders: "Spoken tasks saved to Reminders"
         case .downloads: "Queue and completed items"
+        case .aiFileOrganizer: "Rename and organize files with AI"
         case .folderPreview: "Finder Quick Look settings"
+        case .finderHistory: "Recently visited Finder folders"
         case .snippets: "Reusable text entries"
         case .windowLayouts: "Keyboard shortcuts and edge snapping"
         case .grabAnywhere: "Modifier-drag windows"
+        case .dockPreviews: "Window thumbnails in the Dock"
         case .settings: "Global app settings"
         }
     }
@@ -58,11 +74,15 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .dashboard: "square.grid.2x2"
         case .clipboard: "doc.on.clipboard"
         case .voice: "mic"
+        case .voiceReminders: "checklist"
         case .downloads: "arrow.down.circle"
+        case .aiFileOrganizer: "sparkles.rectangle.stack"
         case .folderPreview: "folder"
+        case .finderHistory: "clock.badge.checkmark"
         case .snippets: "text.quote"
         case .windowLayouts: "rectangle.3.group"
         case .grabAnywhere: "hand.draw"
+        case .dockPreviews: "dock.rectangle"
         case .settings: "gearshape"
         }
     }
