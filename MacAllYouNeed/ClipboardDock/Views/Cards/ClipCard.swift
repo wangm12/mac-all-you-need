@@ -160,16 +160,16 @@ private struct SmartTextFooter: View {
                 CopyHUD.show("Copied")
             } label: {
                 Text("Copy")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.borderless)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
         .background {
             appAccent.opacity(0.72)
