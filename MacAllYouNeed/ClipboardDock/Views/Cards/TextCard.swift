@@ -32,16 +32,11 @@ struct TextCard: View {
                 .font(.callout.weight(.medium))
                 .foregroundStyle(MAYNTheme.muted)
                 .lineLimit(1)
-            Button {
+            MAYNButton("Copy") {
                 let pb = NSPasteboard.general
                 pb.clearContents()
                 pb.setString(calc.value, forType: .string)
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.caption)
             }
-            .buttonStyle(.borderless)
-            .help("Copy result")
         }
     }
 }

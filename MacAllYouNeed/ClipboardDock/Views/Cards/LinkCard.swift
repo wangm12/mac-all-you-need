@@ -49,14 +49,11 @@ struct LinkCard: View {
                 kind: .warning
             )
             if let cleaned = item.detection?.linkClean?.cleaned {
-                Button("Clean link") {
+                MAYNButton("Copy clean link") {
                     let pb = NSPasteboard.general
                     pb.clearContents()
                     pb.setString(cleaned, forType: .string)
                 }
-                .buttonStyle(.borderless)
-                .font(.caption)
-                .help("Copy link with tracking parameters removed")
             }
         }
     }

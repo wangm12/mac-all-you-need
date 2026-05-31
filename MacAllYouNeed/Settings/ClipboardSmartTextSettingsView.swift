@@ -2,7 +2,8 @@ import Core
 import CoreFoundation
 import SwiftUI
 
-private enum LinkModeTab: String, SegmentedTabDestination {
+// Internal (not private) so ClipboardSmartTextSettingsSection can reference it in @Binding.
+enum LinkModeTab: String, SegmentedTabDestination, CaseIterable {
     case off, manual, auto
 
     var title: String {
@@ -22,11 +23,30 @@ private enum LinkModeTab: String, SegmentedTabDestination {
     }
 }
 
+// MARK: - Sheet
+
 /// Presented as a sheet from SmartTextEnableSection.
-/// Follows the VoicePersonalizationAppsSheet pattern: header with Done button,
-/// then a scrollable settings body.
+/// All state is held locally. Save writes to UserDefaults + notifies the daemon.
+/// Close discards changes.
 struct ClipboardSmartTextSettingsView: View {
     @Environment(\.dismiss) private var dismiss
+
+    // Local draft state — only flushed to UserDefaults on Save.
+    @State private var calculation: Bool
+    @State private var detection: Bool
+    @State private var ocr: Bool
+    @State private var sensitive: Bool
+    @State private var semantic: Bool
+    @State private var linkMode: LinkModeTab
+
+    init() {
+        _calculation = State(initialValue: SmartTextSettings.calculationEnabled())
+        _detection   = State(initialValue: SmartTextSettings.detectionEnabled())
+        _ocr         = State(initialValue: SmartTextSettings.ocrEnabled())
+        _sensitive   = State(initialValue: SmartTextSettings.sensitiveEnabled())
+        _semantic    = State(initialValue: SmartTextSettings.semanticEnabled())
+        _linkMode    = State(initialValue: LinkModeTab(rawValue: SmartTextSettings.linkMode().rawValue) ?? .auto)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -40,7 +60,8 @@ struct ClipboardSmartTextSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                MAYNButton("Done", role: .primary) { dismiss() }
+                MAYNButton("Close") { dismiss() }
+                MAYNButton("Save", role: .primary) { save(); dismiss() }
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)
@@ -49,23 +70,47 @@ struct ClipboardSmartTextSettingsView: View {
             Divider()
 
             ScrollView {
-                ClipboardSmartTextSettingsSection()
-                    .padding(24)
+                ClipboardSmartTextSettingsSection(
+                    calculation: $calculation,
+                    detection: $detection,
+                    ocr: $ocr,
+                    sensitive: $sensitive,
+                    semantic: $semantic,
+                    linkMode: $linkMode
+                )
+                .padding(24)
             }
             .scrollIndicators(.never)
         }
         .frame(width: 540, height: 520)
         .background(MAYNTheme.window)
     }
+
+    private func save() {
+        SmartTextSettings.setCalculationEnabled(calculation)
+        SmartTextSettings.setDetectionEnabled(detection)
+        SmartTextSettings.setOCREnabled(ocr)
+        SmartTextSettings.setSensitiveEnabled(sensitive)
+        SmartTextSettings.setSemanticEnabled(semantic)
+        SmartTextSettings.setLinkMode(SmartTextSettings.LinkMode(rawValue: linkMode.rawValue) ?? .auto)
+        let name = "com.macallyouneed.settings-changed" as CFString
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(name), nil, nil, true
+        )
+    }
 }
 
+// MARK: - Section (pure form, no side effects)
+
+/// Accepts bindings from the parent sheet. No immediate UserDefaults writes.
 struct ClipboardSmartTextSettingsSection: View {
-    @State private var calculation = SmartTextSettings.calculationEnabled()
-    @State private var detection = SmartTextSettings.detectionEnabled()
-    @State private var ocr = SmartTextSettings.ocrEnabled()
-    @State private var sensitive = SmartTextSettings.sensitiveEnabled()
-    @State private var semantic = SmartTextSettings.semanticEnabled()
-    @State private var linkMode = LinkModeTab(rawValue: SmartTextSettings.linkMode().rawValue) ?? .auto
+    @Binding var calculation: Bool
+    @Binding var detection: Bool
+    @Binding var ocr: Bool
+    @Binding var sensitive: Bool
+    @Binding var semantic: Bool
+    @Binding var linkMode: LinkModeTab
 
     var body: some View {
         Group {
@@ -95,9 +140,7 @@ struct ClipboardSmartTextSettingsSection: View {
                         selection: linkMode,
                         fillsAvailableWidth: false,
                         size: .control
-                    ) { mode in
-                        linkMode = mode
-                    }
+                    ) { linkMode = $0 }
                 }
             }
 
@@ -128,26 +171,5 @@ struct ClipboardSmartTextSettingsSection: View {
                 }
             }
         }
-        .onChange(of: calculation) { _, value in SmartTextSettings.setCalculationEnabled(value); notify() }
-        .onChange(of: detection) { _, value in SmartTextSettings.setDetectionEnabled(value); notify() }
-        .onChange(of: ocr) { _, value in SmartTextSettings.setOCREnabled(value); notify() }
-        .onChange(of: sensitive) { _, value in SmartTextSettings.setSensitiveEnabled(value); notify() }
-        .onChange(of: semantic) { _, value in SmartTextSettings.setSemanticEnabled(value); notify() }
-        .onChange(of: linkMode) { _, value in
-            SmartTextSettings.setLinkMode(SmartTextSettings.LinkMode(rawValue: value.rawValue) ?? .auto)
-            notify()
-        }
-    }
-
-    /// Notify the daemon (which reads these on the capture hot path) to reload.
-    private func notify() {
-        let name = "com.macallyouneed.settings-changed" as CFString
-        CFNotificationCenterPostNotification(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            CFNotificationName(name),
-            nil,
-            nil,
-            true
-        )
     }
 }
