@@ -39,7 +39,7 @@ struct DockMoreMenu: View {
             Divider()
 
             Button("Open Settings…") {
-                openSettingsAndDismiss(.general)
+                openSettingsAndDismiss(.clipboard)
             }
         } label: {
             Image(systemName: "ellipsis")
