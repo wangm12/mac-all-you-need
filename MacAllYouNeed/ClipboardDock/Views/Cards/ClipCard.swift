@@ -19,6 +19,9 @@ struct ClipCard: View {
             CardHeader(item: item, appAccent: appAccent)
             cardContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if item.smartCopyValue != nil {
+                SmartTextFooter(item: item, appAccent: appAccent)
+            }
         }
         .background {
             cardBackground
@@ -63,21 +66,6 @@ private struct CardHeader: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            // Smart copy button — only shown when smart content exists
-            if let value = item.smartCopyValue {
-                Button {
-                    let pb = NSPasteboard.general
-                    pb.clearContents()
-                    pb.setString(value, forType: .string)
-                    CopyHUD.show("Copied Smart Text")
-                } label: {
-                    Image(systemName: "wand.and.stars")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.borderless)
-                .help("Copy Smart Text")
-            }
             appIcon
         }
         .padding(.horizontal, 10)
@@ -139,6 +127,54 @@ private struct CardHeader: View {
         f.unitsStyle = .abbreviated
         return f
     }()
+}
+
+/// Dedicated footer strip shown when a card has a Smart Text result.
+/// Clearly labels the type (calculation / cleaned link / OCR) and provides a Copy button.
+private struct SmartTextFooter: View {
+    let item: DockItem
+    let appAccent: Color
+
+    private var label: String {
+        if item.calculation != nil { return "= \(item.calculation!.value)" }
+        if item.trackerCount > 0   { return "\(item.trackerCount) tracker\(item.trackerCount == 1 ? "" : "s") removed" }
+        if item.hasOCRText         { return "Text recognized" }
+        return "Smart Text"
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.8))
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button {
+                guard let value = item.smartCopyValue else { return }
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(value, forType: .string)
+                CopyHUD.show("Copied")
+            } label: {
+                Text("Copy")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity)
+        .background {
+            appAccent.opacity(0.72)
+        }
+    }
 }
 
 enum ClipCardAccentPresentation {

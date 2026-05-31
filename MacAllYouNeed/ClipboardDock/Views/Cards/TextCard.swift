@@ -17,26 +17,8 @@ struct TextCard: View {
                 .lineLimit(8)
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-
-            if let calc = item.calculation {
-                calculationRow(calc)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(10)
-    }
-
-    private func calculationRow(_ calc: CalculationResult) -> some View {
-        HStack(spacing: 6) {
-            Text("= \(calc.value)")
-                .font(.callout.weight(.medium))
-                .foregroundStyle(MAYNTheme.muted)
-                .lineLimit(1)
-            MAYNButton("Copy") {
-                let pb = NSPasteboard.general
-                pb.clearContents()
-                pb.setString(calc.value, forType: .string)
-            }
-        }
     }
 }

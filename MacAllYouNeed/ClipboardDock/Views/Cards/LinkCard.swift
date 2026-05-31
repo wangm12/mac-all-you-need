@@ -29,9 +29,6 @@ struct LinkCard: View {
             Text(item.displayLabel)
                 .font(.callout)
                 .lineLimit(3)
-            if item.trackerCount > 0 {
-                trackerRow
-            }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -39,22 +36,6 @@ struct LinkCard: View {
         .task(id: item.id) {
             guard let url else { return }
             favicon = await favicons.favicon(for: url)
-        }
-    }
-
-    private var trackerRow: some View {
-        HStack(spacing: 6) {
-            StatusPill(
-                text: "\(item.trackerCount) tracker\(item.trackerCount == 1 ? "" : "s")",
-                kind: .warning
-            )
-            if let cleaned = item.detection?.linkClean?.cleaned {
-                MAYNButton("Copy clean link") {
-                    let pb = NSPasteboard.general
-                    pb.clearContents()
-                    pb.setString(cleaned, forType: .string)
-                }
-            }
         }
     }
 }
