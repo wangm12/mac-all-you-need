@@ -1,5 +1,6 @@
 import AppKit
 import Core
+import Platform
 import SwiftUI
 
 struct ClipCard: View {
@@ -157,6 +158,7 @@ private struct SmartTextFooter: View {
                 let pb = NSPasteboard.general
                 pb.clearContents()
                 pb.setString(value, forType: .string)
+                pb.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
                 CopyHUD.show("Copied")
             } label: {
                 Text("Copy")

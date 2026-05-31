@@ -626,6 +626,7 @@ final class DockWindowController {
                 let pb = NSPasteboard.general
                 pb.clearContents()
                 pb.setString(value, forType: .string)
+                pb.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
                 CopyHUD.show("Copied Smart Text")
                 return nil
             }
