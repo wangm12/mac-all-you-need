@@ -433,6 +433,13 @@ final class AppController {
                 showMainWindow(destination: .clipboard)
                 return
             }
+            // Feature-specific destinations live on their own page + Settings tab,
+            // not in the Settings section (which only holds General/Permissions/Advanced).
+            if route == SettingsDestination.clipboard.rawValue {
+                AppGroupSettings.defaults.set(ClipboardFunctionTab.settings.rawValue, forKey: ClipboardFunctionTab.storageKey)
+                showMainWindow(destination: .clipboard)
+                return
+            }
             let destination = SettingsDestination.legacySelection(route)
             AppGroupSettings.defaults.set(destination.rawValue, forKey: DockSettingsNavigation.settingsSelectionKey)
             showMainWindow(destination: .settings)
