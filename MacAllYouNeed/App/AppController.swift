@@ -508,12 +508,21 @@ final class AppController {
         dockPreviews.applyEnabled(state.activationState == .enabled)
     }
 
+    func dockPreviewsReloadSettings() {
+        dockPreviews.reloadSettings()
+    }
+
+    func dockPreviewsRefreshPermissions() {
+        dockPreviews.refreshPermissions()
+    }
+
     private func suspendShortcutTriggersForHotkeyRecording() {
         activeHotkeyRecorderCount += 1
         guard activeHotkeyRecorderCount == 1 else { return }
         hotkeys.unregisterAll()
         voiceCoordinator.suspendActivationMonitoring()
         windowControl.suspendForHotkeyRecording()
+        dockPreviews.suspendForHotkeyRecording()
     }
 
     private func resumeShortcutTriggersAfterHotkeyRecording() {
@@ -522,6 +531,7 @@ final class AppController {
         guard activeHotkeyRecorderCount == 0 else { return }
         voiceCoordinator.resumeActivationMonitoring()
         windowControl.resumeAfterHotkeyRecording()
+        dockPreviews.resumeAfterHotkeyRecording()
         registerConfiguredHotkeys()
     }
 

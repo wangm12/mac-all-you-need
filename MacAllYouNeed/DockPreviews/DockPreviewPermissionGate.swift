@@ -2,20 +2,27 @@ import CoreGraphics
 import Foundation
 
 enum DockPreviewPermissionGate {
-    enum Mode {
-        case fullPreview    // thumbnails + titles
-        case titlesOnly     // Screen Recording denied — text only
+    enum Mode: Equatable {
+        case fullPreview
+        case titlesOnly
     }
 
-    static func currentMode() -> Mode {
-        // CGPreflightScreenCaptureAccess() is available on macOS 14+
+    static func currentMode(settings: DockPreviewSettings = DockPreviewSettingsStore.load()) -> Mode {
+        guard settings.showThumbnails else { return .titlesOnly }
         if #available(macOS 14, *) {
             return CGPreflightScreenCaptureAccess() ? .fullPreview : .titlesOnly
         }
         return .titlesOnly
     }
 
-    static func requestIfNeeded() async {
+    static func screenRecordingGranted() -> Bool {
+        if #available(macOS 14, *) {
+            return CGPreflightScreenCaptureAccess()
+        }
+        return false
+    }
+
+    static func requestScreenRecordingIfNeeded() {
         if #available(macOS 14, *), !CGPreflightScreenCaptureAccess() {
             CGRequestScreenCaptureAccess()
         }

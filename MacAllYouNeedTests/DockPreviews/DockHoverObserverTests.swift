@@ -6,8 +6,9 @@ import XCTest
 /// Minimal in-app fake conforming to the public `AXObserverEngine` protocol so
 /// the Dock preview AX coordinator can be exercised without a live Dock.
 final class FakeDockAXObserverEngine: AXObserverEngine, @unchecked Sendable {
-    func makeObserver(pid: pid_t) -> AXObserverHandle? {
-        AXObserverHandle(pid: pid, token: 1)
+    func makeObserver(pid: pid_t, onEvent: @escaping (String) -> Void) -> AXObserverHandle? {
+        _ = onEvent
+        return AXObserverHandle(pid: pid, token: 1)
     }
     func subscribe(_ handle: AXObserverHandle, notification: String) -> Bool { true }
     func unsubscribe(_ handle: AXObserverHandle, notification: String) {}

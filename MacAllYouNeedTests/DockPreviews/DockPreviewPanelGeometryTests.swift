@@ -2,32 +2,51 @@ import XCTest
 @testable import MacAllYouNeed
 
 final class DockPreviewPanelGeometryTests: XCTestCase {
-    func testQuartzToCocoaFlip() {
-        let quartz = CGRect(x: 100, y: 200, width: 300, height: 400)
-        let cocoa = DockPreviewPanelGeometry.cocoaRect(fromQuartz: quartz, screenHeight: 1080)
-        XCTAssertEqual(cocoa.origin.y, 1080 - 200 - 400, accuracy: 0.1)
-    }
-
-    func testPanelOriginBottomDock() {
-        let icon = CGRect(x: 500, y: 0, width: 64, height: 64)
+    func testPlacementPointMatchesDockDoorBottomIcon() {
+        let screen = NSScreen.main!
+        let screenHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        // AX frame: icon near bottom of primary display (top-left origin).
+        let axIcon = CGRect(x: 500, y: screenHeight - 80, width: 48, height: 48)
         let origin = DockPreviewPanelGeometry.panelOrigin(
-            iconRect: icon,
+            axIconRect: axIcon,
             panelSize: CGSize(width: 200, height: 100),
-            screenBounds: CGRect(x: 0, y: 0, width: 1920, height: 1080),
-            dockEdge: .bottom
+            screen: screen,
+            dockEdge: .bottom,
+            bufferFromDock: -20
         )
-        XCTAssertEqual(origin.x, 432, accuracy: 1)  // 500 + 32 - 100
-        XCTAssertEqual(origin.y, 72, accuracy: 1)   // 64 + 8
+        let flipped = DockPreviewDockCoordinates.flippedIconRect(axRect: axIcon, screen: screen)
+        XCTAssertEqual(origin.x, flipped.midX - 100, accuracy: 1)
+        XCTAssertEqual(origin.y, flipped.minY - 20, accuracy: 1)
     }
 
-    func testPanelClampedToScreen() {
-        let icon = CGRect(x: 10, y: 0, width: 64, height: 64)
+    func testFrozenPlacementAnchorPreservesAXRect() {
+        let tile = CGRect(x: 200, y: 920, width: 48, height: 52)
+        let frozen = DockPreviewPanelGeometry.frozenPlacementAnchor(axRect: tile)
+        XCTAssertEqual(frozen, tile)
+    }
+
+    func testCocoaIconRectAlignsWithFlippedPlacement() {
+        let screen = NSScreen.main!
+        let screenHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        let axIcon = CGRect(x: 300, y: screenHeight - 64, width: 40, height: 40)
+        let cocoa = DockPreviewDockCoordinates.cocoaIconRect(axRect: axIcon, screen: screen)
+        let flipped = DockPreviewDockCoordinates.flippedIconRect(axRect: axIcon, screen: screen)
+        XCTAssertEqual(cocoa.maxY, flipped.minY, accuracy: 0.1)
+        XCTAssertEqual(cocoa.minY, flipped.minY - flipped.height, accuracy: 0.1)
+    }
+
+    func testPanelClampedToScreenFrame() {
+        let screen = NSScreen.main!
+        let screenHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        let axIcon = CGRect(x: 10, y: screenHeight - 60, width: 48, height: 48)
         let origin = DockPreviewPanelGeometry.panelOrigin(
-            iconRect: icon,
+            axIconRect: axIcon,
             panelSize: CGSize(width: 300, height: 100),
-            screenBounds: CGRect(x: 0, y: 0, width: 1920, height: 1080),
-            dockEdge: .bottom
+            screen: screen,
+            dockEdge: .bottom,
+            bufferFromDock: 0
         )
-        XCTAssertGreaterThanOrEqual(origin.x, 0)
+        XCTAssertGreaterThanOrEqual(origin.x, screen.frame.minX)
+        XCTAssertGreaterThanOrEqual(origin.y, screen.frame.minY)
     }
 }

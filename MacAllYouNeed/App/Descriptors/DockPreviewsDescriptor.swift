@@ -12,7 +12,7 @@ enum DockPreviewsDescriptor {
                 + "its open windows; click one to raise that exact window. Window thumbnails need Screen "
                 + "Recording permission — without it, the panel degrades gracefully to a titles-only list. "
                 + "Disabled by default.",
-            requiredPermissions: [.screenRecording],
+            requiredPermissions: [.accessibility, .screenRecording],
             activator: DockPreviewsFeatureActivator(),
             settingsTabFactory: { AnyView(DockPreviewSettingsView()) }
         )

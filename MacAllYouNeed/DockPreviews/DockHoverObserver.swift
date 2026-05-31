@@ -3,36 +3,69 @@ import ApplicationServices
 import Foundation
 import Platform
 
-/// Observes the Dock for icon hover events using the shared AXObserverCoordinator (S1).
-/// Detects which app icon the user is hovering via kAXSelectedChildrenChangedNotification.
 @MainActor
 final class DockHoverObserver {
     private let coordinator: AXObserverCoordinator
     private var dockPID: pid_t?
     private var dockAXList: AXUIElement?
+    private var healthCheckTask: Task<Void, Never>?
+    private var lastHoverToken: UInt?
+    private let mainBundleID = Bundle.main.bundleIdentifier
 
-    var onHoverBegan: ((pid_t, String) -> Void)?  // (app pid, app name)
+    var onHoverBegan: ((DockHoverTarget) -> Void)?
     var onHoverEnded: (() -> Void)?
+    var settings: () -> DockPreviewSettings = { DockPreviewSettingsStore.load() }
 
     init(coordinator: AXObserverCoordinator) {
         self.coordinator = coordinator
     }
 
     func start() {
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
+        resetSubscription()
+        startHealthCheck()
+    }
+
+    func stop() {
+        healthCheckTask?.cancel()
+        healthCheckTask = nil
+        coordinator.stop()
+        dockPID = nil
+        dockAXList = nil
+        lastHoverToken = nil
+    }
+
+    /// Stable token for the dock item last reported via AX (do not re-read AX elements for identity).
+    func currentHoveredDockItemToken() -> UInt? {
+        lastHoverToken
+    }
+
+    /// Live AX frame for the hovered dock item (updates during Dock magnification).
+    func currentHoveredIconRect() -> CGRect? {
+        guard let listElement = dockAXList,
+              let item = selectedDockItem(in: listElement)
+        else { return nil }
+        return dockItemRect(item)
+    }
+
+    func resetSubscription() {
+        coordinator.stop()
+        dockPID = nil
+        dockAXList = nil
+
         guard let dockApp = NSWorkspace.shared.runningApplications.first(where: {
             $0.bundleIdentifier == "com.apple.dock"
         }) else { return }
-        let dockPID = dockApp.processIdentifier
-        self.dockPID = dockPID
 
-        // Find the Dock's AXList element (the icon list).
-        let dockElement = AXUIElementCreateApplication(dockPID)
-        dockAXList = findDockIconList(in: dockElement)
+        let pid = dockApp.processIdentifier
+        dockPID = pid
+        let dockElement = AXUIElementCreateApplication(pid)
+        guard let list = findDockIconList(in: dockElement) else { return }
+        dockAXList = list
 
-        // Subscribe to selection changes on the AXList child element.
         coordinator.start(
-            pid: dockPID,
-            targetElement: dockAXList,
+            pid: pid,
+            targetElement: list,
             notifications: [kAXSelectedChildrenChangedNotification as String]
         ) { [weak self] _, _ in
             Task { @MainActor [weak self] in
@@ -41,48 +74,215 @@ final class DockHoverObserver {
         }
     }
 
-    func stop() {
-        coordinator.stop()
-        dockPID = nil
-        dockAXList = nil
+    private func startHealthCheck() {
+        healthCheckTask?.cancel()
+        healthCheckTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled, let self else { return }
+                self.performHealthCheck()
+            }
+        }
+    }
+
+    private func performHealthCheck() {
+        let currentDockPID = NSWorkspace.shared.runningApplications
+            .first { $0.bundleIdentifier == "com.apple.dock" }?
+            .processIdentifier
+        if currentDockPID != dockPID {
+            resetSubscription()
+            return
+        }
+        guard let list = dockAXList else {
+            resetSubscription()
+            return
+        }
+        var role: CFTypeRef?
+        let err = AXUIElementCopyAttributeValue(list, kAXRoleAttribute as CFString, &role)
+        if err == .invalidUIElement || err == .cannotComplete || role == nil {
+            resetSubscription()
+        }
     }
 
     private func findDockIconList(in element: AXUIElement) -> AXUIElement? {
         var result: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &result)
-        guard let children = result as? [AXUIElement] else { return element }
+        guard let children = result as? [AXUIElement] else { return nil }
         for child in children {
             var role: CFTypeRef?
             AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &role)
             if (role as? String) == (kAXListRole as String) { return child }
         }
-        return element
+        return nil
     }
 
     private func handleDockEvent() {
         guard let listElement = dockAXList else { return }
-        var selected: CFTypeRef?
-        AXUIElementCopyAttributeValue(listElement, kAXSelectedChildrenAttribute as CFString, &selected)
-        guard let selectedItems = selected as? [AXUIElement], let item = selectedItems.first else {
+        guard let item = selectedDockItem(in: listElement) else {
+            lastHoverToken = nil
             onHoverEnded?()
             return
         }
 
-        // Prefer matching by URL to a running app; fall back to the AX title.
-        var urlRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(item, kAXURLAttribute as CFString, &urlRef)
-        let url = urlRef as? URL
+        let token = elementToken(item)
+        if token == lastHoverToken { return }
 
-        if let url, let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleURL == url }) {
-            onHoverBegan?(app.processIdentifier, app.localizedName ?? url.deletingPathExtension().lastPathComponent)
+        if let folder = folderHoverInfo(for: item), settings().enableFolderWidget {
+            lastHoverToken = token
+            onHoverBegan?(.folder(folder))
             return
         }
 
-        // App not running — read the AX title for the name
+        guard let appInfo = appHoverInfo(for: item) else {
+            lastHoverToken = nil
+            onHoverEnded?()
+            return
+        }
+
+        if appInfo.bundleIdentifier == mainBundleID {
+            lastHoverToken = nil
+            onHoverEnded?()
+            return
+        }
+
+        lastHoverToken = token
+        onHoverBegan?(.app(appInfo))
+    }
+
+    private func selectedDockItem(in list: AXUIElement) -> AXUIElement? {
+        var selected: CFTypeRef?
+        AXUIElementCopyAttributeValue(list, kAXSelectedChildrenAttribute as CFString, &selected)
+        return (selected as? [AXUIElement])?.first
+    }
+
+    private func appHoverInfo(for item: AXUIElement) -> DockHoverTarget.AppHoverInfo? {
+        guard dockItemSubrole(item) == "AXApplicationDockItem" else { return nil }
+        guard let url = dockItemURL(item) else { return nil }
+
+        let bundle = Bundle(url: url)
+        let bundleID = bundle?.bundleIdentifier
+        let iconRect = dockItemRect(item)
+
+        if let bundleID, !bundleID.isEmpty {
+            let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            if running.count > 1 {
+                let index = dockInstanceIndex(for: item, bundleIdentifier: bundleID)
+                if index < running.count {
+                    let app = running[index]
+                    return DockHoverTarget.AppHoverInfo(
+                        pid: app.processIdentifier,
+                        appName: app.localizedName ?? bundleID,
+                        bundleIdentifier: bundleID,
+                        iconRect: iconRect,
+                        dockItemToken: elementToken(item)
+                    )
+                }
+            }
+            if let app = running.first {
+                return DockHoverTarget.AppHoverInfo(
+                    pid: app.processIdentifier,
+                    appName: app.localizedName ?? bundleID,
+                    bundleIdentifier: bundleID,
+                    iconRect: iconRect,
+                    dockItemToken: elementToken(item)
+                )
+            }
+            let name = bundle?.infoDictionary?["CFBundleName"] as? String
+                ?? url.deletingPathExtension().lastPathComponent
+            return DockHoverTarget.AppHoverInfo(
+                pid: 0,
+                appName: name,
+                bundleIdentifier: bundleID,
+                iconRect: iconRect,
+                dockItemToken: elementToken(item)
+            )
+        }
+
+        let title = dockItemTitle(item) ?? url.deletingPathExtension().lastPathComponent
+        if let app = NSWorkspace.shared.runningApplications.first(where: {
+            $0.localizedName?.caseInsensitiveCompare(title) == .orderedSame
+        }) {
+            return DockHoverTarget.AppHoverInfo(
+                pid: app.processIdentifier,
+                appName: app.localizedName ?? title,
+                bundleIdentifier: app.bundleIdentifier,
+                iconRect: iconRect,
+                dockItemToken: elementToken(item)
+            )
+        }
+        return nil
+    }
+
+    private func folderHoverInfo(for item: AXUIElement) -> DockHoverTarget.FolderHoverInfo? {
+        guard dockItemSubrole(item) != "AXApplicationDockItem" else { return nil }
+        guard let url = dockItemURL(item), url.pathExtension != "app" else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        let title = dockItemTitle(item) ?? FileManager.default.displayName(atPath: url.path)
+        return DockHoverTarget.FolderHoverInfo(
+            url: url,
+            title: title,
+            iconRect: dockItemRect(item),
+            dockItemToken: elementToken(item)
+        )
+    }
+
+    private func dockInstanceIndex(for hoveredItem: AXUIElement, bundleIdentifier: String) -> Int {
+        guard let list = dockAXList,
+              let allItems = dockListChildren(list)
+        else { return 0 }
+        let matching = allItems.filter { item in
+            guard dockItemSubrole(item) == "AXApplicationDockItem",
+                  let url = dockItemURL(item),
+                  let bundle = Bundle(url: url)
+            else { return false }
+            return bundle.bundleIdentifier == bundleIdentifier
+        }
+        for (index, item) in matching.enumerated() where CFEqual(item, hoveredItem) {
+            return index
+        }
+        return 0
+    }
+
+    private func dockListChildren(_ list: AXUIElement) -> [AXUIElement]? {
+        var children: CFTypeRef?
+        AXUIElementCopyAttributeValue(list, kAXChildrenAttribute as CFString, &children)
+        return children as? [AXUIElement]
+    }
+
+    private func dockItemSubrole(_ item: AXUIElement) -> String? {
+        var subrole: CFTypeRef?
+        AXUIElementCopyAttributeValue(item, kAXSubroleAttribute as CFString, &subrole)
+        return subrole as? String
+    }
+
+    private func dockItemURL(_ item: AXUIElement) -> URL? {
+        var urlRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(item, kAXURLAttribute as CFString, &urlRef)
+        return (urlRef as? NSURL)?.absoluteURL ?? urlRef as? URL
+    }
+
+    private func dockItemTitle(_ item: AXUIElement) -> String? {
         var titleRef: CFTypeRef?
         AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
-        let title = titleRef as? String ?? url?.deletingPathExtension().lastPathComponent ?? "App"
-        // No PID for non-running app; notify with pid=0 so caller can show a placeholder
-        onHoverBegan?(0, title)
+        return titleRef as? String
+    }
+
+    private func dockItemRect(_ item: AXUIElement) -> CGRect {
+        var position: CFTypeRef?
+        var size: CFTypeRef?
+        AXUIElementCopyAttributeValue(item, kAXPositionAttribute as CFString, &position)
+        AXUIElementCopyAttributeValue(item, kAXSizeAttribute as CFString, &size)
+        var point = CGPoint.zero
+        var cgSize = CGSize.zero
+        if let posValue = position { AXValueGetValue(posValue as! AXValue, .cgPoint, &point) }
+        if let sizeValue = size { AXValueGetValue(sizeValue as! AXValue, .cgSize, &cgSize) }
+        return CGRect(origin: point, size: cgSize)
+    }
+
+    private func elementToken(_ element: AXUIElement) -> UInt {
+        UInt(bitPattern: ObjectIdentifier(element as AnyObject).hashValue)
     }
 }

@@ -163,6 +163,11 @@ struct AdvancedSettingsView: View {
                 .filter { !$0.key.lowercased().contains("passphrase") }
             let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
             try? data?.write(to: temp.appendingPathComponent("settings.json"))
+            let worklogsSource = AppGroup.containerURL().appendingPathComponent("worklogs", isDirectory: true)
+            if FileManager.default.fileExists(atPath: worklogsSource.path) {
+                let worklogsDest = temp.appendingPathComponent("worklogs", isDirectory: true)
+                try? FileManager.default.copyItem(at: worklogsSource, to: worklogsDest)
+            }
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
             process.arguments = ["-r", destination.path, "."]

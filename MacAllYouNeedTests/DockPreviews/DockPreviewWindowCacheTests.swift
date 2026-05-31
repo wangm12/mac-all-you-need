@@ -25,4 +25,16 @@ final class DockPreviewWindowCacheTests: XCTestCase {
         let diff2 = cache.update(entries: [], for: 100)
         XCTAssertEqual(diff2.removed.count, 1)
     }
+
+    @MainActor func testSetThumbnailPersists() {
+        let cache = DockPreviewWindowCache()
+        let entry = DockPreviewWindowEntry(
+            id: 9, pid: 200, title: "Thumb", frame: .zero,
+            thumbnail: nil, isMinimized: false, isOnScreen: true
+        )
+        _ = cache.update(entries: [entry], for: 200)
+        let image = NSImage(size: NSSize(width: 10, height: 10))
+        cache.setThumbnail(image, windowID: 9, pid: 200)
+        XCTAssertNotNil(cache.entries(for: 200).first { $0.id == 9 }?.thumbnail)
+    }
 }

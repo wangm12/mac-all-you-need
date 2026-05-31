@@ -162,6 +162,7 @@ final class PermissionStatusDisplayTests: XCTestCase {
             PermissionInstructionTarget.defaultTarget(
                 accessibilityStatus: .granted,
                 microphoneStatus: .granted,
+                screenRecordingStatus: .optional,
                 fullDiskAccessStatus: .optional,
                 notificationsStatus: .optional
             ),
@@ -175,6 +176,7 @@ final class PermissionStatusDisplayTests: XCTestCase {
                 requestedTarget: nil,
                 accessibilityStatus: .needsAction,
                 microphoneStatus: .denied,
+                screenRecordingStatus: .optional,
                 fullDiskAccessStatus: .optional,
                 notificationsStatus: .optional
             )
@@ -187,6 +189,7 @@ final class PermissionStatusDisplayTests: XCTestCase {
                 requestedTarget: .fullDiskAccess,
                 accessibilityStatus: .granted,
                 microphoneStatus: .granted,
+                screenRecordingStatus: .optional,
                 fullDiskAccessStatus: .optional,
                 notificationsStatus: .granted
             ),
@@ -198,6 +201,7 @@ final class PermissionStatusDisplayTests: XCTestCase {
                 requestedTarget: .microphone,
                 accessibilityStatus: .granted,
                 microphoneStatus: .denied,
+                screenRecordingStatus: .optional,
                 fullDiskAccessStatus: .optional,
                 notificationsStatus: .granted
             ),
@@ -211,6 +215,7 @@ final class PermissionStatusDisplayTests: XCTestCase {
                 requestedTarget: .accessibility,
                 accessibilityStatus: .granted,
                 microphoneStatus: .denied,
+                screenRecordingStatus: .optional,
                 fullDiskAccessStatus: .optional,
                 notificationsStatus: .optional
             )
@@ -221,6 +226,7 @@ final class PermissionStatusDisplayTests: XCTestCase {
                 requestedTarget: .notifications,
                 accessibilityStatus: .needsAction,
                 microphoneStatus: .denied,
+                screenRecordingStatus: .optional,
                 fullDiskAccessStatus: .optional,
                 notificationsStatus: .granted
             )

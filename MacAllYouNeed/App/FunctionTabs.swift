@@ -183,6 +183,28 @@ enum WindowGrabFunctionTab: String, FunctionTabDestination {
     }
 }
 
+enum DockPreviewFunctionTab: String, FunctionTabDestination {
+    case overview
+    case settings
+
+    static let storageKey = "dockPreviews.pageTab"
+    static let defaultTab = DockPreviewFunctionTab.overview
+
+    var title: String {
+        switch self {
+        case .overview: "Overview"
+        case .settings: "Settings"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .overview: "info.circle"
+        case .settings: "slider.horizontal.3"
+        }
+    }
+}
+
 enum FolderPreviewFunctionTab: String, FunctionTabDestination {
     case settings
 

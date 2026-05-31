@@ -1,63 +1,134 @@
 import AppKit
 import SwiftUI
+import UI
 
-/// Borderless, non-activating NSPanel for the Dock preview card strip.
+@MainActor
+struct DockPreviewPanelPresentation: Equatable {
+    var appIcon: NSImage?
+    var appName: String
+    var entries: [DockPreviewWindowEntry]
+    var mode: DockPreviewPermissionGate.Mode
+    var anchorRect: CGRect
+    var dockEdge: DockPreviewPanelGeometry.DockEdge
+    var enableLivePreview: Bool
+}
+
 @MainActor
 final class DockPreviewPanel {
-    private var panel: NSPanel?
+    private var panelController: NonActivatingFloatingPanelController<DockPreviewPanelHostView>?
+    private var pinnedOrigin: CGPoint?
+    private var pinnedPlacementKey: UInt?
+    private var bufferFromDock: CGFloat = CGFloat(DockPreviewSettings.default.bufferFromDock)
 
-    func show(
-        appIcon: NSImage?,
-        appName: String,
-        entries: [DockPreviewWindowEntry],
-        mode: DockPreviewPermissionGate.Mode,
-        at cursorLocation: NSPoint,
+    var mouseIsWithinPreview = false
+    var onSelect: ((DockPreviewWindowEntry) -> Void)?
+
+    func update(
+        presentation: DockPreviewPanelPresentation,
+        placementKey: UInt,
+        reposition: Bool,
         onSelect: @escaping (DockPreviewWindowEntry) -> Void
     ) {
-        dismiss()
+        self.onSelect = onSelect
+        bufferFromDock = CGFloat(DockPreviewSettingsStore.load().bufferFromDock)
+        let size = panelSize(for: presentation.entries.count)
+        let firstPresent = panelController?.isPresented != true
+        let switchingIcon = placementKey != pinnedPlacementKey
+        let needsInitialPin = firstPresent || pinnedOrigin == nil
+        let needsPlacementUpdate = needsInitialPin || (reposition && switchingIcon)
 
-        let cardCount = max(1, min(entries.count, 6))
-        let cardW = 240 + DockPreviewLayout.cardPadding * 2
+        if needsPlacementUpdate {
+            pinnedOrigin = panelOrigin(presentation: presentation, panelSize: size)
+            pinnedPlacementKey = placementKey
+        }
+
+        let host = DockPreviewPanelHostView(
+            presentation: presentation,
+            onSelect: { [weak self] entry in self?.onSelect?(entry) },
+            onMouseInPanel: { [weak self] inside in self?.mouseIsWithinPreview = inside }
+        )
+
+        if panelController == nil {
+            panelController = NonActivatingFloatingPanelController(
+                styleMask: [.borderless, .nonactivatingPanel],
+                level: DockPreviewWindowLayering.windowLevel,
+                collectionBehavior: DockPreviewWindowLayering.collectionBehavior,
+                hasShadow: false,
+                showAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastIn),
+                hideAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastOut)
+            )
+        }
+
+        if firstPresent {
+            panelController?.present(rootView: host, size: size, animated: true)
+        } else {
+            panelController?.update(rootView: host)
+            if let panel = panelController?.currentPanel,
+               panel.frame.size != size {
+                panel.setContentSize(size)
+            }
+        }
+
+        if let panel = panelController?.currentPanel, let origin = pinnedOrigin {
+            if needsPlacementUpdate {
+                panel.setFrameOrigin(NSPoint(x: origin.x, y: origin.y))
+            }
+            panel.ignoresMouseEvents = false
+            panel.hidesOnDeactivate = false
+            DockPreviewWindowLayering.orderFront(panel)
+        }
+    }
+
+    func dismiss(animated: Bool = true) {
+        mouseIsWithinPreview = false
+        pinnedOrigin = nil
+        pinnedPlacementKey = nil
+        panelController?.dismiss(animated: animated)
+    }
+
+    var isVisible: Bool { panelController?.isPresented == true }
+
+    var panelFrame: CGRect { panelController?.currentPanel?.frame ?? .zero }
+
+    private func panelSize(for entryCount: Int) -> CGSize {
+        let cardCount = max(1, min(entryCount, 6))
+        let cardW = DockPreviewLayout.cardWidth
         let panelWidth = CGFloat(cardCount) * (cardW + DockPreviewLayout.itemSpacing)
             - DockPreviewLayout.itemSpacing
             + DockPreviewLayout.outerPadding * 2
-        let panelHeight: CGFloat = 240  // header + thumbnail + label + padding
-
-        let screen = NSScreen.screens.first { $0.frame.contains(cursorLocation) } ?? NSScreen.main
-        let screenFrame = screen?.visibleFrame ?? .zero
-        let dockGap: CGFloat = 20
-
-        var x = cursorLocation.x - panelWidth / 2
-        var y = cursorLocation.y + dockGap
-
-        x = max(screenFrame.minX + 8, min(x, screenFrame.maxX - panelWidth - 8))
-        y = min(y, screenFrame.maxY - panelHeight - 8)
-
-        let view = DockPreviewPanelView(
-            appIcon: appIcon,
-            appName: appName,
-            entries: entries,
-            mode: mode,
-            onSelect: onSelect
-        )
-        let p = NSPanel(
-            contentRect: NSRect(x: x, y: y, width: panelWidth, height: panelHeight),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        p.contentView = NSHostingView(rootView: view)
-        p.isOpaque = false
-        p.backgroundColor = .clear
-        p.level = .floating
-        p.hasShadow = false  // shadow rendered in SwiftUI
-        p.hidesOnDeactivate = false
-        p.orderFrontRegardless()
-        panel = p
+        return CGSize(width: panelWidth, height: DockPreviewLayout.panelHeight)
     }
 
-    func dismiss() {
-        panel?.close()
-        panel = nil
+    private func panelOrigin(presentation: DockPreviewPanelPresentation, panelSize: CGSize) -> CGPoint {
+        guard presentation.anchorRect != .zero else {
+            let mouse = NSEvent.mouseLocation
+            return CGPoint(x: mouse.x - panelSize.width / 2, y: mouse.y + 24)
+        }
+        let screen = DockPreviewDockCoordinates.screen(containingAXPoint: presentation.anchorRect.origin)
+        return DockPreviewPanelGeometry.panelOrigin(
+            axIconRect: presentation.anchorRect,
+            panelSize: panelSize,
+            screen: screen,
+            dockEdge: presentation.dockEdge,
+            bufferFromDock: bufferFromDock
+        )
+    }
+}
+
+private struct DockPreviewPanelHostView: View {
+    let presentation: DockPreviewPanelPresentation
+    let onSelect: (DockPreviewWindowEntry) -> Void
+    let onMouseInPanel: (Bool) -> Void
+
+    var body: some View {
+        DockPreviewPanelView(
+            appIcon: presentation.appIcon,
+            appName: presentation.appName,
+            entries: presentation.entries,
+            mode: presentation.mode,
+            enableLivePreview: presentation.enableLivePreview,
+            onSelect: onSelect
+        )
+        .onHover { onMouseInPanel($0) }
     }
 }

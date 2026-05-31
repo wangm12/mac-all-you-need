@@ -30,6 +30,12 @@ final class DockPreviewWindowCache {
     func clearAll() { cache = [:] }
 
     func setThumbnail(_ image: NSImage, windowID: CGWindowID, pid: pid_t) {
-        cache[pid]?[windowID]?.thumbnail = image
+        guard var entry = cache[pid]?[windowID] else { return }
+        entry.thumbnail = image
+        cache[pid, default: [:]][windowID] = entry
+    }
+
+    func readCached(pid: pid_t) -> [DockPreviewWindowEntry] {
+        entries(for: pid)
     }
 }

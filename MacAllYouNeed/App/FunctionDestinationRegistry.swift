@@ -205,7 +205,7 @@ enum DashboardToolTilePresentation {
                 featureID: .aiFileOrganizer
             ),
             DashboardToolTileItem(
-                destination: .windowLayouts,
+                destination: .dockPreviews,
                 title: "Dock Hover Previews",
                 metric: nil,
                 detail: "See window thumbnails when hovering an app's Dock icon.",
