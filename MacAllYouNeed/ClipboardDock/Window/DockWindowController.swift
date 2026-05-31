@@ -617,9 +617,8 @@ final class DockWindowController {
                 return nil
             }
 
-            // ⌘⇧C → copy the Smart Text result for the focused card
-            // (calculation value → cleaned link → OCR text, in priority order).
-            if keyMods == [.command, .shift], event.charactersIgnoringModifiers == "c" {
+            // Copy Smart Text result (configurable shortcut, default Cmd+Shift+C).
+            if registry.matches(event: event, .copySmartText) {
                 guard model.items.indices.contains(model.focusedIndex) else { return event }
                 let item = model.items[model.focusedIndex]
                 guard let value = item.smartCopyValue else { return event }

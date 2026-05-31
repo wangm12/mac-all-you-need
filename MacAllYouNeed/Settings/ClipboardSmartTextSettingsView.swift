@@ -174,9 +174,18 @@ struct ClipboardSmartTextSettingsSection: View {
             MAYNSection(title: "Keyboard shortcuts") {
                 MAYNSettingsRow(
                     title: "Copy Smart Text",
-                    subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card."
+                    subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card. Configurable in Snippets & Shortcuts settings."
                 ) {
-                    ShortcutChip(text: "⌘⇧C")
+                    let bindings = ShortcutRegistry.shared.bindings(for: .copySmartText)
+                    if bindings.isEmpty {
+                        Text("Off").foregroundStyle(.secondary).font(.callout)
+                    } else {
+                        HStack(spacing: 4) {
+                            ForEach(bindings, id: \.self) {
+                                ShortcutChip(text: $0.display(), height: HotkeyChipPresentation.compactHeight)
+                            }
+                        }
+                    }
                 }
             }
         }

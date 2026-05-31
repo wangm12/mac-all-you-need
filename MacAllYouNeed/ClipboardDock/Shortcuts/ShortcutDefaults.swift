@@ -40,6 +40,8 @@ enum ShortcutDefaults {
             return [ShortcutBinding(keyCode: 17, modifierMask: cmd)]
         case .suspendCapture:
             return []
+        case .copySmartText:
+            return [ShortcutBinding(keyCode: 8, modifierMask: cmd | shift)]  // Cmd+Shift+C
         }
     }
 }
