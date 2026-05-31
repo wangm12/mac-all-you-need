@@ -279,7 +279,6 @@ struct SmartTextEnableSection: View {
         }
         .sheet(isPresented: $showSettings) {
             ClipboardSmartTextSettingsView()
-                .frame(width: 540)
         }
     }
 }

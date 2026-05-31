@@ -22,14 +22,40 @@ private enum LinkModeTab: String, SegmentedTabDestination {
     }
 }
 
+/// Presented as a sheet from SmartTextEnableSection.
+/// Follows the VoicePersonalizationAppsSheet pattern: header with Done button,
+/// then a scrollable settings body.
 struct ClipboardSmartTextSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        MAYNSettingsPage(
-            title: "Smart Text",
-            subtitle: "On-device intelligence over your clipboard: calculations, link cleaning, type detection, OCR, and semantic search."
-        ) {
-            ClipboardSmartTextSettingsSection()
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Smart Text")
+                        .font(.title3.weight(.semibold))
+                    Text("On-device intelligence over your clipboard.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                MAYNButton("Done", role: .primary) { dismiss() }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+
+            Divider()
+
+            ScrollView {
+                ClipboardSmartTextSettingsSection()
+                    .padding(24)
+            }
+            .scrollIndicators(.never)
         }
+        .frame(width: 540, height: 520)
+        .background(MAYNTheme.window)
     }
 }
 
