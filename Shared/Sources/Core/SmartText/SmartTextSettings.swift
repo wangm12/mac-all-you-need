@@ -16,6 +16,8 @@ public enum SmartTextSettings {
         static let ocr = "smarttext.ocrEnabled"
         static let sensitive = "smarttext.sensitiveEnabled"
         static let semantic = "smarttext.semanticEnabled"
+        static let copyShortcutEnabled = "smarttext.copyShortcutEnabled"
+        static let optionDoubleClickEnabled = "smarttext.optionDoubleClickEnabled"
     }
 
     private static func bool(_ key: String, default def: Bool, _ defaults: UserDefaults) -> Bool {
@@ -58,6 +60,18 @@ public enum SmartTextSettings {
     }
     public static func setSemanticEnabled(_ value: Bool, _ defaults: UserDefaults = AppGroupSettings.defaults) {
         defaults.set(value, forKey: Key.semantic)
+    }
+    public static func copyShortcutEnabled(_ defaults: UserDefaults = AppGroupSettings.defaults) -> Bool {
+        bool(Key.copyShortcutEnabled, default: true, defaults)
+    }
+    public static func optionDoubleClickEnabled(_ defaults: UserDefaults = AppGroupSettings.defaults) -> Bool {
+        bool(Key.optionDoubleClickEnabled, default: true, defaults)
+    }
+    public static func setCopyShortcutEnabled(_ value: Bool, _ defaults: UserDefaults = AppGroupSettings.defaults) {
+        defaults.set(value, forKey: Key.copyShortcutEnabled)
+    }
+    public static func setOptionDoubleClickEnabled(_ value: Bool, _ defaults: UserDefaults = AppGroupSettings.defaults) {
+        defaults.set(value, forKey: Key.optionDoubleClickEnabled)
     }
     public static func setLinkMode(_ value: LinkMode, _ defaults: UserDefaults = AppGroupSettings.defaults) {
         defaults.set(value.rawValue, forKey: Key.linkMode)

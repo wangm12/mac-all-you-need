@@ -618,7 +618,8 @@ final class DockWindowController {
             }
 
             // Copy Smart Text result (configurable shortcut, default Cmd+Shift+C).
-            if registry.matches(event: event, .copySmartText) {
+            if SmartTextSettings.copyShortcutEnabled(),
+               registry.matches(event: event, .copySmartText) {
                 guard model.items.indices.contains(model.focusedIndex) else { return event }
                 let item = model.items[model.focusedIndex]
                 guard let value = item.smartCopyValue else { return event }

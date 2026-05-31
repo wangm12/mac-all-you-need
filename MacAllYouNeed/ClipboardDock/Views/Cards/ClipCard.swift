@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import SwiftUI
 
 struct ClipCard: View {
@@ -62,6 +63,21 @@ private struct CardHeader: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            // Smart copy button — only shown when smart content exists
+            if let value = item.smartCopyValue {
+                Button {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(value, forType: .string)
+                    CopyHUD.show("Copied Smart Text")
+                } label: {
+                    Image(systemName: "wand.and.stars")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy Smart Text")
+            }
             appIcon
         }
         .padding(.horizontal, 10)

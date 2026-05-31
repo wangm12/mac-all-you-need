@@ -4,55 +4,81 @@ import CoreFoundation
 import Platform
 import SwiftUI
 
-// Internal (not private) so ClipboardSmartTextSettingsSection can reference it in @Binding.
+// Internal so ClipboardSmartTextSettingsSection can reference it in @Binding.
 enum LinkModeTab: String, SegmentedTabDestination, CaseIterable {
     case off, manual, auto
-
     var title: String {
         switch self {
-        case .off: "Off"
-        case .manual: "Manual"
-        case .auto: "Auto"
+        case .off: "Off"; case .manual: "Manual"; case .auto: "Auto"
         }
     }
-
     var symbolName: String {
         switch self {
-        case .off: "link.badge.plus"
-        case .manual: "hand.tap"
-        case .auto: "wand.and.stars"
+        case .off: "link.badge.plus"; case .manual: "hand.tap"; case .auto: "wand.and.stars"
         }
     }
 }
 
+// MARK: - Bridge: ShortcutBinding <-> HotkeyDescriptor
+
+private extension HotkeyDescriptor {
+    static func from(_ binding: ShortcutBinding) -> HotkeyDescriptor {
+        let flags = NSEvent.ModifierFlags(rawValue: binding.modifierMask)
+        var mods: HotkeyDescriptor.Modifiers = []
+        if flags.contains(.command) { mods.insert(.command) }
+        if flags.contains(.shift)   { mods.insert(.shift) }
+        if flags.contains(.option)  { mods.insert(.option) }
+        if flags.contains(.control) { mods.insert(.control) }
+        return HotkeyDescriptor(keyCode: UInt32(binding.keyCode), modifiers: mods)
+    }
+}
+
+private extension ShortcutBinding {
+    static func from(_ descriptor: HotkeyDescriptor) -> ShortcutBinding {
+        var mask: UInt = 0
+        if descriptor.modifiers.contains(.command) { mask |= NSEvent.ModifierFlags.command.rawValue }
+        if descriptor.modifiers.contains(.shift)   { mask |= NSEvent.ModifierFlags.shift.rawValue }
+        if descriptor.modifiers.contains(.option)  { mask |= NSEvent.ModifierFlags.option.rawValue }
+        if descriptor.modifiers.contains(.control) { mask |= NSEvent.ModifierFlags.control.rawValue }
+        return ShortcutBinding(keyCode: UInt16(descriptor.keyCode), modifierMask: mask)
+    }
+}
+
+let defaultSmartCopyDescriptor = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_C), modifiers: [.command, .shift])
+
 // MARK: - Sheet
 
-/// Presented as a sheet from SmartTextEnableSection.
-/// All state is held locally. Save writes to UserDefaults + notifies the daemon.
-/// Close discards changes.
 struct ClipboardSmartTextSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
-    // Local draft state — only flushed to UserDefaults on Save.
     @State private var calculation: Bool
     @State private var detection: Bool
     @State private var ocr: Bool
     @State private var sensitive: Bool
     @State private var semantic: Bool
     @State private var linkMode: LinkModeTab
+    // Issue 3: toggle enables/disables the shortcut action
+    @State private var copyShortcutEnabled: Bool
+    // Issue 4: toggle enables/disables Option+double-click
+    @State private var optionDoubleClickEnabled: Bool
+    // Issue 2 fix: draft descriptor — only written to registry on Save
+    @State private var smartCopyDescriptor: HotkeyDescriptor
 
     init() {
-        _calculation = State(initialValue: SmartTextSettings.calculationEnabled())
-        _detection   = State(initialValue: SmartTextSettings.detectionEnabled())
-        _ocr         = State(initialValue: SmartTextSettings.ocrEnabled())
-        _sensitive   = State(initialValue: SmartTextSettings.sensitiveEnabled())
-        _semantic    = State(initialValue: SmartTextSettings.semanticEnabled())
-        _linkMode    = State(initialValue: LinkModeTab(rawValue: SmartTextSettings.linkMode().rawValue) ?? .auto)
+        _calculation             = State(initialValue: SmartTextSettings.calculationEnabled())
+        _detection               = State(initialValue: SmartTextSettings.detectionEnabled())
+        _ocr                     = State(initialValue: SmartTextSettings.ocrEnabled())
+        _sensitive               = State(initialValue: SmartTextSettings.sensitiveEnabled())
+        _semantic                = State(initialValue: SmartTextSettings.semanticEnabled())
+        _linkMode                = State(initialValue: LinkModeTab(rawValue: SmartTextSettings.linkMode().rawValue) ?? .auto)
+        _copyShortcutEnabled     = State(initialValue: SmartTextSettings.copyShortcutEnabled())
+        _optionDoubleClickEnabled = State(initialValue: SmartTextSettings.optionDoubleClickEnabled())
+        let stored = ShortcutRegistry.shared.bindings(for: .copySmartText).first
+        _smartCopyDescriptor     = State(initialValue: stored.map { .from($0) } ?? defaultSmartCopyDescriptor)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Smart Text")
@@ -78,13 +104,16 @@ struct ClipboardSmartTextSettingsView: View {
                     ocr: $ocr,
                     sensitive: $sensitive,
                     semantic: $semantic,
-                    linkMode: $linkMode
+                    linkMode: $linkMode,
+                    copyShortcutEnabled: $copyShortcutEnabled,
+                    optionDoubleClickEnabled: $optionDoubleClickEnabled,
+                    smartCopyDescriptor: $smartCopyDescriptor
                 )
                 .padding(24)
             }
             .scrollIndicators(.never)
         }
-        .frame(width: 540, height: 520)
+        .frame(width: 540, height: 560)
         .background(MAYNTheme.window)
     }
 
@@ -95,45 +124,17 @@ struct ClipboardSmartTextSettingsView: View {
         SmartTextSettings.setSensitiveEnabled(sensitive)
         SmartTextSettings.setSemanticEnabled(semantic)
         SmartTextSettings.setLinkMode(SmartTextSettings.LinkMode(rawValue: linkMode.rawValue) ?? .auto)
+        SmartTextSettings.setCopyShortcutEnabled(copyShortcutEnabled)
+        SmartTextSettings.setOptionDoubleClickEnabled(optionDoubleClickEnabled)
+        // Issue 2 fix: only write the shortcut binding to registry on Save
+        ShortcutRegistry.shared.setBindings([.from(smartCopyDescriptor)], for: .copySmartText)
         let name = "com.macallyouneed.settings-changed" as CFString
-        CFNotificationCenterPostNotification(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            CFNotificationName(name), nil, nil, true
-        )
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(name), nil, nil, true)
     }
 }
 
-// MARK: - Section (pure form, no side effects)
+// MARK: - Section
 
-// Bridge: ShortcutBinding (NSEvent modifier mask) <-> HotkeyDescriptor (Carbon modifier codes).
-// Needed so we can reuse HotkeyRecorderControl (which drives the keyboard popup) for a
-// ShortcutRegistry-backed binding.
-private extension HotkeyDescriptor {
-    static func from(_ binding: ShortcutBinding) -> HotkeyDescriptor {
-        let flags = NSEvent.ModifierFlags(rawValue: binding.modifierMask)
-        var mods: HotkeyDescriptor.Modifiers = []
-        if flags.contains(.command) { mods.insert(.command) }
-        if flags.contains(.shift)   { mods.insert(.shift) }
-        if flags.contains(.option)  { mods.insert(.option) }
-        if flags.contains(.control) { mods.insert(.control) }
-        return HotkeyDescriptor(keyCode: UInt32(binding.keyCode), modifiers: mods)
-    }
-}
-
-private extension ShortcutBinding {
-    static func from(_ descriptor: HotkeyDescriptor) -> ShortcutBinding {
-        var mask: UInt = 0
-        if descriptor.modifiers.contains(.command) { mask |= NSEvent.ModifierFlags.command.rawValue }
-        if descriptor.modifiers.contains(.shift)   { mask |= NSEvent.ModifierFlags.shift.rawValue }
-        if descriptor.modifiers.contains(.option)  { mask |= NSEvent.ModifierFlags.option.rawValue }
-        if descriptor.modifiers.contains(.control) { mask |= NSEvent.ModifierFlags.control.rawValue }
-        return ShortcutBinding(keyCode: UInt16(descriptor.keyCode), modifierMask: mask)
-    }
-}
-
-private let defaultSmartCopyDescriptor = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_C), modifiers: [.command, .shift])
-
-/// Accepts bindings from the parent sheet. No immediate UserDefaults writes.
 struct ClipboardSmartTextSettingsSection: View {
     @Binding var calculation: Bool
     @Binding var detection: Bool
@@ -141,37 +142,27 @@ struct ClipboardSmartTextSettingsSection: View {
     @Binding var sensitive: Bool
     @Binding var semantic: Bool
     @Binding var linkMode: LinkModeTab
-
-    @State private var smartCopyDescriptor: HotkeyDescriptor = {
-        if let first = ShortcutRegistry.shared.bindings(for: .copySmartText).first {
-            return .from(first)
-        }
-        return defaultSmartCopyDescriptor
-    }()
+    @Binding var copyShortcutEnabled: Bool
+    @Binding var optionDoubleClickEnabled: Bool
+    @Binding var smartCopyDescriptor: HotkeyDescriptor
 
     var body: some View {
         Group {
             MAYNSection(title: "Detection") {
-                MAYNSettingsRow(
-                    title: "Inline calculation",
-                    subtitle: "Show the result when a clip is a math expression."
-                ) {
+                MAYNSettingsRow(title: "Inline calculation",
+                    subtitle: "Show the result when a clip is a math expression.") {
                     Toggle("", isOn: $calculation).labelsHidden()
                 }
                 MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Smart detection",
-                    subtitle: "Detect emails, links, phone numbers, colors, JWTs, and code."
-                ) {
+                MAYNSettingsRow(title: "Smart detection",
+                    subtitle: "Detect emails, links, phone numbers, colors, JWTs, and code.") {
                     Toggle("", isOn: $detection).labelsHidden()
                 }
             }
 
             MAYNSection(title: "Links") {
-                MAYNSettingsRow(
-                    title: "Link cleaner",
-                    subtitle: "Strip tracking parameters (utm_, fbclid, …) from copied URLs."
-                ) {
+                MAYNSettingsRow(title: "Link cleaner",
+                    subtitle: "Strip tracking parameters (utm_, fbclid, …) from copied URLs.") {
                     FunctionSegmentedTabStrip(
                         tabs: Array(LinkModeTab.allCases),
                         selection: linkMode,
@@ -182,50 +173,51 @@ struct ClipboardSmartTextSettingsSection: View {
             }
 
             MAYNSection(title: "Images") {
-                MAYNSettingsRow(
-                    title: "Image text recognition (OCR)",
-                    subtitle: "Index text inside copied images so it's searchable."
-                ) {
+                MAYNSettingsRow(title: "Image text recognition (OCR)",
+                    subtitle: "Index text inside copied images so it's searchable.") {
                     Toggle("", isOn: $ocr).labelsHidden()
                 }
             }
 
             MAYNSection(title: "Search") {
-                MAYNSettingsRow(
-                    title: "Semantic ranking",
-                    subtitle: "Blend meaning-based matches into clipboard search results."
-                ) {
+                MAYNSettingsRow(title: "Semantic ranking",
+                    subtitle: "Blend meaning-based matches into clipboard search results.") {
                     Toggle("", isOn: $semantic).labelsHidden()
                 }
             }
 
             MAYNSection(title: "Privacy") {
-                MAYNSettingsRow(
-                    title: "Sensitive content filter",
-                    subtitle: "Skip capturing payment cards and clips from password managers."
-                ) {
+                MAYNSettingsRow(title: "Sensitive content filter",
+                    subtitle: "Skip capturing payment cards and clips from password managers.") {
                     Toggle("", isOn: $sensitive).labelsHidden()
                 }
             }
 
-            MAYNSection(title: "Keyboard shortcuts") {
-                MAYNSettingsRow(
-                    title: "Copy Smart Text",
-                    subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card."
-                ) {
-                    HotkeyRecorderControl(
-                        descriptor: $smartCopyDescriptor,
-                        defaultDescriptor: defaultSmartCopyDescriptor,
-                        recorderWidth: 112,
-                        errorWidth: 260,
-                        reset: {
-                            smartCopyDescriptor = defaultSmartCopyDescriptor
-                            ShortcutRegistry.shared.setBindings([.from(defaultSmartCopyDescriptor)], for: .copySmartText)
-                        }
-                    )
-                    .onChange(of: smartCopyDescriptor) { _, desc in
-                        ShortcutRegistry.shared.setBindings([.from(desc)], for: .copySmartText)
+            // Issue 3: toggle replaces Reset; shortcut recorder grayed when disabled
+            MAYNSection(title: "Keyboard shortcut") {
+                MAYNSettingsRow(title: "Copy Smart Text",
+                    subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card.") {
+                    HStack(spacing: 8) {
+                        HotkeyRecorderControl(
+                            descriptor: $smartCopyDescriptor,
+                            defaultDescriptor: defaultSmartCopyDescriptor,
+                            recorderWidth: 112,
+                            errorWidth: 260,
+                            reset: { smartCopyDescriptor = defaultSmartCopyDescriptor }
+                        )
+                        .opacity(copyShortcutEnabled ? 1 : 0.4)
+                        .allowsHitTesting(copyShortcutEnabled)
+
+                        Toggle("", isOn: $copyShortcutEnabled).labelsHidden()
                     }
+                }
+            }
+
+            // Issue 4: Option+double-click toggle
+            MAYNSection(title: "Mouse shortcut") {
+                MAYNSettingsRow(title: "Option + double-click",
+                    subtitle: "Copies the Smart Text result when holding Option and double-clicking a card.") {
+                    Toggle("", isOn: $optionDoubleClickEnabled).labelsHidden()
                 }
             }
         }

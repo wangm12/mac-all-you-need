@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import SwiftUI
 
 struct ClipCarousel: View {
@@ -85,6 +86,17 @@ struct ClipCarousel: View {
                             // card) so it doesn't matter.
                             .simultaneousGesture(
                                 TapGesture(count: 2).onEnded {
+                                    // Option+double-click → copy Smart Text result when enabled
+                                    if SmartTextSettings.optionDoubleClickEnabled(),
+                                       NSEvent.modifierFlags.contains(.option),
+                                       let value = item.smartCopyValue {
+                                        let pb = NSPasteboard.general
+                                        pb.clearContents()
+                                        pb.setString(value, forType: .string)
+                                        CopyHUD.show("Copied Smart Text")
+                                        return
+                                    }
+                                    // Normal double-click → copy entire item + dismiss
                                     Task { @MainActor in
                                         await model.copyToClipboard(itemID: item.id)
                                         CopyHUD.show("Copied")
