@@ -1,5 +1,7 @@
+import Carbon.HIToolbox
 import Core
 import CoreFoundation
+import Platform
 import SwiftUI
 
 // Internal (not private) so ClipboardSmartTextSettingsSection can reference it in @Binding.
@@ -103,6 +105,34 @@ struct ClipboardSmartTextSettingsView: View {
 
 // MARK: - Section (pure form, no side effects)
 
+// Bridge: ShortcutBinding (NSEvent modifier mask) <-> HotkeyDescriptor (Carbon modifier codes).
+// Needed so we can reuse HotkeyRecorderControl (which drives the keyboard popup) for a
+// ShortcutRegistry-backed binding.
+private extension HotkeyDescriptor {
+    static func from(_ binding: ShortcutBinding) -> HotkeyDescriptor {
+        let flags = NSEvent.ModifierFlags(rawValue: binding.modifierMask)
+        var mods: HotkeyDescriptor.Modifiers = []
+        if flags.contains(.command) { mods.insert(.command) }
+        if flags.contains(.shift)   { mods.insert(.shift) }
+        if flags.contains(.option)  { mods.insert(.option) }
+        if flags.contains(.control) { mods.insert(.control) }
+        return HotkeyDescriptor(keyCode: UInt32(binding.keyCode), modifiers: mods)
+    }
+}
+
+private extension ShortcutBinding {
+    static func from(_ descriptor: HotkeyDescriptor) -> ShortcutBinding {
+        var mask: UInt = 0
+        if descriptor.modifiers.contains(.command) { mask |= NSEvent.ModifierFlags.command.rawValue }
+        if descriptor.modifiers.contains(.shift)   { mask |= NSEvent.ModifierFlags.shift.rawValue }
+        if descriptor.modifiers.contains(.option)  { mask |= NSEvent.ModifierFlags.option.rawValue }
+        if descriptor.modifiers.contains(.control) { mask |= NSEvent.ModifierFlags.control.rawValue }
+        return ShortcutBinding(keyCode: UInt16(descriptor.keyCode), modifierMask: mask)
+    }
+}
+
+private let defaultSmartCopyDescriptor = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_C), modifiers: [.command, .shift])
+
 /// Accepts bindings from the parent sheet. No immediate UserDefaults writes.
 struct ClipboardSmartTextSettingsSection: View {
     @Binding var calculation: Bool
@@ -111,8 +141,13 @@ struct ClipboardSmartTextSettingsSection: View {
     @Binding var sensitive: Bool
     @Binding var semantic: Bool
     @Binding var linkMode: LinkModeTab
-    @Bindable private var registry = ShortcutRegistry.shared
-    @State private var smartCopyBinding: ShortcutBinding? = ShortcutRegistry.shared.bindings(for: .copySmartText).first
+
+    @State private var smartCopyDescriptor: HotkeyDescriptor = {
+        if let first = ShortcutRegistry.shared.bindings(for: .copySmartText).first {
+            return .from(first)
+        }
+        return defaultSmartCopyDescriptor
+    }()
 
     var body: some View {
         Group {
@@ -178,16 +213,18 @@ struct ClipboardSmartTextSettingsSection: View {
                     title: "Copy Smart Text",
                     subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card."
                 ) {
-                    HStack(spacing: 8) {
-                        ShortcutRecorderView(binding: $smartCopyBinding) { captured in
-                            registry.setBindings([captured], for: .copySmartText)
+                    HotkeyRecorderControl(
+                        descriptor: $smartCopyDescriptor,
+                        defaultDescriptor: defaultSmartCopyDescriptor,
+                        recorderWidth: 112,
+                        errorWidth: 260,
+                        reset: {
+                            smartCopyDescriptor = defaultSmartCopyDescriptor
+                            ShortcutRegistry.shared.setBindings([.from(defaultSmartCopyDescriptor)], for: .copySmartText)
                         }
-                        .frame(width: 112, height: HotkeyChipPresentation.displayHeight)
-
-                        MAYNButton("Reset") {
-                            registry.reset(action: .copySmartText)
-                            smartCopyBinding = ShortcutRegistry.shared.bindings(for: .copySmartText).first
-                        }
+                    )
+                    .onChange(of: smartCopyDescriptor) { _, desc in
+                        ShortcutRegistry.shared.setBindings([.from(desc)], for: .copySmartText)
                     }
                 }
             }
