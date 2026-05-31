@@ -193,21 +193,14 @@ struct ClipboardSmartTextSettingsSection: View {
                 }
             }
 
-            // Issue 3: toggle replaces Reset; shortcut recorder grayed when disabled
             MAYNSection(title: "Keyboard shortcut") {
                 MAYNSettingsRow(title: "Copy Smart Text",
                     subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card.") {
                     HStack(spacing: 8) {
-                        HotkeyRecorderControl(
-                            descriptor: $smartCopyDescriptor,
-                            defaultDescriptor: defaultSmartCopyDescriptor,
-                            recorderWidth: 112,
-                            errorWidth: 260,
-                            reset: { smartCopyDescriptor = defaultSmartCopyDescriptor }
-                        )
-                        .opacity(copyShortcutEnabled ? 1 : 0.4)
-                        .allowsHitTesting(copyShortcutEnabled)
-
+                        HotkeyRecorder(descriptor: $smartCopyDescriptor)
+                            .frame(width: 112, height: HotkeyChipPresentation.displayHeight)
+                            .opacity(copyShortcutEnabled ? 1 : 0.4)
+                            .allowsHitTesting(copyShortcutEnabled)
                         Toggle("", isOn: $copyShortcutEnabled).labelsHidden()
                     }
                 }
