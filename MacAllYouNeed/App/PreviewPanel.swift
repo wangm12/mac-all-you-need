@@ -301,7 +301,6 @@ final class ClipboardSystemQuickLookCoordinator {
         panel.reloadData()
         panel.currentPreviewItemIndex = max(0, min(index, payload.items.count - 1))
         panel.refreshCurrentPreviewItem()
-        panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         ClipboardSystemQuickLookLayering.apply(to: panel)
         DispatchQueue.main.async {
