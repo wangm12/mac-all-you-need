@@ -170,6 +170,15 @@ struct ClipboardSmartTextSettingsSection: View {
                     Toggle("", isOn: $sensitive).labelsHidden()
                 }
             }
+
+            MAYNSection(title: "Keyboard shortcuts") {
+                MAYNSettingsRow(
+                    title: "Copy Smart Text",
+                    subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card."
+                ) {
+                    ShortcutChip(text: "⌘⇧C")
+                }
+            }
         }
     }
 }

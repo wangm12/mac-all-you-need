@@ -21,6 +21,13 @@ struct CardContextMenu: View {
         Button("Copy") {
             Task { await model.copyToClipboard(itemID: item.id) }
         }
+        if let value = item.smartCopyValue {
+            Button("Copy Smart Text") {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(value, forType: .string)
+            }
+        }
 
         typeAwareEntries
 

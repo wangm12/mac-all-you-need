@@ -48,6 +48,16 @@ struct DockItem: Identifiable, Hashable {
     /// Whether this record has indexable OCR text.
     var hasOCRText: Bool { !(ocrText ?? "").isEmpty }
 
+    /// The "smart result" value for Cmd+Shift+C.
+    /// Priority: calculation value → cleaned link URL → OCR text.
+    /// Returns nil when no smart content is available.
+    var smartCopyValue: String? {
+        if let v = calculation?.value { return v }
+        if let c = detection?.linkClean?.cleaned { return c }
+        if let o = ocrText, !o.isEmpty { return o }
+        return nil
+    }
+
     /// Lowercased detected type name for `/type:` filtering (e.g. "url",
     /// "email", "code"). Nil when no detection is present.
     var detectedTypeName: String? {

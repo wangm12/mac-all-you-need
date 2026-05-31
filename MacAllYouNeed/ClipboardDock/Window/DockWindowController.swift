@@ -617,6 +617,19 @@ final class DockWindowController {
                 return nil
             }
 
+            // ⌘⇧C → copy the Smart Text result for the focused card
+            // (calculation value → cleaned link → OCR text, in priority order).
+            if keyMods == [.command, .shift], event.charactersIgnoringModifiers == "c" {
+                guard model.items.indices.contains(model.focusedIndex) else { return event }
+                let item = model.items[model.focusedIndex]
+                guard let value = item.smartCopyValue else { return event }
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(value, forType: .string)
+                CopyHUD.show("Copied Smart Text")
+                return nil
+            }
+
             // ⌘A → select every visible card (capped at 50 by selectAllVisible).
             if keyMods == .command, event.charactersIgnoringModifiers == "a" {
                 model.selectAllVisible()
