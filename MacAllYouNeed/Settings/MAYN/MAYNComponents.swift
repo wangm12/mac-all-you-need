@@ -166,7 +166,7 @@ struct MAYNSettingsPage<Content: View>: View {
             .padding(.horizontal, 32)
             .padding(.vertical, 28)
         }
-        .scrollIndicators(.never)
+        .scrollIndicators(.hidden)
         .background(MAYNTheme.window)
     }
 }

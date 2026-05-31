@@ -170,6 +170,61 @@ enum DashboardToolTilePresentation {
                 statusText: grabAnywhereStatusText(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
                 statusKind: grabAnywhereStatusKind(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
                 featureID: .windowGrab
+            ),
+            DashboardToolTileItem(
+                destination: .clipboard,
+                title: "Clipboard Smart Text",
+                metric: nil,
+                detail: "Calculations, link cleaning, type detection, OCR, and semantic search.",
+                symbolName: "wand.and.stars",
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil,
+                featureID: .clipboardSmartText
+            ),
+            DashboardToolTileItem(
+                destination: .voice,
+                title: "Voice Reminders",
+                metric: nil,
+                detail: "Speak a task and save it directly to Apple Reminders.",
+                symbolName: "checklist",
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil,
+                featureID: .voiceReminders
+            ),
+            DashboardToolTileItem(
+                destination: .settings,
+                title: "Finder Folder History",
+                metric: nil,
+                detail: "Jump back to recently visited Finder folders via hotkey.",
+                symbolName: "folder.badge.clock",
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil,
+                featureID: .folderHistory
+            ),
+            DashboardToolTileItem(
+                destination: .settings,
+                title: "AI File Organizer",
+                metric: nil,
+                detail: "Rename and re-file messy folders using on-device content extraction.",
+                symbolName: "sparkles.rectangle.stack",
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil,
+                featureID: .aiFileOrganizer
+            ),
+            DashboardToolTileItem(
+                destination: .settings,
+                title: "Dock Hover Previews",
+                metric: nil,
+                detail: "See window thumbnails when hovering an app's Dock icon.",
+                symbolName: "dock.rectangle",
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil,
+                featureID: .dockPreviews
             )
         ]
     }

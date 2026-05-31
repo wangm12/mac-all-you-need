@@ -151,7 +151,7 @@ struct FunctionPageScrollContent<Content: View>: View {
             .padding(.horizontal, 32)
             .padding(.vertical, 26)
         }
-        .scrollIndicators(.never)
+        .scrollIndicators(.hidden)
     }
 }
 
