@@ -784,9 +784,8 @@ final class FunctionTabsTests: XCTestCase {
             MainToolHeaderShortcutModel.display(for: .downloads, hotkeys: hotkeys, voiceSettings: voiceSettings),
             nil
         )
-        XCTAssertEqual(
-            MainToolHeaderShortcutModel.display(for: .snippets, hotkeys: hotkeys, voiceSettings: voiceSettings),
-            "⇧⌘D"
+        XCTAssertNil(
+            MainToolHeaderShortcutModel.display(for: .snippets, hotkeys: hotkeys, voiceSettings: voiceSettings)
         )
         XCTAssertEqual(
             MainToolHeaderShortcutModel.display(for: .voice, hotkeys: hotkeys, voiceSettings: voiceSettings),

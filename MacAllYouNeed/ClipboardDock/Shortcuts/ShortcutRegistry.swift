@@ -2,10 +2,11 @@ import AppKit
 import Core
 import Foundation
 import Observation
+import Platform
 
 enum ShortcutValidationError: Error {
     case reservedKey(UInt16)
-    case unsupportedModifier
+    case validation(String)
 }
 
 @MainActor
@@ -15,7 +16,7 @@ final class ShortcutRegistry {
     static var testSuite: String?
 
     private let defaults: UserDefaults
-    private var cache: [ShortcutAction: [ShortcutBinding]] = [:]
+    private var cache: [ShortcutAction: [HotkeyDescriptor]] = [:]
 
     init() {
         if let suite = Self.testSuite {
@@ -25,17 +26,23 @@ final class ShortcutRegistry {
         }
     }
 
-    func bindings(for action: ShortcutAction) -> [ShortcutBinding] {
+    func bindings(for action: ShortcutAction) -> [HotkeyDescriptor] {
         if let cached = cache[action] {
             return cached
         }
 
         let key = storageKey(for: action)
-        if let data = defaults.data(forKey: key),
-           let decoded = try? JSONDecoder().decode([ShortcutBinding].self, from: data)
-        {
-            cache[action] = decoded
-            return decoded
+        if let data = defaults.data(forKey: key) {
+            if let decoded = try? JSONDecoder().decode([HotkeyDescriptor].self, from: data) {
+                cache[action] = decoded
+                return decoded
+            }
+            if let legacy = try? JSONDecoder().decode([LegacyShortcutBinding].self, from: data) {
+                let migrated = legacy.map { $0.asHotkeyDescriptor() }
+                cache[action] = migrated
+                setBindings(migrated, for: action)
+                return migrated
+            }
         }
 
         let fallback = ShortcutDefaults.defaultBindings(for: action)
@@ -43,7 +50,11 @@ final class ShortcutRegistry {
         return fallback
     }
 
-    func setBindings(_ bindings: [ShortcutBinding], for action: ShortcutAction) {
+    func allBindings() -> [ShortcutAction: [HotkeyDescriptor]] {
+        Dictionary(uniqueKeysWithValues: ShortcutAction.allCases.map { ($0, bindings(for: $0)) })
+    }
+
+    func setBindings(_ bindings: [HotkeyDescriptor], for action: ShortcutAction) {
         cache[action] = bindings
         let key = storageKey(for: action)
         if let data = try? JSONEncoder().encode(bindings) {
@@ -51,7 +62,7 @@ final class ShortcutRegistry {
         }
     }
 
-    func addBinding(_ binding: ShortcutBinding, for action: ShortcutAction) {
+    func addBinding(_ binding: HotkeyDescriptor, for action: ShortcutAction) {
         var current = bindings(for: action)
         if !current.contains(binding) {
             current.append(binding)
@@ -59,7 +70,7 @@ final class ShortcutRegistry {
         }
     }
 
-    func removeBinding(_ binding: ShortcutBinding, for action: ShortcutAction) {
+    func removeBinding(_ binding: HotkeyDescriptor, for action: ShortcutAction) {
         var current = bindings(for: action)
         current.removeAll { $0 == binding }
         setBindings(current, for: action)
@@ -70,30 +81,33 @@ final class ShortcutRegistry {
         cache.removeValue(forKey: action)
     }
 
-    func validate(_ binding: ShortcutBinding, for action: ShortcutAction) throws {
-        let conventional: [UInt16: ShortcutAction] = [
-            53: .dismiss,
-            36: .paste,
-            48: .cycleFocus,
-            49: .quickLook,
-            123: .extendSelectionLeft,
-            124: .extendSelectionRight
-        ]
-
-        if binding.modifierMask == 0,
-           let owner = conventional[binding.keyCode],
-           owner != action
-        {
-            throw ShortcutValidationError.reservedKey(binding.keyCode)
+    func validate(
+        _ descriptor: HotkeyDescriptor,
+        for action: ShortcutAction,
+        bindingIndex: Int? = nil,
+        appHotkeys: [HotkeyAction: [HotkeyDescriptor]] = HotkeyMapStore.load(),
+        voiceShortcut: HotkeyDescriptor? = nil
+    ) throws {
+        let dockShortcuts = allBindings()
+        let index = bindingIndex ?? bindings(for: action).count
+        if let issue = HotkeyValidation.issue(
+            forDockShortcut: descriptor,
+            action: action,
+            index: index,
+            appHotkeys: appHotkeys,
+            voiceShortcut: voiceShortcut,
+            dockShortcuts: dockShortcuts
+        ) {
+            throw ShortcutValidationError.validation(issue.message)
         }
     }
 
     func matches(event: NSEvent, _ action: ShortcutAction) -> Bool {
-        let mask = NSEvent.ModifierFlags.deviceIndependentFlagsMask.rawValue
-        let eventMods = event.modifierFlags.rawValue & mask
-        return bindings(for: action).contains { binding in
-            binding.keyCode == event.keyCode && binding.modifierMask == eventMods
-        }
+        bindings(for: action).contains { $0.matches(event: event) }
+    }
+
+    func modifierTapBindings(for action: ShortcutAction) -> [HotkeyDescriptor] {
+        bindings(for: action).filter(\.isModifierTap)
     }
 
     func clearCache() {

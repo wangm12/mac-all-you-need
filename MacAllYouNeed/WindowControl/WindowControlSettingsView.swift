@@ -46,7 +46,6 @@ struct WindowControlSettingsView: View {
                 ignoredAppsSection
             case .grabGesture:
                 grabAnywhereSection
-                doubleClickSection
             case .grabApps:
                 ignoredAppsSection
             case .advanced:
@@ -96,25 +95,6 @@ struct WindowControlSettingsView: View {
                 subtitle: "Modifier combo required to drag from anywhere."
             ) {
                 WindowGestureModifierPicker(selection: modifierBinding(\.dragModifier), defaultModifier: WindowControlSettings.default.dragModifier)
-            }
-        }
-    }
-
-    private var doubleClickSection: some View {
-        MAYNSection(title: "Double-Click Layout") {
-            MAYNSettingsRow(
-                title: "Modifier double-click",
-                subtitle: "Double-click a window with the configured modifier to maximize it."
-            ) {
-                Toggle("", isOn: boolBinding(\.doubleClickEnabled))
-                    .labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Double-click modifier",
-                subtitle: "Modifier combo required for double-click maximize."
-            ) {
-                WindowGestureModifierPicker(selection: modifierBinding(\.doubleClickModifier), defaultModifier: WindowControlSettings.default.doubleClickModifier)
             }
         }
     }
@@ -327,7 +307,8 @@ struct WindowControlSettingsView: View {
             action: action,
             index: 0,
             appHotkeys: hotkeyMap,
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
         )?.message
         return HotkeyRecorderControlPresentation.rowIssueMessage(
             validationIssue: validationIssue,
@@ -342,7 +323,8 @@ struct WindowControlSettingsView: View {
             action: action,
             index: 0,
             appHotkeys: hotkeyMap,
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
         )?.message
     }
 
@@ -350,7 +332,8 @@ struct WindowControlSettingsView: View {
         hotkeyMap = next
         if HotkeyValidation.firstIssue(
             in: next,
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
         ) != nil {
             hotkeyRegistrationErrors = [:]
             return

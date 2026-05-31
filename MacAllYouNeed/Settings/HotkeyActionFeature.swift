@@ -7,6 +7,7 @@ extension HotkeyAction {
         switch self {
         case .clipboard: return .clipboard
         case .browseFolder: return .folderPreview
+        case .finderHistory: return .folderHistory
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,

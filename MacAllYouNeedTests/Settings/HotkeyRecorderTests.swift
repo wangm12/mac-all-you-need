@@ -821,6 +821,51 @@ final class HotkeyRecorderTests: XCTestCase {
         XCTAssertEqual(descriptor, HotkeyDescriptor(keyCode: UInt32(kVK_Space), modifiers: [.command]))
     }
 
+    func testModifierTapSinglePressPreviewsCommand() {
+        var descriptor = HotkeyDescriptor.defaultClipboard
+        let recorder = HotkeyRecorder.RecorderView(
+            descriptor: Binding(get: { descriptor }, set: { descriptor = $0 })
+        )
+        recorder.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
+        recorder.mouseDown(with: mouseEvent())
+
+        let flags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x00000008)
+        recorder.testApplyCGFlags(flags)
+
+        XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.key, .command)
+        XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.count, 1)
+        XCTAssertEqual(recorder.visibleLabelText, "⌘")
+    }
+
+    func testModifierTapDoublePressPreviewsTimesTwo() {
+        var descriptor = HotkeyDescriptor.defaultClipboard
+        let recorder = HotkeyRecorder.RecorderView(
+            descriptor: Binding(get: { descriptor }, set: { descriptor = $0 })
+        )
+        recorder.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
+        recorder.mouseDown(with: mouseEvent())
+
+        let cmdFlags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x00000008)
+        recorder.testApplyCGFlags(cmdFlags)
+        recorder.testApplyCGFlags([])
+        recorder.testApplyCGFlags(cmdFlags)
+
+        XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.count, 2)
+        XCTAssertEqual(recorder.visibleLabelText, "⌘ ×2")
+    }
+
+    func testModifierTapValidationAllowsSave() {
+        let descriptor = HotkeyDescriptor(modifierTap: .doubleTap(.command))
+        let issue = HotkeyValidation.issue(
+            forAppHotkey: descriptor,
+            action: .clipboard,
+            index: 0,
+            appHotkeys: [:],
+            dockShortcuts: [:]
+        )
+        XCTAssertNil(issue)
+    }
+
     func testEventTapTranslatorFallsBackToTrackedModifierState() {
         let descriptor = HotkeyRecorderEventTranslator.descriptor(
             keyCode: UInt16(kVK_ANSI_R),

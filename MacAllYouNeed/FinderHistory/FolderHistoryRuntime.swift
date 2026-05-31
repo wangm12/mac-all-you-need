@@ -37,9 +37,18 @@ final class FolderHistoryRuntime {
         }
     }
 
+    /// Re-register the switcher hotkey after the user edits it in settings.
+    func reloadHotkey() {
+        guard isActive else { return }
+        registerHotkey()
+    }
+
     private func registerHotkey() {
         unregisterHotkey()
-        let hk = GlobalHotkey(descriptor: .defaultFolderHistory) { [weak self] in
+        let map = HotkeyMapStore.load()
+        let descriptors = map[.finderHistory] ?? HotkeyAction.finderHistory.defaultDescriptors
+        let descriptor = descriptors.first ?? .defaultFolderHistory
+        let hk = GlobalHotkey(descriptor: descriptor) { [weak self] in
             Task { @MainActor in self?.switcher.toggle() }
         }
         try? hk.register()

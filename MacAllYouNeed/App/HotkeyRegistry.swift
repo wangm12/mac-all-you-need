@@ -71,7 +71,8 @@ final class HotkeyRegistry {
 
         if let issue = HotkeyValidation.firstIssue(
             in: activeMap,
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: ShortcutRegistry.shared.allBindings()
         ) {
             throw HotkeyRegistryError.validation(issue.message)
         }
@@ -105,7 +106,7 @@ final class HotkeyRegistry {
     ) throws -> [HotkeyAction: [GlobalHotkey]] {
         var next: [HotkeyAction: [GlobalHotkey]] = [:]
         do {
-            for action in HotkeyAction.allCases {
+            for action in HotkeyAction.allCases where action != .finderHistory {
                 let descriptors = map[action] ?? []
                 var registered: [GlobalHotkey] = []
                 for descriptor in descriptors {

@@ -62,7 +62,7 @@ font, spacing, animation, control, page chrome, or feature surface.
 - Tokens + most components: `Settings/MAYNSettingsUI.swift`
 - Function page chrome + tab strip: `App/FunctionPageShell.swift`
 - Dashboard lifecycle card wrapper: `App/Dashboard/FeatureToolCard.swift`
-- Hotkey recorder: `Settings/HotkeyRecorder.swift`
+- Hotkey recorder: `Settings/Hotkey/HotkeyRecorderControl.swift` (wraps `HotkeyRecorder`; keyboard shortcuts only)
 - Per-app clipboard accent palette: `ClipboardDock/Views/Cards/AppIconColor.swift`
 - Snippet cards/editor: `ClipboardDock/Views/Snippets/`
 - Window control pages/settings: `WindowControl/`

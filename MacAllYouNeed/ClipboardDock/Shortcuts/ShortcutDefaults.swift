@@ -1,47 +1,43 @@
-import AppKit
 import Foundation
+import Platform
 
 enum ShortcutDefaults {
-    static func defaultBindings(for action: ShortcutAction) -> [ShortcutBinding] {
-        let cmd = NSEvent.ModifierFlags.command.rawValue
-        let shift = NSEvent.ModifierFlags.shift.rawValue
-        let opt = NSEvent.ModifierFlags.option.rawValue
-
+    static func defaultBindings(for action: ShortcutAction) -> [HotkeyDescriptor] {
         switch action {
         case .focusSearch:
-            return [ShortcutBinding(keyCode: 3, modifierMask: cmd)]
+            return [HotkeyDescriptor(keyCode: 3, modifiers: [.command])]
         case .togglePin:
-            return [ShortcutBinding(keyCode: 35, modifierMask: cmd)]
+            return [HotkeyDescriptor(keyCode: 35, modifiers: [.command])]
         case .addToList:
-            return [ShortcutBinding(keyCode: 37, modifierMask: cmd)]
+            return [HotkeyDescriptor(keyCode: 37, modifiers: [.command])]
         case .deleteFocused:
-            return [ShortcutBinding(keyCode: 51, modifierMask: cmd)]
+            return [HotkeyDescriptor(keyCode: 51, modifiers: [.command])]
         case .quickLook:
-            return [ShortcutBinding(keyCode: 49, modifierMask: 0)]
+            return [HotkeyDescriptor(keyCode: 49, modifiers: [])]
         case .cycleFocus:
-            return [ShortcutBinding(keyCode: 48, modifierMask: 0)]
+            return [HotkeyDescriptor(keyCode: 48, modifiers: [])]
         case .dismiss:
-            return [ShortcutBinding(keyCode: 53, modifierMask: 0)]
+            return [HotkeyDescriptor(keyCode: 53, modifiers: [])]
         case .paste:
-            return [ShortcutBinding(keyCode: 36, modifierMask: 0)]
+            return [HotkeyDescriptor(keyCode: 36, modifiers: [])]
         case .pastePlain:
-            return [ShortcutBinding(keyCode: 36, modifierMask: opt)]
+            return [HotkeyDescriptor(keyCode: 36, modifiers: [.option])]
         case .extendSelectionLeft:
-            return [ShortcutBinding(keyCode: 123, modifierMask: shift)]
+            return [HotkeyDescriptor(keyCode: 123, modifiers: [.shift])]
         case .extendSelectionRight:
-            return [ShortcutBinding(keyCode: 124, modifierMask: shift)]
+            return [HotkeyDescriptor(keyCode: 124, modifiers: [.shift])]
         case .jumpToFirst:
-            return [ShortcutBinding(keyCode: 123, modifierMask: cmd)]
+            return [HotkeyDescriptor(keyCode: 123, modifiers: [.command])]
         case .jumpToLast:
-            return [ShortcutBinding(keyCode: 124, modifierMask: cmd)]
+            return [HotkeyDescriptor(keyCode: 124, modifiers: [.command])]
         case .toggleCheatsheet:
-            return [ShortcutBinding(keyCode: 44, modifierMask: cmd | shift)]
+            return [HotkeyDescriptor(keyCode: 44, modifiers: [.command, .shift])]
         case .transformFocused:
-            return [ShortcutBinding(keyCode: 17, modifierMask: cmd)]
+            return [HotkeyDescriptor(keyCode: 17, modifiers: [.command])]
         case .suspendCapture:
             return []
         case .copySmartText:
-            return [ShortcutBinding(keyCode: 8, modifierMask: cmd | shift)]  // Cmd+Shift+C
+            return [HotkeyDescriptor(keyCode: 8, modifiers: [.command, .shift])]
         }
     }
 }

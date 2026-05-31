@@ -65,7 +65,15 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         runtime.settings.radialTriggerModifier
     }
 
+    var radialTriggerTapCount: Int {
+        runtime.settings.radialTriggerTapCount
+    }
+
     var radialActive = false
+
+    /// Edge-tracking for double-tap radial triggers.
+    var radialTriggerWasHeld = false
+    var radialTapLastRelease: (key: ModifierTapShortcut.Key, time: TimeInterval)?
 
     init(
         resolver: WindowTargetResolver = WindowTargetResolver(),

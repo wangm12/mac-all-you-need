@@ -20,7 +20,7 @@ enum HotkeysSettingsPresentation {
     )
 
     static let groups: [HotkeysSettingsActionGroup] = [
-        HotkeysSettingsActionGroup(title: "Core tools", actions: [.clipboard, .browseFolder]),
+        HotkeysSettingsActionGroup(title: "Core tools", actions: [.clipboard, .browseFolder, .finderHistory]),
         HotkeysSettingsActionGroup(title: "Window Layouts", actions: [
             .windowLeftHalf,
             .windowRightHalf,
@@ -329,7 +329,8 @@ struct HotkeysSettingsView: View {
             action: action,
             index: index,
             appHotkeys: map,
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
         )?.message
     }
 
@@ -339,7 +340,8 @@ struct HotkeysSettingsView: View {
             action: action,
             index: index,
             appHotkeys: map,
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
         )?.message
     }
 
@@ -347,7 +349,8 @@ struct HotkeysSettingsView: View {
         map = updatedMap
         if let issue = HotkeyValidation.firstIssue(
             in: updatedMap,
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
         ) {
             errorMessage = issue.message
             return

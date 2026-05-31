@@ -18,6 +18,8 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
     public var radialLockToCenter: Bool
     public var radialCursorSelectionEnabled: Bool
     public var radialTriggerModifier: WindowGestureModifier
+    /// Number of modifier presses required to open the radial menu (1 = hold once, 2 = double-tap).
+    public var radialTriggerTapCount: Int
 
     public init(
         enabled: Bool = false,
@@ -36,7 +38,8 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialMenuEnabled: Bool = false,
         radialLockToCenter: Bool = false,
         radialCursorSelectionEnabled: Bool = false,
-        radialTriggerModifier: WindowGestureModifier = [.control, .option]
+        radialTriggerModifier: WindowGestureModifier = [.control, .option],
+        radialTriggerTapCount: Int = 1
     ) {
         self.enabled = enabled
         self.dragAnywhereEnabled = dragAnywhereEnabled
@@ -55,6 +58,7 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         self.radialLockToCenter = radialLockToCenter
         self.radialCursorSelectionEnabled = radialCursorSelectionEnabled
         self.radialTriggerModifier = radialTriggerModifier
+        self.radialTriggerTapCount = radialTriggerTapCount
     }
 
     // Custom decoder so legacy payloads without the radial keys decode with
@@ -78,6 +82,7 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialLockToCenter = try container.decodeIfPresent(Bool.self, forKey: .radialLockToCenter) ?? false
         radialCursorSelectionEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialCursorSelectionEnabled) ?? false
         radialTriggerModifier = try container.decodeIfPresent(WindowGestureModifier.self, forKey: .radialTriggerModifier) ?? [.control, .option]
+        radialTriggerTapCount = try container.decodeIfPresent(Int.self, forKey: .radialTriggerTapCount) ?? 1
     }
 
     public static let `default` = WindowControlSettings()

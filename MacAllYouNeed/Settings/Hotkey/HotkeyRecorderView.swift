@@ -75,6 +75,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         private var tapPressCGFlags: CGEventFlags = []
         private var tapNonModifierPressed = false
         private var tapLastRelease: (key: ModifierTapShortcut.Key, time: TimeInterval, count: Int)?
+        private static let multiTapWindow: TimeInterval = 0.28
 
         init(
             descriptor: Binding<HotkeyDescriptor>,
@@ -316,16 +317,39 @@ struct HotkeyRecorder: NSViewRepresentable {
         }
 
         private func updateActiveModifiers(_ flags: NSEvent.ModifierFlags) {
-            activeModifierFlags = flags.intersection(.deviceIndependentFlagsMask)
+            let cgFlags = Self.cgFlags(from: flags)
+            activeModifierFlags = HotkeyRecorderEventTranslator.modifierFlags(from: cgFlags)
             guard isRecording else { return }
-            guard pendingDescriptor == nil else {
-                refreshFloatingKeyboard()
-                return
+            // When the CGEventTap is active it owns tap detection; avoid double-firing.
+            if tapController == nil {
+                handleTapTransition(cgFlags: cgFlags)
             }
-            pendingIssueMessage = nil
-            publishVisualizerState(.recording(modifierFlags: activeModifierFlags))
+
+            let recorderState = KeyboardShortcutVisualizerState.recording(cgFlags: cgFlags)
+            visualizerState = recorderState
+            floatingKeyboard.update(
+                state: recorderState,
+                candidate: pendingDescriptor ?? Self.placeholderCandidate,
+                issueMessage: pendingDescriptor?.isModifierTap == true ? nil : pendingIssueMessage,
+                onReset: { [weak self] in self?.resetPendingShortcut() },
+                onConfirm: { [weak self] in self?.confirmPendingShortcut() },
+                onCancel: { [weak self] in self?.stopRecording() }
+            )
+
+            guard pendingDescriptor == nil else { return }
+
             let modifiers = modifierDisplay(from: activeModifierFlags)
             setLabelText(modifiers.isEmpty ? "Press shortcut..." : "\(modifiers)…")
+        }
+
+        private static func cgFlags(from flags: NSEvent.ModifierFlags) -> CGEventFlags {
+            var result: CGEventFlags = []
+            if flags.contains(.command) { result.insert(.maskCommand) }
+            if flags.contains(.option) { result.insert(.maskAlternate) }
+            if flags.contains(.control) { result.insert(.maskControl) }
+            if flags.contains(.shift) { result.insert(.maskShift) }
+            if flags.contains(.function) { result.insert(.maskSecondaryFn) }
+            return result
         }
 
         private func updateActiveModifiers(cgFlags: CGEventFlags) {
@@ -442,7 +466,7 @@ struct HotkeyRecorder: NSViewRepresentable {
                         let count: Int
                         if let last = tapLastRelease,
                            last.key == key,
-                           now - last.time <= 0.28 {
+                           now - last.time <= Self.multiTapWindow {
                             count = min(last.count + 1, 2)
                         } else {
                             count = 1
@@ -478,6 +502,12 @@ struct HotkeyRecorder: NSViewRepresentable {
                     tapLastRelease = (key: tap.key, time: now, count: tap.count)
                 }
             }
+        }
+
+        /// Test hook: apply modifier-tap detection without requiring a live CGEventTap.
+        func testApplyCGFlags(_ cgFlags: CGEventFlags) {
+            guard isRecording else { return }
+            updateActiveModifiers(cgFlags: cgFlags)
         }
 
         func tapKeyFromCGFlags(_ cgFlags: CGEventFlags) -> ModifierTapShortcut.Key? {
@@ -525,12 +555,6 @@ struct HotkeyRecorder: NSViewRepresentable {
             keyMonitor = NSEventMonitorHandle(local: [.keyDown, .flagsChanged, .leftMouseDown]) { [weak self] event in
                 guard let self, self.isRecording else { return event }
                 if event.type == .leftMouseDown {
-                    if self.floatingKeyboard.owns(window: event.window) {
-                        return event
-                    }
-                    if event.window !== self.window || !self.bounds.contains(self.convert(event.locationInWindow, from: nil)) {
-                        self.stopRecording()
-                    }
                     return event
                 }
                 if event.type == .flagsChanged {

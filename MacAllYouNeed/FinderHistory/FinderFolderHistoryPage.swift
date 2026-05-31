@@ -1,6 +1,7 @@
 import AppKit
 import Core
 import FeatureCore
+import Platform
 import SwiftUI
 
 struct FinderFolderHistoryPage: View {
@@ -10,6 +11,8 @@ struct FinderFolderHistoryPage: View {
     @State private var searchText = ""
     @State private var featureEnabled = false
     @State private var axGranted = AXIsProcessTrusted()
+    @State private var hotkeyMap = HotkeyMapStore.defaultMap
+    @State private var hotkeyRegistrationErrors: [HotkeyAction: String] = [:]
 
     private var store: FolderHistoryStore? { FolderHistoryStoreLocator.shared() }
     private var statePublisher: FeatureStatePublisher { controller.featureStatePublisher }
@@ -131,7 +134,19 @@ struct FinderFolderHistoryPage: View {
                     title: "Quick switcher shortcut",
                     subtitle: "Press anywhere to open a searchable history panel."
                 ) {
-                    ShortcutChip(text: "⌘⇧H", height: HotkeyChipPresentation.compactHeight)
+                    HotkeyRecorderControl(
+                        descriptor: finderHistoryHotkeyBinding,
+                        issueMessage: finderHistoryHotkeyIssueMessage,
+                        candidateIssueMessage: finderHistoryHotkeyCandidateIssueMessage,
+                        defaultDescriptor: HotkeyAction.finderHistory.primaryDefaultDescriptor,
+                        recorderWidth: 112,
+                        errorWidth: 260,
+                        reset: {
+                            if let descriptor = HotkeyAction.finderHistory.primaryDefaultDescriptor {
+                                setFinderHistoryHotkey(descriptor)
+                            }
+                        }
+                    )
                 }
                 MAYNDivider()
                 MAYNSettingsRow(
@@ -148,6 +163,9 @@ struct FinderFolderHistoryPage: View {
                     EmptyView()
                 }
             }
+        }
+        .onAppear {
+            hotkeyMap = HotkeyMapStore.load()
         }
         .task {
             reload()
@@ -167,6 +185,83 @@ struct FinderFolderHistoryPage: View {
 
     private func reload() {
         rows = (try? store?.list(limit: 100)) ?? []
+    }
+
+    private var finderHistoryHotkeyBinding: Binding<Platform.HotkeyDescriptor> {
+        Binding(
+            get: {
+                let defaultDescriptor = HotkeyAction.finderHistory.primaryDefaultDescriptor ?? .defaultFolderHistory
+                let descriptors = hotkeyMap[.finderHistory] ?? [defaultDescriptor]
+                return descriptors.first ?? defaultDescriptor
+            },
+            set: { setFinderHistoryHotkey($0) }
+        )
+    }
+
+    private var finderHistoryHotkeyIssueMessage: String? {
+        let descriptors = hotkeyMap[.finderHistory] ?? HotkeyAction.finderHistory.defaultDescriptors
+        guard let descriptor = descriptors.first ?? HotkeyAction.finderHistory.primaryDefaultDescriptor else {
+            return nil
+        }
+        let validationIssue = HotkeyValidation.issue(
+            forAppHotkey: descriptor,
+            action: .finderHistory,
+            index: 0,
+            appHotkeys: hotkeyMap,
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
+        )?.message
+        return HotkeyRecorderControlPresentation.rowIssueMessage(
+            validationIssue: validationIssue,
+            registrationErrors: hotkeyRegistrationErrors,
+            action: .finderHistory
+        )
+    }
+
+    private func finderHistoryHotkeyCandidateIssueMessage(_ descriptor: Platform.HotkeyDescriptor) -> String? {
+        HotkeyValidation.issue(
+            forAppHotkey: descriptor,
+            action: .finderHistory,
+            index: 0,
+            appHotkeys: hotkeyMap,
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
+        )?.message
+    }
+
+    private func setFinderHistoryHotkey(_ descriptor: Platform.HotkeyDescriptor) {
+        var descriptors = hotkeyMap[.finderHistory] ?? HotkeyAction.finderHistory.defaultDescriptors
+        if descriptors.isEmpty {
+            descriptors = [descriptor]
+        } else {
+            descriptors[0] = descriptor
+        }
+        var next = hotkeyMap
+        next[.finderHistory] = descriptors
+        autoApplyHotkeys(next)
+    }
+
+    private func autoApplyHotkeys(_ next: [HotkeyAction: [Platform.HotkeyDescriptor]]) {
+        hotkeyMap = next
+        if HotkeyValidation.firstIssue(
+            in: next,
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
+        ) != nil {
+            hotkeyRegistrationErrors = [:]
+            return
+        }
+
+        do {
+            try controller.applyHotkeyMap(next)
+            HotkeyMapStore.save(next)
+            hotkeyRegistrationErrors = [:]
+        } catch {
+            hotkeyRegistrationErrors = HotkeyRecorderControlPresentation.registrationErrors(
+                from: error,
+                changedAction: .finderHistory
+            )
+        }
     }
 
     private func refreshFeatureState() {

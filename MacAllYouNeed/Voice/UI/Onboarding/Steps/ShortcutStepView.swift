@@ -101,11 +101,19 @@ struct VoiceHotkeyStepView: View {
     }
 
     private func shortcutCandidateIssueMessage(_ descriptor: Platform.HotkeyDescriptor) -> String? {
-        HotkeyValidation.issue(forVoiceShortcut: descriptor, appHotkeys: HotkeyMapStore.load())?.message
+        HotkeyValidation.issue(
+            forVoiceShortcut: descriptor,
+            appHotkeys: HotkeyMapStore.load(),
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
+        )?.message
     }
 
     private func applySettingsIfValid() {
-        if let issue = HotkeyValidation.issue(forVoiceShortcut: shortcut, appHotkeys: HotkeyMapStore.load()) {
+        if let issue = HotkeyValidation.issue(
+            forVoiceShortcut: shortcut,
+            appHotkeys: HotkeyMapStore.load(),
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
+        ) {
             shortcutIssueMessage = issue.message
             statusMessage = issue.message
             return

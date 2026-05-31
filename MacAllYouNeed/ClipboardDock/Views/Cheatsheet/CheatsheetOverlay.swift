@@ -22,7 +22,7 @@ struct CheatsheetOverlay: View {
 
                         HStack(spacing: 6) {
                             ForEach(registry.bindings(for: action), id: \.self) { binding in
-                                ShortcutChip(text: binding.display(), height: HotkeyChipPresentation.compactHeight)
+                                ShortcutChip(text: binding.display, height: HotkeyChipPresentation.compactHeight)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

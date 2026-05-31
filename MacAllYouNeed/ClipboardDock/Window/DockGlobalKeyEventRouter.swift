@@ -17,8 +17,8 @@ enum DockGlobalKeyFallbackAction: Equatable {
 /// Bindings used by the global fallback path. `quickLook` / `dismiss` are
 /// the user-configurable shortcut bindings; left/right arrows are hardcoded.
 struct DockGlobalKeyFallbackBindings {
-    let quickLook: [ShortcutBinding]
-    let dismiss: [ShortcutBinding]
+    let quickLook: [HotkeyDescriptor]
+    let dismiss: [HotkeyDescriptor]
 }
 
 /// Pure-function mapper from (keyCode, modifierMask) -> fallback action.
@@ -57,13 +57,11 @@ enum DockGlobalKeyFallbackPolicy {
     }
 
     private static func matches(
-        _ bindings: [ShortcutBinding],
+        _ bindings: [HotkeyDescriptor],
         keyCode: UInt16,
         modifierMask: UInt
     ) -> Bool {
-        bindings.contains { binding in
-            binding.keyCode == keyCode && binding.modifierMask == modifierMask
-        }
+        bindings.contains { $0.matches(keyCode: keyCode, modifierMask: modifierMask) }
     }
 }
 

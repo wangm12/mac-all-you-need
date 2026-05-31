@@ -351,6 +351,26 @@ final class HotkeyMapStoreMigrationTests: XCTestCase {
         XCTAssertEqual(issue?.message, "This shortcut is already used by Voice dictation.")
     }
 
+    func testModifierTapShortcutIsNotReservedForSystemUse() {
+        let single = HotkeyDescriptor(modifierTap: .singleTap(.command))
+        let double = HotkeyDescriptor(modifierTap: .doubleTap(.leftOption))
+
+        XCTAssertNil(HotkeyValidation.issue(
+            forAppHotkey: single,
+            action: .clipboard,
+            index: 0,
+            appHotkeys: [:],
+            dockShortcuts: [:]
+        ))
+        XCTAssertNil(HotkeyValidation.issue(
+            forAppHotkey: double,
+            action: .windowLeftHalf,
+            index: 0,
+            appHotkeys: [:],
+            dockShortcuts: [:]
+        ))
+    }
+
     func testAppHotkeyValidationAllowsUnchangedCurrentSlot() {
         let issue = HotkeyValidation.issue(
             forAppHotkey: .defaultClipboard,

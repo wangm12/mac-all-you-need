@@ -22,7 +22,6 @@ final class WindowControlPresentationTests: XCTestCase {
             "Layout Shortcuts",
             "Edge Snap",
             "Window Grab",
-            "Double-Click Layout",
             "Shared Ignored Apps",
             "Shared Diagnostics"
         ])

@@ -189,7 +189,8 @@ struct DownloadsDestinationView: View {
             action: action,
             index: 0,
             appHotkeys: hotkeyMap,
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
         )?.message
         return HotkeyRecorderControlPresentation.rowIssueMessage(
             validationIssue: validationIssue,
@@ -202,7 +203,8 @@ struct DownloadsDestinationView: View {
         hotkeyMap = next
         if HotkeyValidation.firstIssue(
             in: next,
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut,
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
         ) != nil {
             hotkeyRegistrationErrors = [:]
             return

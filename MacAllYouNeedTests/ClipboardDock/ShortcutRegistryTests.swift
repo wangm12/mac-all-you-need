@@ -1,5 +1,6 @@
 @testable import MacAllYouNeed
 import AppKit
+import Platform
 import XCTest
 
 @MainActor
@@ -24,7 +25,7 @@ final class ShortcutRegistryTests: XCTestCase {
 
     func testSetAndPersistBinding() {
         let registry = ShortcutRegistry()
-        let custom = ShortcutBinding(keyCode: 11, modifierMask: NSEvent.ModifierFlags.command.rawValue)
+        let custom = HotkeyDescriptor(keyCode: 11, modifiers: [.command])
 
         registry.setBindings([custom], for: .togglePin)
         XCTAssertEqual(registry.bindings(for: .togglePin), [custom])
@@ -35,7 +36,7 @@ final class ShortcutRegistryTests: XCTestCase {
 
     func testAddBindingAppendsToExisting() {
         let registry = ShortcutRegistry()
-        let extra = ShortcutBinding(keyCode: 11, modifierMask: NSEvent.ModifierFlags.command.rawValue)
+        let extra = HotkeyDescriptor(keyCode: 11, modifiers: [.command])
 
         registry.addBinding(extra, for: .togglePin)
 
@@ -53,17 +54,41 @@ final class ShortcutRegistryTests: XCTestCase {
         XCTAssertEqual(registry.bindings(for: .togglePin), ShortcutDefaults.defaultBindings(for: .togglePin))
     }
 
-    func testReservedKeysAreRejectedForOtherActions() {
+    func testReservedKeysAreRejectedForOtherActions() throws {
         let registry = ShortcutRegistry()
-        let escapeForPin = ShortcutBinding(keyCode: 53, modifierMask: 0)
+        let escapeForPin = HotkeyDescriptor(keyCode: 53, modifiers: [])
 
         XCTAssertThrowsError(try registry.validate(escapeForPin, for: .togglePin))
     }
 
-    func testReservedKeyAcceptedForItsConventionalAction() {
+    func testReservedKeyAcceptedForItsConventionalAction() throws {
         let registry = ShortcutRegistry()
-        let escapeForDismiss = ShortcutBinding(keyCode: 53, modifierMask: 0)
+        let escapeForDismiss = HotkeyDescriptor(keyCode: 53, modifiers: [])
 
         XCTAssertNoThrow(try registry.validate(escapeForDismiss, for: .dismiss))
+    }
+
+    func testMigratesLegacyShortcutBindingPayload() {
+        let suite = "test.shortcuts.legacy.\(UUID().uuidString)"
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        ShortcutRegistry.testSuite = suite
+        let defaults = UserDefaults(suiteName: suite)!
+        let legacy = [LegacyShortcutBinding(keyCode: 11, modifierMask: NSEvent.ModifierFlags.command.rawValue)]
+        let data = try! JSONEncoder().encode(legacy)
+        defaults.set(data, forKey: "shortcut.togglePin")
+
+        let registry = ShortcutRegistry()
+        XCTAssertEqual(
+            registry.bindings(for: .togglePin),
+            [HotkeyDescriptor(keyCode: 11, modifiers: [.command])]
+        )
+    }
+
+    func testModifierTapBindingRoundTrip() throws {
+        let registry = ShortcutRegistry()
+        let doubleCommand = HotkeyDescriptor(modifierTap: .doubleTap(.command))
+        try registry.validate(doubleCommand, for: .focusSearch)
+        registry.setBindings([doubleCommand], for: .focusSearch)
+        XCTAssertEqual(registry.modifierTapBindings(for: .focusSearch), [doubleCommand])
     }
 }

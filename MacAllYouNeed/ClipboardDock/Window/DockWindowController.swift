@@ -41,6 +41,7 @@ final class DockWindowController {
     private var localOutsideClickMonitor: NSEventMonitorHandle?
     private var keyMonitor: NSEventMonitorHandle?
     private var globalKeyRouter: DockGlobalKeyEventRouter?
+    private var modifierTapCoordinator: DockModifierTapCoordinator?
     private var dragMonitor: NSEventMonitorHandle?
     private var dragSurfaceClearTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
@@ -688,6 +689,24 @@ final class DockWindowController {
         )
         router.start()
         globalKeyRouter = router
+
+        let tapCoordinator = DockModifierTapCoordinator(
+            registry: registry,
+            isActive: { [weak self] in
+                guard let self, let window = self.window else { return false }
+                return window.isVisible
+                    && DockLocalKeyEventScope.shouldHandle(
+                        eventWindow: nil,
+                        dockWindow: window,
+                        keyWindow: NSApp.keyWindow
+                    )
+            },
+            perform: { [weak self] action in
+                self?.performDockShortcut(action)
+            }
+        )
+        tapCoordinator.start()
+        modifierTapCoordinator = tapCoordinator
     }
 
     private func startDragMonitor() {
@@ -737,6 +756,97 @@ final class DockWindowController {
         keyMonitor = nil
         globalKeyRouter?.stop()
         globalKeyRouter = nil
+        modifierTapCoordinator?.stop()
+        modifierTapCoordinator = nil
+    }
+
+    private func performDockShortcut(_ action: ShortcutAction) {
+        guard let window, window.isVisible else { return }
+        guard DockLocalKeyEventScope.shouldHandle(
+            eventWindow: nil,
+            dockWindow: window,
+            keyWindow: NSApp.keyWindow
+        ) else { return }
+
+        switch action {
+        case .focusSearch:
+            model.requestSearchFocus()
+        case .quickLook:
+            toggleSystemQuickLookForFocused()
+        case .toggleCheatsheet:
+            model.showCheatsheet.toggle()
+        case .suspendCapture:
+            NotificationCenter.default.post(name: .pauseCaptureRequested, object: nil)
+        case .transformFocused:
+            model.showTransformMenu = true
+        case .extendSelectionRight:
+            model.extendSelectionRight()
+        case .extendSelectionLeft:
+            model.extendSelectionLeft()
+        case .deleteFocused:
+            Task { @MainActor in
+                await model.deleteEffectiveTargets()
+            }
+        case .dismiss:
+            if model.isQuickLooking {
+                model.isQuickLooking = false
+            } else if ClipboardSystemQuickLookCoordinator.shared.isVisible {
+                ClipboardSystemQuickLookCoordinator.shared.dismiss()
+            } else if model.showCheatsheet {
+                model.showCheatsheet = false
+            } else if model.showTransformMenu {
+                model.showTransformMenu = false
+            } else {
+                hide()
+            }
+        case .togglePin:
+            Task { @MainActor in
+                guard model.items.indices.contains(model.focusedIndex) else { return }
+                let id = model.items[model.focusedIndex].id
+                await model.togglePin(itemID: id)
+            }
+        case .paste:
+            if model.activeList == .snippets {
+                Task { @MainActor in
+                    hide()
+                    try? await Task.sleep(nanoseconds: 80_000_000)
+                    await model.pasteFocusedSnippet(plainText: false)
+                }
+            } else if !model.selection.isEmpty {
+                Task { @MainActor in
+                    await model.pasteSelectionInOrder(delimiter: "\n", plainText: false)
+                }
+            } else {
+                triggerPaste(at: model.focusedIndex, modifiers: [])
+            }
+        case .pastePlain:
+            if model.activeList == .snippets {
+                Task { @MainActor in
+                    hide()
+                    try? await Task.sleep(nanoseconds: 80_000_000)
+                    await model.pasteFocusedSnippet(plainText: true)
+                }
+            } else if !model.selection.isEmpty {
+                Task { @MainActor in
+                    await model.pasteSelectionInOrder(delimiter: "\n", plainText: true)
+                }
+            } else {
+                triggerPaste(at: model.focusedIndex, modifiers: .option)
+            }
+        case .copySmartText:
+            guard SmartTextSettings.copyShortcutEnabled(),
+                  model.items.indices.contains(model.focusedIndex)
+            else { return }
+            let item = model.items[model.focusedIndex]
+            guard let value = item.smartCopyValue else { return }
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(value, forType: .string)
+            pb.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
+            CopyHUD.show("Copied Smart Text")
+        case .jumpToFirst, .jumpToLast, .cycleFocus, .addToList:
+            break
+        }
     }
 
     private func handleGlobalKeyFallbackAction(_ action: DockGlobalKeyFallbackAction) {

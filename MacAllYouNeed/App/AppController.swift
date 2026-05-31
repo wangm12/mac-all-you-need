@@ -260,6 +260,14 @@ final class AppController {
 
         registerConfiguredHotkeys()
 
+        NotificationCenter.default.addObserver(
+            forName: .finderHistoryHotkeyDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.folderHistory?.reloadHotkey() }
+        }
+
         // Window controllers must be built after all stored properties are
         // initialized because each takes `controller: self`.
         let main = MainWindowController(controller: self)
@@ -345,6 +353,7 @@ final class AppController {
             windowControlEnabled: windowControl.settings.enabled,
             windowActionPerformerAvailable: windowControl.windowActionPerformerAvailable
         )
+        folderHistory?.reloadHotkey()
     }
 
     func performHotkeyAction(_ action: HotkeyAction) {
@@ -427,6 +436,7 @@ final class AppController {
             try? hk.register()
             hotkeys.installFallbackHotkey(hk)
         }
+        folderHistory?.reloadHotkey()
     }
 
     private func startDownloadTasks(coordinator: DownloadCoordinator, viewModel: DownloaderViewModel) {

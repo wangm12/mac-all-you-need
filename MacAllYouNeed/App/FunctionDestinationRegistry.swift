@@ -12,7 +12,7 @@ enum WindowControlPagePresentation {
 }
 
 enum WindowControlSettingsPresentation {
-    static let sectionTitles = ["Window Layouts", "Layout Shortcuts", "Edge Snap", "Window Grab", "Double-Click Layout", "Shared Ignored Apps", "Shared Diagnostics"]
+    static let sectionTitles = ["Window Layouts", "Layout Shortcuts", "Edge Snap", "Window Grab", "Shared Ignored Apps", "Shared Diagnostics"]
     static let editsShortcutsInToolSettings = true
     static var customShortcutSeedDescriptor: Platform.HotkeyDescriptor {
         HotkeysSettingsPresentation.customTriggerSeedDescriptor
@@ -421,7 +421,7 @@ enum MainToolHeaderShortcutModel {
         case .downloads:
             nil
         case .snippets:
-            MainHotkeyPresentation.display(for: .clipboard, in: hotkeys)
+            nil
         case .voice:
             voiceSettings.shortcut.display
         case .folderPreview:

@@ -14,6 +14,8 @@ extension WindowControlEventTap {
         case cancel
     }
 
+    fileprivate static let radialMultiTapWindow: TimeInterval = 0.28
+
     /// Builds the CGEvent mask. Radial keys (`flagsChanged` + `mouseMoved`) are
     /// only included when the radial menu is enabled, so the tap does not see
     /// pointer/modifier traffic it would otherwise ignore.
@@ -50,13 +52,21 @@ extension WindowControlEventTap {
         type: CGEventType,
         flags: CGEventFlags,
         location: CGPoint,
-        triggerModifier: WindowGestureModifier
+        triggerModifier: WindowGestureModifier,
+        triggerTapCount: Int = 1
     ) -> RadialPhase? {
         let modifiers = WindowGestureModifier(cgEventFlags: flags)
         let triggerHeld = modifiers.radialExactMatch(triggerModifier)
         switch type {
         case .flagsChanged:
-            // Tap-to-open: first press opens. Releasing the modifier does NOT commit
+            if triggerTapCount > 1,
+               let tapKey = triggerModifier.radialSingleTapKey,
+               triggerTapCount == 2 {
+                // Double-tap path is handled in `handleRadialDoubleTapEvent`.
+                _ = tapKey
+                return nil
+            }
+            // Hold-to-open: first press opens. Releasing the modifier does NOT commit
             // (the menu stays open). The user clicks to apply or presses Esc to cancel.
             if triggerHeld, !active {
                 return .open(center: location)
@@ -72,15 +82,55 @@ extension WindowControlEventTap {
     /// Applies the radial phase decision and drives the handler. Returns `true`
     /// when the event was consumed by the radial menu.
     func handleRadialEvent(type: CGEventType, flags: CGEventFlags, location: CGPoint) -> Bool {
+        let tapCount = radialTriggerTapCount
+        if tapCount > 1, radialTriggerModifier.radialSingleTapKey != nil {
+            return handleRadialDoubleTapEvent(type: type, flags: flags, location: location)
+        }
+
         guard let phase = Self.radialPhase(
             active: radialActive,
             type: type,
             flags: flags,
             location: location,
-            triggerModifier: radialTriggerModifier
+            triggerModifier: radialTriggerModifier,
+            triggerTapCount: tapCount
         ) else {
             return false
         }
+        return emitRadialPhase(phase, type: type)
+    }
+
+    private func handleRadialDoubleTapEvent(type: CGEventType, flags: CGEventFlags, location: CGPoint) -> Bool {
+        guard let tapKey = radialTriggerModifier.radialSingleTapKey else {
+            return false
+        }
+        let modifiers = WindowGestureModifier(cgEventFlags: flags)
+        let triggerHeld = modifiers.radialExactMatch(radialTriggerModifier)
+        let now = ProcessInfo.processInfo.systemUptime
+
+        switch type {
+        case .flagsChanged:
+            if triggerHeld, !radialTriggerWasHeld, !radialActive {
+                if let last = radialTapLastRelease,
+                   last.key == tapKey,
+                   now - last.time <= Self.radialMultiTapWindow {
+                    radialTapLastRelease = nil
+                    return emitRadialPhase(.open(center: location), type: type)
+                }
+            } else if !triggerHeld, radialTriggerWasHeld, !radialActive {
+                radialTapLastRelease = (tapKey, now)
+            }
+            radialTriggerWasHeld = triggerHeld
+            return false
+        case .mouseMoved:
+            guard radialActive else { return false }
+            return emitRadialPhase(.update(cursor: location), type: type)
+        default:
+            return false
+        }
+    }
+
+    private func emitRadialPhase(_ phase: RadialPhase, type: CGEventType) -> Bool {
         switch phase {
         case .open:
             radialActive = true
@@ -88,12 +138,12 @@ extension WindowControlEventTap {
             break
         case .commit, .cancel:
             radialActive = false
+            radialTapLastRelease = nil
+            radialTriggerWasHeld = false
         }
         if let radialPhaseHandler {
             Task { @MainActor in radialPhaseHandler(phase) }
         }
-        // flagsChanged must pass through so other apps still see modifier state;
-        // only mouseMoved updates are swallowed while the menu is open.
         return type == .mouseMoved
     }
 }
@@ -117,5 +167,32 @@ extension WindowGestureModifier {
         if contains(.command) || contains(.leftCommand) || contains(.rightCommand) { result.insert(.command) }
         if contains(.shift) || contains(.leftShift) || contains(.rightShift) { result.insert(.shift) }
         return result
+    }
+
+    /// Single-modifier radial triggers can use double-tap; combos require hold.
+    var radialSingleTapKey: ModifierTapShortcut.Key? {
+        let primary = normalizedPrimary
+        if primary == .control {
+            if contains(.leftControl), !contains(.rightControl) { return .leftControl }
+            if contains(.rightControl), !contains(.leftControl) { return .rightControl }
+            return .control
+        }
+        if primary == .option {
+            if contains(.leftOption), !contains(.rightOption) { return .leftOption }
+            if contains(.rightOption), !contains(.leftOption) { return .rightOption }
+            return .option
+        }
+        if primary == .command {
+            if contains(.leftCommand), !contains(.rightCommand) { return .leftCommand }
+            if contains(.rightCommand), !contains(.leftCommand) { return .rightCommand }
+            return .command
+        }
+        if primary == .shift {
+            if contains(.leftShift), !contains(.rightShift) { return .leftShift }
+            if contains(.rightShift), !contains(.leftShift) { return .rightShift }
+            return .shift
+        }
+        if contains(.fn), primary.isEmpty { return .fn }
+        return nil
     }
 }

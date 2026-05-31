@@ -239,8 +239,8 @@ final class ClipboardDockModelTests: XCTestCase {
 
     func testGlobalKeyFallbackMapsSpaceEscapeAndPlainArrowKeys() {
         let bindings = DockGlobalKeyFallbackBindings(
-            quickLook: [ShortcutBinding(keyCode: 49, modifierMask: 0)],
-            dismiss: [ShortcutBinding(keyCode: 53, modifierMask: 0)]
+            quickLook: [HotkeyDescriptor(keyCode: 49, modifiers: [])],
+            dismiss: [HotkeyDescriptor(keyCode: 53, modifiers: [])]
         )
 
         XCTAssertEqual(
@@ -263,8 +263,8 @@ final class ClipboardDockModelTests: XCTestCase {
 
     func testGlobalKeyFallbackIgnoresModifiedArrowKeys() {
         let bindings = DockGlobalKeyFallbackBindings(
-            quickLook: [ShortcutBinding(keyCode: 49, modifierMask: 0)],
-            dismiss: [ShortcutBinding(keyCode: 53, modifierMask: 0)]
+            quickLook: [HotkeyDescriptor(keyCode: 49, modifiers: [])],
+            dismiss: [HotkeyDescriptor(keyCode: 53, modifiers: [])]
         )
 
         XCTAssertNil(DockGlobalKeyFallbackPolicy.action(

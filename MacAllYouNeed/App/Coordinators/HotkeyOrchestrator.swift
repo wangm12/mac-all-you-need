@@ -49,6 +49,8 @@ final class HotkeyOrchestrator {
             onBrowseFolder()
         case .radialMenu:
             onRadialMenu()
+        case .finderHistory:
+            break
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
@@ -113,7 +115,7 @@ extension HotkeyAction {
         case .windowRestore: return .restore
         case .windowNextDisplay: return .nextDisplay
         case .windowPreviousDisplay: return .previousDisplay
-        case .clipboard, .browseFolder, .radialMenu: return nil
+        case .clipboard, .browseFolder, .finderHistory, .radialMenu: return nil
         }
     }
 }

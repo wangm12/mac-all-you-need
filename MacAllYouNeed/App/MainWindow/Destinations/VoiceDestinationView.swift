@@ -1281,11 +1281,19 @@ struct VoiceDestinationView: View {
     }
 
     private var shortcutIssue: HotkeyValidationIssue? {
-        HotkeyValidation.issue(forVoiceShortcut: shortcut, appHotkeys: HotkeyMapStore.load())
+        HotkeyValidation.issue(
+            forVoiceShortcut: shortcut,
+            appHotkeys: HotkeyMapStore.load(),
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
+        )
     }
 
     private func shortcutCandidateIssue(_ descriptor: Platform.HotkeyDescriptor) -> HotkeyValidationIssue? {
-        HotkeyValidation.issue(forVoiceShortcut: descriptor, appHotkeys: HotkeyMapStore.load())
+        HotkeyValidation.issue(
+            forVoiceShortcut: descriptor,
+            appHotkeys: HotkeyMapStore.load(),
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
+        )
     }
 
     private var voiceStateTitle: String {

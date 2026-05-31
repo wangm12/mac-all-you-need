@@ -11,7 +11,7 @@ struct RadialMenuSettingsSection: View {
     var body: some View {
         MAYNSection(
             title: "Radial Menu",
-            subtitle: "Hold the configured modifier combination to open a radial layout picker; release over a direction to apply it."
+            subtitle: radialSectionSubtitle
         ) {
             MAYNSettingsRow(
                 title: "Radial menu",
@@ -24,11 +24,13 @@ struct RadialMenuSettingsSection: View {
                 MAYNDivider()
                 MAYNSettingsRow(
                     title: "Trigger modifier",
-                    subtitle: "Hold this modifier combination to open the radial menu."
+                    subtitle: radialTriggerSubtitle
                 ) {
                     WindowGestureModifierPicker(
                         selection: modifierBinding(\.radialTriggerModifier),
-                        defaultModifier: WindowControlSettings.default.radialTriggerModifier
+                        tapCount: tapCountBinding(\.radialTriggerTapCount),
+                        defaultModifier: WindowControlSettings.default.radialTriggerModifier,
+                        defaultTapCount: WindowControlSettings.default.radialTriggerTapCount
                     )
                 }
                 MAYNDivider()
@@ -63,6 +65,31 @@ struct RadialMenuSettingsSection: View {
         } set: { value in
             var next = settings
             next[keyPath: keyPath] = value
+            settings = next
+            onChange(next)
+        }
+    }
+
+    private var radialSectionSubtitle: String {
+        if settings.radialTriggerTapCount > 1 {
+            return "Double-tap the configured modifier to open a radial layout picker; click a direction to apply it."
+        }
+        return "Hold the configured modifier combination to open a radial layout picker; click a direction to apply it."
+    }
+
+    private var radialTriggerSubtitle: String {
+        if settings.radialTriggerTapCount > 1 {
+            return "Double-tap this modifier to open the radial menu."
+        }
+        return "Hold this modifier combination to open the radial menu."
+    }
+
+    private func tapCountBinding(_ keyPath: WritableKeyPath<WindowControlSettings, Int>) -> Binding<Int> {
+        Binding {
+            settings[keyPath: keyPath]
+        } set: { value in
+            var next = settings
+            next[keyPath: keyPath] = min(max(value, 1), 2)
             settings = next
             onChange(next)
         }

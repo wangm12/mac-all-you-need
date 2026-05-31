@@ -7,6 +7,7 @@ import Platform
 enum HotkeyAction: String, CaseIterable, Identifiable {
     case clipboard
     case browseFolder
+    case finderHistory
     case windowLeftHalf
     case windowRightHalf
     case windowTopHalf
@@ -31,6 +32,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
             return "Open clipboard popup"
         case .browseFolder:
             return "Folder preview"
+        case .finderHistory:
+            return "Finder History switcher"
         case .windowLeftHalf:
             return "Window Layouts: Left half"
         case .windowRightHalf:
@@ -70,6 +73,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
             return [.defaultClipboard]
         case .browseFolder:
             return [.defaultFolder]
+        case .finderHistory:
+            return [.defaultFolderHistory]
         case .windowLeftHalf:
             return [HotkeyDescriptor(keyCode: UInt32(kVK_LeftArrow), modifiers: [.control, .option])]
         case .windowRightHalf:
@@ -98,7 +103,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 
     var isWindowControlAction: Bool {
         switch self {
-        case .clipboard, .browseFolder:
+        case .clipboard, .browseFolder, .finderHistory:
             return false
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
@@ -110,7 +115,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 
     fileprivate var usesV2EmptyArrayAsDefault: Bool {
         switch self {
-        case .clipboard, .browseFolder:
+        case .clipboard, .browseFolder, .finderHistory:
             return true
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
@@ -287,21 +292,16 @@ enum HotkeyValidation {
     static func issue(
         forVoiceShortcut descriptor: HotkeyDescriptor,
         appHotkeys: [HotkeyAction: [HotkeyDescriptor]],
+        dockShortcuts: [ShortcutAction: [HotkeyDescriptor]] = [:],
         systemHotkeys: Set<HotkeyDescriptor> = SystemHotkeyConflictDetector.currentEnabledSymbolicHotkeys()
     ) -> HotkeyValidationIssue? {
-        if isReservedForSystemUse(descriptor) {
-            return HotkeyValidationIssue(message: "This shortcut is reserved for system use.")
-        }
-        if systemHotkeys.contains(descriptor) {
-            return HotkeyValidationIssue(message: SystemHotkeyConflictDetector.conflictMessage)
-        }
-
-        for action in HotkeyAction.allCases {
-            guard appHotkeys[action]?.contains(descriptor) == true else { continue }
-            return HotkeyValidationIssue(message: "This shortcut is already used by \(action.label).")
-        }
-
-        return nil
+        issue(
+            for: descriptor,
+            appHotkeys: appHotkeys,
+            voiceShortcut: nil,
+            dockShortcuts: dockShortcuts,
+            systemHotkeys: systemHotkeys
+        )
     }
 
     static func issue(
@@ -310,20 +310,45 @@ enum HotkeyValidation {
         index currentIndex: Int,
         appHotkeys: [HotkeyAction: [HotkeyDescriptor]],
         voiceShortcut: HotkeyDescriptor? = nil,
+        dockShortcuts: [ShortcutAction: [HotkeyDescriptor]] = [:],
         systemHotkeys: Set<HotkeyDescriptor> = SystemHotkeyConflictDetector.currentEnabledSymbolicHotkeys()
     ) -> HotkeyValidationIssue? {
         issue(
             for: descriptor,
             appHotkeys: appHotkeys,
             voiceShortcut: voiceShortcut,
+            dockShortcuts: dockShortcuts,
             systemHotkeys: systemHotkeys,
-            ignoring: HotkeyField(action: currentAction, index: currentIndex)
+            ignoringApp: HotkeyField(action: currentAction, index: currentIndex)
+        )
+    }
+
+    static func issue(
+        forDockShortcut descriptor: HotkeyDescriptor,
+        action currentAction: ShortcutAction,
+        index currentIndex: Int,
+        appHotkeys: [HotkeyAction: [HotkeyDescriptor]] = HotkeyMapStore.load(),
+        voiceShortcut: HotkeyDescriptor? = nil,
+        dockShortcuts: [ShortcutAction: [HotkeyDescriptor]],
+        systemHotkeys: Set<HotkeyDescriptor> = SystemHotkeyConflictDetector.currentEnabledSymbolicHotkeys()
+    ) -> HotkeyValidationIssue? {
+        if let conventional = conventionalDockIssue(descriptor, action: currentAction) {
+            return conventional
+        }
+        return issue(
+            for: descriptor,
+            appHotkeys: appHotkeys,
+            voiceShortcut: voiceShortcut,
+            dockShortcuts: dockShortcuts,
+            systemHotkeys: systemHotkeys,
+            ignoringDock: DockBindingField(action: currentAction, index: currentIndex)
         )
     }
 
     static func firstIssue(
         in appHotkeys: [HotkeyAction: [HotkeyDescriptor]],
         voiceShortcut: HotkeyDescriptor? = nil,
+        dockShortcuts: [ShortcutAction: [HotkeyDescriptor]] = [:],
         systemHotkeys: Set<HotkeyDescriptor> = SystemHotkeyConflictDetector.currentEnabledSymbolicHotkeys()
     ) -> HotkeyValidationIssue? {
         for action in HotkeyAction.allCases {
@@ -333,8 +358,28 @@ enum HotkeyValidation {
                     for: descriptor,
                     appHotkeys: appHotkeys,
                     voiceShortcut: voiceShortcut,
+                    dockShortcuts: dockShortcuts,
                     systemHotkeys: systemHotkeys,
-                    ignoring: HotkeyField(action: action, index: index)
+                    ignoringApp: HotkeyField(action: action, index: index)
+                ) {
+                    return issue
+                }
+            }
+        }
+
+        for action in ShortcutAction.allCases {
+            let descriptors = dockShortcuts[action] ?? []
+            for (index, descriptor) in descriptors.enumerated() {
+                if let conventional = conventionalDockIssue(descriptor, action: action) {
+                    return conventional
+                }
+                if let issue = issue(
+                    for: descriptor,
+                    appHotkeys: appHotkeys,
+                    voiceShortcut: voiceShortcut,
+                    dockShortcuts: dockShortcuts,
+                    systemHotkeys: systemHotkeys,
+                    ignoringDock: DockBindingField(action: action, index: index)
                 ) {
                     return issue
                 }
@@ -349,12 +394,19 @@ enum HotkeyValidation {
         let index: Int
     }
 
+    private struct DockBindingField: Equatable {
+        let action: ShortcutAction
+        let index: Int
+    }
+
     private static func issue(
         for descriptor: HotkeyDescriptor,
         appHotkeys: [HotkeyAction: [HotkeyDescriptor]],
         voiceShortcut: HotkeyDescriptor?,
+        dockShortcuts: [ShortcutAction: [HotkeyDescriptor]],
         systemHotkeys: Set<HotkeyDescriptor>,
-        ignoring ignoredField: HotkeyField?
+        ignoringApp ignoredAppField: HotkeyField? = nil,
+        ignoringDock ignoredDockField: DockBindingField? = nil
     ) -> HotkeyValidationIssue? {
         if isReservedForSystemUse(descriptor) {
             return HotkeyValidationIssue(message: "This shortcut is reserved for system use.")
@@ -370,7 +422,17 @@ enum HotkeyValidation {
         for action in HotkeyAction.allCases {
             let descriptors = appHotkeys[action] ?? []
             for (index, existing) in descriptors.enumerated() where existing == descriptor {
-                if ignoredField == HotkeyField(action: action, index: index) {
+                if ignoredAppField == HotkeyField(action: action, index: index) {
+                    continue
+                }
+                return HotkeyValidationIssue(message: "This shortcut is already used by \(action.label).")
+            }
+        }
+
+        for action in ShortcutAction.allCases {
+            let descriptors = dockShortcuts[action] ?? []
+            for (index, existing) in descriptors.enumerated() where existing == descriptor {
+                if ignoredDockField == DockBindingField(action: action, index: index) {
                     continue
                 }
                 return HotkeyValidationIssue(message: "This shortcut is already used by \(action.label).")
@@ -380,7 +442,30 @@ enum HotkeyValidation {
         return nil
     }
 
+    private static func conventionalDockIssue(
+        _ descriptor: HotkeyDescriptor,
+        action: ShortcutAction
+    ) -> HotkeyValidationIssue? {
+        guard !descriptor.isModifierTap else { return nil }
+        let conventional: [UInt32: ShortcutAction] = [
+            UInt32(kVK_Escape): .dismiss,
+            UInt32(kVK_Return): .paste,
+            UInt32(kVK_Space): .cycleFocus,
+            UInt32(kVK_ANSI_V): .quickLook,
+            UInt32(kVK_LeftArrow): .extendSelectionLeft,
+            UInt32(kVK_RightArrow): .extendSelectionRight
+        ]
+        guard descriptor.modifiers.isEmpty,
+              let owner = conventional[descriptor.keyCode],
+              owner != action
+        else { return nil }
+        return HotkeyValidationIssue(message: "This shortcut is reserved for \(owner.label).")
+    }
+
     private static func isReservedForSystemUse(_ descriptor: HotkeyDescriptor) -> Bool {
+        if descriptor.isModifierTap {
+            return false
+        }
         if descriptor.modifiers.isEmpty {
             return true
         }
@@ -408,5 +493,11 @@ enum HotkeyValidation {
         }
 
         return false
+    }
+
+    /// Live in-dock bindings for cross-surface conflict checks from settings UI.
+    @MainActor
+    static func liveDockShortcuts() -> [ShortcutAction: [HotkeyDescriptor]] {
+        ShortcutRegistry.shared.allBindings()
     }
 }

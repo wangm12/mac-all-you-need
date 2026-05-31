@@ -1,10 +1,12 @@
 import Core
+import Platform
 import SwiftUI
 
 struct ShortcutsSettingsView: View {
     @Bindable var registry: ShortcutRegistry
     @AppStorage(SnippetExpansionSettings.modeKey, store: AppGroupSettings.defaults) private var expansionModeRaw = SnippetExpansionSettings.defaultMode.rawValue
     @State private var pendingError: String?
+    @State private var issueAction: ShortcutAction?
 
     private var expansionMode: SnippetExpansionMode {
         SnippetExpansionMode(rawValue: expansionModeRaw) ?? SnippetExpansionSettings.defaultMode
@@ -33,41 +35,7 @@ struct ShortcutsSettingsView: View {
 
             MAYNSection(title: "In-dock shortcuts") {
                 ForEach(Array(ShortcutAction.allCases.enumerated()), id: \.element.id) { offset, action in
-                    MAYNSettingsRow(
-                        title: action.label,
-                        subtitle: "Capture a key combination or reset to the default binding.",
-                        minHeight: 58
-                    ) {
-                        VStack(alignment: .trailing, spacing: 8) {
-                            HStack(spacing: 6) {
-                                ForEach(registry.bindings(for: action), id: \.self) { binding in
-                                    ShortcutChip(text: binding.display(), height: HotkeyChipPresentation.compactHeight)
-                                        .contextMenu {
-                                            Button("Remove") {
-                                                registry.removeBinding(binding, for: action)
-                                            }
-                                        }
-                                }
-                            }
-
-                            HStack(spacing: 8) {
-                                ShortcutRecorderView(binding: .constant(nil)) { captured in
-                                    do {
-                                        try registry.validate(captured, for: action)
-                                        registry.addBinding(captured, for: action)
-                                        pendingError = nil
-                                    } catch {
-                                        pendingError = "Cannot bind reserved key."
-                                    }
-                                }
-                                .frame(width: 130, height: HotkeyChipPresentation.compactHeight)
-
-                                MAYNButton("Reset", height: HotkeyChipPresentation.compactHeight) {
-                                    registry.reset(action: action)
-                                }
-                            }
-                        }
-                    }
+                    dockShortcutRow(action: action)
 
                     if offset != ShortcutAction.allCases.count - 1 {
                         MAYNDivider()
@@ -83,5 +51,75 @@ struct ShortcutsSettingsView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func dockShortcutRow(action: ShortcutAction) -> some View {
+        let bindings = registry.bindings(for: action)
+        let defaultDescriptor = ShortcutDefaults.defaultBindings(for: action).first
+            ?? HotkeyDescriptor(keyCode: 0, modifiers: [])
+
+        MAYNSettingsRow(
+            title: action.label,
+            subtitle: "Capture a key combination, double-tap a modifier, or reset to the default binding.",
+            minHeight: 58
+        ) {
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 6) {
+                    ForEach(Array(bindings.enumerated()), id: \.offset) { _, binding in
+                        ShortcutChip(text: binding.display, height: HotkeyChipPresentation.compactHeight)
+                            .contextMenu {
+                                Button("Remove") {
+                                    registry.removeBinding(binding, for: action)
+                                }
+                            }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    HotkeyRecorderControl(
+                        descriptor: captureBinding(for: action),
+                        issueMessage: issueAction == action ? pendingError : nil,
+                        candidateIssueMessage: { candidateIssueMessage($0, for: action) },
+                        defaultDescriptor: defaultDescriptor,
+                        recorderWidth: 130,
+                        reset: { registry.reset(action: action) }
+                    )
+                }
+            }
+        }
+    }
+
+    private func captureBinding(for action: ShortcutAction) -> Binding<HotkeyDescriptor> {
+        Binding {
+            HotkeyDescriptor(keyCode: 0, modifiers: [])
+        } set: { newValue in
+            guard newValue.isModifierTap || newValue.keyCode != 0 || !newValue.modifiers.isEmpty else { return }
+            issueAction = action
+            do {
+                try registry.validate(newValue, for: action)
+                registry.addBinding(newValue, for: action)
+                pendingError = nil
+                issueAction = nil
+            } catch let error as ShortcutValidationError {
+                switch error {
+                case .validation(let message):
+                    pendingError = message
+                case .reservedKey:
+                    pendingError = "Cannot bind reserved key."
+                }
+            } catch {
+                pendingError = "Cannot bind reserved key."
+            }
+        }
+    }
+
+    private func candidateIssueMessage(_ descriptor: HotkeyDescriptor, for action: ShortcutAction) -> String? {
+        HotkeyValidation.issue(
+            forDockShortcut: descriptor,
+            action: action,
+            index: registry.bindings(for: action).count,
+            dockShortcuts: registry.allBindings()
+        )?.message
     }
 }

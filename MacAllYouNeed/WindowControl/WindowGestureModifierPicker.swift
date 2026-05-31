@@ -12,7 +12,10 @@ import SwiftUI
 /// still uses the full display so the popup remains self-explanatory.
 struct WindowGestureModifierPicker: View {
     @Binding var selection: WindowGestureModifier
+    /// When set, records and displays double-tap modifier shortcuts (radial menu only).
+    var tapCount: Binding<Int>?
     var defaultModifier: WindowGestureModifier = .option
+    var defaultTapCount: Int = 1
     var width: CGFloat = 112
 
     var body: some View {
@@ -20,10 +23,13 @@ struct WindowGestureModifierPicker: View {
             descriptor: descriptorBinding,
             issueMessage: nil,
             candidateIssueMessage: candidateIssueMessage,
-            defaultDescriptor: descriptor(from: defaultModifier),
+            defaultDescriptor: descriptor(from: defaultModifier, tapCount: defaultTapCount),
             recorderWidth: width,
             chipDisplayOverride: chipDisplay,
-            reset: { selection = defaultModifier }
+            reset: {
+                selection = defaultModifier
+                tapCount?.wrappedValue = defaultTapCount
+            }
         )
     }
 
@@ -31,14 +37,21 @@ struct WindowGestureModifierPicker: View {
 
     private var descriptorBinding: Binding<HotkeyDescriptor> {
         Binding {
-            descriptor(from: selection)
+            descriptor(from: selection, tapCount: effectiveTapCount)
         } set: { newDescriptor in
             // Only accept modifier-tap descriptors. Combos are rejected
             // upstream via `candidateIssueMessage` so this set won't see them.
             if let tap = newDescriptor.modifierTap {
                 selection = windowGestureModifier(from: tap.key)
+                if tapCount != nil {
+                    tapCount?.wrappedValue = tap.count
+                }
             }
         }
+    }
+
+    private var effectiveTapCount: Int {
+        tapCount?.wrappedValue ?? 1
     }
 
     private func candidateIssueMessage(_ descriptor: HotkeyDescriptor) -> String? {
@@ -49,13 +62,14 @@ struct WindowGestureModifierPicker: View {
 
     private func chipDisplay(_ descriptor: HotkeyDescriptor) -> String {
         if let tap = descriptor.modifierTap {
-            return tap.key.glyph
+            let glyph = tap.key.glyph
+            return tap.count > 1 ? "\(glyph) ×\(tap.count)" : glyph
         }
         return descriptor.display
     }
 
-    private func descriptor(from modifier: WindowGestureModifier) -> HotkeyDescriptor {
-        HotkeyDescriptor(modifierTap: ModifierTapShortcut(key: tapKey(from: modifier), count: 1))
+    private func descriptor(from modifier: WindowGestureModifier, tapCount: Int) -> HotkeyDescriptor {
+        HotkeyDescriptor(modifierTap: ModifierTapShortcut(key: tapKey(from: modifier), count: tapCount))
     }
 
     private func tapKey(from modifier: WindowGestureModifier) -> ModifierTapShortcut.Key {

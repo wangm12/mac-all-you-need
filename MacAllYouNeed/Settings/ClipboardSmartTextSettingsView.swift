@@ -19,31 +19,6 @@ enum LinkModeTab: String, SegmentedTabDestination, CaseIterable {
     }
 }
 
-// MARK: - Bridge: ShortcutBinding <-> HotkeyDescriptor
-
-private extension HotkeyDescriptor {
-    static func from(_ binding: ShortcutBinding) -> HotkeyDescriptor {
-        let flags = NSEvent.ModifierFlags(rawValue: binding.modifierMask)
-        var mods: HotkeyDescriptor.Modifiers = []
-        if flags.contains(.command) { mods.insert(.command) }
-        if flags.contains(.shift)   { mods.insert(.shift) }
-        if flags.contains(.option)  { mods.insert(.option) }
-        if flags.contains(.control) { mods.insert(.control) }
-        return HotkeyDescriptor(keyCode: UInt32(binding.keyCode), modifiers: mods)
-    }
-}
-
-private extension ShortcutBinding {
-    static func from(_ descriptor: HotkeyDescriptor) -> ShortcutBinding {
-        var mask: UInt = 0
-        if descriptor.modifiers.contains(.command) { mask |= NSEvent.ModifierFlags.command.rawValue }
-        if descriptor.modifiers.contains(.shift)   { mask |= NSEvent.ModifierFlags.shift.rawValue }
-        if descriptor.modifiers.contains(.option)  { mask |= NSEvent.ModifierFlags.option.rawValue }
-        if descriptor.modifiers.contains(.control) { mask |= NSEvent.ModifierFlags.control.rawValue }
-        return ShortcutBinding(keyCode: UInt16(descriptor.keyCode), modifierMask: mask)
-    }
-}
-
 let defaultSmartCopyDescriptor = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_C), modifiers: [.command, .shift])
 
 // MARK: - Sheet
@@ -74,7 +49,7 @@ struct ClipboardSmartTextSettingsView: View {
         _copyShortcutEnabled     = State(initialValue: SmartTextSettings.copyShortcutEnabled())
         _optionDoubleClickEnabled = State(initialValue: SmartTextSettings.optionDoubleClickEnabled())
         let stored = ShortcutRegistry.shared.bindings(for: .copySmartText).first
-        _smartCopyDescriptor     = State(initialValue: stored.map { .from($0) } ?? defaultSmartCopyDescriptor)
+        _smartCopyDescriptor     = State(initialValue: stored ?? defaultSmartCopyDescriptor)
     }
 
     var body: some View {
@@ -127,7 +102,7 @@ struct ClipboardSmartTextSettingsView: View {
         SmartTextSettings.setCopyShortcutEnabled(copyShortcutEnabled)
         SmartTextSettings.setOptionDoubleClickEnabled(optionDoubleClickEnabled)
         // Issue 2 fix: only write the shortcut binding to registry on Save
-        ShortcutRegistry.shared.setBindings([.from(smartCopyDescriptor)], for: .copySmartText)
+        ShortcutRegistry.shared.setBindings([smartCopyDescriptor], for: .copySmartText)
         let name = "com.macallyouneed.settings-changed" as CFString
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(name), nil, nil, true)
     }
@@ -197,10 +172,23 @@ struct ClipboardSmartTextSettingsSection: View {
                 MAYNSettingsRow(title: "Copy Smart Text",
                     subtitle: "Copy the calculation result, cleaned link, or OCR text of the focused card.") {
                     HStack(spacing: 8) {
-                        HotkeyRecorder(descriptor: $smartCopyDescriptor)
-                            .frame(width: 112, height: HotkeyChipPresentation.displayHeight)
-                            .opacity(copyShortcutEnabled ? 1 : 0.4)
-                            .allowsHitTesting(copyShortcutEnabled)
+                        HotkeyRecorderControl(
+                            descriptor: $smartCopyDescriptor,
+                            candidateIssueMessage: { descriptor in
+                                HotkeyValidation.issue(
+                                    forDockShortcut: descriptor,
+                                    action: .copySmartText,
+                                    index: 0,
+                                    dockShortcuts: ShortcutRegistry.shared.allBindings()
+                                )?.message
+                            },
+                            defaultDescriptor: defaultSmartCopyDescriptor,
+                            recorderWidth: 112,
+                            recorderHeight: HotkeyChipPresentation.displayHeight,
+                            reset: { smartCopyDescriptor = defaultSmartCopyDescriptor }
+                        )
+                        .opacity(copyShortcutEnabled ? 1 : 0.4)
+                        .allowsHitTesting(copyShortcutEnabled)
                         Toggle("", isOn: $copyShortcutEnabled).labelsHidden()
                     }
                 }
