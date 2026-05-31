@@ -235,11 +235,13 @@ private struct ClipboardDockHeightWindowReader: NSViewRepresentable {
 
 // MARK: - Smart Text enable section
 
-/// Surfaces Clipboard Smart Text as an opt-in enhancement inside the Clipboard Settings tab.
-/// Reads / writes feature enabled state via FeatureRuntime through the shared controller.
+/// Single row with toggle + Configure… button.
+/// Tapping Configure… opens a sheet with the full Smart Text settings — same
+/// pattern as Voice → Recognition engine.
 struct SmartTextEnableSection: View {
     let controller: AppController
-    @State private var isEnabled: Bool = false
+    @State private var isEnabled = false
+    @State private var showSettings = false
     @State private var statePublisher: FeatureStatePublisher
 
     init(controller: AppController) {
@@ -253,19 +255,20 @@ struct SmartTextEnableSection: View {
                 title: "Clipboard Smart Text",
                 subtitle: "Calculations, link cleaning, type detection, OCR, and semantic search."
             ) {
-                Toggle("", isOn: $isEnabled)
-                    .labelsHidden()
-                    .onChange(of: isEnabled) { _, enabled in
-                        Task {
-                            let transition: FeatureManager.Transition = enabled ? .enable : .disable
-                            try? await controller.runtime.applyTransition(transition, for: .clipboardSmartText)
-                            await statePublisher.refresh()
-                        }
+                HStack(spacing: 8) {
+                    if isEnabled {
+                        MAYNButton("Configure…") { showSettings = true }
                     }
-            }
-            if isEnabled {
-                MAYNDivider()
-                ClipboardSmartTextSettingsSection()
+                    Toggle("", isOn: $isEnabled)
+                        .labelsHidden()
+                        .onChange(of: isEnabled) { _, enabled in
+                            Task {
+                                let t: FeatureManager.Transition = enabled ? .enable : .disable
+                                try? await controller.runtime.applyTransition(t, for: .clipboardSmartText)
+                                await statePublisher.refresh()
+                            }
+                        }
+                }
             }
         }
         .onAppear {
@@ -273,6 +276,10 @@ struct SmartTextEnableSection: View {
         }
         .onChange(of: statePublisher.states) { _, _ in
             isEnabled = statePublisher.state(for: .clipboardSmartText).activationState == .enabled
+        }
+        .sheet(isPresented: $showSettings) {
+            ClipboardSmartTextSettingsView()
+                .frame(width: 540)
         }
     }
 }
