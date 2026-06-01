@@ -143,7 +143,7 @@ struct FunctionPageScrollContent<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        ScrollView {
+        ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 22) {
                 content
             }
@@ -151,7 +151,7 @@ struct FunctionPageScrollContent<Content: View>: View {
             .padding(.horizontal, 32)
             .padding(.vertical, 26)
         }
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.never)
     }
 }
 

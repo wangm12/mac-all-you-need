@@ -138,6 +138,7 @@ enum DownloadsFunctionTab: String, FunctionTabDestination {
 
 enum WindowLayoutsFunctionTab: String, FunctionTabDestination {
     case shortcuts
+    case radial
     case snap
     case apps
 
@@ -147,6 +148,7 @@ enum WindowLayoutsFunctionTab: String, FunctionTabDestination {
     var title: String {
         switch self {
         case .shortcuts: "Shortcuts"
+        case .radial: "Radial"
         case .snap: "Snap"
         case .apps: "Ignored Apps"
         }
@@ -155,6 +157,7 @@ enum WindowLayoutsFunctionTab: String, FunctionTabDestination {
     var symbolName: String {
         switch self {
         case .shortcuts: "command"
+        case .radial: "circle.grid.cross"
         case .snap: "square.split.2x2"
         case .apps: "app.badge"
         }

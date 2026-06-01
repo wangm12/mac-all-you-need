@@ -2,21 +2,21 @@ import Core
 import Platform
 import SwiftUI
 
-/// Window Grab modifier picker. Reuses `HotkeyRecorderControl` so all
-/// keyboard input handling (CGEventTap, flagsChanged override, floating
-/// keyboard popup) is shared with the shortcut recorder — no duplicate
-/// NSView/NSViewRepresentable.
+/// Window Grab / radial trigger modifier picker. Reuses `HotkeyRecorderControl` so all
+/// keyboard input handling (CGEventTap, flagsChanged override, floating keyboard popup)
+/// is shared with the shortcut recorder.
 ///
-/// The chip is overridden to show the compact modifier glyph ("⌥")
-/// instead of the verbose "Tap ⌥" form. The floating-keyboard summary
-/// still uses the full display so the popup remains self-explanatory.
+/// Pass `tapCount` when the gesture supports double-tap modifiers (radial menu). Hold-only
+/// gestures (Window Grab drag, edge snap) omit `tapCount` and reject double-tap recording.
 struct WindowGestureModifierPicker: View {
     @Binding var selection: WindowGestureModifier
-    /// When set, records and displays double-tap modifier shortcuts (radial menu only).
+    /// When set, records and persists `ModifierTapShortcut.count` (1 or 2).
     var tapCount: Binding<Int>?
     var defaultModifier: WindowGestureModifier = .option
     var defaultTapCount: Int = 1
     var width: CGFloat = 112
+
+    private var allowsDoubleTap: Bool { tapCount != nil }
 
     var body: some View {
         HotkeyRecorderControl(
@@ -39,33 +39,31 @@ struct WindowGestureModifierPicker: View {
         Binding {
             descriptor(from: selection, tapCount: effectiveTapCount)
         } set: { newDescriptor in
-            // Only accept modifier-tap descriptors. Combos are rejected
-            // upstream via `candidateIssueMessage` so this set won't see them.
-            if let tap = newDescriptor.modifierTap {
-                selection = windowGestureModifier(from: tap.key)
-                if tapCount != nil {
-                    tapCount?.wrappedValue = tap.count
-                }
+            guard let tap = newDescriptor.modifierTap else { return }
+            selection = windowGestureModifier(from: tap.key)
+            if let tapCount {
+                tapCount.wrappedValue = min(max(tap.count, 1), 2)
             }
         }
     }
 
     private var effectiveTapCount: Int {
-        tapCount?.wrappedValue ?? 1
+        let stored = tapCount?.wrappedValue ?? 1
+        return min(max(stored, 1), 2)
     }
 
     private func candidateIssueMessage(_ descriptor: HotkeyDescriptor) -> String? {
-        descriptor.modifierTap == nil
-            ? "Tap a modifier key — combos aren't supported here."
-            : nil
+        guard let tap = descriptor.modifierTap else {
+            return "Tap a modifier key — combos aren't supported here."
+        }
+        if !allowsDoubleTap, tap.count > 1 {
+            return "Double-tap isn't supported for this gesture. Use a single modifier tap."
+        }
+        return nil
     }
 
     private func chipDisplay(_ descriptor: HotkeyDescriptor) -> String {
-        if let tap = descriptor.modifierTap {
-            let glyph = tap.key.glyph
-            return tap.count > 1 ? "\(glyph) ×\(tap.count)" : glyph
-        }
-        return descriptor.display
+        HotkeyChipPresentation.displayText(descriptor.display)
     }
 
     private func descriptor(from modifier: WindowGestureModifier, tapCount: Int) -> HotkeyDescriptor {
@@ -104,6 +102,26 @@ struct WindowGestureModifierPicker: View {
         case .rightControl: return .rightControl
         case .leftShift:    return .leftShift
         case .rightShift:   return .rightShift
+        }
+    }
+}
+
+// MARK: - Settings bindings
+
+extension WindowGestureModifierPicker {
+    /// Bridges `WindowControlSettings` modifier + tap-count fields to a recorder binding.
+    static func tapCountBinding(
+        settings: Binding<WindowControlSettings>,
+        tapCountKeyPath: WritableKeyPath<WindowControlSettings, Int>,
+        onChange: @escaping (WindowControlSettings) -> Void
+    ) -> Binding<Int> {
+        Binding {
+            settings.wrappedValue[keyPath: tapCountKeyPath]
+        } set: { value in
+            var next = settings.wrappedValue
+            next[keyPath: tapCountKeyPath] = min(max(value, 1), 2)
+            settings.wrappedValue = next
+            onChange(next)
         }
     }
 }

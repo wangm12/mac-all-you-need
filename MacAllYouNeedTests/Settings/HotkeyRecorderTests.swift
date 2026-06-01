@@ -834,7 +834,25 @@ final class HotkeyRecorderTests: XCTestCase {
 
         XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.key, .command)
         XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.count, 1)
-        XCTAssertEqual(recorder.visibleLabelText, "⌘")
+        XCTAssertTrue(recorder.visibleLabelText?.hasSuffix("⌘") == true)
+    }
+
+    func testModifierTapConfirmPersistsDoubleTapOnChip() {
+        var descriptor = HotkeyDescriptor.defaultClipboard
+        let recorder = HotkeyRecorder.RecorderView(
+            descriptor: Binding(get: { descriptor }, set: { descriptor = $0 })
+        )
+        recorder.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
+        recorder.mouseDown(with: mouseEvent())
+
+        let cmdFlags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x00000008)
+        recorder.testApplyCGFlags(cmdFlags)
+        recorder.testApplyCGFlags([])
+        recorder.testApplyCGFlags(cmdFlags)
+        recorder.confirmPendingShortcut()
+
+        XCTAssertEqual(descriptor.modifierTap?.count, 2)
+        XCTAssertEqual(recorder.visibleLabelText, "Left ⌘ ×2")
     }
 
     func testModifierTapDoublePressPreviewsTimesTwo() {
@@ -851,7 +869,7 @@ final class HotkeyRecorderTests: XCTestCase {
         recorder.testApplyCGFlags(cmdFlags)
 
         XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.count, 2)
-        XCTAssertEqual(recorder.visibleLabelText, "⌘ ×2")
+        XCTAssertEqual(recorder.visibleLabelText, "Left ⌘ ×2")
     }
 
     func testModifierTapValidationAllowsSave() {

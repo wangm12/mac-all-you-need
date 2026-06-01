@@ -31,22 +31,70 @@ final class RadialMenuCoordinator {
 
     private let actionPerformer: any RadialActionPerforming
     private let frameResolver: any ProposedFrameResolving
+    private var edgeClamp: RadialSelectionMath.EdgeClamp?
+    private var lastCursor: CGPoint?
 
     init(actionPerformer: any RadialActionPerforming, frameResolver: any ProposedFrameResolving) {
         self.actionPerformer = actionPerformer
         self.frameResolver = frameResolver
     }
 
-    func open(at point: CGPoint) {
+    func open(at point: CGPoint, screenBounds: CGRect? = nil) {
         state = .open(menuCenter: point)
         selection = .none
         proposedFrame = nil
+        lastCursor = nil
+        if let screenBounds {
+            edgeClamp = RadialSelectionMath.EdgeClamp(initial: point, screenBounds: screenBounds)
+        } else {
+            edgeClamp = nil
+        }
+    }
+
+    func select(action: WindowAction) {
+        guard case let .open(center) = state else { return }
+        if let index = RadialMenuLayout.ringActions.firstIndex(of: action) {
+            selection = .ring(index)
+        } else if action == RadialMenuLayout.centerAction {
+            selection = .center
+        } else {
+            return
+        }
+        applySelectionFrame()
     }
 
     func update(cursorAt current: CGPoint) {
         guard case let .open(center) = state else { return }
-        let delta = CGPoint(x: current.x - center.x, y: current.y - center.y)
-        selection = RadialSelectionMath.selection(from: delta)
+        let resolved: CGPoint
+        if var clamp = edgeClamp {
+            let prior = lastCursor ?? current
+            let deltaX = current.x - prior.x
+            let deltaY = current.y - prior.y
+            resolved = clamp.resolve(current: current, deltaX: deltaX, deltaY: deltaY)
+            edgeClamp = clamp
+        } else {
+            resolved = current
+        }
+        lastCursor = resolved
+        let delta = CGPoint(x: resolved.x - center.x, y: resolved.y - center.y)
+        selection = RadialSelectionMath.selection(from: delta, cursor: resolved, menuCenter: center)
+        applySelectionFrame()
+    }
+
+    /// Selects the close pill without dismissing; commit or Esc dismisses.
+    func selectClose() {
+        guard case .open = state else { return }
+        selection = .cancel
+        proposedFrame = nil
+    }
+
+    func clearSelection() {
+        guard case .open = state else { return }
+        selection = .none
+        proposedFrame = nil
+    }
+
+    private func applySelectionFrame() {
         switch selection {
         case let .ring(index):
             if let action = RadialMenuLayout.action(forRingIndex: index) {
@@ -56,7 +104,7 @@ final class RadialMenuCoordinator {
             }
         case .center:
             proposedFrame = frameResolver.proposedFrame(for: RadialMenuLayout.centerAction)
-        case .none:
+        case .none, .cancel:
             proposedFrame = nil
         }
     }
@@ -72,7 +120,7 @@ final class RadialMenuCoordinator {
             action = RadialMenuLayout.action(forRingIndex: index)
         case .center:
             action = RadialMenuLayout.centerAction
-        case .none:
+        case .none, .cancel:
             action = nil
         }
         if let action {
@@ -93,5 +141,7 @@ final class RadialMenuCoordinator {
         state = .idle
         selection = .none
         proposedFrame = nil
+        edgeClamp = nil
+        lastCursor = nil
     }
 }

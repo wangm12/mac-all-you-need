@@ -7,6 +7,8 @@ struct ShortcutsSettingsView: View {
     @AppStorage(SnippetExpansionSettings.modeKey, store: AppGroupSettings.defaults) private var expansionModeRaw = SnippetExpansionSettings.defaultMode.rawValue
     @State private var pendingError: String?
     @State private var issueAction: ShortcutAction?
+    /// Chip preview for the in-row recorder (cleared after each successful add).
+    @State private var capturePreviewByAction: [ShortcutAction: HotkeyDescriptor] = [:]
 
     private var expansionMode: SnippetExpansionMode {
         SnippetExpansionMode(rawValue: expansionModeRaw) ?? SnippetExpansionSettings.defaultMode
@@ -67,7 +69,10 @@ struct ShortcutsSettingsView: View {
             VStack(alignment: .trailing, spacing: 8) {
                 HStack(spacing: 6) {
                     ForEach(Array(bindings.enumerated()), id: \.offset) { _, binding in
-                        ShortcutChip(text: binding.display, height: HotkeyChipPresentation.compactHeight)
+                        ShortcutChip(
+                            text: HotkeyChipPresentation.displayText(binding.display),
+                            height: HotkeyChipPresentation.compactHeight
+                        )
                             .contextMenu {
                                 Button("Remove") {
                                     registry.removeBinding(binding, for: action)
@@ -83,7 +88,10 @@ struct ShortcutsSettingsView: View {
                         candidateIssueMessage: { candidateIssueMessage($0, for: action) },
                         defaultDescriptor: defaultDescriptor,
                         recorderWidth: 130,
-                        reset: { registry.reset(action: action) }
+                        reset: {
+                            capturePreviewByAction[action] = nil
+                            registry.reset(action: action)
+                        }
                     )
                 }
             }
@@ -92,13 +100,14 @@ struct ShortcutsSettingsView: View {
 
     private func captureBinding(for action: ShortcutAction) -> Binding<HotkeyDescriptor> {
         Binding {
-            HotkeyDescriptor(keyCode: 0, modifiers: [])
+            capturePreviewByAction[action] ?? HotkeyDescriptor(keyCode: 0, modifiers: [])
         } set: { newValue in
             guard newValue.isModifierTap || newValue.keyCode != 0 || !newValue.modifiers.isEmpty else { return }
             issueAction = action
             do {
                 try registry.validate(newValue, for: action)
                 registry.addBinding(newValue, for: action)
+                capturePreviewByAction[action] = newValue
                 pendingError = nil
                 issueAction = nil
             } catch let error as ShortcutValidationError {

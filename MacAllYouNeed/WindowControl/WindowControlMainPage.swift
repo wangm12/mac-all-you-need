@@ -38,6 +38,7 @@ struct WindowLayoutsMainPage: View {
     private func scope(for tab: WindowLayoutsFunctionTab) -> WindowControlSettingsScope {
         switch tab {
         case .shortcuts: .layoutsShortcuts
+        case .radial: .layoutsRadial
         case .snap: .layoutsSnap
         case .apps: .layoutsApps
         }

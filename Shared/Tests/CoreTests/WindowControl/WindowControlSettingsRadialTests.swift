@@ -7,6 +7,8 @@ final class WindowControlSettingsRadialTests: XCTestCase {
         XCTAssertFalse(s.radialMenuEnabled)
         XCTAssertFalse(s.radialLockToCenter)
         XCTAssertFalse(s.radialCursorSelectionEnabled)
+        XCTAssertTrue(s.radialTargetHighlightEnabled)
+        XCTAssertEqual(s.radialTargetHighlightColor, .focusRingDefault)
     }
 
     func testRadialRoundTripsThroughCoding() throws {
@@ -25,10 +27,14 @@ final class WindowControlSettingsRadialTests: XCTestCase {
         dict.removeValue(forKey: "radialMenuEnabled")
         dict.removeValue(forKey: "radialLockToCenter")
         dict.removeValue(forKey: "radialCursorSelectionEnabled")
+        dict.removeValue(forKey: "radialTargetHighlightEnabled")
+        dict.removeValue(forKey: "radialTargetHighlightColor")
         let legacyData = try JSONSerialization.data(withJSONObject: dict)
         let decoded = try JSONDecoder().decode(WindowControlSettings.self, from: legacyData)
         XCTAssertFalse(decoded.radialMenuEnabled)
         XCTAssertFalse(decoded.radialLockToCenter)
         XCTAssertFalse(decoded.radialCursorSelectionEnabled)
+        XCTAssertTrue(decoded.radialTargetHighlightEnabled)
+        XCTAssertEqual(decoded.radialTargetHighlightColor, .focusRingDefault)
     }
 }

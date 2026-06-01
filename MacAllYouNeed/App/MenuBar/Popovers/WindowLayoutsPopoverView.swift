@@ -72,6 +72,15 @@ struct WindowLayoutsPopoverView: View {
                         snapCell(action)
                     }
                 }
+
+                Button("Radial settings…") {
+                    openRadialSettingsInMainApp()
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
             }
         }
         .padding(.horizontal, 14)
@@ -146,6 +155,11 @@ struct WindowLayoutsPopoverView: View {
 
     private func openWindowLayoutsInMainApp() {
         AppGroupSettings.defaults.set(WindowLayoutsFunctionTab.shortcuts.rawValue, forKey: WindowLayoutsFunctionTab.storageKey)
+        controller.showMainWindow(destination: .windowLayouts)
+    }
+
+    private func openRadialSettingsInMainApp() {
+        AppGroupSettings.defaults.set(WindowLayoutsFunctionTab.radial.rawValue, forKey: WindowLayoutsFunctionTab.storageKey)
         controller.showMainWindow(destination: .windowLayouts)
     }
 }

@@ -1,6 +1,7 @@
 @testable import MacAllYouNeed
 import Core
 import CryptoKit
+import Platform
 import XCTest
 
 @MainActor
@@ -239,8 +240,8 @@ final class ClipboardDockModelTests: XCTestCase {
 
     func testGlobalKeyFallbackMapsSpaceEscapeAndPlainArrowKeys() {
         let bindings = DockGlobalKeyFallbackBindings(
-            quickLook: [HotkeyDescriptor(keyCode: 49, modifiers: [])],
-            dismiss: [HotkeyDescriptor(keyCode: 53, modifiers: [])]
+            quickLook: [Platform.HotkeyDescriptor(keyCode: 49, modifiers: [])],
+            dismiss: [Platform.HotkeyDescriptor(keyCode: 53, modifiers: [])]
         )
 
         XCTAssertEqual(
@@ -263,8 +264,8 @@ final class ClipboardDockModelTests: XCTestCase {
 
     func testGlobalKeyFallbackIgnoresModifiedArrowKeys() {
         let bindings = DockGlobalKeyFallbackBindings(
-            quickLook: [HotkeyDescriptor(keyCode: 49, modifiers: [])],
-            dismiss: [HotkeyDescriptor(keyCode: 53, modifiers: [])]
+            quickLook: [Platform.HotkeyDescriptor(keyCode: 49, modifiers: [])],
+            dismiss: [Platform.HotkeyDescriptor(keyCode: 53, modifiers: [])]
         )
 
         XCTAssertNil(DockGlobalKeyFallbackPolicy.action(

@@ -184,7 +184,10 @@ struct HotkeyRecorder: NSViewRepresentable {
         }
 
         private func chipText(for descriptor: HotkeyDescriptor) -> String {
-            chipDisplayOverride?(descriptor) ?? descriptor.display
+            if let override = chipDisplayOverride {
+                return HotkeyChipPresentation.displayText(override(descriptor))
+            }
+            return HotkeyChipPresentation.displayText(descriptor.display)
         }
 
         func refresh() {
@@ -646,20 +649,14 @@ struct HotkeyRecorder: NSViewRepresentable {
         private func updateAppearance() {
             layer?.cornerRadius = HotkeyChipPresentation.cornerRadius
             layer?.backgroundColor = resolvedColor(.textBackgroundColor)
-            let borderColor: NSColor
             if isInvalid {
-                borderColor = .systemRed
+                layer?.borderColor = resolvedColor(.systemRed)
             } else if isRecording {
                 layer?.borderColor = neutralLayerColor(alpha: 0.34)
-                setLabelText(label.stringValue)
-                return
             } else {
                 layer?.borderColor = neutralLayerColor(alpha: 0.14)
-                setLabelText(label.stringValue)
-                return
+                setLabelText(chipText(for: descriptor))
             }
-            layer?.borderColor = resolvedColor(borderColor)
-            setLabelText(label.stringValue)
         }
 
         private func setLabelText(_ text: String) {

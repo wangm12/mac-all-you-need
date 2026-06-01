@@ -174,10 +174,18 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         }
 
         if runtime.settings.radialMenuEnabled, runtime.layoutsRuntimeEnabled,
-           runtime.axTrusted, runtime.coordinatorActive, !runtime.recordingHotkey,
-           type == .flagsChanged || (radialActive && type == .mouseMoved) {
-            if handleRadialEvent(type: type, flags: event.flags, location: event.location) {
-                return nil
+           runtime.axTrusted, runtime.coordinatorActive, !runtime.recordingHotkey {
+            if radialActive, type == .keyDown {
+                if handleRadialKeyDown(event) {
+                    return nil
+                }
+            }
+            if type == .flagsChanged || (radialActive && type == .mouseMoved) {
+                if !radialActive, gestureMode != .none {
+                    // Do not open radial while a drag/snap gesture is active.
+                } else if handleRadialEvent(type: type, flags: event.flags, location: event.location) {
+                    return nil
+                }
             }
         }
 

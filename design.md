@@ -444,10 +444,16 @@ These deviations exist for documented reasons. Do not generalize them.
 
 ### 10.6 Window snap overlay
 - File: `MacAllYouNeed/WindowControl/WindowSnapOverlayPanel.swift`
-- Uses fixed black fill and light-gray stroke so the translucent snap target reads over arbitrary app content during a drag. This is an OS overlay affordance, not app chrome.
+- Uses fixed black fill and light-gray stroke on an `NSBox` footprint (~52% panel alpha) so the snap target reads darker over arbitrary app content. Corner radius is probed from a transient titled window when possible, else 10pt (macOS 11–25) / 16pt (macOS 26+). This is an OS overlay affordance, not app chrome.
 
 ### 10.7 Context menu separators
 - SwiftUI context menus must use the platform `Divider()` primitive. `MAYNDivider` renders as a rectangle view and is not appropriate inside a menu.
+
+### 10.8 Radial menu overlays
+- Files: `MacAllYouNeed/WindowControl/Radial/RadialPreviewView.swift`, `RadialTargetHighlightView.swift`
+- **Destination preview** reuses `WindowLayoutPreviewRectView` / `WindowSnapOverlayPresentation` (black fill, light-gray stroke) like edge snap.
+- **Target highlight** uses a user-configurable glow color (`RadialHighlightColor`) on the focused window frame — desktop overlay exception, not `MAYNTheme` chrome.
+- The radial **pie** menu itself stays on `MAYNTheme` / `.regularMaterial` in `RadialMenuView`.
 
 ---
 

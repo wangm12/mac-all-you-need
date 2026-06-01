@@ -20,6 +20,8 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
     public var radialTriggerModifier: WindowGestureModifier
     /// Number of modifier presses required to open the radial menu (1 = hold once, 2 = double-tap).
     public var radialTriggerTapCount: Int
+    public var radialTargetHighlightEnabled: Bool
+    public var radialTargetHighlightColor: RadialHighlightColor
 
     public init(
         enabled: Bool = false,
@@ -39,7 +41,9 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialLockToCenter: Bool = false,
         radialCursorSelectionEnabled: Bool = false,
         radialTriggerModifier: WindowGestureModifier = [.control, .option],
-        radialTriggerTapCount: Int = 1
+        radialTriggerTapCount: Int = 1,
+        radialTargetHighlightEnabled: Bool = true,
+        radialTargetHighlightColor: RadialHighlightColor = .focusRingDefault
     ) {
         self.enabled = enabled
         self.dragAnywhereEnabled = dragAnywhereEnabled
@@ -59,6 +63,8 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         self.radialCursorSelectionEnabled = radialCursorSelectionEnabled
         self.radialTriggerModifier = radialTriggerModifier
         self.radialTriggerTapCount = radialTriggerTapCount
+        self.radialTargetHighlightEnabled = radialTargetHighlightEnabled
+        self.radialTargetHighlightColor = radialTargetHighlightColor
     }
 
     // Custom decoder so legacy payloads without the radial keys decode with
@@ -83,6 +89,9 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialCursorSelectionEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialCursorSelectionEnabled) ?? false
         radialTriggerModifier = try container.decodeIfPresent(WindowGestureModifier.self, forKey: .radialTriggerModifier) ?? [.control, .option]
         radialTriggerTapCount = try container.decodeIfPresent(Int.self, forKey: .radialTriggerTapCount) ?? 1
+        radialTargetHighlightEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialTargetHighlightEnabled) ?? true
+        radialTargetHighlightColor = try container.decodeIfPresent(RadialHighlightColor.self, forKey: .radialTargetHighlightColor)
+            ?? .focusRingDefault
     }
 
     public static let `default` = WindowControlSettings()

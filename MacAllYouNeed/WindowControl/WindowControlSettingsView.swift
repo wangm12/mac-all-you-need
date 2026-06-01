@@ -1,9 +1,11 @@
+import ApplicationServices
 import Core
 import Platform
 import SwiftUI
 
 enum WindowControlSettingsScope {
     case layoutsShortcuts
+    case layoutsRadial
     case layoutsSnap
     case layoutsApps
     case grabGesture
@@ -31,15 +33,21 @@ struct WindowControlSettingsView: View {
         _hotkeyMap = hotkeyMap
     }
 
+    @ViewBuilder
     var body: some View {
-        Group {
-            switch scope {
+        switch scope {
             case .layoutsShortcuts:
                 shortcutsSection
-                RadialMenuSettingsSection(settings: $settings) { next in
-                    WindowControlSettingsStore.save(next)
-                    controller.applyWindowControlSettings(next)
-                }
+            case .layoutsRadial:
+                RadialMenuSettingsTabView(
+                    settings: $settings,
+                    onSettingsChange: { next in
+                        WindowControlSettingsStore.save(next)
+                        controller.applyWindowControlSettings(next)
+                    },
+                    axTrusted: AXIsProcessTrusted(),
+                    layoutsEnabled: settings.enabled && controller.windowControl.windowLayoutsEnabled
+                )
             case .layoutsSnap:
                 edgeSnapSection
             case .layoutsApps:
@@ -51,7 +59,6 @@ struct WindowControlSettingsView: View {
             case .advanced:
                 ignoredAppsSection
                 diagnosticsSection
-            }
         }
     }
 
@@ -365,8 +372,7 @@ struct WindowControlSettingsView: View {
         .windowCenter,
         .windowRestore,
         .windowNextDisplay,
-        .windowPreviousDisplay,
-        .radialMenu
+        .windowPreviousDisplay
     ]
 }
 

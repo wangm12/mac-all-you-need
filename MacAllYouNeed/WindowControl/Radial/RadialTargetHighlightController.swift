@@ -2,28 +2,23 @@ import AppKit
 import SwiftUI
 import UI
 
-/// Screen-sized, click-through NSPanel that renders the proposed-frame preview.
+/// Window-sized panel showing a glowing border on the radial target window.
 @MainActor
-final class RadialPreviewController {
-    private var panelController: NonActivatingFloatingPanelController<RadialPreviewHost>?
+final class RadialTargetHighlightController {
+    private var panelController: NonActivatingFloatingPanelController<RadialTargetHighlightView>?
     private var dismissGeneration = 0
-    private let viewModel: RadialPreviewViewModel
-    private var screenFrame: CGRect = .zero
 
     private static var panelLevel: NSWindow.Level {
         NSWindow.Level(rawValue: FloatingHUDWindowLayering.windowLevel.rawValue)
     }
 
-    init(viewModel: RadialPreviewViewModel) {
-        self.viewModel = viewModel
-    }
-
-    func show(on screen: NSScreen) {
+    func show(frame: CGRect, color: Color) {
         dismissGeneration += 1
-        screenFrame = screen.frame
+        let radius = WindowSnapOverlayPresentation.cornerRadius(for: frame.size)
+        let highlight = RadialTargetHighlightView(color: color, cornerRadius: radius)
 
         if panelController == nil {
-            let controller = NonActivatingFloatingPanelController<RadialPreviewHost>(
+            let controller = NonActivatingFloatingPanelController<RadialTargetHighlightView>(
                 styleMask: WindowSnapOverlayPresentation.styleMask,
                 level: Self.panelLevel,
                 collectionBehavior: FloatingHUDWindowLayering.collectionBehavior,
@@ -33,34 +28,29 @@ final class RadialPreviewController {
                 hideAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastOut)
             )
             panelController = controller
-            controller.present(
-                rootView: RadialPreviewHost(viewModel: viewModel, screenFrame: screen.frame),
-                size: screen.frame.size,
-                animated: false
-            )
+            controller.present(rootView: highlight, size: frame.size, animated: false)
             if let panel = controller.currentPanel {
                 panel.isOpaque = false
                 panel.hidesOnDeactivate = false
                 panel.ignoresMouseEvents = true
                 panel.alphaValue = 0
-                panel.setFrame(screen.frame, display: true)
                 panel.orderOut(nil)
             }
         }
 
         guard let panel = panelController?.currentPanel else { return }
-        panel.setFrame(screen.frame, display: true)
-        panelController?.update(rootView: RadialPreviewHost(viewModel: viewModel, screenFrame: screen.frame))
+        panel.setFrame(NSRect(origin: frame.origin, size: frame.size), display: true, animate: false)
+        panelController?.update(rootView: highlight)
 
         guard !panel.isVisible else {
-            panel.alphaValue = WindowSnapOverlayPresentation.visibleAlpha
+            panel.alphaValue = 1
             FloatingHUDWindowLayering.orderFront(panel)
             return
         }
 
         panel.alphaValue = 0
         FloatingHUDWindowLayering.orderFront(panel)
-        animate(panel, to: WindowSnapOverlayPresentation.visibleAlpha, kind: .toastIn)
+        animate(panel, to: 1, kind: .toastIn)
     }
 
     func dismiss() {
@@ -97,21 +87,6 @@ final class RadialPreviewController {
             context.duration = duration
             context.timingFunction = MAYNMotionBridge.timingFunction(kind)
             panel.animator().alphaValue = alpha
-        }
-    }
-}
-
-private struct RadialPreviewHost: View {
-    @ObservedObject var viewModel: RadialPreviewViewModel
-    let screenFrame: CGRect
-
-    var body: some View {
-        Group {
-            if let frame = viewModel.proposedFrame {
-                RadialPreviewView(frame: frame, screenFrame: screenFrame)
-            } else {
-                Color.clear
-            }
         }
     }
 }

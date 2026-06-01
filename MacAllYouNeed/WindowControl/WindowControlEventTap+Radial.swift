@@ -10,6 +10,7 @@ extension WindowControlEventTap {
     enum RadialPhase: Equatable {
         case open(center: CGPoint)
         case update(cursor: CGPoint)
+        case selectAction(WindowAction)
         case commit
         case cancel
     }
@@ -32,6 +33,7 @@ extension WindowControlEventTap {
         if includeRadialKeys {
             mask |= CGEventMask(1 << CGEventType.flagsChanged.rawValue)
             mask |= CGEventMask(1 << CGEventType.mouseMoved.rawValue)
+            mask |= CGEventMask(1 << CGEventType.keyDown.rawValue)
         }
         return mask
     }
@@ -66,10 +68,11 @@ extension WindowControlEventTap {
                 _ = tapKey
                 return nil
             }
-            // Hold-to-open: first press opens. Releasing the modifier does NOT commit
-            // (the menu stays open). The user clicks to apply or presses Esc to cancel.
             if triggerHeld, !active {
                 return .open(center: location)
+            }
+            if active, !triggerHeld {
+                return .commit
             }
             return nil
         case .mouseMoved:
@@ -119,6 +122,8 @@ extension WindowControlEventTap {
                 }
             } else if !triggerHeld, radialTriggerWasHeld, !radialActive {
                 radialTapLastRelease = (tapKey, now)
+            } else if radialActive, !triggerHeld {
+                return emitRadialPhase(.commit, type: type)
             }
             radialTriggerWasHeld = triggerHeld
             return false
@@ -130,11 +135,39 @@ extension WindowControlEventTap {
         }
     }
 
+    /// Maps key-down events to radial actions while the menu is open.
+    func handleRadialKeyDown(_ event: CGEvent) -> Bool {
+        guard radialActive else { return false }
+        guard let radialPhaseHandler else { return true }
+        if Self.isRadialDismissKey(event) {
+            Task { @MainActor in radialPhaseHandler(.cancel) }
+            return true
+        }
+        if let action = Self.radialAction(for: event) {
+            Task { @MainActor in radialPhaseHandler(.selectAction(action)) }
+        }
+        return true
+    }
+
+    private static func isRadialDismissKey(_ event: CGEvent) -> Bool {
+        guard let nsEvent = NSEvent(cgEvent: event) else { return false }
+        if nsEvent.keyCode == 53 { return true } // Esc
+        let lowered = nsEvent.charactersIgnoringModifiers?.lowercased() ?? ""
+        return lowered.first.map { RadialMenuLayout.dismissKeys.contains($0) } ?? false
+    }
+
+    private static func radialAction(for event: CGEvent) -> WindowAction? {
+        guard let nsEvent = NSEvent(cgEvent: event) else { return nil }
+        let lowered = nsEvent.charactersIgnoringModifiers?.lowercased() ?? ""
+        guard let first = lowered.first else { return nil }
+        return RadialMenuLayout.action(forKey: first)
+    }
+
     private func emitRadialPhase(_ phase: RadialPhase, type: CGEventType) -> Bool {
         switch phase {
         case .open:
             radialActive = true
-        case .update:
+        case .update, .selectAction:
             break
         case .commit, .cancel:
             radialActive = false

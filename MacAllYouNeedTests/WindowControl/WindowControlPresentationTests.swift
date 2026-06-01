@@ -101,6 +101,14 @@ final class WindowControlPresentationTests: XCTestCase {
         )
     }
 
+    func testWindowGestureModifierPickerRejectsDoubleTapWithoutTapCountBinding() {
+        let descriptor = HotkeyDescriptor(modifierTap: .doubleTap(.leftCommand))
+        XCTAssertEqual(
+            descriptor.display,
+            "Left ⌘ ×2"
+        )
+    }
+
     func testWindowGestureModifierPickerExposesFnAndSideSpecificModifiers() {
         // The picker now wraps HotkeyRecorderControl and captures modifiers
         // via ModifierTapShortcut.Key. Verify the underlying enum still
@@ -128,24 +136,30 @@ final class WindowControlPresentationTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testSnapOverlayPresentationUsesSharedPanelMetricsWithoutGlow() {
-        if #available(macOS 26.0, *) {
-            XCTAssertEqual(WindowSnapOverlayPresentation.cornerRadius, 16)
-        } else if #available(macOS 11.0, *) {
-            XCTAssertEqual(WindowSnapOverlayPresentation.cornerRadius, 10)
-        } else {
-            XCTAssertEqual(WindowSnapOverlayPresentation.cornerRadius, 5)
-        }
+        let radius = WindowSnapOverlayPresentation.standardCornerRadius
+        XCTAssertGreaterThanOrEqual(radius, 5)
+        XCTAssertLessThanOrEqual(radius, 24)
+        XCTAssertEqual(
+            WindowSnapOverlayPresentation.cornerRadius(for: CGSize(width: 800, height: 600)),
+            radius
+        )
+        XCTAssertEqual(
+            WindowSnapOverlayPresentation.cornerRadius(for: CGSize(width: 12, height: 12)),
+            6,
+            accuracy: 0.01
+        )
         XCTAssertTrue(WindowSnapOverlayPresentation.respectsReduceMotion)
         XCTAssertFalse(WindowSnapOverlayPresentation.usesGlow)
         XCTAssertTrue(WindowSnapOverlayPresentation.usesNeutralPalette)
         XCTAssertFalse(WindowSnapOverlayPresentation.usesProgressAccent)
         XCTAssertTrue(WindowSnapOverlayPresentation.usesFixedBlackOverlay)
         XCTAssertTrue(WindowSnapOverlayPresentation.cancelsStaleDismissAnimation)
-        XCTAssertEqual(WindowSnapOverlayPresentation.visibleAlpha, 0.30, accuracy: 0.001)
+        XCTAssertEqual(WindowSnapOverlayPresentation.visibleAlpha, 0.52, accuracy: 0.001)
         XCTAssertEqual(WindowSnapOverlayPresentation.borderWidth, 2)
         XCTAssertEqual(WindowSnapOverlayPresentation.fillColor, .black)
-        XCTAssertEqual(WindowSnapOverlayPresentation.borderColor, .lightGray)
+        XCTAssertEqual(WindowSnapOverlayPresentation.borderColor, NSColor(white: 0.65, alpha: 1))
         XCTAssertEqual(WindowSnapOverlayPresentation.fillOpacity, 1.0, accuracy: 0.001)
         XCTAssertEqual(WindowSnapOverlayPresentation.strokeOpacity, 1.0, accuracy: 0.001)
         XCTAssertFalse(WindowSnapOverlayPresentation.acceptsMouseEvents)

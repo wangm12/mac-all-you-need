@@ -31,8 +31,16 @@ final class FunctionTabsTests: XCTestCase {
 
     func testWindowLayoutsTabMapsAllCases() {
         XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("shortcuts"), .shortcuts)
+        XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("radial"), .radial)
         XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("snap"), .snap)
         XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("apps"), .apps)
+    }
+
+    func testRadialMenuSettingsPresentationSectionsWhenEnabled() {
+        XCTAssertEqual(
+            RadialMenuSettingsPresentation.sectionTitles(whenEnabled: true),
+            ["Radial Menu", "Preview", "Trigger", "Selection", "Target Highlight", "Layout Actions"]
+        )
     }
 
     func testWindowGrabTabDefaultsToGesture() {

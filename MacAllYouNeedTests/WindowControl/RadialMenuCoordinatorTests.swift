@@ -46,11 +46,32 @@ final class RadialMenuCoordinatorTests: XCTestCase {
         if case .cancelled = coord.state {} else { XCTFail("expected cancelled state") }
     }
 
+    @MainActor func testCloseZoneHighlightsThenCommitDismisses() {
+        let performer = FakeRadialActionPerformer()
+        let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
+        let center = CGPoint(x: 200, y: 200)
+        coord.open(at: center)
+        let closeCursor = CGPoint(
+            x: center.x + RadialMenuMetrics.closePillCenterOffset.x,
+            y: center.y + RadialMenuMetrics.closePillCenterOffset.y
+        )
+        coord.update(cursorAt: closeCursor)
+        XCTAssertEqual(coord.selection, .cancel)
+        if case .open = coord.state {} else {
+            XCTFail("expected menu to stay open while hovering close")
+        }
+        coord.commit()
+        XCTAssertEqual(performer.performed.count, 0)
+        if case .cancelled = coord.state {} else {
+            XCTFail("expected cancelled state after commit")
+        }
+    }
+
     @MainActor func testNoSelectionCancelCommit() {
         let performer = FakeRadialActionPerformer()
         let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
         coord.open(at: .zero)
-        coord.update(cursorAt: CGPoint(x: 1, y: 0)) // within activation distance -> .none
+        // No cursor update: selection stays .none; commit should cancel, not maximize.
         coord.commit()
         XCTAssertEqual(performer.performed.count, 0)
     }

@@ -8,7 +8,11 @@ import Foundation
 final class RadialPreviewViewModel: ObservableObject {
     @Published var proposedFrame: CGRect?
 
-    func update(from coordinator: RadialMenuCoordinator) {
-        proposedFrame = coordinator.proposedFrame
+    func update(from coordinator: RadialMenuCoordinator, host: WindowControlCoordinator) {
+        guard let cgFrame = coordinator.proposedFrame else {
+            proposedFrame = nil
+            return
+        }
+        proposedFrame = host.appKitOverlayFrame(for: cgFrame)
     }
 }

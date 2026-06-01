@@ -98,6 +98,7 @@ final class WindowControlCoordinator {
     @ObservationIgnored let radialPreviewViewModel = RadialPreviewViewModel()
     @ObservationIgnored lazy var radialMenuController = RadialMenuController(viewModel: radialMenuViewModel)
     @ObservationIgnored lazy var radialPreviewController = RadialPreviewController(viewModel: radialPreviewViewModel)
+    @ObservationIgnored lazy var radialTargetHighlightController = RadialTargetHighlightController()
     @ObservationIgnored var radialEscMonitor: Any?
 
     init(

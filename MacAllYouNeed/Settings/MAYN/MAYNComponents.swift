@@ -204,11 +204,12 @@ struct MAYNSection<Content: View>: View {
     }
 }
 
-struct MAYNSettingsRow<Trailing: View>: View {
+struct MAYNSettingsRow<Leading: View, Trailing: View>: View {
     let title: String
     var subtitle: String?
     var minHeight: CGFloat = MAYNControlMetrics.rowMinHeight
     private let belowSubtitle: (() -> AnyView)?
+    @ViewBuilder let leading: Leading
     @ViewBuilder let trailing: Trailing
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
@@ -219,28 +220,48 @@ struct MAYNSettingsRow<Trailing: View>: View {
         minHeight: CGFloat = MAYNControlMetrics.rowMinHeight,
         belowSubtitle: (() -> AnyView)? = nil,
         @ViewBuilder trailing: () -> Trailing
+    ) where Leading == EmptyView {
+        self.title = title
+        self.subtitle = subtitle
+        self.minHeight = minHeight
+        self.belowSubtitle = belowSubtitle
+        self.leading = EmptyView()
+        self.trailing = trailing()
+    }
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        minHeight: CGFloat = MAYNControlMetrics.rowMinHeight,
+        belowSubtitle: (() -> AnyView)? = nil,
+        @ViewBuilder leading: () -> Leading,
+        @ViewBuilder trailing: () -> Trailing
     ) {
         self.title = title
         self.subtitle = subtitle
         self.minHeight = minHeight
         self.belowSubtitle = belowSubtitle
+        self.leading = leading()
         self.trailing = trailing()
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: MAYNControlMetrics.rowControlSpacing) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.callout)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let belowSubtitle {
-                    belowSubtitle()
-                        .padding(.top, 4)
+            HStack(alignment: .center, spacing: 10) {
+                leading
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.callout)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let belowSubtitle {
+                        belowSubtitle()
+                            .padding(.top, 4)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
