@@ -17,6 +17,10 @@ private let kShiftDown = CGEventFlags(
     rawValue: CGModifierDeviceBit.leftShift | CGEventFlags.maskShift.rawValue
 )
 
+private let kCommandDown = CGEventFlags(
+    rawValue: CGModifierDeviceBit.leftCommand | CGEventFlags.maskCommand.rawValue
+)
+
 extension ModifierTapDispatcher {
     /// Simulate a complete tap: press then immediate release of left-option.
     func simulateOptionTap() {
@@ -126,7 +130,44 @@ final class ModifierTapDispatcherMultiTapTimingTests: XCTestCase {
         dispatcher.unregister(token)
     }
 
-    // MARK: - 4. Unregister before timer fires cancels the pending callback
+    // MARK: - 4. ⌘A then ⌘C must not register as a double-tap
+
+    func testCommandComboSequenceDoesNotFireDoubleTap() {
+        let dispatcher = makeDispatcher()
+
+        var doubleCount = 0
+        let token = dispatcher.register(.doubleTap(.leftCommand)) { doubleCount += 1 }
+
+        // ⌘A
+        dispatcher.handleFlagsChanged(newFlags: kCommandDown)
+        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 0x00, keyDown: true) {
+            var flags = event.flags
+            flags.insert(kCommandDown)
+            event.flags = flags
+            dispatcher.handleEvent(type: .keyDown, event: event)
+        }
+        dispatcher.handleFlagsChanged(newFlags: kNoFlags)
+
+        // ⌘C shortly after (separate combo, not a double-tap)
+        dispatcher.handleFlagsChanged(newFlags: kCommandDown)
+        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 0x08, keyDown: true) {
+            var flags = event.flags
+            flags.insert(kCommandDown)
+            event.flags = flags
+            dispatcher.handleEvent(type: .keyDown, event: event)
+        }
+        dispatcher.handleFlagsChanged(newFlags: kNoFlags)
+
+        let exp = expectation(description: "settle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + window + 0.1) { exp.fulfill() }
+        wait(for: [exp], timeout: 2.0)
+
+        XCTAssertEqual(doubleCount, 0, "⌘A then ⌘C must not count as a modifier double-tap")
+
+        dispatcher.unregister(token)
+    }
+
+    // MARK: - 5. Unregister before timer fires cancels the pending callback
 
     func testUnregisterBeforeTimerFiresPreventsCallback() {
         let dispatcher = makeDispatcher()

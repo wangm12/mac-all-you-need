@@ -75,7 +75,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         private var tapPressCGFlags: CGEventFlags = []
         private var tapNonModifierPressed = false
         private var tapLastRelease: (key: ModifierTapShortcut.Key, time: TimeInterval, count: Int)?
-        private static let multiTapWindow: TimeInterval = 0.28
+        private static let multiTapWindow: TimeInterval = ModifierTapTiming.multiTapWindow
 
         init(
             descriptor: Binding<HotkeyDescriptor>,
@@ -239,6 +239,7 @@ struct HotkeyRecorder: NSViewRepresentable {
             }
             // A real key is being pressed — cancel any pending tap candidate.
             tapNonModifierPressed = true
+            tapLastRelease = nil
             if pendingDescriptor?.isModifierTap == true {
                 pendingDescriptor = nil
                 pendingIssueMessage = nil
@@ -270,6 +271,7 @@ struct HotkeyRecorder: NSViewRepresentable {
             }
             // A real key is being pressed — cancel any pending tap candidate.
             tapNonModifierPressed = true
+            tapLastRelease = nil
             if pendingDescriptor?.isModifierTap == true {
                 pendingDescriptor = nil
                 pendingIssueMessage = nil
@@ -511,6 +513,13 @@ struct HotkeyRecorder: NSViewRepresentable {
         func testApplyCGFlags(_ cgFlags: CGEventFlags) {
             guard isRecording else { return }
             updateActiveModifiers(cgFlags: cgFlags)
+        }
+
+        /// Test hook: simulate a non-modifier key during modifier-tap recording.
+        func testNoteNonModifierKeyDown() {
+            guard isRecording else { return }
+            tapNonModifierPressed = true
+            tapLastRelease = nil
         }
 
         func tapKeyFromCGFlags(_ cgFlags: CGEventFlags) -> ModifierTapShortcut.Key? {

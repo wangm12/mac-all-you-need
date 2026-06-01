@@ -26,11 +26,11 @@ public final class ModifierTapDispatcher {
 
     /// Maximum duration (seconds) of a modifier press-to-release to count as
     /// a tap. Longer presses are treated as "held" and ignored.
-    public var tapHoldMax: TimeInterval = 0.25
+    public var tapHoldMax: TimeInterval = ModifierTapTiming.tapHoldMax
 
     /// Window (seconds) within which a second tap must arrive to be counted
     /// as part of a multi-tap sequence.
-    public var multiTapWindow: TimeInterval = 0.28
+    public var multiTapWindow: TimeInterval = ModifierTapTiming.multiTapWindow
 
     // MARK: - Private state
 
@@ -136,10 +136,14 @@ public final class ModifierTapDispatcher {
         case .keyDown:
             // Any non-modifier key pressed while a modifier is held cancels tap.
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-            if !isModifierKeyCode(Int(keyCode)) {
+            if !ModifierKeyCodes.isModifier(Int(keyCode)) {
                 for key in pressStart.keys {
                     nonModifierDownSincePress.insert(key)
                 }
+                // A combo (e.g. ⌘A) must not chain into a later "double tap" when ⌘ is
+                // pressed again for ⌘C within the multi-tap window.
+                cancelPendingTimer()
+                pendingTap = nil
             }
 
         case .flagsChanged:
@@ -157,9 +161,10 @@ public final class ModifierTapDispatcher {
 
         for (key, pressed) in transitions {
             if pressed {
-                // Modifier pressed: record start time, clear other-key flag.
+                // Modifier pressed: record start time. Do not clear
+                // `nonModifierDownSincePress` here — a combo key may arrive on keyDown
+                // after flagsChanged and must still invalidate this press on release.
                 pressStart[key] = now
-                nonModifierDownSincePress.remove(key)
             } else {
                 // Modifier released.
                 guard let start = pressStart.removeValue(forKey: key) else { continue }
@@ -307,7 +312,12 @@ public final class ModifierTapDispatcher {
         }
     }
 
-    private func isModifierKeyCode(_ code: Int) -> Bool {
+}
+
+// MARK: - Modifier key codes
+
+public enum ModifierKeyCodes {
+    public static func isModifier(_ code: Int) -> Bool {
         switch code {
         case 54, 55, 56, 57, 58, 59, 60, 61, 62, 63: // Cmd L/R, Shift L/R, Caps, Option L/R, Control L/R, Fn
             true

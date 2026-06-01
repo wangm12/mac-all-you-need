@@ -837,6 +837,27 @@ final class HotkeyRecorderTests: XCTestCase {
         XCTAssertTrue(recorder.visibleLabelText?.hasSuffix("⌘") == true)
     }
 
+    func testModifierTapComboSequenceDoesNotUpgradeToDoubleTap() {
+        var descriptor = HotkeyDescriptor.defaultClipboard
+        let recorder = HotkeyRecorder.RecorderView(
+            descriptor: Binding(get: { descriptor }, set: { descriptor = $0 })
+        )
+        recorder.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
+        recorder.mouseDown(with: mouseEvent())
+
+        let cmdFlags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x00000008)
+        // ⌘A
+        recorder.testApplyCGFlags(cmdFlags)
+        recorder.testNoteNonModifierKeyDown()
+        recorder.testApplyCGFlags([])
+        // ⌘C within the multi-tap window
+        recorder.testApplyCGFlags(cmdFlags)
+        recorder.testNoteNonModifierKeyDown()
+        recorder.testApplyCGFlags([])
+
+        XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.count, 1)
+    }
+
     func testModifierTapConfirmPersistsDoubleTapOnChip() {
         var descriptor = HotkeyDescriptor.defaultClipboard
         let recorder = HotkeyRecorder.RecorderView(

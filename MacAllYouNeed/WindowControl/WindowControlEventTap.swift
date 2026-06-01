@@ -74,6 +74,8 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
     /// Edge-tracking for double-tap radial triggers.
     var radialTriggerWasHeld = false
     var radialTapLastRelease: (key: ModifierTapShortcut.Key, time: TimeInterval)?
+    /// True when a non-modifier key was pressed while the radial trigger modifier was held.
+    var radialComboChordActive = false
 
     init(
         resolver: WindowTargetResolver = WindowTargetResolver(),
@@ -175,9 +177,13 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
 
         if runtime.settings.radialMenuEnabled, runtime.layoutsRuntimeEnabled,
            runtime.axTrusted, runtime.coordinatorActive, !runtime.recordingHotkey {
-            if radialActive, type == .keyDown {
-                if handleRadialKeyDown(event) {
-                    return nil
+            if type == .keyDown {
+                if radialActive {
+                    if handleRadialKeyDown(event) {
+                        return nil
+                    }
+                } else {
+                    noteRadialComboKeyDown(event)
                 }
             }
             if type == .flagsChanged || (radialActive && type == .mouseMoved) {

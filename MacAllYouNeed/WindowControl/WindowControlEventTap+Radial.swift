@@ -15,7 +15,7 @@ extension WindowControlEventTap {
         case cancel
     }
 
-    fileprivate static let radialMultiTapWindow: TimeInterval = 0.28
+    fileprivate static let radialMultiTapWindow: TimeInterval = ModifierTapTiming.multiTapWindow
 
     /// Builds the CGEvent mask. Radial keys (`flagsChanged` + `mouseMoved`) are
     /// only included when the radial menu is enabled, so the tap does not see
@@ -114,6 +114,7 @@ extension WindowControlEventTap {
         switch type {
         case .flagsChanged:
             if triggerHeld, !radialTriggerWasHeld, !radialActive {
+                radialComboChordActive = false
                 if let last = radialTapLastRelease,
                    last.key == tapKey,
                    now - last.time <= Self.radialMultiTapWindow {
@@ -121,7 +122,10 @@ extension WindowControlEventTap {
                     return emitRadialPhase(.open(center: location), type: type)
                 }
             } else if !triggerHeld, radialTriggerWasHeld, !radialActive {
-                radialTapLastRelease = (tapKey, now)
+                if !radialComboChordActive {
+                    radialTapLastRelease = (tapKey, now)
+                }
+                radialComboChordActive = false
             } else if radialActive, !triggerHeld {
                 return emitRadialPhase(.commit, type: type)
             }
@@ -161,6 +165,18 @@ extension WindowControlEventTap {
         let lowered = nsEvent.charactersIgnoringModifiers?.lowercased() ?? ""
         guard let first = lowered.first else { return nil }
         return RadialMenuLayout.action(forKey: first)
+    }
+
+    /// Marks chorded use (e.g. ⌘A) so the subsequent modifier release is not counted as tap 1.
+    func noteRadialComboKeyDown(_ event: CGEvent) {
+        guard radialTriggerTapCount > 1 else { return }
+        guard !radialActive else { return }
+        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+        guard !ModifierKeyCodes.isModifier(keyCode) else { return }
+        let modifiers = WindowGestureModifier(cgEventFlags: event.flags)
+        guard modifiers.radialExactMatch(radialTriggerModifier) else { return }
+        radialComboChordActive = true
+        radialTapLastRelease = nil
     }
 
     private func emitRadialPhase(_ phase: RadialPhase, type: CGEventType) -> Bool {
