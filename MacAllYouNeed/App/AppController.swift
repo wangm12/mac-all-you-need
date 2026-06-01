@@ -74,7 +74,7 @@ final class AppController {
     private let folderHistory: FolderHistoryRuntime?
 
     // Plan 06: Dock-Hover Window Previews runtime (AX hover observer + panel).
-    private let dockPreviews: DockPreviewRuntime
+    private let dockPreviews: DockHubRuntime
 
     // AI File Organizer coordinator. Stored as optional; initialized once on first access.
     // Cannot use `lazy` with @Observable, so we use a private backing var + nonisolated storage.
@@ -192,7 +192,7 @@ final class AppController {
         snippetExpander = Self.makeSnippetExpander(store: stores.snippet)
 
         folderHistory = FolderHistoryRuntime()
-        dockPreviews = DockPreviewRuntime()
+        dockPreviews = DockHubRuntime()
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
@@ -514,6 +514,10 @@ final class AppController {
 
     func dockPreviewsRefreshPermissions() {
         dockPreviews.refreshPermissions()
+    }
+
+    func windowSwitcherReloadSettings() {
+        dockPreviews.reloadSettings()
     }
 
     private func suspendShortcutTriggersForHotkeyRecording() {

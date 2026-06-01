@@ -5,7 +5,8 @@ import XCTest
 final class DockPreviewCoordinatorTests: XCTestCase {
     @MainActor func testStartAndStop() {
         let coord = AXObserverCoordinator(engine: FakeDockAXObserverEngine(), healthCheckInterval: 999)
-        let dockCoord = DockPreviewCoordinator(coordinator: coord)
+        let panel = DockPreviewPanelController()
+        let dockCoord = DockPreviewCoordinator(panelController: panel, coordinator: coord)
         dockCoord.start()
         dockCoord.stop()
         // No crash on the start/stop lifecycle.

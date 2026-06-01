@@ -11,9 +11,13 @@ final class DockPreviewLiveCaptureManager: ObservableObject {
     @Published private(set) var frames: [CGWindowID: CGImage] = [:]
     private var outputs: [CGWindowID: StreamOutputHandler] = [:]
     private var streams: [CGWindowID: SCStream] = [:]
+    private var keepAliveTask: Task<Void, Never>?
     private let maxStreams = 4
 
     func setActiveWindowIDs(_ ids: [CGWindowID], settings: DockPreviewSettings) {
+        keepAliveTask?.cancel()
+        keepAliveTask = nil
+
         guard settings.enableLivePreview, DockPreviewPermissionGate.screenRecordingGranted() else {
             stopAll()
             return
@@ -28,9 +32,38 @@ final class DockPreviewLiveCaptureManager: ObservableObject {
         }
     }
 
+    func scheduleStopAfterKeepAlive(settings: DockPreviewSettings) {
+        keepAliveTask?.cancel()
+        let seconds = settings.liveStreamKeepAliveSec
+        guard seconds > 0 else {
+            stopAll()
+            return
+        }
+        keepAliveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.stopAll()
+        }
+    }
+
     func stopAll() {
+        keepAliveTask?.cancel()
+        keepAliveTask = nil
         for id in streams.keys {
             stopStream(id)
+        }
+    }
+
+    private var panelOpenCount = 0
+
+    func panelOpened() {
+        panelOpenCount += 1
+    }
+
+    func panelClosed() {
+        panelOpenCount = max(0, panelOpenCount - 1)
+        if panelOpenCount == 0 {
+            scheduleStopAfterKeepAlive(settings: DockPreviewSettingsStore.load())
         }
     }
 

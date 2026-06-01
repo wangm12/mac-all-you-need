@@ -20,12 +20,15 @@ struct DockPreviewSettingsSections: View {
 
     var body: some View {
         Group {
+            DockHubSettingsSections(onSettingsChanged: onSettingsChanged)
             previewsSection
             livePreviewSection
             windowsSection
             placementSection
             captureSection
             folderSection
+            appearanceSection
+            gesturesSection
             diagnosticsSection
         }
         .onAppear {
@@ -103,6 +106,17 @@ struct DockPreviewSettingsSections: View {
             MAYNSettingsRow(title: "Frame rate", subtitle: "Maximum live preview frames per second.") {
                 MAYNDropdown(selection: binding(\.livePreviewFrameRate), options: DockPreviewLiveFrameRate.allCases) { $0.displayName }
             }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Stream keep-alive", subtitle: "Seconds to keep live streams running after the panel closes (0 = stop immediately).") {
+                MAYNNumericStepper(
+                    text: "Keep-alive",
+                    value: intBinding(\.liveStreamKeepAliveSec),
+                    range: 0 ... 30,
+                    step: 1,
+                    presets: [0, 3, 5, 10],
+                    suffix: "sec"
+                )
+            }
         }
     }
 
@@ -144,6 +158,12 @@ struct DockPreviewSettingsSections: View {
             toggleRow("Prevent Dock auto-hide", "Keep the Dock visible while a preview is open.", \.preventDockAutoHideWhileOpen)
             MAYNDivider()
             toggleRow("Skip delay when switching apps", "No hover delay when moving between icons with the panel open.", \.skipDelayWhenPanelVisible)
+            MAYNDivider()
+            toggleRow("Delay only on first open", "Apply hover delay only when opening the first preview.", \.useDelayOnlyForInitialOpen)
+            MAYNDivider()
+            toggleRow("Block re-entry during fade", "Ignore mouse re-entry while the panel is fading out.", \.preventPreviewReentryDuringFadeOut)
+            MAYNDivider()
+            toggleRow("Keep preview when app quits", "Leave the panel visible if the hovered app terminates.", \.keepPreviewOnAppQuit)
         }
     }
 
@@ -179,6 +199,32 @@ struct DockPreviewSettingsSections: View {
             MAYNDivider()
             toggleRow("Show hidden files", "Include dotfiles in folder widgets.", \.folderShowHiddenFiles)
         }
+    }
+
+    private var appearanceSection: some View {
+        MAYNSection(title: "Appearance") {
+            MAYNSettingsRow(title: "Card width", subtitle: "Preview thumbnail width in points.") {
+                MAYNNumericStepper(text: "Width", value: intBinding(\.previewCardWidth), range: 120 ... 480, step: 10, presets: [180, 240, 320], suffix: "px")
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Card height", subtitle: "Preview thumbnail height in points.") {
+                MAYNNumericStepper(text: "Height", value: intBinding(\.previewCardHeight), range: 80 ... 360, step: 10, presets: [120, 150, 200], suffix: "px")
+            }
+            MAYNDivider()
+            toggleRow("Show window titles", "Titles under each preview card.", \.showWindowTitle)
+            MAYNDivider()
+            toggleRow("Show app name", "App header above the window strip.", \.showAppNameInHeader)
+            MAYNDivider()
+            toggleRow("Traffic light buttons", "Close, minimize, and zoom on each card.", \.showTrafficLightButtons)
+            MAYNDivider()
+            MAYNSettingsRow(title: "Compact list threshold", subtitle: "Switch to a text list when window count reaches this number (0 = off).") {
+                MAYNNumericStepper(text: "Threshold", value: intBinding(\.compactModeThreshold), range: 0 ... 30, step: 1, presets: [0, 8, 12, 16], suffix: "")
+            }
+        }
+    }
+
+    private var gesturesSection: some View {
+        DockGesturesSettingsSection()
     }
 
     private var diagnosticsSection: some View {

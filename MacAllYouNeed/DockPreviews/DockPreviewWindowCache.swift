@@ -18,10 +18,16 @@ final class DockPreviewWindowCache {
 
     func update(entries: [DockPreviewWindowEntry], for pid: pid_t) -> Diff {
         let old = cache[pid, default: [:]]
-        let newMap = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
-        let added = entries.filter { old[$0.id] == nil }
+        let merged = entries.map { entry in
+            entry.mergingThumbnail(from: old[entry.id])
+        }
+        let newMap = Dictionary(uniqueKeysWithValues: merged.map { ($0.id, $0) })
+        let added = merged.filter { old[$0.id] == nil }
         let removed = old.keys.filter { newMap[$0] == nil }
-        let updated = entries.filter { old[$0.id] != nil && old[$0.id] != $0 }
+        let updated = merged.filter { entry in
+            guard let previous = old[entry.id] else { return false }
+            return previous != entry
+        }
         cache[pid] = newMap
         return Diff(added: added, removed: Array(removed), updated: updated)
     }

@@ -44,39 +44,46 @@ enum DockPreviewDockCoordinates {
         NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main!
     }
 
-    /// DockDoor `calculateWindowPosition` for dock-anchored hover previews (Cocoa panel origin).
+    /// DockDoor `SharedPreviewWindowCoordinator.calculateWindowPosition` (Cocoa panel origin).
     static func previewPanelOrigin(
         axIconRect: CGRect,
         panelSize: CGSize,
         screen: NSScreen,
         dockEdge: DockPreviewPanelGeometry.DockEdge,
-        bufferFromDock: CGFloat
+        bufferFromDock: CGFloat,
+        anchoredIconRect: CGRect? = nil,
+        isCmdTab: Bool = false
     ) -> CGPoint {
         let screenFrame = screen.frame
-        let flipped = flippedIconRect(axRect: axIconRect, screen: screen)
+        let iconRect = anchoredIconRect ?? axIconRect
+        let flippedIconRect = flippedIconRect(axRect: iconRect, screen: screen)
 
         var xPosition: CGFloat
         var yPosition: CGFloat
 
         switch dockEdge {
         case .bottom:
-            xPosition = flipped.midX - panelSize.width / 2
-            yPosition = flipped.minY
+            xPosition = flippedIconRect.midX - panelSize.width / 2
+            yPosition = flippedIconRect.minY
         case .left:
-            xPosition = flipped.maxX
-            yPosition = flipped.midY - panelSize.height / 2 - flipped.height
+            xPosition = flippedIconRect.maxX
+            yPosition = flippedIconRect.midY - panelSize.height / 2 - flippedIconRect.height
         case .right:
-            xPosition = screenFrame.maxX - flipped.width - panelSize.width
-            yPosition = flipped.minY - panelSize.height / 2
+            xPosition = screenFrame.maxX - flippedIconRect.width - panelSize.width
+            yPosition = flippedIconRect.minY - panelSize.height / 2
         }
 
-        switch dockEdge {
-        case .left:
-            xPosition += bufferFromDock
-        case .right:
-            xPosition -= bufferFromDock
-        case .bottom:
-            yPosition += bufferFromDock
+        if isCmdTab {
+            yPosition += 5
+        } else {
+            switch dockEdge {
+            case .left:
+                xPosition += bufferFromDock
+            case .right:
+                xPosition -= bufferFromDock
+            case .bottom:
+                yPosition += bufferFromDock
+            }
         }
 
         xPosition = max(screenFrame.minX, min(xPosition, screenFrame.maxX - panelSize.width))

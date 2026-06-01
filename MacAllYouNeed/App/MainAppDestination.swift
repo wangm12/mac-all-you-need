@@ -46,7 +46,7 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .snippets: "Snippets"
         case .windowLayouts: "Window Layouts"
         case .grabAnywhere: "Window Grab"
-        case .dockPreviews: "Dock Previews"
+        case .dockPreviews: "Dock"
         case .settings: "Settings"
         }
     }
@@ -64,7 +64,7 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .snippets: "Reusable text entries"
         case .windowLayouts: "Keyboard shortcuts and edge snapping"
         case .grabAnywhere: "Modifier-drag windows"
-        case .dockPreviews: "Window thumbnails in the Dock"
+        case .dockPreviews: "Dock previews, switcher, Cmd+Tab, lock, and indicator"
         case .settings: "Global app settings"
         }
     }
@@ -90,6 +90,9 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
     static func storedSelection(_ raw: String?) -> MainAppDestination {
         if raw == "windows" {
             return .windowLayouts
+        }
+        if raw == "windowSwitcher" || raw == "cmdTabEnhancements" || raw == "dockLocking" || raw == "activeAppIndicator" {
+            return .dockPreviews
         }
         return raw.flatMap(MainAppDestination.init(rawValue:)) ?? .dashboard
     }

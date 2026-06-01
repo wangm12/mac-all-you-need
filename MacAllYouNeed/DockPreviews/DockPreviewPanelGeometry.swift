@@ -18,14 +18,18 @@ enum DockPreviewPanelGeometry {
         panelSize: CGSize,
         screen: NSScreen,
         dockEdge: DockEdge,
-        bufferFromDock: CGFloat
+        bufferFromDock: CGFloat,
+        anchoredIconRect: CGRect? = nil,
+        isCmdTab: Bool = false
     ) -> CGPoint {
         DockPreviewDockCoordinates.previewPanelOrigin(
             axIconRect: axIconRect,
             panelSize: panelSize,
             screen: screen,
             dockEdge: dockEdge,
-            bufferFromDock: bufferFromDock
+            bufferFromDock: bufferFromDock,
+            anchoredIconRect: anchoredIconRect,
+            isCmdTab: isCmdTab
         )
     }
 }

@@ -18,7 +18,8 @@ final class DockPreviewRaiseService {
     func raise(entry: DockPreviewWindowEntry, settings: DockPreviewSettings = DockPreviewSettingsStore.load()) async {
         var target = entry
         if !windowExists(target.id, pid: target.pid) {
-            let fresh = await enumerator.windows(for: target.pid, settings: settings)
+            let bundleID = NSRunningApplication(processIdentifier: target.pid)?.bundleIdentifier
+            let fresh = await enumerator.windows(for: target.pid, settings: settings, bundleIdentifier: bundleID)
             if let match = fresh.first(where: { $0.title == entry.title }) ?? fresh.first {
                 target = match
             }

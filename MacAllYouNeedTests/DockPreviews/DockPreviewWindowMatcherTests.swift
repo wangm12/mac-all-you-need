@@ -35,6 +35,34 @@ final class DockPreviewWindowMatcherTests: XCTestCase {
         XCTAssertTrue(deduped[0].title.contains("Weiqiang"))
     }
 
+    func testIncludesAXWindowWithIDMissedByScreenCapture() {
+        let ax = [
+            DockPreviewWindowMatcher.AXWindowInfo(
+                title: "Omni - Google Chrome",
+                isMinimized: false,
+                frame: CGRect(x: 100, y: 100, width: 1200, height: 800),
+                windowID: 99
+            ),
+            DockPreviewWindowMatcher.AXWindowInfo(
+                title: "GitHub - Google Chrome",
+                isMinimized: false,
+                frame: CGRect(x: 1600, y: 100, width: 1200, height: 800),
+                windowID: 100
+            ),
+        ]
+        let sc = [
+            DockPreviewWindowMatcher.SCWindowInfo(
+                windowID: 99,
+                frame: CGRect(x: 100, y: 100, width: 1200, height: 800),
+                pid: 300,
+                title: "Omni"
+            ),
+        ]
+        let result = DockPreviewWindowMatcher.merge(ax: ax, sc: sc, pid: 300)
+        XCTAssertEqual(result.count, 2)
+        XCTAssertTrue(result.contains { $0.id == 100 })
+    }
+
     func testMinimizedWindowIncluded() {
         let ax = [DockPreviewWindowMatcher.AXWindowInfo(
             title: "Terminal", isMinimized: true,

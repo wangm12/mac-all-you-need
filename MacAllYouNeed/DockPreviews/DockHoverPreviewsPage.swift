@@ -13,8 +13,8 @@ struct DockHoverPreviewsPage: View {
 
     var body: some View {
         FunctionPageShell(
-            title: "Dock Previews",
-            subtitle: "Hover an app's Dock icon to preview its windows. Click a thumbnail to raise that window.",
+            title: "Dock",
+            subtitle: "Hover previews, window switcher, Cmd+Tab, dock lock, and active-app indicator.",
             selection: selectedTab
         ) {
             switch DockPreviewFunctionTab.storedSelection(tabRaw) {
@@ -38,7 +38,7 @@ struct DockHoverPreviewsPage: View {
     private var overviewContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             InstructionStrip(
-                text: "Enable Dock Previews from the Dashboard, then hover any app icon in the Dock.",
+                text: "Enable Dock from the Dashboard, then configure each capability in Settings.",
                 symbol: "dock.rectangle",
                 secondaryText: "Move into the preview panel to keep it open while you choose a window."
             )

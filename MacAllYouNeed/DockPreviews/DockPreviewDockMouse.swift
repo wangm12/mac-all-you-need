@@ -68,6 +68,15 @@ enum DockPreviewDockMouse {
         ) {
             return true
         }
+        // AX selection can lag while moving between dock icons; keep the panel up if the cursor is still on the dock strip.
+        if panelFrame != nil,
+           DockPreviewDockPosition.isMouseInDockRegion(padding: 28),
+           activeDockItemToken != nil {
+            if activeDockItemToken == hoveredDockItemToken {
+                return isOverDockIcon(axRect: axIconRect, padding: 12)
+            }
+            return true
+        }
         guard let activeDockItemToken, activeDockItemToken == hoveredDockItemToken else {
             return false
         }

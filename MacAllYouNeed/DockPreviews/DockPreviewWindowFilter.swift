@@ -10,6 +10,20 @@ enum DockPreviewWindowFilter {
         }
     }
 
+    static func filterBySpace(_ entries: [DockPreviewWindowEntry], settings: DockPreviewSettings) -> [DockPreviewWindowEntry] {
+        guard settings.currentSpaceOnly else { return entries }
+        let activeSpaces = DockPreviewSpaceQuery.activeSpaceIDs()
+        guard !activeSpaces.isEmpty else { return entries }
+        return entries.filter { entry in
+            if entry.isMinimized || !entry.isOnScreen {
+                return settings.includeHiddenMinimized
+            }
+            let spaces = DockPreviewSpaceQuery.spaceIDs(for: entry.id)
+            if spaces.isEmpty { return true }
+            return !Set(spaces).isDisjoint(with: activeSpaces)
+        }
+    }
+
     static func filterByMonitor(
         _ entries: [DockPreviewWindowEntry],
         dockIconRect: CGRect,

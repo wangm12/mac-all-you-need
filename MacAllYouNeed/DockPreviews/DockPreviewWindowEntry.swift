@@ -14,4 +14,12 @@ struct DockPreviewWindowEntry: Identifiable, Equatable {
     static func == (lhs: DockPreviewWindowEntry, rhs: DockPreviewWindowEntry) -> Bool {
         lhs.id == rhs.id && lhs.isMinimized == rhs.isMinimized && lhs.title == rhs.title
     }
+
+    /// Keep captured thumbnails when a refresh returns entries without images yet.
+    func mergingThumbnail(from previous: DockPreviewWindowEntry?) -> DockPreviewWindowEntry {
+        guard thumbnail == nil, let previous, let previousThumb = previous.thumbnail else { return self }
+        var copy = self
+        copy.thumbnail = previousThumb
+        return copy
+    }
 }

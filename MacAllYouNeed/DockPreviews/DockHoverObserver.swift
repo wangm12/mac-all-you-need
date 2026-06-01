@@ -10,6 +10,7 @@ final class DockHoverObserver {
     private var dockAXList: AXUIElement?
     private var healthCheckTask: Task<Void, Never>?
     private var lastHoverToken: UInt?
+    private var lastAppHoverSignature: String?
     private let mainBundleID = Bundle.main.bundleIdentifier
 
     var onHoverBegan: ((DockHoverTarget) -> Void)?
@@ -38,6 +39,12 @@ final class DockHoverObserver {
     /// Stable token for the dock item last reported via AX (do not re-read AX elements for identity).
     func currentHoveredDockItemToken() -> UInt? {
         lastHoverToken
+    }
+
+    /// Whether the mouse is still over the dock item that opened the preview (DockDoor AX element equality via token).
+    static func isHoveredTokenMatching(_ shownToken: UInt?) -> Bool {
+        guard let shownToken, let current = lastHoveredTokenProvider?() else { return false }
+        return shownToken == current
     }
 
     /// Live AX frame for the hovered dock item (updates during Dock magnification).
@@ -125,27 +132,34 @@ final class DockHoverObserver {
         }
 
         let token = elementToken(item)
-        if token == lastHoverToken { return }
 
         if let folder = folderHoverInfo(for: item), settings().enableFolderWidget {
+            if token == lastHoverToken { return }
             lastHoverToken = token
+            lastAppHoverSignature = nil
             onHoverBegan?(.folder(folder))
             return
         }
 
         guard let appInfo = appHoverInfo(for: item) else {
             lastHoverToken = nil
+            lastAppHoverSignature = nil
             onHoverEnded?()
             return
         }
 
         if appInfo.bundleIdentifier == mainBundleID {
             lastHoverToken = nil
+            lastAppHoverSignature = nil
             onHoverEnded?()
             return
         }
 
+        let signature = "\(token)-\(appInfo.pid)-\(appInfo.bundleIdentifier ?? "")"
+        if token == lastHoverToken, signature == lastAppHoverSignature { return }
+
         lastHoverToken = token
+        lastAppHoverSignature = signature
         onHoverBegan?(.app(appInfo))
     }
 

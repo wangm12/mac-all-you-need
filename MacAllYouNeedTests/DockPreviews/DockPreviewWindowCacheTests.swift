@@ -26,6 +26,21 @@ final class DockPreviewWindowCacheTests: XCTestCase {
         XCTAssertEqual(diff2.removed.count, 1)
     }
 
+    @MainActor func testUpdatePreservesExistingThumbnail() {
+        let cache = DockPreviewWindowCache()
+        var entry = DockPreviewWindowEntry(
+            id: 3, pid: 100, title: "Chrome", frame: .zero,
+            thumbnail: nil, isMinimized: false, isOnScreen: true
+        )
+        _ = cache.update(entries: [entry], for: 100)
+        let image = NSImage(size: NSSize(width: 10, height: 10))
+        cache.setThumbnail(image, windowID: 3, pid: 100)
+
+        entry.thumbnail = nil
+        _ = cache.update(entries: [entry], for: 100)
+        XCTAssertNotNil(cache.readCached(pid: 100).first { $0.id == 3 }?.thumbnail)
+    }
+
     @MainActor func testSetThumbnailPersists() {
         let cache = DockPreviewWindowCache()
         let entry = DockPreviewWindowEntry(

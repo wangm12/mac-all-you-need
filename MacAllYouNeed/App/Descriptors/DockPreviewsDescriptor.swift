@@ -5,13 +5,12 @@ enum DockPreviewsDescriptor {
     static func descriptor() -> FeatureDescriptor {
         FeatureDescriptor(
             id: .dockPreviews,
-            displayName: "Dock Previews",
-            icon: "macwindow.on.rectangle",
-            summary: "Hover a Dock icon to preview and raise that app's windows.",
-            detailDescription: "When you hover an app's Dock icon, a floating panel shows thumbnails of all "
-                + "its open windows; click one to raise that exact window. Window thumbnails need Screen "
-                + "Recording permission — without it, the panel degrades gracefully to a titles-only list. "
-                + "Disabled by default.",
+            displayName: "Dock",
+            icon: "dock.rectangle",
+            summary: "Dock hover previews, window switcher, Cmd+Tab, dock lock, and active-app indicator.",
+            detailDescription: "Unified Dock enhancements: hover icons for window previews, Option+Tab window "
+                + "switcher, optional Cmd+Tab previews, multi-monitor dock lock, and an underline on the "
+                + "active Dock icon. Screen Recording improves thumbnails but titles-only mode works without it.",
             requiredPermissions: [.accessibility, .screenRecording],
             activator: DockPreviewsFeatureActivator(),
             settingsTabFactory: { AnyView(DockPreviewSettingsView()) }

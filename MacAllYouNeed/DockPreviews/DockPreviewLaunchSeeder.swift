@@ -14,7 +14,11 @@ enum DockPreviewLaunchSeeder {
             .prefix(maxApps)
         Task.detached {
             for app in apps {
-                let entries = await enumerator.windows(for: app.processIdentifier, settings: settings)
+                let entries = await enumerator.windows(
+                    for: app.processIdentifier,
+                    settings: settings,
+                    bundleIdentifier: app.bundleIdentifier
+                )
                 await MainActor.run {
                     _ = cache.update(entries: entries, for: app.processIdentifier)
                 }

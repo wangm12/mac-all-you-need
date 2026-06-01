@@ -55,8 +55,126 @@ struct DockPreviewSettings: Codable, Equatable {
     var folderShowHiddenFiles: Bool
     var preventDockAutoHideWhileOpen: Bool
     var skipDelayWhenPanelVisible: Bool
+    var useDelayOnlyForInitialOpen: Bool
+    var preventPreviewReentryDuringFadeOut: Bool
+    // Appearance (DockDoor parity)
+    var previewCardWidth: Int
+    var previewCardHeight: Int
+    var lockAspectRatio: Bool
+    var showWindowTitle: Bool
+    var showAppNameInHeader: Bool
+    var compactModeThreshold: Int
+    var showTrafficLightButtons: Bool
+    var allowDynamicImageSizing: Bool
+    var showPreviewAnimations: Bool
+    var previewMaxColumns: Int
+    var previewMaxRows: Int
+    var globalPaddingMultiplier: Double
+    var uniformCardRadius: Bool
+    var enableFullSizeHoverPreview: Bool
+    var panelBackgroundOpacity: Double
+    var appearanceOptions: DockPreviewAppearanceOptions
+    var panelBackground: DockPreviewPanelBackgroundOptions
+    var hideHoverContainerBackground: Bool
+    var detachedSwitcherSearch: Bool
     /// Append-only worklog under App Group `worklogs/dock-previews/` for debugging hover/dismiss behavior.
     var enableWorklog: Bool
+
+    init(
+        showThumbnails: Bool,
+        hoverDelayMS: Int,
+        fadeOutDurationMS: Int,
+        dismissInactivityMS: Int,
+        anchorToDockIcon: Bool,
+        bufferFromDock: Int,
+        thumbnailCacheLifespanSec: Int,
+        thumbnailScale: Double,
+        enableLivePreview: Bool,
+        livePreviewQuality: DockPreviewLiveQuality,
+        livePreviewFrameRate: DockPreviewLiveFrameRate,
+        liveStreamKeepAliveSec: Int,
+        currentSpaceOnly: Bool,
+        currentMonitorOnly: Bool,
+        sortOrder: DockPreviewSortOrder,
+        includeHiddenMinimized: Bool,
+        showWindowlessApps: Bool,
+        groupAppInstances: Bool,
+        ignoreSingleWindowApps: Bool,
+        keepPreviewOnAppQuit: Bool,
+        enableFolderWidget: Bool,
+        folderShowHiddenFiles: Bool,
+        preventDockAutoHideWhileOpen: Bool,
+        skipDelayWhenPanelVisible: Bool,
+        useDelayOnlyForInitialOpen: Bool,
+        preventPreviewReentryDuringFadeOut: Bool,
+        previewCardWidth: Int,
+        previewCardHeight: Int,
+        lockAspectRatio: Bool,
+        showWindowTitle: Bool,
+        showAppNameInHeader: Bool,
+        compactModeThreshold: Int,
+        showTrafficLightButtons: Bool,
+        allowDynamicImageSizing: Bool,
+        showPreviewAnimations: Bool,
+        previewMaxColumns: Int,
+        previewMaxRows: Int,
+        globalPaddingMultiplier: Double,
+        uniformCardRadius: Bool,
+        enableFullSizeHoverPreview: Bool,
+        panelBackgroundOpacity: Double,
+        appearanceOptions: DockPreviewAppearanceOptions,
+        panelBackground: DockPreviewPanelBackgroundOptions,
+        hideHoverContainerBackground: Bool,
+        detachedSwitcherSearch: Bool,
+        enableWorklog: Bool
+    ) {
+        self.showThumbnails = showThumbnails
+        self.hoverDelayMS = hoverDelayMS
+        self.fadeOutDurationMS = fadeOutDurationMS
+        self.dismissInactivityMS = dismissInactivityMS
+        self.anchorToDockIcon = anchorToDockIcon
+        self.bufferFromDock = bufferFromDock
+        self.thumbnailCacheLifespanSec = thumbnailCacheLifespanSec
+        self.thumbnailScale = thumbnailScale
+        self.enableLivePreview = enableLivePreview
+        self.livePreviewQuality = livePreviewQuality
+        self.livePreviewFrameRate = livePreviewFrameRate
+        self.liveStreamKeepAliveSec = liveStreamKeepAliveSec
+        self.currentSpaceOnly = currentSpaceOnly
+        self.currentMonitorOnly = currentMonitorOnly
+        self.sortOrder = sortOrder
+        self.includeHiddenMinimized = includeHiddenMinimized
+        self.showWindowlessApps = showWindowlessApps
+        self.groupAppInstances = groupAppInstances
+        self.ignoreSingleWindowApps = ignoreSingleWindowApps
+        self.keepPreviewOnAppQuit = keepPreviewOnAppQuit
+        self.enableFolderWidget = enableFolderWidget
+        self.folderShowHiddenFiles = folderShowHiddenFiles
+        self.preventDockAutoHideWhileOpen = preventDockAutoHideWhileOpen
+        self.skipDelayWhenPanelVisible = skipDelayWhenPanelVisible
+        self.useDelayOnlyForInitialOpen = useDelayOnlyForInitialOpen
+        self.preventPreviewReentryDuringFadeOut = preventPreviewReentryDuringFadeOut
+        self.previewCardWidth = previewCardWidth
+        self.previewCardHeight = previewCardHeight
+        self.lockAspectRatio = lockAspectRatio
+        self.showWindowTitle = showWindowTitle
+        self.showAppNameInHeader = showAppNameInHeader
+        self.compactModeThreshold = compactModeThreshold
+        self.showTrafficLightButtons = showTrafficLightButtons
+        self.allowDynamicImageSizing = allowDynamicImageSizing
+        self.showPreviewAnimations = showPreviewAnimations
+        self.previewMaxColumns = previewMaxColumns
+        self.previewMaxRows = previewMaxRows
+        self.globalPaddingMultiplier = globalPaddingMultiplier
+        self.uniformCardRadius = uniformCardRadius
+        self.enableFullSizeHoverPreview = enableFullSizeHoverPreview
+        self.panelBackgroundOpacity = panelBackgroundOpacity
+        self.appearanceOptions = appearanceOptions
+        self.panelBackground = panelBackground
+        self.hideHoverContainerBackground = hideHoverContainerBackground
+        self.detachedSwitcherSearch = detachedSwitcherSearch
+        self.enableWorklog = enableWorklog
+    }
 
     static let `default` = DockPreviewSettings(
         showThumbnails: true,
@@ -83,8 +201,82 @@ struct DockPreviewSettings: Codable, Equatable {
         folderShowHiddenFiles: false,
         preventDockAutoHideWhileOpen: false,
         skipDelayWhenPanelVisible: false,
+        useDelayOnlyForInitialOpen: false,
+        preventPreviewReentryDuringFadeOut: false,
+        previewCardWidth: 240,
+        previewCardHeight: 150,
+        lockAspectRatio: true,
+        showWindowTitle: true,
+        showAppNameInHeader: true,
+        compactModeThreshold: 12,
+        showTrafficLightButtons: false,
+        allowDynamicImageSizing: true,
+        showPreviewAnimations: true,
+        previewMaxColumns: 6,
+        previewMaxRows: 3,
+        globalPaddingMultiplier: 1.0,
+        uniformCardRadius: true,
+        enableFullSizeHoverPreview: false,
+        panelBackgroundOpacity: 0.92,
+        appearanceOptions: .default,
+        panelBackground: .default,
+        hideHoverContainerBackground: false,
+        detachedSwitcherSearch: false,
         enableWorklog: true
     )
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func decode<T: Decodable>(_ key: CodingKeys, default defaultValue: T) -> T {
+            (try? container.decode(T.self, forKey: key)) ?? defaultValue
+        }
+        showThumbnails = decode(.showThumbnails, default: Self.default.showThumbnails)
+        hoverDelayMS = decode(.hoverDelayMS, default: Self.default.hoverDelayMS)
+        fadeOutDurationMS = decode(.fadeOutDurationMS, default: Self.default.fadeOutDurationMS)
+        dismissInactivityMS = decode(.dismissInactivityMS, default: Self.default.dismissInactivityMS)
+        anchorToDockIcon = decode(.anchorToDockIcon, default: Self.default.anchorToDockIcon)
+        bufferFromDock = decode(.bufferFromDock, default: Self.default.bufferFromDock)
+        thumbnailCacheLifespanSec = decode(.thumbnailCacheLifespanSec, default: Self.default.thumbnailCacheLifespanSec)
+        thumbnailScale = decode(.thumbnailScale, default: Self.default.thumbnailScale)
+        enableLivePreview = decode(.enableLivePreview, default: Self.default.enableLivePreview)
+        livePreviewQuality = decode(.livePreviewQuality, default: Self.default.livePreviewQuality)
+        livePreviewFrameRate = decode(.livePreviewFrameRate, default: Self.default.livePreviewFrameRate)
+        liveStreamKeepAliveSec = decode(.liveStreamKeepAliveSec, default: Self.default.liveStreamKeepAliveSec)
+        currentSpaceOnly = decode(.currentSpaceOnly, default: Self.default.currentSpaceOnly)
+        currentMonitorOnly = decode(.currentMonitorOnly, default: Self.default.currentMonitorOnly)
+        sortOrder = decode(.sortOrder, default: Self.default.sortOrder)
+        includeHiddenMinimized = decode(.includeHiddenMinimized, default: Self.default.includeHiddenMinimized)
+        showWindowlessApps = decode(.showWindowlessApps, default: Self.default.showWindowlessApps)
+        groupAppInstances = decode(.groupAppInstances, default: Self.default.groupAppInstances)
+        ignoreSingleWindowApps = decode(.ignoreSingleWindowApps, default: Self.default.ignoreSingleWindowApps)
+        keepPreviewOnAppQuit = decode(.keepPreviewOnAppQuit, default: Self.default.keepPreviewOnAppQuit)
+        enableFolderWidget = decode(.enableFolderWidget, default: Self.default.enableFolderWidget)
+        folderShowHiddenFiles = decode(.folderShowHiddenFiles, default: Self.default.folderShowHiddenFiles)
+        preventDockAutoHideWhileOpen = decode(.preventDockAutoHideWhileOpen, default: Self.default.preventDockAutoHideWhileOpen)
+        skipDelayWhenPanelVisible = decode(.skipDelayWhenPanelVisible, default: Self.default.skipDelayWhenPanelVisible)
+        useDelayOnlyForInitialOpen = decode(.useDelayOnlyForInitialOpen, default: Self.default.useDelayOnlyForInitialOpen)
+        preventPreviewReentryDuringFadeOut = decode(.preventPreviewReentryDuringFadeOut, default: Self.default.preventPreviewReentryDuringFadeOut)
+        previewCardWidth = decode(.previewCardWidth, default: Self.default.previewCardWidth)
+        previewCardHeight = decode(.previewCardHeight, default: Self.default.previewCardHeight)
+        lockAspectRatio = decode(.lockAspectRatio, default: Self.default.lockAspectRatio)
+        showWindowTitle = decode(.showWindowTitle, default: Self.default.showWindowTitle)
+        showAppNameInHeader = decode(.showAppNameInHeader, default: Self.default.showAppNameInHeader)
+        compactModeThreshold = decode(.compactModeThreshold, default: Self.default.compactModeThreshold)
+        showTrafficLightButtons = decode(.showTrafficLightButtons, default: Self.default.showTrafficLightButtons)
+        allowDynamicImageSizing = decode(.allowDynamicImageSizing, default: Self.default.allowDynamicImageSizing)
+        showPreviewAnimations = decode(.showPreviewAnimations, default: Self.default.showPreviewAnimations)
+        previewMaxColumns = decode(.previewMaxColumns, default: Self.default.previewMaxColumns)
+        previewMaxRows = decode(.previewMaxRows, default: Self.default.previewMaxRows)
+        globalPaddingMultiplier = decode(.globalPaddingMultiplier, default: Self.default.globalPaddingMultiplier)
+        uniformCardRadius = decode(.uniformCardRadius, default: Self.default.uniformCardRadius)
+        enableFullSizeHoverPreview = decode(.enableFullSizeHoverPreview, default: Self.default.enableFullSizeHoverPreview)
+        panelBackgroundOpacity = decode(.panelBackgroundOpacity, default: Self.default.panelBackgroundOpacity)
+        appearanceOptions = decode(.appearanceOptions, default: .default)
+        panelBackground = decode(.panelBackground, default: .default)
+        hideHoverContainerBackground = decode(.hideHoverContainerBackground, default: false)
+        detachedSwitcherSearch = decode(.detachedSwitcherSearch, default: false)
+        enableWorklog = decode(.enableWorklog, default: Self.default.enableWorklog)
+    }
 
     var hoverDelay: TimeInterval { TimeInterval(hoverDelayMS) / 1000 }
     var fadeOutDuration: TimeInterval { TimeInterval(fadeOutDurationMS) / 1000 }

@@ -54,9 +54,23 @@ enum DockPreviewWindowMatcher {
             ))
         }
 
+        let scIDs = Set(result.map(\.id))
         for (index, axWin) in ax.enumerated() where !matchedAXIndices.contains(index) {
+            if let windowID = axWin.windowID, !scIDs.contains(windowID) {
+                result.append(DockPreviewWindowEntry(
+                    id: windowID,
+                    pid: pid,
+                    title: axWin.title.isEmpty ? "Window" : axWin.title,
+                    frame: axWin.frame,
+                    thumbnail: nil,
+                    isMinimized: axWin.isMinimized,
+                    isOnScreen: !axWin.isMinimized && axWin.frame.width >= 120 && axWin.frame.height >= 80
+                ))
+                continue
+            }
             guard axWin.isMinimized || axWin.windowID == nil else { continue }
             let wid = axWin.windowID ?? syntheticWindowID(pid: pid, index: index)
+            guard !scIDs.contains(wid) else { continue }
             result.append(DockPreviewWindowEntry(
                 id: wid,
                 pid: pid,

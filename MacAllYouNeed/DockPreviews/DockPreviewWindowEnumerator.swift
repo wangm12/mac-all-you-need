@@ -4,7 +4,11 @@ import Foundation
 import ScreenCaptureKit
 
 protocol WindowEnumerating: Sendable {
-    func windows(for pid: pid_t, settings: DockPreviewSettings) async -> [DockPreviewWindowEntry]
+    func windows(
+        for pid: pid_t,
+        settings: DockPreviewSettings,
+        bundleIdentifier: String?
+    ) async -> [DockPreviewWindowEntry]
 }
 
 final class SystemWindowEnumerator: WindowEnumerating, @unchecked Sendable {
@@ -14,16 +18,43 @@ final class SystemWindowEnumerator: WindowEnumerating, @unchecked Sendable {
         self.api = api
     }
 
-    func windows(for pid: pid_t, settings: DockPreviewSettings) async -> [DockPreviewWindowEntry] {
-        let scWindows = await scWindows(for: pid)
-        let axWindows = axWindowInfos(for: pid)
-        var merged = DockPreviewWindowMatcher.merge(ax: axWindows, sc: scWindows, pid: pid)
-        merged = DockPreviewWindowFilter.filter(merged, settings: settings)
-        merged = sortEntries(merged, order: settings.sortOrder)
-        if settings.ignoreSingleWindowApps, merged.count <= 1 {
+    func windows(
+        for pid: pid_t,
+        settings: DockPreviewSettings,
+        bundleIdentifier: String?
+    ) async -> [DockPreviewWindowEntry] {
+        let pids = targetPIDs(primary: pid, bundleIdentifier: bundleIdentifier, settings: settings)
+        var combined: [DockPreviewWindowEntry] = []
+        var seenIDs = Set<CGWindowID>()
+        for targetPID in pids {
+            let entries = await windowsForSinglePID(targetPID, settings: settings)
+            for entry in entries where seenIDs.insert(entry.id).inserted {
+                combined.append(entry)
+            }
+        }
+        combined = DockPreviewWindowFilter.filter(combined, settings: settings)
+        combined = DockPreviewWindowFilter.filterBySpace(combined, settings: settings)
+        combined = DockPreviewWindowOrderStore.sort(combined, bundleIdentifier: bundleIdentifier, order: settings.sortOrder)
+        if settings.ignoreSingleWindowApps, combined.count <= 1 {
             return []
         }
-        return merged
+        return combined
+    }
+
+    private func targetPIDs(primary: pid_t, bundleIdentifier: String?, settings: DockPreviewSettings) -> [pid_t] {
+        guard settings.groupAppInstances,
+              let bundleIdentifier,
+              !bundleIdentifier.isEmpty
+        else { return [primary] }
+        let matches = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+        if matches.isEmpty { return [primary] }
+        return matches.map(\.processIdentifier)
+    }
+
+    private func windowsForSinglePID(_ pid: pid_t, settings: DockPreviewSettings) async -> [DockPreviewWindowEntry] {
+        let scWindows = await scWindows(for: pid)
+        let axWindows = axWindowInfos(for: pid)
+        return DockPreviewWindowMatcher.merge(ax: axWindows, sc: scWindows, pid: pid)
     }
 
     private func scWindows(for pid: pid_t) async -> [DockPreviewWindowMatcher.SCWindowInfo] {
@@ -52,9 +83,8 @@ final class SystemWindowEnumerator: WindowEnumerating, @unchecked Sendable {
             let dominated = windows.contains { other in
                 guard other.windowID != candidate.windowID else { return false }
                 let otherArea = other.frame.width * other.frame.height
-                guard otherArea > candidateArea else { return false }
+                guard otherArea > candidateArea * 1.05 else { return false }
                 return other.frame.contains(candidate.frame)
-                    || DockPreviewWindowMatcher.framesOverlapSignificantly(other.frame, candidate.frame)
             }
             return !dominated
         }
@@ -113,17 +143,6 @@ final class SystemWindowEnumerator: WindowEnumerating, @unchecked Sendable {
                 frame: frame,
                 windowID: windowID == 0 ? nil : windowID
             )
-        }
-    }
-
-    private func sortEntries(_ entries: [DockPreviewWindowEntry], order: DockPreviewSortOrder) -> [DockPreviewWindowEntry] {
-        switch order {
-        case .recentlyUsed:
-            return entries
-        case .titleAscending:
-            return entries.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .titleDescending:
-            return entries.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending }
         }
     }
 }
