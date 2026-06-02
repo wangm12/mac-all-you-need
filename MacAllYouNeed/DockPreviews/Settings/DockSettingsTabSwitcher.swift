@@ -7,18 +7,31 @@ struct DockSettingsTabSwitcher: View {
 
     var body: some View {
         Group {
+            if !hub.master.enableWindowSwitcher {
+                disabledHint
+            }
             generalSection
-            searchSection
-            mouseSection
-            filteringSection
-            sortingSection
-            placementSection
-            appearanceSection
-            trafficLightsSection
-            keybindsSection
-            fullscreenBlacklistSection
+            DockSettingsMockPreview(hub: hub, context: .windowSwitcher)
+            DockAdvancedSettingsDisclosure {
+                mouseAdvancedSection
+                filteringAdvancedSection
+                searchSection
+                sortingSection
+                placementSection
+                appearanceSection
+                trafficLightsSection
+                keybindsSection
+                fullscreenBlacklistSection
+            }
         }
         .onAppear { hub = DockHubSettingsStore.load() }
+    }
+
+    private var disabledHint: some View {
+        InstructionStrip(
+            text: "Window switcher is off. Enable it on the Features tab to use these settings.",
+            symbol: "square.grid.2x2"
+        )
     }
 
     private func persist() {
@@ -30,12 +43,9 @@ struct DockSettingsTabSwitcher: View {
 
     private var generalSection: some View {
         MAYNSection(title: "General") {
-            MAYNSettingsRow(title: "Enable window switcher", subtitle: "Show a window switcher panel triggered by a configurable keybind.") {
-                Toggle("", isOn: boolBinding(\.master.enableWindowSwitcher)).labelsHidden()
-            }
-            MAYNDivider()
             MAYNSettingsRow(title: "Show instantly", subtitle: "Display the switcher immediately without a delay.") {
                 Toggle("", isOn: boolBinding(\.switcher.instantSwitcher)).labelsHidden()
+                    .disabled(!hub.master.enableWindowSwitcher)
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Release key to select", subtitle: "Release the initializer key to select the highlighted window.") {
@@ -43,14 +53,58 @@ struct DockSettingsTabSwitcher: View {
                     get: { !hub.switcher.preventSwitcherHide },
                     set: { hub.switcher.preventSwitcherHide = !$0; persist() }
                 )).labelsHidden()
+                .disabled(!hub.master.enableWindowSwitcher)
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Start on second window", subtitle: "Classic alt+tab ordering — begin selection on the second window.") {
                 Toggle("", isOn: boolBinding(\.switcher.useClassicWindowOrdering)).labelsHidden()
+                    .disabled(!hub.master.enableWindowSwitcher)
             }
             MAYNDivider()
+            MAYNSettingsRow(title: "Enable mouse hover selection", subtitle: "Highlight the window under the mouse cursor.") {
+                Toggle("", isOn: boolBinding(\.switcher.enableMouseHover)).labelsHidden()
+                    .disabled(!hub.master.enableWindowSwitcher)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Current Space only", subtitle: "Only show windows on the active desktop Space.") {
+                Toggle("", isOn: boolBinding(\.switcher.currentSpaceOnly)).labelsHidden()
+                    .disabled(!hub.master.enableWindowSwitcher)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Current monitor only", subtitle: "Only show windows on the display with the switcher.") {
+                Toggle("", isOn: boolBinding(\.switcher.currentMonitorOnly)).labelsHidden()
+                    .disabled(!hub.master.enableWindowSwitcher)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Include hidden windows", subtitle: "Show minimized and hidden windows.") {
+                Toggle("", isOn: boolBinding(\.switcher.includeHiddenWindows)).labelsHidden()
+                    .disabled(!hub.master.enableWindowSwitcher)
+            }
+        }
+    }
+
+    private var mouseAdvancedSection: some View {
+        MAYNSection(title: "Mouse") {
             MAYNSettingsRow(title: "Mouse follows focus", subtitle: "Move the mouse cursor to the focused window.") {
                 MAYNDropdown(selection: binding(\.switcher.mouseFollowsFocus), options: DockSwitcherMouseFollowsFocus.allCases) { $0.displayName }
+            }
+            if hub.switcher.enableMouseHover {
+                MAYNDivider()
+                MAYNSettingsRow(title: "Auto-scroll speed", subtitle: "Speed of auto-scrolling when the mouse is at the container edge.") {
+                    MAYNNumericStepper(text: "Speed", value: doubleStepBinding(\.switcher.mouseHoverAutoScrollSpeed), range: 1...10, step: 1, presets: [2, 4, 6, 8, 10], suffix: "")
+                }
+            }
+        }
+    }
+
+    private var filteringAdvancedSection: some View {
+        MAYNSection(title: "Filtering") {
+            MAYNSettingsRow(title: "Limit to active app", subtitle: "Only show windows from the frontmost application.") {
+                Toggle("", isOn: boolBinding(\.switcher.limitToFrontmostApp)).labelsHidden()
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Show windowless apps", subtitle: "Show running apps even when they have no open windows.") {
+                Toggle("", isOn: boolBinding(\.switcher.showWindowlessApps)).labelsHidden()
             }
         }
     }
@@ -75,49 +129,7 @@ struct DockSettingsTabSwitcher: View {
         }
     }
 
-    // MARK: Mouse
-
-    private var mouseSection: some View {
-        MAYNSection(title: "Mouse") {
-            MAYNSettingsRow(title: "Enable mouse hover selection", subtitle: "Highlight the window under the mouse cursor.") {
-                Toggle("", isOn: boolBinding(\.switcher.enableMouseHover)).labelsHidden()
-            }
-            if hub.switcher.enableMouseHover {
-                MAYNDivider()
-                MAYNSettingsRow(title: "Auto-scroll speed", subtitle: "Speed of auto-scrolling when the mouse is at the container edge.") {
-                    MAYNNumericStepper(text: "Speed", value: doubleStepBinding(\.switcher.mouseHoverAutoScrollSpeed), range: 1...10, step: 1, presets: [2, 4, 6, 8, 10], suffix: "")
-                }
-            }
-        }
-    }
-
-    // MARK: Filtering
-
-    private var filteringSection: some View {
-        MAYNSection(title: "Filtering") {
-            MAYNSettingsRow(title: "Current Space only", subtitle: "Only show windows on the active desktop Space.") {
-                Toggle("", isOn: boolBinding(\.switcher.currentSpaceOnly)).labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Current monitor only", subtitle: "Only show windows on the display with the switcher.") {
-                Toggle("", isOn: boolBinding(\.switcher.currentMonitorOnly)).labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Limit to active app", subtitle: "Only show windows from the frontmost application.") {
-                Toggle("", isOn: boolBinding(\.switcher.limitToFrontmostApp)).labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Include hidden windows", subtitle: "Show minimized and hidden windows.") {
-                Toggle("", isOn: boolBinding(\.switcher.includeHiddenWindows)).labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Show windowless apps", subtitle: "Show running apps even when they have no open windows.") {
-                Toggle("", isOn: boolBinding(\.switcher.showWindowlessApps)).labelsHidden()
-            }
-        }
-    }
-
-    // MARK: Sorting & Grouping
+    // MARK: Sorting
 
     private var sortingSection: some View {
         MAYNSection(title: "Sorting") {

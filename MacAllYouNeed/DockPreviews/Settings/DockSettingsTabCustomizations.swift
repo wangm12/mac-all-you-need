@@ -9,20 +9,24 @@ struct DockSettingsTabCustomizations: View {
 
     var body: some View {
         Group {
-            appearanceSection
-            dockPreviewAppearanceSection
-            compactModeSection
-            dockScrollGestureSection
-            titleBarScrollSection
-            dockPreviewGesturesSection
-            switcherGesturesSection
-            gestureSensitivitySection
-            mouseActionsSection
-            cmdKeyShortcutsSection
-            widgetsSection
-            activeIndicatorSection
-            filtersSection
-            advancedSection
+            generalAppearanceSection
+            DockSettingsMockPreview(hub: hub, context: .dock)
+            DockAdvancedSettingsDisclosure {
+                appearanceAdvancedSection
+                dockPreviewAppearanceSection
+                compactModeSection
+                dockScrollGestureSection
+                titleBarScrollSection
+                dockPreviewGesturesSection
+                switcherGesturesSection
+                gestureSensitivitySection
+                mouseActionsSection
+                cmdKeyShortcutsSection
+                widgetsSection
+                activeIndicatorSection
+                filtersSection
+                advancedSection
+            }
         }
         .onAppear { hub = DockHubSettingsStore.load() }
     }
@@ -32,10 +36,10 @@ struct DockSettingsTabCustomizations: View {
         onSettingsChanged?()
     }
 
-    // MARK: Appearance
+    // MARK: General appearance
 
-    private var appearanceSection: some View {
-        MAYNSection(title: "Appearance") {
+    private var generalAppearanceSection: some View {
+        MAYNSection(title: "Look & feel") {
             MAYNSettingsRow(title: "Theme", subtitle: "Light/dark mode for the Dock preview panel.") {
                 MAYNDropdown(selection: binding(\.appearance.appAppearanceMode), options: DockAppearanceMode.allCases) { $0.displayName }
             }
@@ -43,14 +47,22 @@ struct DockSettingsTabCustomizations: View {
             MAYNSettingsRow(title: "Background style", subtitle: "Visual material for the preview panel background.") {
                 MAYNDropdown(selection: binding(\.appearance.backgroundStyle), options: DockBackgroundStyleFull.allCases) { $0.displayName }
             }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Use opaque background", subtitle: "Show an opaque background instead of translucent.") {
+                Toggle("", isOn: boolBinding(\.appearance.useOpaqueBackground)).labelsHidden()
+            }
+        }
+    }
+
+    private var appearanceAdvancedSection: some View {
+        MAYNSection(title: "Appearance") {
             if hub.appearance.backgroundStyle == .frostedMaterial {
-                MAYNDivider()
                 MAYNSettingsRow(title: "Material thickness", subtitle: "Frosted glass material variant.") {
                     MAYNDropdown(selection: binding(\.appearance.backgroundMaterial), options: DockBackgroundMaterialFull.allCases) { $0.displayName }
                 }
+                MAYNDivider()
             }
             if hub.appearance.backgroundStyle == .liquidGlass {
-                MAYNDivider()
                 MAYNSettingsRow(title: "Glass opacity", subtitle: "Opacity of the liquid glass background.") {
                     MAYNNumericStepper(text: "Opacity", value: doublePercentBinding(\.appearance.glassOpacity), range: 0...100, step: 5, presets: [50, 75, 90, 100], suffix: "%")
                 }
@@ -74,12 +86,8 @@ struct DockSettingsTabCustomizations: View {
                 MAYNSettingsRow(title: "Border width", subtitle: "Width of the glass border line.") {
                     MAYNNumericStepper(text: "Width", value: doubleIntBinding(\.appearance.backgroundBorderWidth), range: 0...4, step: 1, presets: [0, 1, 2], suffix: "pt")
                 }
+                MAYNDivider()
             }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Use opaque background", subtitle: "Show an opaque background instead of translucent.") {
-                Toggle("", isOn: boolBinding(\.appearance.useOpaqueBackground)).labelsHidden()
-            }
-            MAYNDivider()
             MAYNSettingsRow(title: "Spacing scale", subtitle: "Padding multiplier for all chrome elements (0.5× – 2.0×).") {
                 MAYNNumericStepper(text: "Scale", value: doublePercentBinding(\.appearance.globalPaddingMultiplier), range: 50...200, step: 10, presets: [50, 100, 150, 200], suffix: "%")
             }

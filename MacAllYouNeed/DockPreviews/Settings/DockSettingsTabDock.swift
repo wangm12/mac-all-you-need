@@ -1,63 +1,33 @@
-import ApplicationServices
 import SwiftUI
 
 struct DockSettingsTabDock: View {
     var onSettingsChanged: (() -> Void)?
     @State private var hub = DockHubSettingsStore.load()
 
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
+
     var body: some View {
-        Group {
-            featuresSection
-            permissionsSection
-        }
-        .onAppear { hub = DockHubSettingsStore.load() }
+        featureGrid
+            .onAppear { hub = DockHubSettingsStore.load() }
     }
 
-    private var featuresSection: some View {
-        MAYNSection(title: "Features") {
-            toggleRow("Dock hover previews", "Show window thumbnails when hovering a Dock icon.", \.master.enableDockPreviews)
-            MAYNDivider()
-            toggleRow("Window switcher", "Alt+Tab–style window switcher with configurable keybinds.", \.master.enableWindowSwitcher)
-            MAYNDivider()
-            toggleRow("Cmd+Tab enhancements", "Intercept the system Cmd+Tab switcher and show window previews.", \.master.enableCmdTabEnhancements)
-            MAYNDivider()
-            toggleRow("Dock locking", "Keep the Dock on a specific display in multi-monitor setups.", \.master.enableDockLocking)
-            MAYNDivider()
-            toggleRow("Active app indicator", "Show a colored bar beneath the active application's Dock icon.", \.master.enableActiveAppIndicator)
-        }
-    }
-
-    private var permissionsSection: some View {
-        MAYNSection(title: "Permissions") {
-            MAYNSettingsRow(
-                title: "Screen Recording",
-                subtitle: "Required for window thumbnails and live preview."
-            ) {
-                StatusPill(
-                    text: DockPreviewPermissionGate.screenRecordingGranted() ? "Granted" : "Required",
-                    kind: DockPreviewPermissionGate.screenRecordingGranted() ? .success : .warning
+    private var featureGrid: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+            ForEach(features) { feature in
+                DockFeatureToggleCard(
+                    title: feature.title,
+                    subtitle: feature.subtitle,
+                    symbolName: feature.symbolName,
+                    accent: feature.accent,
+                    isOn: Binding(
+                        get: { hub[keyPath: feature.keyPath] },
+                        set: { hub[keyPath: feature.keyPath] = $0; persist() }
+                    )
                 )
             }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Accessibility",
-                subtitle: "Required for window switcher and Cmd+Tab interception."
-            ) {
-                let granted = AXIsProcessTrusted()
-                StatusPill(
-                    text: granted ? "Granted" : "Required",
-                    kind: granted ? .success : .warning
-                )
-            }
-        }
-    }
-
-    private func toggleRow(_ title: String, _ subtitle: String, _ keyPath: WritableKeyPath<DockHubSettings, Bool>) -> some View {
-        MAYNSettingsRow(title: title, subtitle: subtitle) {
-            Toggle("", isOn: Binding(
-                get: { hub[keyPath: keyPath] },
-                set: { hub[keyPath: keyPath] = $0; persist() }
-            )).labelsHidden()
         }
     }
 
@@ -66,3 +36,55 @@ struct DockSettingsTabDock: View {
         onSettingsChanged?()
     }
 }
+
+private struct DockMasterFeatureItem: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let symbolName: String
+    let accent: Color
+    let keyPath: WritableKeyPath<DockHubSettings, Bool>
+}
+
+private let features: [DockMasterFeatureItem] = [
+    DockMasterFeatureItem(
+        id: "dock-previews",
+        title: "Dock hover previews",
+        subtitle: "Show window thumbnails when hovering a Dock icon.",
+        symbolName: "rectangle.on.rectangle",
+        accent: .blue,
+        keyPath: \.master.enableDockPreviews
+    ),
+    DockMasterFeatureItem(
+        id: "window-switcher",
+        title: "Window switcher",
+        subtitle: "Alt+Tab–style switcher with configurable keybinds.",
+        symbolName: "square.grid.2x2",
+        accent: .purple,
+        keyPath: \.master.enableWindowSwitcher
+    ),
+    DockMasterFeatureItem(
+        id: "cmd-tab",
+        title: "Cmd+Tab enhancements",
+        subtitle: "Show window previews while holding Command.",
+        symbolName: "command",
+        accent: .orange,
+        keyPath: \.master.enableCmdTabEnhancements
+    ),
+    DockMasterFeatureItem(
+        id: "dock-locking",
+        title: "Dock locking",
+        subtitle: "Keep the Dock on a specific display.",
+        symbolName: "lock.rectangle",
+        accent: .teal,
+        keyPath: \.master.enableDockLocking
+    ),
+    DockMasterFeatureItem(
+        id: "active-indicator",
+        title: "Active app indicator",
+        subtitle: "Colored bar beneath the active Dock icon.",
+        symbolName: "minus.rectangle",
+        accent: .pink,
+        keyPath: \.master.enableActiveAppIndicator
+    ),
+]

@@ -1,25 +1,56 @@
 import SwiftUI
 
+private enum DockHoverDelayPreset: String, CaseIterable, Identifiable {
+    case instant
+    case normal
+    case relaxed
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .instant: "Instant"
+        case .normal: "Normal"
+        case .relaxed: "Relaxed"
+        }
+    }
+
+    var milliseconds: Int {
+        switch self {
+        case .instant: 0
+        case .normal: 200
+        case .relaxed: 500
+        }
+    }
+
+    static func from(milliseconds: Int) -> Self {
+        switch milliseconds {
+        case 0: .instant
+        case ..<350: .normal
+        default: .relaxed
+        }
+    }
+}
+
 struct DockSettingsTabPreviews: View {
     var onSettingsChanged: (() -> Void)?
     @State private var hub = DockHubSettingsStore.load()
     @State private var worklogLineCount = 0
 
-    private var settings: DockPreviewSettings {
-        get { hub.previews }
-        set { hub.previews = newValue }
-    }
-
     var body: some View {
         Group {
-            previewsSection
-            livePreviewSection
-            captureSection
-            windowsSection
-            placementSection
-            dockInteractionsSection
-            advancedBehaviorSection
-            diagnosticsSection
+            generalSection
+            DockSettingsMockPreview(hub: hub, context: .dock)
+            DockAdvancedSettingsDisclosure {
+                fadeTimingSection
+                livePreviewAdvancedSection
+                captureSection
+                windowsSection
+                placementSection
+                dockInteractionsSection
+                advancedBehaviorSection
+                diagnosticsSection
+            }
         }
         .onAppear {
             hub = DockHubSettingsStore.load()
@@ -32,18 +63,41 @@ struct DockSettingsTabPreviews: View {
         onSettingsChanged?()
     }
 
-    // MARK: Previews
+    // MARK: General
 
-    private var previewsSection: some View {
+    private var generalSection: some View {
         MAYNSection(title: "Previews") {
             MAYNSettingsRow(title: "Show window thumbnails", subtitle: "Requires Screen Recording; falls back to titles-only when denied.") {
                 Toggle("", isOn: boolBinding(\.previews.showThumbnails)).labelsHidden()
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Hover delay", subtitle: "Time before the preview panel appears.") {
-                MAYNNumericStepper(text: "Hover delay", value: intBinding(\.previews.hoverDelayMS), range: 0...2000, step: 50, presets: [0, 250, 500, 1000], suffix: "ms")
+                MAYNDropdown(
+                    selection: Binding(
+                        get: { DockHoverDelayPreset.from(milliseconds: hub.previews.hoverDelayMS) },
+                        set: { hub.previews.hoverDelayMS = $0.milliseconds; persist() }
+                    ),
+                    options: DockHoverDelayPreset.allCases
+                ) { $0.displayName }
             }
             MAYNDivider()
+            MAYNSettingsRow(
+                title: "Enable live preview",
+                subtitle: DockPreviewPermissionGate.screenRecordingGranted()
+                    ? "Stream low-frame-rate video instead of static thumbnails."
+                    : "Requires Screen Recording permission."
+            ) {
+                Toggle("", isOn: boolBinding(\.previews.enableLivePreview))
+                    .labelsHidden()
+                    .disabled(!DockPreviewPermissionGate.screenRecordingGranted())
+            }
+        }
+    }
+
+    // MARK: Advanced sections
+
+    private var fadeTimingSection: some View {
+        MAYNSection(title: "Timing") {
             MAYNSettingsRow(title: "Fade out duration", subtitle: "Panel dismiss animation length.") {
                 MAYNNumericStepper(text: "Fade out", value: intBinding(\.previews.fadeOutDurationMS), range: 0...2000, step: 50, presets: [200, 400, 800], suffix: "ms")
             }
@@ -54,19 +108,8 @@ struct DockSettingsTabPreviews: View {
         }
     }
 
-    // MARK: Live preview
-
-    private var livePreviewSection: some View {
-        MAYNSection(
-            title: "Live preview",
-            subtitle: DockPreviewPermissionGate.screenRecordingGranted() ? nil : "Requires Screen Recording permission."
-        ) {
-            MAYNSettingsRow(title: "Enable live preview", subtitle: "Stream low-frame-rate video instead of static thumbnails.") {
-                Toggle("", isOn: boolBinding(\.previews.enableLivePreview))
-                    .labelsHidden()
-                    .disabled(!DockPreviewPermissionGate.screenRecordingGranted())
-            }
-            MAYNDivider()
+    private var livePreviewAdvancedSection: some View {
+        MAYNSection(title: "Live preview") {
             MAYNSettingsRow(title: "Dock preview quality", subtitle: "Live stream resolution for dock hover.") {
                 MAYNDropdown(selection: binding(\.advanced.dockLivePreviewQuality), options: DockLivePreviewQuality.allCases) { $0.displayName }
             }
@@ -97,8 +140,6 @@ struct DockSettingsTabPreviews: View {
         }
     }
 
-    // MARK: Capture
-
     private var captureSection: some View {
         MAYNSection(title: "Capture") {
             MAYNSettingsRow(title: "Window image quality", subtitle: "Screenshot capture resolution mode.") {
@@ -114,8 +155,6 @@ struct DockSettingsTabPreviews: View {
             }
         }
     }
-
-    // MARK: Windows shown
 
     private var windowsSection: some View {
         MAYNSection(title: "Windows shown") {
@@ -139,8 +178,6 @@ struct DockSettingsTabPreviews: View {
         }
     }
 
-    // MARK: Placement
-
     private var placementSection: some View {
         MAYNSection(title: "Placement") {
             toggleRow("Anchor to Dock icon", "Position the panel beside the hovered icon.", \.previews.anchorToDockIcon)
@@ -159,10 +196,36 @@ struct DockSettingsTabPreviews: View {
         }
     }
 
-    // MARK: Dock interactions
-
     private var dockInteractionsSection: some View {
         MAYNSection(title: "Dock interactions") {
+            MAYNSettingsRow(
+                title: "Preview hover action",
+                subtitle: "What happens when you hover a window card in dock previews. None keeps windows in place."
+            ) {
+                MAYNDropdown(
+                    selection: Binding(
+                        get: { hub.previews.appearanceOptions.previewHoverAction },
+                        set: {
+                            hub.previews.appearanceOptions.previewHoverAction = $0
+                            if $0 != .fullSizePreview {
+                                hub.previews.enableFullSizeHoverPreview = false
+                            }
+                            persist()
+                        }
+                    ),
+                    options: DockPreviewPreviewHoverAction.allCases
+                ) { $0.displayName }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Full-size hover overlay",
+                subtitle: "Show a large floating preview when hovering a window card."
+            ) {
+                Toggle("", isOn: boolBinding(\.previews.enableFullSizeHoverPreview))
+                    .labelsHidden()
+                    .disabled(hub.previews.appearanceOptions.previewHoverAction != .fullSizePreview)
+            }
+            MAYNDivider()
             MAYNSettingsRow(title: "CMD + Right-Click to quit", subtitle: "Quickly quit an app by right-clicking its Dock icon while holding ⌘.") {
                 Toggle("", isOn: boolBinding(\.interaction.enableCmdRightClickQuit)).labelsHidden()
             }
@@ -189,8 +252,6 @@ struct DockSettingsTabPreviews: View {
         }
     }
 
-    // MARK: Advanced behavior
-
     private var advancedBehaviorSection: some View {
         MAYNSection(title: "Advanced behavior") {
             MAYNSettingsRow(title: "Open new window for windowless apps", subtitle: "Open a new window when clicking an app with no open windows.") {
@@ -206,8 +267,6 @@ struct DockSettingsTabPreviews: View {
             }
         }
     }
-
-    // MARK: Diagnostics
 
     private var diagnosticsSection: some View {
         MAYNSection(title: "Diagnostics") {

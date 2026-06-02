@@ -6,12 +6,25 @@ struct DockSettingsTabCmdTab: View {
 
     var body: some View {
         Group {
+            if !hub.master.enableCmdTabEnhancements {
+                disabledHint
+            }
             generalSection
-            filteringSection
-            appearanceSection
-            trafficLightsSection
+            DockSettingsMockPreview(hub: hub, context: .cmdTab)
+            DockAdvancedSettingsDisclosure {
+                filteringAdvancedSection
+                appearanceSection
+                trafficLightsSection
+            }
         }
         .onAppear { hub = DockHubSettingsStore.load() }
+    }
+
+    private var disabledHint: some View {
+        InstructionStrip(
+            text: "Cmd+Tab enhancements are off. Enable them on the Features tab to use these settings.",
+            symbol: "command"
+        )
     }
 
     private func persist() {
@@ -23,32 +36,36 @@ struct DockSettingsTabCmdTab: View {
 
     private var generalSection: some View {
         MAYNSection(title: "General") {
-            MAYNSettingsRow(title: "Enable Cmd+Tab enhancements", subtitle: "Intercept Cmd+Tab to show window previews instead of the system switcher.") {
-                Toggle("", isOn: boolBinding(\.master.enableCmdTabEnhancements)).labelsHidden()
+            MAYNSettingsRow(title: "Automatically select first window", subtitle: "Select the first window when Cmd+Tab is pressed.") {
+                Toggle("", isOn: boolBinding(\.cmdTab.autoSelectFirstWindow))
+                    .labelsHidden()
+                    .disabled(!hub.master.enableCmdTabEnhancements)
             }
             MAYNDivider()
-            MAYNSettingsRow(title: "Automatically select first window", subtitle: "Select the first window when Cmd+Tab is pressed.") {
-                Toggle("", isOn: boolBinding(\.cmdTab.autoSelectFirstWindow)).labelsHidden()
+            MAYNSettingsRow(title: "Current Space only", subtitle: "Only show windows on the active desktop Space.") {
+                Toggle("", isOn: boolBinding(\.cmdTab.currentSpaceOnly))
+                    .labelsHidden()
+                    .disabled(!hub.master.enableCmdTabEnhancements)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Current monitor only", subtitle: "Only show windows on the current display.") {
+                Toggle("", isOn: boolBinding(\.cmdTab.currentMonitorOnly))
+                    .labelsHidden()
+                    .disabled(!hub.master.enableCmdTabEnhancements)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Include hidden windows", subtitle: "Show minimized and hidden windows.") {
+                Toggle("", isOn: boolBinding(\.cmdTab.includeHiddenWindows))
+                    .labelsHidden()
+                    .disabled(!hub.master.enableCmdTabEnhancements)
             }
         }
     }
 
-    // MARK: Filtering
+    // MARK: Advanced
 
-    private var filteringSection: some View {
+    private var filteringAdvancedSection: some View {
         MAYNSection(title: "Filtering") {
-            MAYNSettingsRow(title: "Current Space only", subtitle: "Only show windows on the active desktop Space.") {
-                Toggle("", isOn: boolBinding(\.cmdTab.currentSpaceOnly)).labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Current monitor only", subtitle: "Only show windows on the current display.") {
-                Toggle("", isOn: boolBinding(\.cmdTab.currentMonitorOnly)).labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Include hidden windows", subtitle: "Show minimized and hidden windows.") {
-                Toggle("", isOn: boolBinding(\.cmdTab.includeHiddenWindows)).labelsHidden()
-            }
-            MAYNDivider()
             MAYNSettingsRow(title: "Show windowless apps", subtitle: "Show running apps even when they have no open windows.") {
                 Toggle("", isOn: boolBinding(\.cmdTab.showWindowlessApps)).labelsHidden()
             }
@@ -62,8 +79,6 @@ struct DockSettingsTabCmdTab: View {
             }
         }
     }
-
-    // MARK: Appearance
 
     private var appearanceSection: some View {
         MAYNSection(title: "Appearance") {
@@ -108,8 +123,6 @@ struct DockSettingsTabCmdTab: View {
             }
         }
     }
-
-    // MARK: Traffic lights
 
     private var trafficLightsSection: some View {
         MAYNSection(title: "Traffic light buttons") {

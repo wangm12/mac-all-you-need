@@ -186,24 +186,50 @@ enum WindowGrabFunctionTab: String, FunctionTabDestination {
     }
 }
 
-enum DockPreviewFunctionTab: String, FunctionTabDestination {
-    case overview
-    case settings
+enum DockFunctionTab: String, FunctionTabDestination, CaseIterable {
+    case features
+    case previews
+    case switcher
+    case cmdTab
+    case locking
+    case customize
+    case permissions
 
-    static let storageKey = "dockPreviews.pageTab"
-    static let defaultTab = DockPreviewFunctionTab.overview
+    static let storageKey = "dockPreviews.mainTab"
+    static let defaultTab = DockFunctionTab.features
 
     var title: String {
         switch self {
-        case .overview: "Overview"
-        case .settings: "Settings"
+        case .permissions: "Permissions"
+        case .features: "Features"
+        case .previews: "Previews"
+        case .switcher: "Switcher"
+        case .cmdTab: "Cmd+Tab"
+        case .locking: "Lock"
+        case .customize: "Customize"
         }
     }
 
     var symbolName: String {
         switch self {
-        case .overview: "info.circle"
-        case .settings: "slider.horizontal.3"
+        case .permissions: "lock.shield"
+        case .features: "dock.rectangle"
+        case .previews: "rectangle.on.rectangle"
+        case .switcher: "square.grid.2x2"
+        case .cmdTab: "command"
+        case .locking: "lock.rectangle"
+        case .customize: "slider.horizontal.3"
+        }
+    }
+
+    static func storedSelection(_ raw: String?) -> Self {
+        guard let raw else { return defaultTab }
+        switch raw {
+        case "overview": return .permissions
+        case "settings", "dock": return .features
+        case "customizations": return .customize
+        default:
+            return Self(rawValue: raw) ?? defaultTab
         }
     }
 }

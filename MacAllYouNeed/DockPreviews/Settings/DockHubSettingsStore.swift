@@ -111,6 +111,13 @@ enum DockHubSettingsStore {
         }
     }
 
+    /// Applies appearance → previews mapping without persisting (settings mock preview).
+    static func syncedForPreview(_ hub: DockHubSettings) -> DockHubSettings {
+        var copy = hub
+        applyAppearanceSync(&copy)
+        return copy
+    }
+
     static func save(_ settings: DockHubSettings, to defaults: UserDefaults = AppGroupSettings.defaults) {
         var synced = settings
         applyAppearanceSync(&synced)
@@ -178,9 +185,6 @@ enum DockHubSettingsStore {
         hub.previews.panelBackground.blurRadius = a.glassBlurRadius
         hub.previews.panelBackground.saturation = a.glassSaturation
         hub.previews.panelBackgroundOpacity = a.dockPreviewBackgroundOpacity
-
-        // Advanced live preview → previews
-        hub.previews.enableLivePreview = hub.advanced.enableLivePreviewForDock
 
         // Widget sync (folder)
         hub.previews.enableFolderWidget = hub.widgets.enableFolderWidget
