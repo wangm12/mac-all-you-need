@@ -14,6 +14,7 @@ struct DockPreviewWindowCard: View, Equatable {
     let isSelected: Bool
     let isActiveWindow: Bool
     let reduceMotion: Bool
+    let enableWindowDrag: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let onHoverIndex: (Bool) -> Void
@@ -35,7 +36,9 @@ struct DockPreviewWindowCard: View, Equatable {
             && liveImage == nil
             && mode == .fullPreview
     }
-    private var showAsSelected: Bool { isSelected || isHovered }
+    private var showAsSelected: Bool {
+        isWindowSwitcher ? (isSelected || isHovered) : isHovered
+    }
     private var thumbSize: CGSize {
         CGSize(
             width: max(dimensions.size.width, 50),
@@ -57,6 +60,11 @@ struct DockPreviewWindowCard: View, Equatable {
     private var titleMaxWidth: CGFloat {
         max(thumbSize.width - 24, 80)
     }
+    private var toolbarHorizontalPadding: CGFloat {
+        appearance.uniformCardRadius
+            ? DockPreviewCardRadius.innerPadding * 0.5
+            : 0
+    }
 
     var body: some View {
         previewCoreContent
@@ -64,6 +72,7 @@ struct DockPreviewWindowCard: View, Equatable {
                 onSelect: onSelect,
                 onClose: onClose,
                 enableFullSizeOnHover: appearance.allowsFullSizeHoverPreview,
+                enableWindowDrag: enableWindowDrag,
                 entry: entry,
                 liveImage: liveImage,
                 reduceMotion: reduceMotion
@@ -74,28 +83,54 @@ struct DockPreviewWindowCard: View, Equatable {
     private var previewCoreContent: some View {
         let finalSelected = showAsSelected
         return ZStack(alignment: .topLeading) {
-            thumbnailStack(isSelected: finalSelected)
+            VStack(alignment: .leading, spacing: 0) {
+                if !appearance.useEmbeddedControlsOverlay, appearance.controlPosition.showsOnTop {
+                    let slot = appearance.controlPosition.topConfiguration
+                    if shouldShowExternalToolbar(slot: slot, selected: finalSelected) {
+                        externalToolbar(for: finalSelected, slot: slot)
+                            .padding(.horizontal, toolbarHorizontalPadding)
+                            .padding(.bottom, 4)
+                    }
+                }
 
-            if appearance.useEmbeddedControlsOverlay {
-                embeddedControlsOverlay(selected: finalSelected)
-                    .frame(width: thumbSize.width, height: thumbSize.height)
-            } else {
-                externalChrome(selected: finalSelected)
+                windowContent(isSelected: finalSelected)
+                    .dockPreviewDynamicFrame(
+                        allowDynamicSizing: settings.allowDynamicImageSizing,
+                        dimensions: dimensions,
+                        dockEdge: dockEdge,
+                        isWindowSwitcher: isWindowSwitcher
+                    )
+
+                if !appearance.useEmbeddedControlsOverlay, appearance.controlPosition.showsOnBottom {
+                    let slot = appearance.controlPosition.bottomConfiguration
+                    if shouldShowExternalToolbar(slot: slot, selected: finalSelected) {
+                        externalToolbar(for: finalSelected, slot: slot)
+                            .padding(.horizontal, toolbarHorizontalPadding)
+                            .padding(.top, 4)
+                    }
+                }
+            }
+            .frame(maxWidth: dimensions.maxDimensions.width > 0 ? dimensions.maxDimensions.width : nil)
+            .background { cardChrome(isSelected: finalSelected) }
+            .overlay {
+                if appearance.useEmbeddedControlsOverlay {
+                    embeddedControlsOverlay(selected: finalSelected)
+                        .frame(width: thumbSize.width, height: thumbSize.height)
+                }
             }
         }
-        .frame(maxWidth: dimensions.maxDimensions.width > 0 ? dimensions.maxDimensions.width : nil)
         .onContinuousHover { phase in
             switch phase {
             case .active:
                 if !isHovered {
-                    withAnimation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion)) {
+                    withAnimation(appearance.showAnimations ? .snappy(duration: 0.175) : nil) {
                         isHovered = true
                     }
                     onHoverIndex(true)
                 }
             case .ended:
                 if isHovered {
-                    withAnimation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion)) {
+                    withAnimation(appearance.showAnimations ? .snappy(duration: 0.175) : nil) {
                         isHovered = false
                     }
                     onHoverIndex(false)
@@ -106,34 +141,8 @@ struct DockPreviewWindowCard: View, Equatable {
     }
 
     @ViewBuilder
-    private func thumbnailStack(isSelected: Bool) -> some View {
-        windowContent(isSelected: isSelected)
-            .frame(width: thumbSize.width, height: thumbSize.height)
-            .background { cardChrome(isSelected: isSelected) }
-            .clipShape(RoundedRectangle(cornerRadius: imageCornerRadius, style: .continuous))
-    }
-
-    @ViewBuilder
-    private func externalChrome(selected: Bool) -> some View {
-        VStack(spacing: 0) {
-            if appearance.controlPosition.showsOnTop {
-                externalToolbar(for: selected, slot: appearance.controlPosition.topConfiguration)
-                    .frame(width: thumbSize.width)
-                    .padding(.bottom, 4)
-            }
-            Spacer(minLength: 0)
-            if appearance.controlPosition.showsOnBottom {
-                externalToolbar(for: selected, slot: appearance.controlPosition.bottomConfiguration)
-                    .frame(width: thumbSize.width)
-                    .padding(.top, 4)
-            }
-        }
-        .frame(width: thumbSize.width, height: thumbSize.height)
-    }
-
-    @ViewBuilder
     private func windowContent(isSelected: Bool) -> some View {
-        let inactive = (entry.isMinimized || !entry.isOnScreen) && appearance.showMinimizedHiddenLabels
+        let inactive = (entry.isMinimized || entry.isHidden) && appearance.showMinimizedHiddenLabels
         Group {
             if isLoadingPlaceholder {
                 ZStack {
@@ -162,14 +171,21 @@ struct DockPreviewWindowCard: View, Equatable {
                 }
             }
         }
+        .dockPreviewMarkHidden(
+            isHidden: inactive || (isWindowSwitcher && !isSelected),
+            unselectedOpacity: appearance.unselectedOpacity
+        )
         .overlay {
             if inactive {
                 Image(systemName: "eye.slash")
                     .font(.largeTitle)
                     .foregroundStyle(.primary)
                     .shadow(radius: 2)
+                    .transition(.opacity)
             }
         }
+        .animation(appearance.showAnimations ? MAYNMotion.hoverAnimation(reduceMotion: reduceMotion) : nil, value: inactive)
+        .clipShape(RoundedRectangle(cornerRadius: imageCornerRadius, style: .continuous))
         .opacity(isSelected ? 1 : appearance.unselectedOpacity)
     }
 
@@ -178,10 +194,11 @@ struct DockPreviewWindowCard: View, Equatable {
         if !appearance.hidePreviewCardBackground {
             DockPreviewBlurView(cornerRadius: cardCornerRadius, appearance: appearance.background)
                 .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1.75)
-                }
+                .dockPreviewBorderedBackground(
+                    Color.primary.opacity(0.1),
+                    lineWidth: 1.75,
+                    cornerRadius: cardCornerRadius
+                )
                 .padding(-DockPreviewCardRadius.innerPadding)
                 .overlay {
                     if isSelected {
@@ -201,6 +218,21 @@ struct DockPreviewWindowCard: View, Equatable {
         }
     }
 
+    private func shouldShowExternalToolbar(
+        slot: DockPreviewControlPosition.SlotConfiguration,
+        selected: Bool
+    ) -> Bool {
+        let showTitle = appearance.showWindowTitle
+            && slot.showTitle
+            && !isLoadingPlaceholder
+            && (appearance.windowTitleVisibility == .alwaysVisible || selected)
+        let showControls = appearance.showTrafficLights
+            && slot.showControls
+            && !isLoadingPlaceholder
+            && (canShowTrafficLights(selected: selected) || minimizedHiddenLabel != nil)
+        return showTitle || showControls
+    }
+
     @ViewBuilder
     private func embeddedControlsOverlay(selected: Bool) -> some View {
         embeddedControlsLayout(selected: selected)
@@ -212,11 +244,10 @@ struct DockPreviewWindowCard: View, Equatable {
         let showTitle = appearance.showWindowTitle
             && !isLoadingPlaceholder
             && (appearance.windowTitleVisibility == .alwaysVisible || selected)
-        let showControls = appearance.showTrafficLights
-            && !isLoadingPlaceholder
-            && trafficLightsVisible(selected: selected)
+        let showControls = canShowTrafficLights(selected: selected)
+        let showChrome = showControls || minimizedHiddenLabel != nil
         let titleView = titlePill(title)
-        let controlsView = trafficLights(selected: selected)
+        let controlsView = chromeControlsContent(selected: selected, showTrafficLights: showControls)
 
         if appearance.controlPosition.showsOnTop {
             VStack {
@@ -224,8 +255,8 @@ struct DockPreviewWindowCard: View, Equatable {
                     titleView: titleView,
                     controlsView: controlsView,
                     showTitle: showTitle,
-                    showControls: showControls,
-                    leadingTitle: true
+                    showControls: showChrome,
+                    leadingTitle: leadingTitleInOverlay
                 )
                 .padding(8)
                 Spacer(minLength: 0)
@@ -237,7 +268,7 @@ struct DockPreviewWindowCard: View, Equatable {
                     titleView: titleView,
                     controlsView: controlsView,
                     showTitle: showTitle,
-                    showControls: showControls,
+                    showControls: showChrome,
                     leadingTitle: leadingTitleInOverlay
                 )
                 .padding(8)
@@ -258,26 +289,77 @@ struct DockPreviewWindowCard: View, Equatable {
         let showControls = appearance.showTrafficLights
             && slot.showControls
             && !isLoadingPlaceholder
-            && trafficLightsVisible(selected: selected)
+            && canShowTrafficLights(selected: selected)
+        let showStateLabel = appearance.showMinimizedHiddenLabels
+            && slot.showControls
+            && !isLoadingPlaceholder
+            && minimizedHiddenLabel != nil
 
-        if showTitle || showControls {
+        if showTitle || showControls || showStateLabel {
             HStack(spacing: 4) {
                 if slot.isLeadingControls {
-                    if showControls { trafficLights(selected: selected) }
-                    Spacer(minLength: 4)
+                    if showControls || showStateLabel {
+                        chromeControlsContent(selected: selected, showTrafficLights: showControls)
+                    }
+                    Spacer(minLength: 8)
                     if showTitle { titlePill(title) }
                 } else {
                     if showTitle { titlePill(title) }
-                    Spacer(minLength: 4)
-                    if showControls { trafficLights(selected: selected) }
+                    Spacer(minLength: 8)
+                    if showControls || showStateLabel {
+                        chromeControlsContent(selected: selected, showTrafficLights: showControls)
+                    }
                 }
             }
+            .frame(maxWidth: thumbSize.width)
+        }
+    }
+
+    private var minimizedHiddenLabel: String? {
+        guard appearance.showMinimizedHiddenLabels,
+              appearance.trafficLightVisibility != .never
+        else { return nil }
+        if entry.isMinimized { return "Minimized" }
+        if entry.isHidden { return "Hidden" }
+        return nil
+    }
+
+    private func canShowTrafficLights(selected: Bool) -> Bool {
+        guard appearance.showTrafficLights,
+              appearance.trafficLightVisibility != .never,
+              !isLoadingPlaceholder
+        else { return false }
+        if appearance.showMinimizedHiddenLabels, entry.isMinimized || entry.isHidden {
+            return false
+        }
+        switch appearance.trafficLightVisibility {
+        case .never: return false
+        case .alwaysVisible: return true
+        case .fullOpacityOnPreviewHover, .dimmedOnPreviewHover: return selected
+        }
+    }
+
+    @ViewBuilder
+    private func chromeControlsContent(selected: Bool, showTrafficLights: Bool) -> some View {
+        if showTrafficLights {
+            trafficLights(selected: selected)
+        } else if let label = minimizedHiddenLabel {
+            Text(label)
+                .font(appearance.windowTitleFont)
+                .italic()
+                .foregroundStyle(.secondary)
+                .padding(4)
+                .if(!appearance.disableDockStyleTitles) { view in
+                    view.dockPreviewMaterialPill(background: appearance.background)
+                        .frame(height: 34)
+                }
         }
     }
 
     private var leadingTitleInOverlay: Bool {
         switch appearance.controlPosition {
-        case .parallelTopRightBottomRight, .diagonalTopRightBottomLeft,
+        case .topTrailing, .bottomTrailing,
+             .parallelTopRightBottomRight, .diagonalTopRightBottomLeft,
              .centeredTitleBottomControlsTop, .embeddedTop:
             return false
         default:
@@ -304,28 +386,19 @@ struct DockPreviewWindowCard: View, Equatable {
                 if showTitle { titleView }
             }
         }
-    }
-
-    private func trafficLightsVisible(selected: Bool) -> Bool {
-        switch appearance.trafficLightVisibility {
-        case .never: false
-        case .always: true
-        case .onHover: selected
-        }
+        .frame(maxWidth: thumbSize.width)
     }
 
     @ViewBuilder
     private func titlePill(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 12, weight: .medium))
+            .font(appearance.windowTitleFont)
             .lineLimit(1)
             .truncationMode(truncationMode)
             .frame(maxWidth: titleMaxWidth, alignment: .leading)
+            .padding(4)
             .if(!appearance.disableDockStyleTitles) { view in
                 view.dockPreviewMaterialPill(background: appearance.background)
-            }
-            .if(appearance.disableDockStyleTitles) { view in
-                view.padding(4)
             }
     }
 
@@ -334,7 +407,7 @@ struct DockPreviewWindowCard: View, Equatable {
         DockPreviewTrafficLightButtons(
             entry: entry,
             appearance: appearance,
-            hovering: selected,
+            hoveringOverParentWindow: selected,
             onClose: onClose
         )
     }

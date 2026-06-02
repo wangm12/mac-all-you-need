@@ -61,7 +61,7 @@ final class DockPreviewWindowCacheMaintainer {
 
     func refresh(pid: pid_t) {
         refreshTasks[pid]?.cancel()
-        let settings = DockPreviewSettingsStore.load()
+        let settings = DockHubSettingsStore.loadPreviews()
         refreshTasks[pid] = Task { @MainActor [weak self] in
             guard let self else { return }
             let entries = await self.enumerator.windows(for: pid, settings: settings, bundleIdentifier: nil)
@@ -80,7 +80,7 @@ final class DockPreviewWindowCacheMaintainer {
     private func handleTermination(pid: pid_t, bundleID: String?) {
         refreshTasks[pid]?.cancel()
         refreshTasks[pid] = nil
-        let settings = DockPreviewSettingsStore.load()
+        let settings = DockHubSettingsStore.loadPreviews()
         guard !settings.keepPreviewOnAppQuit else { return }
         cache.clear(pid: pid)
     }

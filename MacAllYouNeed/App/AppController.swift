@@ -516,10 +516,6 @@ final class AppController {
         dockPreviews.refreshPermissions()
     }
 
-    func windowSwitcherReloadSettings() {
-        dockPreviews.reloadSettings()
-    }
-
     private func suspendShortcutTriggersForHotkeyRecording() {
         activeHotkeyRecorderCount += 1
         guard activeHotkeyRecorderCount == 1 else { return }

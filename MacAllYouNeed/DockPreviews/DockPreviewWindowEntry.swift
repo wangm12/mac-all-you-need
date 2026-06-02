@@ -11,6 +11,9 @@ struct DockPreviewWindowEntry: Identifiable, Equatable {
     var isMinimized: Bool
     var isOnScreen: Bool
 
+    /// Off-screen window that is not minimized (DockDoor `isHidden`).
+    var isHidden: Bool { !isOnScreen && !isMinimized }
+
     static func == (lhs: DockPreviewWindowEntry, rhs: DockPreviewWindowEntry) -> Bool {
         lhs.id == rhs.id && lhs.isMinimized == rhs.isMinimized && lhs.title == rhs.title
     }

@@ -15,19 +15,23 @@ final class DockHoverObserver {
 
     var onHoverBegan: ((DockHoverTarget) -> Void)?
     var onHoverEnded: (() -> Void)?
-    var settings: () -> DockPreviewSettings = { DockPreviewSettingsStore.load() }
+    var settings: () -> DockPreviewSettings = { DockHubSettingsStore.loadPreviews() }
 
     init(coordinator: AXObserverCoordinator) {
         self.coordinator = coordinator
     }
 
     func start() {
+        Self.activeObserver = self
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
         resetSubscription()
         startHealthCheck()
     }
 
     func stop() {
+        if Self.activeObserver === self {
+            Self.activeObserver = nil
+        }
         healthCheckTask?.cancel()
         healthCheckTask = nil
         coordinator.stop()
@@ -41,7 +45,26 @@ final class DockHoverObserver {
         lastHoverToken
     }
 
-    /// Whether the mouse is still over the dock item that opened the preview (DockDoor AX element equality via token).
+    /// Live hovered app resolved from AX (DockDoor `getDockItemAppStatusUnderMouse`).
+    func currentAppHoverInfo() -> DockHoverTarget.AppHoverInfo? {
+        guard let item = getHoveredDockItemElement() else { return nil }
+        return resolveAppHoverInfo(for: item)
+    }
+
+    /// Live selected dock item (DockDoor `getHoveredDockItemElement` → `getSelectedDockItem` only).
+    func getHoveredDockItemElement() -> AXUIElement? {
+        guard let listElement = dockAXList else { return nil }
+        return selectedDockItem(in: listElement)
+    }
+
+    /// Whether the mouse is still over the dock item that opened the preview (DockDoor AX element equality).
+    static func isHoveredDockItemMatching(_ shownItem: AXUIElement?) -> Bool {
+        guard let shownItem else { return false }
+        guard let current = activeObserver?.getHoveredDockItemElement() else { return false }
+        return CFEqual(shownItem, current)
+    }
+
+    /// Whether the mouse is still over the dock item that opened the preview (token fallback).
     static func isHoveredTokenMatching(_ shownToken: UInt?) -> Bool {
         guard let shownToken, let current = lastHoveredTokenProvider?() else { return false }
         return shownToken == current
@@ -127,7 +150,8 @@ final class DockHoverObserver {
         guard let listElement = dockAXList else { return }
         guard let item = selectedDockItem(in: listElement) else {
             lastHoverToken = nil
-            onHoverEnded?()
+            lastAppHoverSignature = nil
+            // DockDoor: no preview action when AX selection is empty — inactivity fade owns dismissal.
             return
         }
 
@@ -141,7 +165,7 @@ final class DockHoverObserver {
             return
         }
 
-        guard let appInfo = appHoverInfo(for: item) else {
+        guard let appInfo = resolveAppHoverInfo(for: item) else {
             lastHoverToken = nil
             lastAppHoverSignature = nil
             onHoverEnded?()
@@ -169,62 +193,76 @@ final class DockHoverObserver {
         return (selected as? [AXUIElement])?.first
     }
 
-    private func appHoverInfo(for item: AXUIElement) -> DockHoverTarget.AppHoverInfo? {
+    /// Resolve hovered app from dock AX item (DockDoor `getDockItemAppStatusUnderMouse`).
+    private func resolveAppHoverInfo(for item: AXUIElement) -> DockHoverTarget.AppHoverInfo? {
         guard dockItemSubrole(item) == "AXApplicationDockItem" else { return nil }
-        guard let url = dockItemURL(item) else { return nil }
-
-        let bundle = Bundle(url: url)
-        let bundleID = bundle?.bundleIdentifier
         let iconRect = dockItemRect(item)
+        let token = elementToken(item)
 
-        if let bundleID, !bundleID.isEmpty {
-            let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
-            if running.count > 1 {
-                let index = dockInstanceIndex(for: item, bundleIdentifier: bundleID)
-                if index < running.count {
-                    let app = running[index]
-                    return DockHoverTarget.AppHoverInfo(
-                        pid: app.processIdentifier,
-                        appName: app.localizedName ?? bundleID,
-                        bundleIdentifier: bundleID,
-                        iconRect: iconRect,
-                        dockItemToken: elementToken(item)
-                    )
-                }
-            }
-            if let app = running.first {
-                return DockHoverTarget.AppHoverInfo(
-                    pid: app.processIdentifier,
-                    appName: app.localizedName ?? bundleID,
-                    bundleIdentifier: bundleID,
-                    iconRect: iconRect,
-                    dockItemToken: elementToken(item)
-                )
-            }
-            let name = bundle?.infoDictionary?["CFBundleName"] as? String
-                ?? url.deletingPathExtension().lastPathComponent
-            return DockHoverTarget.AppHoverInfo(
-                pid: 0,
-                appName: name,
-                bundleIdentifier: bundleID,
-                iconRect: iconRect,
-                dockItemToken: elementToken(item)
-            )
-        }
-
-        let title = dockItemTitle(item) ?? url.deletingPathExtension().lastPathComponent
-        if let app = NSWorkspace.shared.runningApplications.first(where: {
-            $0.localizedName?.caseInsensitiveCompare(title) == .orderedSame
-        }) {
+        guard let url = dockItemURL(item) else {
+            guard let title = dockItemTitle(item),
+                  let app = findRunningApplication(named: title)
+            else { return nil }
             return DockHoverTarget.AppHoverInfo(
                 pid: app.processIdentifier,
                 appName: app.localizedName ?? title,
                 bundleIdentifier: app.bundleIdentifier,
                 iconRect: iconRect,
-                dockItemToken: elementToken(item)
+                dockItemToken: token
             )
         }
-        return nil
+
+        let bundle = Bundle(url: url)
+        guard let bundleID = bundle?.bundleIdentifier else {
+            guard let title = dockItemTitle(item),
+                  let app = findRunningApplication(named: title)
+            else { return nil }
+            return DockHoverTarget.AppHoverInfo(
+                pid: app.processIdentifier,
+                appName: app.localizedName ?? title,
+                bundleIdentifier: app.bundleIdentifier,
+                iconRect: iconRect,
+                dockItemToken: token
+            )
+        }
+
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+        if running.count > 1 {
+            let index = dockInstanceIndex(for: item, bundleIdentifier: bundleID)
+            if index < running.count {
+                let app = running[index]
+                return DockHoverTarget.AppHoverInfo(
+                    pid: app.processIdentifier,
+                    appName: app.localizedName ?? bundleID,
+                    bundleIdentifier: bundleID,
+                    iconRect: iconRect,
+                    dockItemToken: token
+                )
+            }
+        }
+        if let app = running.first {
+            return DockHoverTarget.AppHoverInfo(
+                pid: app.processIdentifier,
+                appName: app.localizedName ?? bundleID,
+                bundleIdentifier: bundleID,
+                iconRect: iconRect,
+                dockItemToken: token
+            )
+        }
+
+        let name = bundle?.infoDictionary?["CFBundleName"] as? String
+            ?? url.deletingPathExtension().lastPathComponent
+        return DockHoverTarget.AppHoverInfo(
+            pid: 0,
+            appName: name,
+            bundleIdentifier: bundleID,
+            iconRect: iconRect,
+            dockItemToken: token
+        )
+    }
+
+    private func findRunningApplication(named applicationName: String) -> NSRunningApplication? {
+        NSWorkspace.shared.runningApplications.first { $0.localizedName == applicationName }
     }
 
     private func folderHoverInfo(for item: AXUIElement) -> DockHoverTarget.FolderHoverInfo? {

@@ -164,6 +164,55 @@ struct DockPreviewBaseHoverContainer<Content: View>: View {
     }
 }
 
+// MARK: - Bordered background (DockDoor `View.borderedBackground`)
+
+extension View {
+    func dockPreviewBorderedBackground<S: ShapeStyle, Sh: InsettableShape>(
+        _ content: S,
+        lineWidth: CGFloat = 1.0,
+        shape: Sh
+    ) -> some View {
+        padding(lineWidth * 0.75)
+            .background {
+                shape.strokeBorder(content, lineWidth: lineWidth)
+            }
+            .clipShape(shape)
+    }
+
+    func dockPreviewBorderedBackground<S: ShapeStyle>(
+        _ content: S,
+        lineWidth: CGFloat = 1.0,
+        cornerRadius: CGFloat = 0
+    ) -> some View {
+        dockPreviewBorderedBackground(
+            content,
+            lineWidth: lineWidth,
+            shape: RoundedRectangle(cornerRadius: cornerRadius + 1, style: .continuous)
+        )
+    }
+}
+
+// MARK: - Hidden / dimmed previews (DockDoor `HiddenModifier`)
+
+struct DockPreviewHiddenModifier: ViewModifier {
+    let isHidden: Bool
+    let unselectedOpacity: Double
+
+    func body(content: Content) -> some View {
+        content.opacity(isHidden ? unselectedOpacity : 1)
+    }
+}
+
+extension View {
+    func dockPreviewMarkHidden(isHidden: Bool, unselectedOpacity: Double) -> some View {
+        modifier(DockPreviewHiddenModifier(isHidden: isHidden, unselectedOpacity: unselectedOpacity))
+    }
+
+    func dockPreviewGlobalPadding(_ length: CGFloat, multiplier: CGFloat) -> some View {
+        padding(length * multiplier)
+    }
+}
+
 private extension NSColor {
     convenience init?(hexString: String) {
         var cleaned = hexString.trimmingCharacters(in: .whitespacesAndNewlines)

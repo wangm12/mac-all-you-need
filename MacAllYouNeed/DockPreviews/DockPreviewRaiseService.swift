@@ -15,7 +15,7 @@ final class DockPreviewRaiseService {
         self.enumerator = enumerator
     }
 
-    func raise(entry: DockPreviewWindowEntry, settings: DockPreviewSettings = DockPreviewSettingsStore.load()) async {
+    func raise(entry: DockPreviewWindowEntry, settings: DockPreviewSettings = DockHubSettingsStore.loadPreviews()) async {
         var target = entry
         if !windowExists(target.id, pid: target.pid) {
             let bundleID = NSRunningApplication(processIdentifier: target.pid)?.bundleIdentifier

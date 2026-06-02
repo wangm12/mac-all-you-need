@@ -22,7 +22,7 @@ enum DockPreviewWorklog {
     }
 
     static var isEnabled: Bool {
-        DockPreviewSettingsStore.load().enableWorklog
+        DockHubSettingsStore.loadPreviews().enableWorklog
     }
 
     static func revealInFinder() {

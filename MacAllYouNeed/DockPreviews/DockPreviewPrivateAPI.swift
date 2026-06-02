@@ -16,6 +16,7 @@ protocol DockPreviewPrivateAPI {
     func captureWindowThumbnail(windowID: CGWindowID, scale: CGFloat) -> CGImage?
     func raiseWindow(windowID: CGWindowID, pid: pid_t) -> Bool
     func axWindowID(for element: AXUIElement) -> CGWindowID?
+    func axElementWithRemoteToken(_ token: Data) -> AXUIElement?
 }
 
 /// Live implementation using dlopen + SkyLight for window raising.
@@ -38,7 +39,9 @@ final class SystemDockPreviewPrivateAPI: DockPreviewPrivateAPI {
     private var getProcessForPID: GetProcessForPIDFn?
 
     typealias AXUIElementGetWindowFn = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> OSStatus
+    typealias AXUIElementCreateWithRemoteTokenFn = @convention(c) (CFData) -> Unmanaged<AXUIElement>?
     private var axUIElementGetWindow: AXUIElementGetWindowFn?
+    private var axUIElementCreateWithRemoteToken: AXUIElementCreateWithRemoteTokenFn?
 
     init() {
         if let cgHandle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY) {
@@ -60,6 +63,14 @@ final class SystemDockPreviewPrivateAPI: DockPreviewPrivateAPI {
         if let axSym = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementGetWindow") {
             axUIElementGetWindow = unsafeBitCast(axSym, to: AXUIElementGetWindowFn.self)
         }
+        if let tokenSym = dlsym(dlopen(nil, RTLD_LAZY), "_AXUIElementCreateWithRemoteToken") {
+            axUIElementCreateWithRemoteToken = unsafeBitCast(tokenSym, to: AXUIElementCreateWithRemoteTokenFn.self)
+        }
+    }
+
+    func axElementWithRemoteToken(_ token: Data) -> AXUIElement? {
+        guard let factory = axUIElementCreateWithRemoteToken else { return nil }
+        return factory(token as CFData)?.takeRetainedValue()
     }
 
     func axWindowID(for element: AXUIElement) -> CGWindowID? {

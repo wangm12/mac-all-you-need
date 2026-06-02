@@ -30,7 +30,7 @@ final class DockPreviewPanel {
     var isFadingOut = false
     var onSelect: ((DockPreviewWindowEntry) -> Void)?
     var onDismissRequest: (() -> Void)?
-    var shouldKeepOpen: (() -> Bool)?
+    var onDismissPreservePendingShow: (() -> Void)?
 
     func bind(state: DockPreviewStateCoordinator) {
         stateCoordinator = state
@@ -46,7 +46,8 @@ final class DockPreviewPanel {
         onSelect: @escaping (DockPreviewWindowEntry) -> Void
     ) {
         self.onSelect = onSelect
-        let settings = DockPreviewSettingsStore.load()
+        let hub = DockHubSettingsStore.load()
+        let settings = hub.previews
         bufferFromDock = CGFloat(settings.bufferFromDock)
 
         guard let state = stateCoordinator else { return }
@@ -55,12 +56,17 @@ final class DockPreviewPanel {
         state.anchorRect = presentation.anchorRect
         state.dockEdge = presentation.dockEdge
         state.settings = settings
-        state.appearance = DockPreviewAppearanceContext.resolve(mode: state.mode, settings: settings)
+        state.appearance = DockPreviewAppearanceContext.resolve(
+            mode: state.mode,
+            settings: settings,
+            hubAppearance: hub.appearance
+        )
         state.presentationMode = presentation.mode
         state.enableLivePreview = presentation.enableLivePreview
         state.embeddedContent = presentation.embeddedContent
 
         let switchingIcon = placementKey != pinnedPlacementKey
+        state.dockItemToken = placementKey
         let mergeOnly = panel?.isVisible == true && !switchingIcon && hasPerformedInitialShow
         if switchingIcon || !hasPerformedInitialShow {
             _ = state.setWindows(presentation.entries, preserveSelection: !switchingIcon)
@@ -81,11 +87,25 @@ final class DockPreviewPanel {
         if switchingIcon || pinnedPlacementKey == nil {
             pinnedPlacementKey = placementKey
         }
+        if switchingIcon, panel?.isVisible == true {
+            panel?.alphaValue = 1
+            NotificationCenter.default.post(name: .dockPreviewResetFadeState, object: nil)
+        }
         hasPerformedInitialShow = true
 
         if settings.enableLivePreview, presentation.mode == .fullPreview {
-            let liveIDs = state.windows.filter { !$0.title.isEmpty }.map(\.id)
-            DockPreviewLiveCaptureManager.shared.setActiveWindowIDs(liveIDs, settings: settings)
+            let hub = DockHubSettingsStore.load()
+            let ids: [CGWindowID]
+            if state.mode == .windowSwitcher, hub.advanced.enableLivePreviewForSwitcher {
+                ids = DockPreviewLiveCaptureScope.windowIDs(
+                    windows: state.windows,
+                    selectedIndex: state.selectedIndex,
+                    scope: hub.advanced.switcherLivePreviewScope
+                )
+            } else {
+                ids = state.windows.filter { !$0.title.isEmpty }.map(\.id)
+            }
+            DockPreviewLiveCaptureManager.shared.setActiveWindowIDs(ids, settings: settings)
         }
     }
 
@@ -123,14 +143,10 @@ final class DockPreviewPanel {
             onMouseInPanel: { [weak self] inside in self?.mouseIsWithinPreview = inside },
             onDismissRequest: { [weak self] in self?.onDismissRequest?() },
             onDismissPreservePendingShow: { [weak self] in
-                NotificationCenter.default.post(
-                    name: .dockPreviewPanelDismissPreservePendingShow,
-                    object: nil
-                )
+                self?.onDismissPreservePendingShow?()
             },
-            shouldKeepOpen: { [weak self] in self?.shouldKeepOpen?() ?? false },
-            dockItemToken: pinnedPlacementKey,
             onMinimizeAll: { [weak self] in self?.minimizeAllWindows() },
+            onCloseAll: { [weak self] in self?.closeAllWindows() },
             onQuitApp: { [weak self] in self?.quitHoveredApp() }
         )
         if let hostingView {
@@ -225,6 +241,13 @@ final class DockPreviewPanel {
         }
     }
 
+    private func closeAllWindows() {
+        guard let state = stateCoordinator else { return }
+        for entry in state.windows {
+            DockPreviewWindowActions.close(entry: entry)
+        }
+    }
+
     private func quitHoveredApp() {
         guard let state = stateCoordinator else { return }
         let pid = state.windows.first?.pid ?? 0
@@ -255,6 +278,11 @@ final class DockPreviewPanel {
     func resetFadeState() {
         isFadingOut = false
         panel?.alphaValue = 1
+        NotificationCenter.default.post(name: .dockPreviewResetFadeState, object: nil)
+    }
+
+    func clearMouseInPreview() {
+        mouseIsWithinPreview = false
     }
 
     func dismiss(animated: Bool = true) {
@@ -284,6 +312,7 @@ final class DockPreviewPanel {
 
     private func tearDown() {
         DockPreviewFullSizeOverlay.shared.dismiss()
+        stateCoordinator?.dismissalAnchorDockItem = nil
         panel?.orderOut(nil)
         panel = nil
         hostingView = nil

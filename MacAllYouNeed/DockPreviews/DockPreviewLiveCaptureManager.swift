@@ -63,7 +63,7 @@ final class DockPreviewLiveCaptureManager: ObservableObject {
     func panelClosed() {
         panelOpenCount = max(0, panelOpenCount - 1)
         if panelOpenCount == 0 {
-            scheduleStopAfterKeepAlive(settings: DockPreviewSettingsStore.load())
+            scheduleStopAfterKeepAlive(settings: DockHubSettingsStore.loadPreviews())
         }
     }
 

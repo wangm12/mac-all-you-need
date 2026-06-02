@@ -8,24 +8,29 @@ final class DockPreviewPanelController {
 
     let state = DockPreviewStateCoordinator()
     let panel = DockPreviewPanel()
-    private let searchWindow = DockPreviewSearchWindow()
     private let raiseService: DockPreviewRaiseService
     private var hubSettings: DockHubSettings = .default
+    private let searchWindow = DockPreviewSearchWindow()
 
     var mouseIsWithinPreview: Bool { panel.mouseIsWithinPreview }
+    var isSearchWindowFocused: Bool { searchWindow.isFocused }
 
     init(enumerator: any WindowEnumerating = SystemWindowEnumerator()) {
         raiseService = DockPreviewRaiseService(enumerator: enumerator)
         panel.bind(state: state)
         searchWindow.bind(state: state)
-        panel.onDismissRequest = { [weak self] in self?.requestDismiss() }
-        panel.shouldKeepOpen = { [weak self] in self?.shouldKeepOpen() ?? false }
+        panel.onDismissRequest = { [weak self] in self?.dismiss(animated: true) }
     }
 
     func reloadSettings(_ settings: DockHubSettings) {
         hubSettings = settings
         state.settings = settings.previews
-        state.appearance = DockPreviewAppearanceContext.resolve(mode: state.mode, settings: settings.previews)
+        state.appearance = DockPreviewAppearanceContext.resolve(
+            mode: state.mode,
+            settings: settings.previews,
+            hubAppearance: settings.appearance
+        )
+        searchWindow.updateAppearance(state.appearance)
     }
 
     func showHover(
@@ -35,11 +40,17 @@ final class DockPreviewPanelController {
         entries: [DockPreviewWindowEntry],
         anchorRect: CGRect,
         placementKey: UInt,
-        embedded: DockEmbeddedContent = .none
+        embedded: DockEmbeddedContent = .none,
+        bundleIdentifier: String? = nil
     ) {
         Self.active = self
         state.mode = .dockHover
-        state.appearance = DockPreviewAppearanceContext.resolve(mode: .dockHover, settings: hubSettings.previews)
+        state.bundleIdentifier = bundleIdentifier
+        state.appearance = DockPreviewAppearanceContext.resolve(
+            mode: .dockHover,
+            settings: hubSettings.previews,
+            hubAppearance: hubSettings.appearance
+        )
         state.embeddedContent = embedded
         state.appName = appName
         state.appIcon = appIcon
@@ -53,32 +64,114 @@ final class DockPreviewPanelController {
     func showSwitcher(entries: [DockPreviewWindowEntry], selectedIndex: Int) {
         Self.active = self
         state.mode = .windowSwitcher
-        state.appearance = DockPreviewAppearanceContext.resolve(mode: .windowSwitcher, settings: hubSettings.previews)
+        state.appearance = DockPreviewAppearanceContext.resolve(
+            mode: .windowSwitcher,
+            settings: hubSettings.previews,
+            hubAppearance: hubSettings.appearance
+        )
         state.embeddedContent = .none
         state.appName = "Windows"
         state.appIcon = nil
-        state.anchorRect = NSScreen.screens.first.map { $0.visibleFrame } ?? .zero
+        state.anchorRect = switcherAnchorRect()
         state.dockEdge = .bottom
         panel.setCenterOnScreen(true)
         state.windows = entries
         state.selectedIndex = selectedIndex
-        if hubSettings.switcher.enableSearch && hubSettings.previews.detachedSwitcherSearch,
-           let window = panel.underlyingWindow
-        {
-            searchWindow.show(relativeTo: window)
-        }
+        state.shouldScrollToIndex = true
+        state.hasMovedSinceOpen = false
+        state.initialHoverLocation = nil
         refreshPanelLayout(reposition: true, placementKey: 0)
+        configureSwitcherSearch()
+        updateSwitcherLiveStreams()
+    }
+
+    /// Lightweight Tab-cycle update — avoids full panel rebuild.
+    func updateSwitcherSelection(selectedIndex: Int) {
+        guard state.mode == .windowSwitcher else { return }
+        state.selectedIndex = selectedIndex
+        state.shouldScrollToIndex = true
+        scheduleSwitcherLiveCaptureUpdate()
+    }
+
+    /// Refresh window list after background enumeration without resetting placement.
+    func mergeSwitcherEntries(_ entries: [DockPreviewWindowEntry]) {
+        guard state.mode == .windowSwitcher else { return }
+        let changed = state.setWindows(entries, preserveSelection: true)
+        guard changed else { return }
+        refreshPanelLayout(reposition: false, placementKey: 0)
+        updateSwitcherLiveStreams()
+    }
+
+    private func switcherAnchorRect() -> CGRect {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        return screen?.visibleFrame ?? .zero
+    }
+
+    private var liveCaptureDebounceTask: Task<Void, Never>?
+
+    private func scheduleSwitcherLiveCaptureUpdate() {
+        liveCaptureDebounceTask?.cancel()
+        liveCaptureDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(40))
+            guard !Task.isCancelled, let self else { return }
+            self.updateSwitcherLiveStreams()
+        }
+    }
+
+    private func updateSwitcherLiveStreams() {
+        guard hubSettings.advanced.enableLivePreviewForSwitcher else { return }
+        let ids = DockPreviewLiveCaptureScope.windowIDs(
+            windows: state.windows,
+            selectedIndex: state.selectedIndex,
+            scope: hubSettings.advanced.switcherLivePreviewScope
+        )
+        var settings = hubSettings.previews
+        settings.enableLivePreview = true
+        DockPreviewLiveCaptureManager.shared.setActiveWindowIDs(ids, settings: settings)
+    }
+
+    private func configureSwitcherSearch() {
+        guard hubSettings.switcher.enableSearch,
+              let window = panel.underlyingWindow
+        else {
+            searchWindow.hide()
+            return
+        }
+        searchWindow.show(relativeTo: window)
+        if hubSettings.switcher.focusSearchOnOpen {
+            searchWindow.focus()
+        }
+    }
+
+    func focusSearchWindow() {
+        searchWindow.focus()
+    }
+
+    func updateSearchWindow(text: String) {
+        searchWindow.updateText(text)
+    }
+
+    func hideSearchWindow() {
+        searchWindow.hide()
     }
 
     func showCmdTab(
         appName: String,
         appIcon: NSImage?,
         entries: [DockPreviewWindowEntry],
-        anchorRect: CGRect
+        anchorRect: CGRect,
+        selectedIndex: Int = 0,
+        showFocusHint: Bool = false
     ) {
         Self.active = self
         state.mode = .cmdTab
-        state.appearance = DockPreviewAppearanceContext.resolve(mode: .cmdTab, settings: hubSettings.previews)
+        state.showCmdTabFocusHint = showFocusHint
+        state.appearance = DockPreviewAppearanceContext.resolve(
+            mode: .cmdTab,
+            settings: hubSettings.previews,
+            hubAppearance: hubSettings.appearance
+        )
         state.embeddedContent = .none
         state.appName = appName
         state.appIcon = appIcon
@@ -86,11 +179,13 @@ final class DockPreviewPanelController {
         state.dockEdge = .bottom
         panel.setCenterOnScreen(false)
         _ = state.setWindows(entries, preserveSelection: false)
+        state.selectedIndex = selectedIndex
         refreshPanelLayout(reposition: true, placementKey: 0)
     }
 
     func dismiss(animated: Bool = true) {
-        searchWindow.hide()
+        hideSearchWindow()
+        DockDragPreviewCoordinator.shared.endDragging()
         panel.dismiss(animated: animated)
         if Self.active === self { Self.active = nil }
     }
@@ -128,6 +223,14 @@ final class DockPreviewPanelController {
             previews.showThumbnails = false
         }
         let mode = DockPreviewPermissionGate.currentMode(settings: previews)
+        let liveEnabled: Bool
+        if state.mode == .windowSwitcher {
+            liveEnabled = hubSettings.advanced.enableLivePreviewForSwitcher && hubSettings.master.enableDockPreviews
+        } else if state.mode == .cmdTab {
+            liveEnabled = hubSettings.advanced.enableLivePreviewForDock && hubSettings.master.enableDockPreviews
+        } else {
+            liveEnabled = previews.enableLivePreview && hubSettings.master.enableDockPreviews
+        }
         let presentation = DockPreviewPanelPresentation(
             appIcon: state.appIcon,
             appName: state.appName,
@@ -135,7 +238,7 @@ final class DockPreviewPanelController {
             mode: mode,
             anchorRect: state.anchorRect,
             dockEdge: state.dockEdge,
-            enableLivePreview: previews.enableLivePreview && hubSettings.master.enableDockPreviews,
+            enableLivePreview: liveEnabled,
             embeddedContent: state.embeddedContent
         )
         panel.update(
@@ -146,6 +249,13 @@ final class DockPreviewPanelController {
                 Task { await self?.handleSelect(entry) }
             }
         )
+        if state.mode == .windowSwitcher,
+           hubSettings.switcher.enableSearch,
+           let window = panel.underlyingWindow,
+           !isVisible || reposition
+        {
+            searchWindow.show(relativeTo: window)
+        }
     }
 
     private func handleSelect(_ entry: DockPreviewWindowEntry) async {
@@ -155,16 +265,8 @@ final class DockPreviewPanelController {
         }
     }
 
-    private func requestDismiss() {
-        NotificationCenter.default.post(name: .dockPreviewPanelDismissRequested, object: nil)
-    }
-
-    private func shouldKeepOpen() -> Bool {
-        hubSettings.previews.preventDockAutoHideWhileOpen && isVisible
-    }
 }
 
 extension Notification.Name {
-    static let dockPreviewPanelDismissRequested = Notification.Name("dockPreviewPanelDismissRequested")
-    static let dockPreviewPanelDismissPreservePendingShow = Notification.Name("dockPreviewPanelDismissPreservePendingShow")
+    static let dockPreviewResetFadeState = Notification.Name("dockPreviewResetFadeState")
 }

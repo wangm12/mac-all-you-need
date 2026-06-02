@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 enum DockPreviewFlowItem: Hashable, Identifiable {
@@ -20,9 +21,8 @@ struct DockPreviewHoverContainer: View {
     let onMouseInPanel: (Bool) -> Void
     let onDismissRequest: () -> Void
     let onDismissPreservePendingShow: () -> Void
-    let shouldKeepOpen: () -> Bool
-    var dockItemToken: UInt?
     var onMinimizeAll: (() -> Void)?
+    var onCloseAll: (() -> Void)?
     var onQuitApp: (() -> Void)?
 
     @ObservedObject private var liveCapture = DockPreviewLiveCaptureManager.shared
@@ -31,6 +31,42 @@ struct DockPreviewHoverContainer: View {
     @State private var hoveringAppIcon = false
     @State private var edgeScrollDirection: CGFloat = 0
     @State private var edgeScrollTimer: Timer?
+    @State private var edgeScrollHoverSize: CGSize = .zero
+    @State private var cachedScrollView: NSScrollView?
+
+    private var enableMouseHoverInSwitcher: Bool {
+        DockHubSettingsStore.load().switcher.enableMouseHover
+    }
+
+    private var mouseHoverAutoScrollSpeed: CGFloat {
+        CGFloat(DockHubSettingsStore.load().switcher.mouseHoverAutoScrollSpeed)
+    }
+
+    private func handleHoverIndexChange(_ hoveredIndex: Int?) {
+        guard enableMouseHoverInSwitcher else { return }
+        guard let hoveredIndex else { return }
+        guard hoveredIndex != state.selectedIndex else { return }
+
+        if !state.hasMovedSinceOpen {
+            let screenLocation = NSEvent.mouseLocation
+
+            if state.initialHoverLocation == nil {
+                state.initialHoverLocation = screenLocation
+                return
+            }
+
+            if let initial = state.initialHoverLocation {
+                let distance = hypot(screenLocation.x - initial.x, screenLocation.y - initial.y)
+                if distance > 1 {
+                    state.hasMovedSinceOpen = true
+                } else {
+                    return
+                }
+            }
+        }
+
+        state.setIndex(to: hoveredIndex, shouldScroll: false)
+    }
 
     private var screen: NSScreen {
         NSScreen.screens.first { $0.frame.contains(state.anchorRect.origin) }
@@ -65,14 +101,57 @@ struct DockPreviewHoverContainer: View {
         state.settings.hideHoverContainerBackground ? 0 : state.settings.panelBackgroundOpacity
     }
 
+    private var headerTopOuterPadding: CGFloat {
+        guard state.appearance.showAppHeader,
+              !state.windows.isEmpty,
+              !state.isWindowlessPlaceholder,
+              !usesCompactList,
+              !state.isWindowSwitcherActive,
+              state.appearance.appNameStyle == .popover
+        else { return 0 }
+        return 30
+    }
+
+    private var cmdTabCycleKeyLabel: String {
+        let hub = DockHubSettingsStore.load()
+        let code = hub.cmdTab.cycleKeyCode == 0 ? UInt16(kVK_Tab) : hub.cmdTab.cycleKeyCode
+        switch code {
+        case UInt16(kVK_Tab): return "Tab"
+        case UInt16(kVK_Space): return "Space"
+        default: return "Cycle key"
+        }
+    }
+
+    private func liveImage(for entry: DockPreviewWindowEntry) -> CGImage? {
+        guard state.enableLivePreview else { return nil }
+        if state.isWindowSwitcherActive {
+            let hub = DockHubSettingsStore.load()
+            let ids = DockPreviewLiveCaptureScope.windowIDs(
+                windows: state.windows,
+                selectedIndex: state.selectedIndex,
+                scope: hub.advanced.switcherLivePreviewScope
+            )
+            guard ids.contains(entry.id) else { return nil }
+        }
+        return liveCapture.frames[entry.id]
+    }
+
+    private var headerTopInnerPadding: CGFloat {
+        guard state.appearance.showAppHeader,
+              !usesCompactList,
+              !state.isWindowSwitcherActive,
+              state.appearance.appNameStyle == .default
+        else { return 0 }
+        // DockDoor reserves 25pt; add a few points so the title row clears the first card.
+        return 33
+    }
+
     var body: some View {
         DockPreviewDismissalContainer(
-            dockItemToken: dockItemToken,
-            anchorRect: state.anchorRect,
+            dockItemElement: state.dismissalAnchorDockItem,
             onMouseInPanel: onMouseInPanel,
             onDismissRequest: onDismissRequest,
             onDismissPreservePendingShow: onDismissPreservePendingShow,
-            shouldKeepOpen: shouldKeepOpen,
             shouldSkipFadeOut: { state.isWindowSwitcherActive || state.mode == .cmdTab }
         ) {
             DockPreviewBaseHoverContainer(
@@ -82,79 +161,220 @@ struct DockPreviewHoverContainer: View {
                 paddingMultiplier: CGFloat(state.settings.globalPaddingMultiplier),
                 uniformCardRadius: state.settings.uniformCardRadius
             ) {
-                ZStack(alignment: .topLeading) {
+                ZStack {
                     windowGridContent
-                    if state.appearance.showAppHeader, !usesCompactList, !state.isWindowSwitcherActive {
-                        appHeader
-                            .padding(.top, 12)
-                            .padding(.leading, 20)
+                    if state.mode == .cmdTab, state.showCmdTabFocusHint {
+                        DockCmdTabFocusOverlayView(cycleKeyLabel: cmdTabCycleKeyLabel)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
-                .padding(DockPreviewHoverPadding.contentInner)
-            }
-            .dockPreviewTrackpadSwipe { delta in
-                if delta > 12 { state.selectNext(delta: 1) }
-                else if delta < -12 { state.selectNext(delta: -1) }
             }
         }
+        .id(state.dockItemToken ?? 0)
+        .padding(.top, headerTopOuterPadding)
         .onAppear {
             if state.enableLivePreview {
                 DockPreviewLiveCaptureManager.shared.panelOpened()
             }
         }
         .onDisappear {
-            edgeScrollTimer?.invalidate()
+            stopEdgeScroll()
             if state.enableLivePreview {
                 DockPreviewLiveCaptureManager.shared.panelClosed()
             }
         }
+        .onChange(of: state.isWindowSwitcherActive) { _, isActive in
+            if !isActive {
+                state.searchQuery = ""
+                stopEdgeScroll()
+            }
+        }
+        .dockPreviewTrackpadGestures(
+            swipeThreshold: CGFloat(DockHubSettingsStore.load().gestures.gestureSwipeThreshold),
+            onSwipeUp: { handlePreviewSwipe(isUp: true) },
+            onSwipeDown: { handlePreviewSwipe(isUp: false) },
+            onSwipeLeft: { handlePreviewSwipe(isTowardsDock: true) },
+            onSwipeRight: { handlePreviewSwipe(isTowardsDock: false) }
+        )
     }
 
-    private var appHeader: some View {
-        HStack(spacing: 6) {
-            if let icon = state.appIcon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 24, height: 24)
+    private func handlePreviewSwipe(isUp: Bool = false, isTowardsDock: Bool = false) {
+        let hub = DockHubSettingsStore.load()
+        let gestures = hub.gestures
+        guard state.selectedIndex >= 0, state.selectedIndex < state.windows.count else {
+            if state.isWindowSwitcherActive, gestures.enableSwitcherGestures {
+                let action = isUp ? gestures.switcherSwipeUpAction : gestures.switcherSwipeDownAction
+                applySwipeToSelected(action)
             }
+            return
+        }
+        if state.isWindowSwitcherActive, gestures.enableSwitcherGestures {
+            let action = isUp ? gestures.switcherSwipeUpAction : gestures.switcherSwipeDownAction
+            applySwipeToSelected(action)
+            return
+        }
+        guard gestures.enableDockPreviewGestures else { return }
+        let towardsDock: Bool
+        switch state.dockEdge {
+        case .bottom: towardsDock = isTowardsDock
+        case .left: towardsDock = !isTowardsDock
+        case .right: towardsDock = isTowardsDock
+        }
+        let action = towardsDock ? gestures.swipeTowardsDockAction : gestures.swipeAwayFromDockAction
+        applySwipeToSelected(action)
+    }
+
+    private func applySwipeToSelected(_ action: DockWindowSwipeAction) {
+        guard state.selectedIndex >= 0, state.selectedIndex < state.windows.count else { return }
+        let entry = state.windows[state.selectedIndex]
+        DockPreviewWindowActions.applySwipe(action, entry: entry)
+    }
+
+    @ViewBuilder
+    private var appHeader: some View {
+        switch state.appearance.appNameStyle {
+        case .default:
+            defaultAppHeader
+        case .shadowed:
+            shadowedAppHeader
+        case .popover:
+            popoverAppHeader
+        }
+    }
+
+    private var defaultAppHeader: some View {
+        HStack(spacing: 6) {
+            appIconView
             Text(state.appName)
-                .font(.system(size: 14, weight: .semibold))
-                .shadow(radius: 2)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            massActionButtons
+                .padding(.leading, 4)
+        }
+        .contentShape(Rectangle())
+        .onHover { hoveringAppIcon = $0 }
+        .shadow(radius: 2)
+        .padding(.top, 12)
+        .padding(.leading, 20)
+    }
+
+    private var shadowedAppHeader: some View {
+        HStack(spacing: 2) {
+            HStack(spacing: 6) {
+                appIconView
+                Text(state.appName)
+                    .font(.subheadline).fontWeight(.medium)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .shadow(radius: 2)
+                    .background(
+                        Color.clear
+                            .background(.ultraThinMaterial)
+                            .mask(
+                                Ellipse()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.white.opacity(1.0), .white.opacity(0.35)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                            )
+                            .blur(radius: 5)
+                    )
+            }
+            .contentShape(Rectangle())
+            massActionButtons
+                .padding(.leading, 4)
+        }
+        .contentShape(Rectangle())
+        .onHover { hoveringAppIcon = $0 }
+        .padding(EdgeInsets(top: -11.5, leading: 15, bottom: -1.5, trailing: 1.5))
+    }
+
+    private var popoverAppHeader: some View {
+        HStack {
             Spacer()
-            if hoveringAppIcon, let onMinimizeAll {
+            HStack(alignment: .center, spacing: 6) {
+                appIconView
+                Text(state.appName)
+                    .font(.subheadline).fontWeight(.medium)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .padding(.vertical, 5)
+            .padding(.horizontal, 10)
+            .dockPreviewDockStyle(
+                backgroundOpacity: panelOpacity,
+                appearance: state.appearance.background,
+                cornerRadius: 10
+            )
+            Spacer()
+        }
+        .onHover { hoveringAppIcon = $0 }
+        .offset(y: -30)
+    }
+
+    @ViewBuilder
+    private var appIconView: some View {
+        if let icon = state.appIcon {
+            Image(nsImage: icon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 24, height: 24)
+        }
+    }
+
+    @ViewBuilder
+    private var massActionButtons: some View {
+        if hoveringAppIcon, state.appearance.showMassActionButtons {
+            if let onCloseAll {
+                Button("Close All", action: onCloseAll)
+                    .font(.caption)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+            if let onMinimizeAll {
                 Button("Minimize All", action: onMinimizeAll)
                     .font(.caption)
                     .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
             }
         }
-        .onHover { hoveringAppIcon = $0 }
     }
 
     @ViewBuilder
     private var windowGridContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if showScreenRecordingBanner {
-                DockPreviewScreenRecordingBanner {
-                    DockPreviewPermissionGate.requestScreenRecordingIfNeeded()
+        if showScreenRecordingBanner || state.isWindowlessPlaceholder {
+            VStack(alignment: .leading, spacing: 12) {
+                if showScreenRecordingBanner {
+                    DockPreviewScreenRecordingBanner {
+                        DockPreviewPermissionGate.requestScreenRecordingIfNeeded()
+                    }
+                }
+                if state.isWindowlessPlaceholder, let onQuitApp {
+                    DockPreviewWindowlessCard(onQuit: onQuitApp)
                 }
             }
-            if state.isWindowSwitcherActive, !state.settings.detachedSwitcherSearch {
-                DockPreviewSearchBar(query: $state.searchQuery)
-                    .onChange(of: state.searchQuery) { _, _ in
-                        state.clampSelectionToFilteredSearch()
-                    }
-            }
-            if state.isWindowlessPlaceholder, let onQuitApp {
-                DockPreviewWindowlessCard(onQuit: onQuitApp)
-            }
-            if usesCompactList {
-                DockPreviewCompactList(state: state, onSelect: onSelect)
-            } else {
-                flowStackContent
-            }
+            .dockPreviewGlobalPadding(
+                DockPreviewHoverPadding.contentInner,
+                multiplier: CGFloat(state.settings.globalPaddingMultiplier)
+            )
+        } else if usesCompactList {
+            DockPreviewCompactList(
+                state: state,
+                onSelect: onSelect,
+                onHoverIndex: state.isWindowSwitcherActive ? handleHoverIndexChange : nil
+            )
+                .dockPreviewGlobalPadding(
+                    DockPreviewHoverPadding.contentInner,
+                    multiplier: CGFloat(state.settings.globalPaddingMultiplier)
+                )
+        } else {
+            flowStackContent
         }
-        .padding(.top, state.appearance.showAppHeader && !usesCompactList && !state.isWindowSwitcherActive ? 28 : 0)
     }
 
     @ViewBuilder
@@ -182,6 +402,17 @@ struct DockPreviewHoverContainer: View {
                 fadeLength: 20,
                 disableLeading: scrolledFromStart
             )
+            .padding(.top, headerTopInnerPadding)
+            .overlay(alignment: state.appearance.appNameStyle == .popover ? .top : .topLeading) {
+                if state.appearance.showAppHeader,
+                   !usesCompactList,
+                   !state.isWindowSwitcherActive,
+                   !state.windows.isEmpty,
+                   !state.isWindowlessPlaceholder
+                {
+                    appHeader
+                }
+            }
             .onChange(of: state.selectedIndex) { _, newIndex in
                 guard state.shouldScrollToIndex, newIndex >= 0, newIndex < state.windows.count else { return }
                 let entry = state.windows[newIndex]
@@ -190,48 +421,123 @@ struct DockPreviewHoverContainer: View {
                 }
             }
             .onContinuousHover { phase in
-                guard state.isWindowSwitcherActive else { return }
-                if case let .active(location) = phase {
-                    updateEdgeScroll(at: location, scrollProxy: scrollProxy)
-                } else {
+                guard enableMouseHoverInSwitcher, state.isWindowSwitcherActive else { return }
+                switch phase {
+                case let .active(location):
+                    handleEdgeScrollHover(at: location, isHorizontal: orientationIsHorizontal)
+                case .ended:
                     stopEdgeScroll()
                 }
             }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear
+                        .onAppear { edgeScrollHoverSize = geometry.size }
+                        .onChange(of: geometry.size) { _, newSize in
+                            edgeScrollHoverSize = newSize
+                        }
+                }
+            }
         }
+        .padding(2)
         .animation(
-            MAYNMotion.hoverAnimation(reduceMotion: reduceMotion),
+            state.appearance.showAnimations ? .smooth(duration: 0.1) : nil,
             value: state.windows.count
         )
     }
 
-    private func updateEdgeScroll(at location: CGPoint, scrollProxy: ScrollViewProxy) {
-        let threshold: CGFloat = 28
-        let direction: CGFloat
-        if orientationIsHorizontal {
-            direction = location.x < threshold ? -1 : (location.x > 200 - threshold ? 1 : 0)
-        } else {
-            direction = location.y < threshold ? -1 : (location.y > 200 - threshold ? 1 : 0)
-        }
-        guard direction != 0 else {
+    private func handleEdgeScrollHover(at location: CGPoint, isHorizontal: Bool) {
+        let edgeSize: CGFloat = 50
+        let toolbarExclusion: CGFloat = 46
+        let topExclusion = state.appearance.controlPosition.showsOnTop ? toolbarExclusion : 0
+        let bottomExclusion = state.appearance.controlPosition.showsOnBottom ? toolbarExclusion : 0
+        let width = edgeScrollHoverSize.width
+        let height = edgeScrollHoverSize.height
+
+        guard width > 0, height > 0 else {
             stopEdgeScroll()
             return
         }
-        edgeScrollDirection = direction
-        edgeScrollTimer?.invalidate()
-        edgeScrollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-            Task { @MainActor in
-                let delta = Int(edgeScrollDirection)
-                state.selectNext(delta: delta)
-                guard state.selectedIndex < state.windows.count else { return }
-                scrollProxy.scrollTo(state.windows[state.selectedIndex].id, anchor: .center)
+
+        guard location.y >= topExclusion, location.y <= height - bottomExclusion else {
+            stopEdgeScroll()
+            return
+        }
+
+        if isHorizontal {
+            if location.x <= edgeSize {
+                startEdgeScroll(direction: -1, isHorizontal: true)
+            } else if location.x >= width - edgeSize {
+                startEdgeScroll(direction: 1, isHorizontal: true)
+            } else {
+                stopEdgeScroll()
+            }
+        } else {
+            if location.y <= topExclusion + edgeSize {
+                startEdgeScroll(direction: -1, isHorizontal: false)
+            } else if location.y >= height - bottomExclusion - edgeSize {
+                startEdgeScroll(direction: 1, isHorizontal: false)
+            } else {
+                stopEdgeScroll()
             }
         }
+    }
+
+    private func startEdgeScroll(direction: CGFloat, isHorizontal: Bool) {
+        edgeScrollDirection = direction
+        guard edgeScrollTimer == nil else { return }
+
+        if cachedScrollView == nil || cachedScrollView?.window == nil {
+            if let window = NSApp.windows.first(where: { $0.isVisible && $0.title.isEmpty }) {
+                cachedScrollView = findScrollView(in: window.contentView)
+            }
+        }
+
+        edgeScrollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
+            Task { @MainActor in
+                smoothScrollBy(direction: edgeScrollDirection, isHorizontal: isHorizontal)
+            }
+        }
+    }
+
+    private func smoothScrollBy(direction: CGFloat, isHorizontal: Bool) {
+        guard let scrollView = cachedScrollView,
+              let documentView = scrollView.documentView
+        else { return }
+
+        let scrollAmount = mouseHoverAutoScrollSpeed * direction
+        let clipView = scrollView.contentView
+        var newOrigin = clipView.bounds.origin
+
+        if isHorizontal {
+            newOrigin.x += scrollAmount
+            newOrigin.x = max(0, min(newOrigin.x, documentView.frame.width - clipView.bounds.width))
+        } else {
+            newOrigin.y += scrollAmount
+            newOrigin.y = max(0, min(newOrigin.y, documentView.frame.height - clipView.bounds.height))
+        }
+
+        clipView.setBoundsOrigin(newOrigin)
+    }
+
+    private func findScrollView(in view: NSView?) -> NSScrollView? {
+        guard let view else { return nil }
+        if let scrollView = view as? NSScrollView {
+            return scrollView
+        }
+        for subview in view.subviews {
+            if let found = findScrollView(in: subview) {
+                return found
+            }
+        }
+        return nil
     }
 
     private func stopEdgeScroll() {
         edgeScrollTimer?.invalidate()
         edgeScrollTimer = nil
         edgeScrollDirection = 0
+        cachedScrollView = nil
     }
 
     @ViewBuilder
@@ -255,6 +561,10 @@ struct DockPreviewHoverContainer: View {
                     }
                 }
             }
+            .dockPreviewGlobalPadding(
+                DockPreviewHoverPadding.contentInner,
+                multiplier: CGFloat(state.settings.globalPaddingMultiplier)
+            )
         } else {
             HStack(alignment: .top, spacing: DockPreviewHoverPadding.itemSpacing) {
                 ForEach(Array(chunks.enumerated()), id: \.offset) { _, chunk in
@@ -265,6 +575,10 @@ struct DockPreviewHoverContainer: View {
                     }
                 }
             }
+            .dockPreviewGlobalPadding(
+                DockPreviewHoverPadding.contentInner,
+                multiplier: CGFloat(state.settings.globalPaddingMultiplier)
+            )
         }
     }
 
@@ -295,15 +609,16 @@ struct DockPreviewHoverContainer: View {
                     appearance: state.appearance,
                     dockEdge: state.dockEdge,
                     isWindowSwitcher: state.isWindowSwitcherActive,
-                    liveImage: state.enableLivePreview ? liveCapture.frames[entry.id] : nil,
+                    liveImage: liveImage(for: entry),
                     isSelected: index == state.selectedIndex,
                     isActiveWindow: entry.id == state.focusedWindowID,
                     reduceMotion: reduceMotion,
+                    enableWindowDrag: !state.isWindowSwitcherActive && state.presentationMode == .fullPreview,
                     onSelect: { onSelect(entry) },
                     onClose: { onSelect(entry) },
                     onHoverIndex: { hovering in
-                        guard state.isWindowSwitcherActive, hovering else { return }
-                        state.setIndex(to: index, shouldScroll: false)
+                        guard state.isWindowSwitcherActive else { return }
+                        handleHoverIndexChange(hovering ? index : nil)
                     }
                 )
                 .id(entry.id)
@@ -319,9 +634,22 @@ struct DockPreviewHoverContainer: View {
         case let .folder(title, url):
             DockFolderWidgetView(title: title, url: url, showHidden: state.settings.folderShowHiddenFiles)
         case .media:
-            DockMediaWidgetView()
+            DockMediaWidgetView(compact: false)
+                .dockPreviewPinnable(
+                    appName: state.appName,
+                    bundleIdentifier: state.bundleIdentifier ?? "",
+                    type: .media,
+                    enablePinning: DockHubSettingsStore.load().widgets.enablePinning
+                )
+                .dockPreviewMediaVolumeScroll()
         case .calendar:
             DockCalendarWidgetView()
+                .dockPreviewPinnable(
+                    appName: state.appName,
+                    bundleIdentifier: state.bundleIdentifier ?? "",
+                    type: .calendar,
+                    enablePinning: DockHubSettingsStore.load().widgets.enablePinning
+                )
         }
     }
 

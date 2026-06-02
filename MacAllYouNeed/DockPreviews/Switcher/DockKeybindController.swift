@@ -1,124 +1,341 @@
 import AppKit
+import ApplicationServices
+import Carbon.HIToolbox
 import Foundation
 import Platform
 
+/// Global window switcher (Option+Tab by default) via CGEvent tap — matches DockDoor KeybindHelper timing.
 @MainActor
 final class DockKeybindController {
     private weak var panelController: DockPreviewPanelController?
-    private var hotkey: GlobalHotkey?
-    private var flagsMonitor: Any?
+    private let windowCache: DockPreviewWindowCache
+    private let enumerator: any WindowEnumerating
     private var hubSettings: DockHubSettings = .default
+
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
+
+    // Read from the event-tap thread — updated only on MainActor in apply()/session methods.
+    private nonisolated(unsafe) var tapKeyCode: UInt16 = UInt16(kVK_Tab)
+    private nonisolated(unsafe) var tapModifiers: UInt32 = UInt32(optionKey)
+    private nonisolated(unsafe) var tapSessionActive = false
+
     private var entries: [DockPreviewWindowEntry] = []
     private var selectedIndex = 0
     private var sessionActive = false
+    private var pendingSession = false
+    private var refreshTask: Task<Void, Never>?
 
-    init(panelController: DockPreviewPanelController) {
+    private var switcherModifierHeld = false
+    private var hasProcessedModifierRelease = false
+    private var shouldSelectImmediately = false
+    private var preventHideOnRelease = false
+    private var pendingTabCycles = 0
+
+    init(
+        panelController: DockPreviewPanelController,
+        windowCache: DockPreviewWindowCache,
+        enumerator: any WindowEnumerating = SystemWindowEnumerator()
+    ) {
         self.panelController = panelController
+        self.windowCache = windowCache
+        self.enumerator = enumerator
     }
 
     func apply(settings: DockHubSettings) {
         hubSettings = settings
-        hotkey?.unregister()
-        hotkey = nil
+        tapKeyCode = settings.switcher.shortcutKeyCode
+        tapModifiers = settings.switcher.shortcutModifiers
+        stopEventTap()
         stopSession()
         guard settings.master.enableWindowSwitcher, AXIsProcessTrusted() else { return }
-
-        let shortcut = HotkeyDescriptor(
-            keyCode: UInt32(settings.switcher.shortcutKeyCode),
-            modifiers: HotkeyDescriptor.Modifiers(rawValue: UInt32(settings.switcher.shortcutModifiers))
-        )
-        hotkey = GlobalHotkey(descriptor: shortcut) { [weak self] in
-            Task { @MainActor in self?.handleHotkeyPressed() }
-        }
-        try? hotkey?.register()
-
-        flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
-            Task { @MainActor in self?.handleSessionEvent(event) }
-        }
+        installEventTap()
     }
 
     func stop() {
-        hotkey?.unregister()
-        hotkey = nil
-        if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
-        flagsMonitor = nil
+        stopEventTap()
         stopSession()
     }
 
-    private func handleHotkeyPressed() {
+    // MARK: - Event tap
+
+    private func installEventTap() {
+        var mask: CGEventMask = 0
+        mask |= 1 << CGEventType.keyDown.rawValue
+        mask |= 1 << CGEventType.flagsChanged.rawValue
+
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: { _, type, event, refcon in
+                guard let refcon else { return Unmanaged.passUnretained(event) }
+                let controller = Unmanaged<DockKeybindController>.fromOpaque(refcon).takeUnretainedValue()
+                return controller.handleCGEvent(type: type, event: event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else { return }
+
+        eventTap = tap
+        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        if let runLoopSource {
+            CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        }
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    private func stopEventTap() {
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        }
+        if let eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+        }
+        eventTap = nil
+        runLoopSource = nil
+    }
+
+    private nonisolated func handleCGEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        switch type {
+        case .flagsChanged:
+            let held = Self.modifiersMatch(event.flags, saved: tapModifiers)
+            DispatchQueue.main.async { [weak self] in
+                self?.handleModifierFlagsChanged(held: held)
+            }
+            return Unmanaged.passUnretained(event)
+
+        case .keyDown:
+            let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+            let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+
+            if tapSessionActive {
+                if isAutoRepeat, keyCode == tapKeyCode {
+                    return nil
+                }
+                DispatchQueue.main.async { [weak self] in
+                    self?.handleSessionKeyDown(keyCode: keyCode, flags: event.flags)
+                }
+                return nil
+            }
+
+            guard keyCode == tapKeyCode, Self.modifiersMatch(event.flags, saved: tapModifiers) else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            if isAutoRepeat {
+                return nil
+            }
+
+            let shift = event.flags.contains(.maskShift)
+            DispatchQueue.main.async { [weak self] in
+                self?.handleSwitcherTab(shift: shift)
+            }
+            return nil
+
+        default:
+            return Unmanaged.passUnretained(event)
+        }
+    }
+
+    private nonisolated static func modifiersMatch(_ flags: CGEventFlags, saved: UInt32) -> Bool {
+        let wantsAlt = (saved & UInt32(optionKey)) != 0
+        let wantsCtrl = (saved & UInt32(controlKey)) != 0
+        let wantsCmd = (saved & UInt32(cmdKey)) != 0
+        let wantsShift = (saved & UInt32(shiftKey)) != 0
+        return wantsAlt == flags.contains(.maskAlternate)
+            && wantsCtrl == flags.contains(.maskControl)
+            && wantsCmd == flags.contains(.maskCommand)
+            && wantsShift == flags.contains(.maskShift)
+    }
+
+    // MARK: - Session lifecycle
+
+    private func handleSwitcherTab(shift: Bool) {
+        if DockSwitcherUtilities.shouldIgnoreKeybind(blacklist: hubSettings.switcher.fullscreenAppBlacklist) {
+            return
+        }
+        if hubSettings.switcher.instantSwitcher {
+            Task { await cycleInstant() }
+            return
+        }
+
+        if sessionActive {
+            cycleSelection(delta: shift ? -1 : 1)
+            return
+        }
+
+        if pendingSession {
+            pendingTabCycles += shift ? -1 : 1
+            return
+        }
+
+        beginSession()
+    }
+
+    private func handleSessionKeyDown(keyCode: UInt16, flags: CGEventFlags) {
+        guard sessionActive else { return }
+
+        if keyCode == tapKeyCode {
+            cycleSelection(delta: flags.contains(.maskShift) ? -1 : 1)
+            return
+        }
+
+        if handleSearchKeyDown(keyCode: keyCode) { return }
+        if handleVimKeyDown(keyCode: keyCode) { return }
+        if handleArrowKeyDown(keyCode: keyCode) { return }
+    }
+
+    private func handleModifierFlagsChanged(held: Bool) {
+        let wasHeld = switcherModifierHeld
+        switcherModifierHeld = held
+
+        if !wasHeld, held {
+            hasProcessedModifierRelease = false
+        }
+
+        guard wasHeld, !held, !hasProcessedModifierRelease else { return }
+        guard !hubSettings.switcher.preventSwitcherHide else { return }
+        guard !preventHideOnRelease, panelController?.isSearchWindowFocused != true else { return }
+
+        hasProcessedModifierRelease = true
+
         if sessionActive {
             activateSelection()
             stopSession()
-        } else {
-            beginSession()
+        } else if pendingSession {
+            shouldSelectImmediately = true
+            refreshTask?.cancel()
+            refreshTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                let collected = await DockSwitcherWindowCollector.refreshParallel(
+                    cache: self.windowCache,
+                    enumerator: self.enumerator,
+                    hub: self.hubSettings
+                )
+                guard !Task.isCancelled else { return }
+                self.finishSessionBootstrap(with: collected)
+            }
         }
     }
 
     private func beginSession() {
-        let switcher = hubSettings.switcher
-        if switcher.instantSwitcher {
-            Task { await cycleInstant() }
+        pendingSession = true
+        shouldSelectImmediately = false
+        pendingTabCycles = 0
+        hasProcessedModifierRelease = false
+
+        let cached = DockSwitcherWindowCollector.collectCached(cache: windowCache, hub: hubSettings)
+        if !cached.isEmpty, switcherModifierHeld {
+            openSwitcherSession(with: cached)
+        }
+
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let fresh = await DockSwitcherWindowCollector.refreshParallel(
+                cache: self.windowCache,
+                enumerator: self.enumerator,
+                hub: self.hubSettings
+            )
+            guard !Task.isCancelled else { return }
+            self.finishSessionBootstrap(with: fresh)
+        }
+    }
+
+    private func finishSessionBootstrap(with collected: [DockPreviewWindowEntry]) {
+        pendingSession = false
+
+        if shouldSelectImmediately {
+            shouldSelectImmediately = false
+            pendingTabCycles = 0
+            let index = resolvedSelectionIndex(in: collected)
+            if collected.indices.contains(index) {
+                raiseWindow(collected[index])
+            } else if let first = collected.first {
+                raiseWindow(first)
+            }
             return
         }
-        Task {
-            var collected: [DockPreviewWindowEntry] = []
-            let previewSettings = previewSettingsForSwitcher()
-            for app in DockWindowDiscovery.runningRegularApplications() {
-                let windows = await DockWindowDiscovery.fetchWindows(
-                    for: app.processIdentifier,
-                    settings: previewSettings,
-                    bundleIdentifier: app.bundleIdentifier
-                )
-                collected.append(contentsOf: windows)
-            }
-            await MainActor.run {
-                guard !collected.isEmpty else { return }
-                self.entries = collected
-                self.selectedIndex = 0
-                self.sessionActive = true
-                self.panelController?.state.searchQuery = ""
-                self.panelController?.showSwitcher(entries: collected, selectedIndex: 0)
-            }
+
+        guard switcherModifierHeld, !collected.isEmpty else { return }
+
+        if sessionActive {
+            entries = collected
+            panelController?.mergeSwitcherEntries(collected)
+            applyPendingTabCycles()
+        } else {
+            openSwitcherSession(with: collected)
         }
+    }
+
+    private func openSwitcherSession(with collected: [DockPreviewWindowEntry]) {
+        entries = collected
+        let startIndex = hubSettings.switcher.useClassicWindowOrdering && collected.count > 1 ? 1 : 0
+        selectedIndex = startIndex
+        sessionActive = true
+        tapSessionActive = true
+        panelController?.state.searchQuery = ""
+        panelController?.showSwitcher(entries: collected, selectedIndex: startIndex)
+        applyPendingTabCycles()
+    }
+
+    private func applyPendingTabCycles() {
+        guard pendingTabCycles != 0 else { return }
+        let cycles = pendingTabCycles
+        pendingTabCycles = 0
+        let delta = cycles > 0 ? 1 : -1
+        for _ in 0..<abs(cycles) {
+            cycleSelection(delta: delta)
+        }
+    }
+
+    private func resolvedSelectionIndex(in collected: [DockPreviewWindowEntry]) -> Int {
+        if hubSettings.switcher.useClassicWindowOrdering, collected.count > 1 {
+            return min(1, collected.count - 1)
+        }
+        return 0
     }
 
     private func stopSession() {
         sessionActive = false
+        tapSessionActive = false
+        pendingSession = false
+        shouldSelectImmediately = false
+        pendingTabCycles = 0
+        preventHideOnRelease = false
+        refreshTask?.cancel()
+        refreshTask = nil
         entries = []
+        panelController?.hideSearchWindow()
         panelController?.dismiss(animated: true)
     }
 
-    private func handleSessionEvent(_ event: NSEvent) {
-        guard sessionActive else { return }
-        if event.type == .flagsChanged, !switcherShortcutModifiersHeld(event.modifierFlags) {
-            activateSelection()
-            stopSession()
-            return
-        }
-        if event.type == .keyDown, event.keyCode == 48 { // Tab
-            cycleSelection(delta: event.modifierFlags.contains(.shift) ? -1 : 1)
-        }
-    }
-
-    private func switcherShortcutModifiersHeld(_ flags: NSEvent.ModifierFlags) -> Bool {
-        let required = NSEvent.ModifierFlags(rawValue: UInt(hubSettings.switcher.shortcutModifiers))
-        let tracked: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
-        let requiredSubset = required.intersection(tracked)
-        guard !requiredSubset.isEmpty else { return true }
-        return flags.intersection(tracked).isSuperset(of: requiredSubset)
-    }
+    // MARK: - Selection
 
     private func cycleSelection(delta: Int) {
         guard !entries.isEmpty, let panelController else { return }
         panelController.state.selectNext(delta: delta)
         selectedIndex = panelController.state.selectedIndex
-        panelController.state.shouldScrollToIndex = true
-        panelController.showSwitcher(entries: entries, selectedIndex: selectedIndex)
+        panelController.updateSwitcherSelection(selectedIndex: selectedIndex)
     }
 
     private func activateSelection() {
-        guard entries.indices.contains(selectedIndex) else { return }
-        let entry = entries[selectedIndex]
+        guard let panelController else { return }
+        let windows = panelController.state.windows
+        var index = panelController.state.selectedIndex
+        if !windows.indices.contains(index) {
+            index = resolvedSelectionIndex(in: windows)
+        }
+        guard windows.indices.contains(index) else { return }
+        raiseWindow(windows[index])
+    }
+
+    private func raiseWindow(_ entry: DockPreviewWindowEntry) {
+        DockSwitcherUtilities.warpMouseToWindowCenter(
+            entry: entry,
+            mode: hubSettings.switcher.mouseFollowsFocus
+        )
         Task {
             await DockPreviewRaiseService(enumerator: SystemWindowEnumerator())
                 .raise(entry: entry, settings: hubSettings.previews)
@@ -126,27 +343,78 @@ final class DockKeybindController {
     }
 
     private func cycleInstant() async {
-        var collected: [DockPreviewWindowEntry] = []
-        let previewSettings = previewSettingsForSwitcher()
-        for app in DockWindowDiscovery.runningRegularApplications() {
-            let windows = await DockWindowDiscovery.fetchWindows(
-                for: app.processIdentifier,
-                settings: previewSettings,
-                bundleIdentifier: app.bundleIdentifier
-            )
-            collected.append(contentsOf: windows)
+        if DockSwitcherUtilities.shouldIgnoreKeybind(blacklist: hubSettings.switcher.fullscreenAppBlacklist) {
+            return
         }
-        guard let first = collected.first else { return }
-        await DockPreviewRaiseService(enumerator: SystemWindowEnumerator())
-            .raise(entry: first, settings: hubSettings.previews)
+        var collected = DockSwitcherWindowCollector.collectCached(cache: windowCache, hub: hubSettings)
+        if collected.isEmpty {
+            collected = await DockSwitcherWindowCollector.refreshParallel(
+                cache: windowCache,
+                enumerator: enumerator,
+                hub: hubSettings
+            )
+        }
+        let index = resolvedSelectionIndex(in: collected)
+        guard collected.indices.contains(index) else { return }
+        raiseWindow(collected[index])
     }
 
-    private func previewSettingsForSwitcher() -> DockPreviewSettings {
-        var settings = hubSettings.previews
-        settings.currentSpaceOnly = hubSettings.switcher.currentSpaceOnly
-        settings.currentMonitorOnly = hubSettings.switcher.currentMonitorOnly
-        settings.includeHiddenMinimized = hubSettings.switcher.includeHiddenWindows
-        settings.showWindowlessApps = hubSettings.switcher.showWindowlessApps
-        return settings
+    // MARK: - In-session keys
+
+    private func handleSearchKeyDown(keyCode: UInt16) -> Bool {
+        guard hubSettings.switcher.enableSearch, let panelController else { return false }
+
+        if keyCode == hubSettings.switcher.searchTriggerKeyCode, !panelController.isSearchWindowFocused {
+            panelController.focusSearchWindow()
+            preventHideOnRelease = true
+            return true
+        }
+
+        guard !panelController.isSearchWindowFocused else { return false }
+
+        if keyCode == UInt16(kVK_Delete) || keyCode == UInt16(kVK_ForwardDelete) {
+            var query = panelController.state.searchQuery
+            if !query.isEmpty {
+                query.removeLast()
+                panelController.state.searchQuery = query
+                panelController.updateSearchWindow(text: query)
+                panelController.state.clampSelectionToFilteredSearch()
+                panelController.mergeSwitcherEntries(entries)
+                if query.isEmpty { preventHideOnRelease = false }
+            }
+            return true
+        }
+
+        return false
+    }
+
+    private func handleVimKeyDown(keyCode: UInt16) -> Bool {
+        guard hubSettings.switcher.enableVimMotions else { return false }
+        switch keyCode {
+        case UInt16(kVK_ANSI_H): cycleSelection(delta: -1); return true
+        case UInt16(kVK_ANSI_L): cycleSelection(delta: 1); return true
+        case UInt16(kVK_ANSI_J): cycleSelection(delta: 1); return true
+        case UInt16(kVK_ANSI_K): cycleSelection(delta: -1); return true
+        default: return false
+        }
+    }
+
+    private func handleArrowKeyDown(keyCode: UInt16) -> Bool {
+        guard !hubSettings.switcher.passArrowsThrough else { return false }
+        switch keyCode {
+        case UInt16(kVK_DownArrow):
+            panelController?.state.selectedIndex = -1
+            panelController?.state.shouldScrollToIndex = true
+            panelController?.updateSwitcherSelection(selectedIndex: -1)
+            return true
+        case UInt16(kVK_LeftArrow), UInt16(kVK_UpArrow):
+            cycleSelection(delta: -1)
+            return true
+        case UInt16(kVK_RightArrow):
+            cycleSelection(delta: 1)
+            return true
+        default:
+            return false
+        }
     }
 }

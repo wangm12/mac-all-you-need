@@ -85,15 +85,8 @@ enum DockPreviewWindowMatcher {
     }
 
     static func deduplicate(_ entries: [DockPreviewWindowEntry]) -> [DockPreviewWindowEntry] {
-        var kept: [DockPreviewWindowEntry] = []
-        for entry in entries {
-            if let index = kept.firstIndex(where: { isDuplicate($0, entry) }) {
-                kept[index] = preferredEntry(kept[index], entry)
-            } else {
-                kept.append(entry)
-            }
-        }
-        return kept
+        var seenIDs = Set<CGWindowID>()
+        return entries.filter { seenIDs.insert($0.id).inserted }
     }
 
     private static func preferredTitle(scTitle: String, axTitle: String?) -> String {
@@ -103,36 +96,6 @@ enum DockPreviewWindowMatcher {
         if !sc.isEmpty { return sc }
         if !ax.isEmpty { return ax }
         return "Window"
-    }
-
-    private static func isDuplicate(_ lhs: DockPreviewWindowEntry, _ rhs: DockPreviewWindowEntry) -> Bool {
-        if lhs.id == rhs.id { return true }
-        return framesOverlapSignificantly(lhs.frame, rhs.frame)
-    }
-
-    static func framesOverlapSignificantly(_ a: CGRect, _ b: CGRect) -> Bool {
-        let intersection = a.intersection(b)
-        guard !intersection.isNull else { return false }
-        let minArea = min(a.width * a.height, b.width * b.height)
-        guard minArea > 100 else { return false }
-        return (intersection.width * intersection.height) / minArea > 0.72
-    }
-
-    private static func preferredEntry(
-        _ lhs: DockPreviewWindowEntry,
-        _ rhs: DockPreviewWindowEntry
-    ) -> DockPreviewWindowEntry {
-        let lhsScore = titleQuality(lhs.title)
-        let rhsScore = titleQuality(rhs.title)
-        if rhsScore > lhsScore { return rhs }
-        if lhsScore > rhsScore { return lhs }
-        return lhs.frame.width * lhs.frame.height >= rhs.frame.width * rhs.frame.height ? lhs : rhs
-    }
-
-    private static func titleQuality(_ title: String) -> Int {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed == "Window" { return 0 }
-        return trimmed.count
     }
 
     private static func syntheticWindowID(pid: pid_t, index: Int) -> CGWindowID {

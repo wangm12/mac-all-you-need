@@ -12,8 +12,28 @@ enum DockPreviewWindowActions {
         setAttribute(entry: entry, attribute: kAXMinimizedAttribute as CFString, value: minimized)
     }
 
+    static func unminimize(entry: DockPreviewWindowEntry) {
+        var minimized: CFTypeRef = kCFBooleanFalse
+        setAttribute(entry: entry, attribute: kAXMinimizedAttribute as CFString, value: minimized)
+    }
+
+    static func applySwipe(_ action: DockWindowSwipeAction, entry: DockPreviewWindowEntry) {
+        switch action {
+        case .none: break
+        case .minimize: minimize(entry: entry)
+        case .maximize: zoom(entry: entry)
+        case .close: close(entry: entry)
+        case .quit: quitApplication(pid: entry.pid)
+        case .toggleFullScreen: toggleFullScreen(entry: entry)
+        }
+    }
+
     static func zoom(entry: DockPreviewWindowEntry) {
         perform(entry: entry, action: "AXZoom")
+    }
+
+    static func toggleFullScreen(entry: DockPreviewWindowEntry) {
+        perform(entry: entry, action: "AXFullScreen")
     }
 
     static func quitApplication(pid: pid_t) {

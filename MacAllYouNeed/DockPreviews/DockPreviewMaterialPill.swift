@@ -12,10 +12,11 @@ struct DockPreviewMaterialPillModifier: ViewModifier {
                 DockPreviewBlurView(cornerRadius: 999, appearance: background)
             }
             .clipShape(Capsule(style: .continuous))
-            .overlay {
-                Capsule(style: .continuous)
-                    .strokeBorder(Color.primary.opacity(background.borderOpacity), lineWidth: 1.5)
-            }
+            .dockPreviewBorderedBackground(
+                Color.primary.opacity(0.1),
+                lineWidth: 1.5,
+                shape: Capsule(style: .continuous)
+            )
     }
 }
 

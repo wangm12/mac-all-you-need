@@ -24,7 +24,7 @@ struct DockHoverPreviewsPage: View {
                 }
             case .settings:
                 FunctionPageScrollContent {
-                    DockPreviewSettingsSections(onSettingsChanged: {
+                    DockSettingsTabContent(onSettingsChanged: {
                         controller.dockPreviewsReloadSettings()
                     })
                 }

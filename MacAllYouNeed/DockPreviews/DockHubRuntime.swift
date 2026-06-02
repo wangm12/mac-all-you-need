@@ -2,7 +2,7 @@ import ApplicationServices
 import Foundation
 import Platform
 
-/// Unified Dock hub runtime: hover previews, switcher, Cmd+Tab, lock, indicator, gestures.
+/// Unified Dock hub runtime: hover previews, switcher, Cmd+Tab, lock, and indicator.
 @MainActor
 final class DockHubRuntime {
     private let panelController = DockPreviewPanelController()
@@ -12,7 +12,12 @@ final class DockHubRuntime {
     private let cmdTabController: DockCmdTabController
     private let dockLockController = DockLockingController()
     private let indicatorController = DockActiveIndicatorController()
-    private let dockGestures = DockGesturesRuntime()
+    private lazy var gestureController: DockGestureController = {
+        DockGestureController(
+            hoverObserver: hoverCoordinator.dockHoverObserver,
+            panelController: panelController
+        )
+    }()
 
     private lazy var trustMonitor: WindowControlAccessibilityTrustMonitor = {
         WindowControlAccessibilityTrustMonitor(
@@ -35,8 +40,20 @@ final class DockHubRuntime {
         let engine = SystemAXObserverEngine()
         let axCoordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 5)
         hoverCoordinator = DockPreviewCoordinator(panelController: panelController, coordinator: axCoordinator)
-        keybindController = DockKeybindController(panelController: panelController)
+        keybindController = DockKeybindController(
+            panelController: panelController,
+            windowCache: hoverCoordinator.cache,
+            enumerator: SystemWindowEnumerator()
+        )
         cmdTabController = DockCmdTabController(panelController: panelController)
+        hoverCoordinator.onAppHoverPID = { [weak self] pid in
+            guard let self else { return }
+            if let pid {
+                self.gestureController.noteHoverBegan(pid: pid)
+            } else {
+                self.gestureController.noteHoverEnded()
+            }
+        }
     }
 
     func applyEnabled(_ enabled: Bool) {
@@ -51,19 +68,7 @@ final class DockHubRuntime {
         cmdTabController.apply(settings: hubSettings)
         dockLockController.apply(settings: hubSettings)
         indicatorController.apply(settings: hubSettings)
-        let gestures = hubSettings.gestures
-        dockGestures.applyEnabled(
-            featureEnabled && (
-                gestures.enableDockScrollOnIcon
-                    || gestures.enableTitleBarScroll
-                    || gestures.enablePreviewTrackpadGestures
-            ),
-            settings: DockGesturesSettings(
-                enableDockScroll: gestures.enableDockScrollOnIcon,
-                enableTitleBarScroll: gestures.enableTitleBarScroll,
-                enablePreviewGestures: gestures.enablePreviewTrackpadGestures
-            )
-        )
+        gestureController.apply(settings: hubSettings)
     }
 
     func suspendForHotkeyRecording() {
@@ -106,6 +111,8 @@ final class DockHubRuntime {
         if hubSettings.master.enableDockPreviews {
             hoverCoordinator.start()
             manipulationObservers.start(cache: hoverCoordinator.cache)
+        } else if hubSettings.master.enableWindowSwitcher {
+            hoverCoordinator.startWindowCacheOnly()
         }
         if hubSettings.master.enableWindowSwitcher {
             keybindController.apply(settings: hubSettings)
@@ -119,6 +126,9 @@ final class DockHubRuntime {
         if hubSettings.master.enableActiveAppIndicator {
             indicatorController.apply(settings: hubSettings)
         }
+        if hubSettings.master.enableDockPreviews || hubSettings.gestures.enableDockScrollGesture {
+            gestureController.apply(settings: hubSettings)
+        }
     }
 
     private func stopAll() {
@@ -128,9 +138,6 @@ final class DockHubRuntime {
         cmdTabController.stop()
         dockLockController.stop()
         indicatorController.stop()
-        dockGestures.applyEnabled(false)
+        gestureController.stop()
     }
 }
-
-/// Backward-compatible alias for AppController.
-typealias DockPreviewRuntime = DockHubRuntime

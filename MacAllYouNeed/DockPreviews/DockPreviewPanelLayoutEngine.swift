@@ -45,23 +45,19 @@ enum DockPreviewPanelLayoutEngine {
         }()
 
         let visible = screen.visibleFrame
-        let maxPanelWidth = visible.width * 0.72
-        let maxPanelHeight = visible.height * 0.65
-        var targetSize = fitting
-        if input.expectedContentSize != .zero {
-            targetSize = CGSize(
+        // DockDoor `updateContentViewSizeAndPosition`: max(fitting, expected), clamp to visible frame.
+        let merged: CGSize
+        if input.expectedContentSize == .zero {
+            merged = fitting
+        } else {
+            merged = CGSize(
                 width: max(fitting.width, input.expectedContentSize.width),
                 height: max(fitting.height, input.expectedContentSize.height)
             )
         }
-        // SwiftUI `fittingSize` can report unconstrained ScrollView intrinsic size; prefer expected when fitting is huge.
-        if input.expectedContentSize != .zero,
-           fitting.width > maxPanelWidth * 0.9 || fitting.height > maxPanelHeight * 0.9 {
-            targetSize = input.expectedContentSize
-        }
-        targetSize = CGSize(
-            width: min(targetSize.width, maxPanelWidth),
-            height: min(targetSize.height, maxPanelHeight)
+        let targetSize = CGSize(
+            width: min(merged.width, visible.width),
+            height: min(merged.height, visible.height)
         )
 
         let origin = panelOrigin(

@@ -7,7 +7,7 @@ enum DockPreviewPermissionGate {
         case titlesOnly
     }
 
-    static func currentMode(settings: DockPreviewSettings = DockPreviewSettingsStore.load()) -> Mode {
+    static func currentMode(settings: DockPreviewSettings = DockHubSettingsStore.loadPreviews()) -> Mode {
         guard settings.showThumbnails else { return .titlesOnly }
         if #available(macOS 14, *) {
             return CGPreflightScreenCaptureAccess() ? .fullPreview : .titlesOnly

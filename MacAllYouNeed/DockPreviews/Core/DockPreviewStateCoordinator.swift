@@ -21,7 +21,7 @@ enum DockEmbeddedContent: Equatable {
 @Observable
 final class DockPreviewStateCoordinator {
     var windows: [DockPreviewWindowEntry] = []
-    var selectedIndex: Int = 0
+    var selectedIndex: Int = -1
     var mode: DockPreviewPresentationMode = .dockHover
     var appName: String = ""
     var appIcon: NSImage?
@@ -35,9 +35,15 @@ final class DockPreviewStateCoordinator {
     var expectedContentSize: CGSize = .zero
     var focusedWindowID: CGWindowID?
     var hasMovedSinceOpen = false
+    var initialHoverLocation: CGPoint?
     var shouldScrollToIndex = true
     var searchQuery: String = ""
     var appearance = DockPreviewAppearanceContext.dockHover()
+    /// Pinned at panel open for inactivity dismiss — not updated on icon switch (DockDoor `MouseTrackingNSView`).
+    var dismissalAnchorDockItem: AXUIElement?
+    var dockItemToken: UInt?
+    var bundleIdentifier: String?
+    var showCmdTabFocusHint: Bool = false
 
     var onFrameRefreshNeeded: (() -> Void)?
 
@@ -86,12 +92,23 @@ final class DockPreviewStateCoordinator {
             expectedContentSize = .zero
             return
         }
+        let minimumItemWidth: CGFloat = if isWindowSwitcherActive {
+            min(
+                dimensionState.overallMax.x,
+                DockPreviewDimensionEngine.dynamicSwitcherMinimumCardWidth
+            )
+        } else {
+            0
+        }
         expectedContentSize = DockPreviewDimensionEngine.computeExpectedContentSize(
             dimensionState: dimensionState,
             windowCount: windows.count,
             dockEdge: dockEdge,
             hasEmbedded: embeddedContent != .none,
-            isWindowSwitcher: isWindowSwitcherActive
+            isWindowSwitcher: isWindowSwitcherActive,
+            globalPaddingMultiplier: CGFloat(settings.globalPaddingMultiplier),
+            fillToLimit: isWindowSwitcherActive && settings.appearanceOptions.switcherScrollVertical,
+            minimumItemWidth: minimumItemWidth
         )
     }
 
@@ -112,9 +129,13 @@ final class DockPreviewStateCoordinator {
         if preserveSelection, let previousID, let idx = entries.firstIndex(where: { $0.id == previousID }) {
             selectedIndex = idx
         } else {
-            selectedIndex = entries.isEmpty ? 0 : min(selectedIndex, entries.count - 1)
+            if mode == .dockHover {
+                selectedIndex = -1
+            } else {
+                selectedIndex = entries.isEmpty ? 0 : min(selectedIndex, entries.count - 1)
+            }
         }
-        recomputeAndPublishDimensions(panelSize: estimatedPanelSize())
+        recomputeAndPublishDimensions()
         onFrameRefreshNeeded?()
         return true
     }
@@ -159,7 +180,7 @@ final class DockPreviewStateCoordinator {
             selectedIndex = max(0, windows.count - 1)
         }
         if changed {
-            recomputeAndPublishDimensions(panelSize: estimatedPanelSize())
+            recomputeAndPublishDimensions()
             if windows.count != previousCount {
                 onFrameRefreshNeeded?()
             }
@@ -173,7 +194,12 @@ final class DockPreviewStateCoordinator {
 
     func setIndex(to index: Int, shouldScroll: Bool = true) {
         shouldScrollToIndex = shouldScroll
-        guard index >= 0, index < windows.count else { return }
+        guard index >= 0, index < windows.count else {
+            if index == -1, isWindowSwitcherActive {
+                selectedIndex = -1
+            }
+            return
+        }
         selectedIndex = index
     }
 
@@ -183,9 +209,9 @@ final class DockPreviewStateCoordinator {
             selectNextInFiltered(delta: delta)
             return
         }
-        selectedIndex = (selectedIndex + delta + windows.count) % windows.count
+        let base = selectedIndex < 0 ? 0 : selectedIndex
+        selectedIndex = (base + delta + windows.count) % windows.count
         shouldScrollToIndex = true
-        onFrameRefreshNeeded?()
     }
 
     func selectNextInFiltered(delta: Int) {
@@ -195,7 +221,6 @@ final class DockPreviewStateCoordinator {
         let next = (position + delta + indices.count) % indices.count
         selectedIndex = indices[next]
         shouldScrollToIndex = true
-        onFrameRefreshNeeded?()
     }
 
     func clampSelectionToFilteredSearch() {
@@ -216,15 +241,5 @@ final class DockPreviewStateCoordinator {
 
     var isWindowlessPlaceholder: Bool {
         windows.count == 1 && windows[0].title == "No open windows"
-    }
-
-    private func estimatedPanelSize() -> CGSize {
-        if expectedContentSize != .zero { return expectedContentSize }
-        let w = CGFloat(settings.previewCardWidth) + DockPreviewHoverPadding.itemSpacing
-        let h = CGFloat(settings.previewCardHeight) + DockPreviewHoverPadding.container * 2
-        return CGSize(
-            width: w * CGFloat(max(1, min(windows.count, dimensionState.gridColumns))),
-            height: h
-        )
     }
 }

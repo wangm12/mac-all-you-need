@@ -149,9 +149,12 @@ enum DockPreviewDimensionEngine {
             return (calcCols, max(1, rows))
         }
         if dockEdge == .bottom {
-            return (calcCols, min(max(1, settings.previewMaxRows), calcRows))
+            return (calcCols, max(1, settings.previewMaxRows))
         }
-        return (min(max(1, settings.previewMaxColumns), calcCols), calcRows)
+        if dockEdge == .left || dockEdge == .right {
+            return (min(max(1, settings.previewMaxColumns), calcCols), calcRows)
+        }
+        return (calcCols, calcRows)
     }
 
     static func precomputeDimensions(
@@ -258,21 +261,34 @@ enum DockPreviewDimensionEngine {
         isHorizontal: Bool,
         maxColumns: Int,
         maxRows: Int,
-        reverse: Bool = false
+        reverse: Bool = false,
+        fillToLimit: Bool = false
     ) -> [[T]] {
         let total = items.count
         guard total > 0, maxColumns > 0, maxRows > 0 else { return [] }
         var chunks: [[T]] = []
         if isHorizontal {
-            let itemsPerRow = min(maxColumns, Int(ceil(Double(total) / Double(min(maxRows, total)))))
+            let itemsPerRow: Int
+            if fillToLimit {
+                itemsPerRow = maxColumns
+            } else {
+                let rowsNeeded = max(1, Int(ceil(Double(total) / Double(maxColumns))))
+                let actualRows = min(maxRows, rowsNeeded)
+                itemsPerRow = min(maxColumns, max(1, Int(ceil(Double(total) / Double(actualRows)))))
+            }
             var start = 0
             while start < total {
-                let end = min(start + max(itemsPerRow, 1), total)
+                let end = min(start + itemsPerRow, total)
                 chunks.append(Array(items[start ..< end]))
                 start = end
             }
         } else {
-            let itemsPerCol = min(maxRows, Int(ceil(Double(total) / Double(min(maxColumns, total)))))
+            let itemsPerCol: Int
+            if fillToLimit {
+                itemsPerCol = maxRows
+            } else {
+                itemsPerCol = min(maxRows, Int(ceil(Double(total) / Double(min(maxColumns, total)))))
+            }
             var start = 0
             while start < total {
                 let end = min(start + max(itemsPerCol, 1), total)
@@ -283,47 +299,78 @@ enum DockPreviewDimensionEngine {
         return reverse ? chunks.reversed() : chunks
     }
 
+    private static let estimatedEmbeddedWidgetHeight: CGFloat = 100
+
+    /// DockDoor `PreviewStateCoordinator.computeExpectedContentSize`.
     static func computeExpectedContentSize(
         dimensionState: DimensionState,
         windowCount: Int,
         dockEdge: DockPreviewPanelGeometry.DockEdge,
         hasEmbedded: Bool,
-        isWindowSwitcher: Bool
+        isWindowSwitcher: Bool,
+        globalPaddingMultiplier: CGFloat,
+        fillToLimit: Bool = false,
+        minimumItemWidth: CGFloat = 0
     ) -> CGSize {
         guard windowCount > 0 else { return .zero }
-        let horizontal = isWindowSwitcher || dockEdge == .bottom
-        let maxW = dimensionState.overallMax.x
-        let maxH = dimensionState.overallMax.y
+
+        let isHorizontalFlow = isWindowSwitcher || dockEdge == .bottom
+        let padding = DockPreviewHoverPadding.totalPerSide(paddingMultiplier: globalPaddingMultiplier)
         let cols = dimensionState.gridColumns
         let rows = dimensionState.gridRows
         let indices = Array(0 ..< windowCount)
         let chunks = chunkArray(
             items: indices,
-            isHorizontal: horizontal,
+            isHorizontal: isHorizontalFlow,
             maxColumns: cols,
             maxRows: rows,
-            reverse: !isWindowSwitcher && (dockEdge == .bottom || dockEdge == .right)
+            fillToLimit: fillToLimit
         )
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-        let chrome: CGFloat = DockPreviewHoverPadding.container * 2
-            + DockPreviewHoverPadding.contentInner * 2
-            + DockPreviewHoverPadding.dockStyleOuter * 4
-        for chunk in chunks {
-            var rowW: CGFloat = 0
-            var rowH: CGFloat = 0
-            for index in chunk {
-                let dim = dimensionState.perWindow[index]
-                let s = dim?.size ?? CGSize(width: maxW, height: maxH)
-                rowW += s.width
-                rowH = max(rowH, s.height)
-            }
-            rowW += CGFloat(max(0, chunk.count - 1)) * itemSpacing
-            width = max(width, rowW)
-            height += rowH
+
+        var maxItemWidth: CGFloat = 0
+        var maxItemHeight: CGFloat = 0
+        for dim in dimensionState.perWindow.values {
+            maxItemWidth = max(maxItemWidth, max(dim.size.width, minimumItemWidth))
+            maxItemHeight = max(maxItemHeight, dim.size.height)
         }
-        height += CGFloat(max(0, chunks.count - 1)) * itemSpacing
-        if hasEmbedded { width = max(width, 280) }
-        return CGSize(width: width + chrome, height: height + chrome + 36)
+
+        if isHorizontalFlow {
+            var maxRowWidth: CGFloat = 0
+            for row in chunks {
+                var rowWidth: CGFloat = 0
+                for windowIndex in row {
+                    let dims = dimensionState.perWindow[windowIndex]
+                    let itemWidth = dims?.size.width ?? dims?.maxDimensions.width ?? 0
+                    rowWidth += max(itemWidth, minimumItemWidth)
+                }
+                rowWidth += CGFloat(max(0, row.count - 1)) * itemSpacing
+                maxRowWidth = max(maxRowWidth, rowWidth)
+            }
+            if hasEmbedded, let firstDims = dimensionState.perWindow[0] {
+                maxRowWidth += max(firstDims.size.width, minimumItemWidth) + itemSpacing
+            }
+            return CGSize(
+                width: maxRowWidth + padding * 2,
+                height: maxItemHeight + padding * 2
+            )
+        }
+
+        var maxColHeight: CGFloat = 0
+        for col in chunks {
+            var colHeight: CGFloat = 0
+            for windowIndex in col {
+                let dims = dimensionState.perWindow[windowIndex]
+                colHeight += dims?.size.height ?? dims?.maxDimensions.height ?? 0
+            }
+            colHeight += CGFloat(max(0, col.count - 1)) * itemSpacing
+            maxColHeight = max(maxColHeight, colHeight)
+        }
+        if hasEmbedded {
+            maxColHeight += estimatedEmbeddedWidgetHeight + itemSpacing
+        }
+        return CGSize(
+            width: maxItemWidth + padding * 2,
+            height: maxColHeight + padding * 2
+        )
     }
 }

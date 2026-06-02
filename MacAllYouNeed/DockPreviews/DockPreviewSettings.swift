@@ -79,6 +79,8 @@ struct DockPreviewSettings: Codable, Equatable {
     var detachedSwitcherSearch: Bool
     /// Append-only worklog under App Group `worklogs/dock-previews/` for debugging hover/dismiss behavior.
     var enableWorklog: Bool
+    /// Runtime-only: widen ScreenCaptureKit discovery for switcher/cmd-tab (not persisted in hub settings).
+    var useBroadWindowDiscovery: Bool = false
 
     init(
         showThumbnails: Bool,
@@ -178,11 +180,11 @@ struct DockPreviewSettings: Codable, Equatable {
 
     static let `default` = DockPreviewSettings(
         showThumbnails: true,
-        hoverDelayMS: 500,
+        hoverDelayMS: 200,          // DockDoor: 0.2s
         fadeOutDurationMS: 400,
         dismissInactivityMS: 200,
         anchorToDockIcon: true,
-        bufferFromDock: -20,
+        bufferFromDock: -25,        // DockDoor: -25
         thumbnailCacheLifespanSec: 30,
         thumbnailScale: 1.0,
         enableLivePreview: false,
@@ -194,30 +196,30 @@ struct DockPreviewSettings: Codable, Equatable {
         sortOrder: .recentlyUsed,
         includeHiddenMinimized: true,
         showWindowlessApps: false,
-        groupAppInstances: false,
+        groupAppInstances: true,    // DockDoor: true
         ignoreSingleWindowApps: false,
         keepPreviewOnAppQuit: false,
-        enableFolderWidget: false,
+        enableFolderWidget: true,   // DockDoor: true
         folderShowHiddenFiles: false,
         preventDockAutoHideWhileOpen: false,
         skipDelayWhenPanelVisible: false,
         useDelayOnlyForInitialOpen: false,
         preventPreviewReentryDuringFadeOut: false,
-        previewCardWidth: 240,
-        previewCardHeight: 150,
+        previewCardWidth: 300,      // DockDoor: 300
+        previewCardHeight: 188,     // DockDoor: 187.5
         lockAspectRatio: true,
         showWindowTitle: true,
         showAppNameInHeader: true,
-        compactModeThreshold: 12,
-        showTrafficLightButtons: false,
-        allowDynamicImageSizing: true,
+        compactModeThreshold: 0,    // DockDoor: 0 (off by default)
+        showTrafficLightButtons: true,
+        allowDynamicImageSizing: false, // DockDoor: false
         showPreviewAnimations: true,
-        previewMaxColumns: 6,
-        previewMaxRows: 3,
-        globalPaddingMultiplier: 1.0,
+        previewMaxColumns: 2,       // DockDoor: 2
+        previewMaxRows: 1,          // DockDoor: 1 (bottom dock)
+        globalPaddingMultiplier: 0.7, // DockDoor: 0.7
         uniformCardRadius: true,
         enableFullSizeHoverPreview: false,
-        panelBackgroundOpacity: 0.92,
+        panelBackgroundOpacity: 1.0, // DockDoor: 1.0
         appearanceOptions: .default,
         panelBackground: .default,
         hideHoverContainerBackground: false,
