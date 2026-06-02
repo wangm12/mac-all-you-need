@@ -5,24 +5,25 @@ import SwiftUI
 
 struct DockFunctionTabContent: View {
     let tab: DockFunctionTab
+    @Binding var hub: DockHubSettings
     var onSettingsChanged: (() -> Void)?
 
     var body: some View {
         switch tab {
         case .permissions:
-            DockSettingsTabPermissions()
+            DockSettingsTabPermissions(hub: $hub, onSettingsChanged: onSettingsChanged)
         case .features:
-            DockSettingsTabDock(onSettingsChanged: onSettingsChanged)
+            DockSettingsTabDock(hub: $hub, onSettingsChanged: onSettingsChanged)
         case .previews:
-            DockSettingsTabPreviews(onSettingsChanged: onSettingsChanged)
+            DockSettingsTabPreviews(hub: $hub, onSettingsChanged: onSettingsChanged)
         case .switcher:
-            DockSettingsTabSwitcher(onSettingsChanged: onSettingsChanged)
+            DockSettingsTabSwitcher(hub: $hub, onSettingsChanged: onSettingsChanged)
         case .cmdTab:
-            DockSettingsTabCmdTab(onSettingsChanged: onSettingsChanged)
+            DockSettingsTabCmdTab(hub: $hub, onSettingsChanged: onSettingsChanged)
         case .locking:
-            DockSettingsTabLocking(onSettingsChanged: onSettingsChanged)
+            DockSettingsTabLocking(hub: $hub, onSettingsChanged: onSettingsChanged)
         case .customize:
-            DockSettingsTabCustomizations(onSettingsChanged: onSettingsChanged)
+            DockSettingsTabCustomizations(hub: $hub, onSettingsChanged: onSettingsChanged)
         }
     }
 }
@@ -46,7 +47,8 @@ struct DockPreviewSettingsView: View {
                 ) { selected in
                     tab = selected
                 }
-                DockFunctionTabContent(tab: tab, onSettingsChanged: onSettingsChanged)
+                DockSettingsPageBody(tab: tab, onSettingsChanged: onSettingsChanged)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
     }

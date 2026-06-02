@@ -22,9 +22,12 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
     public var radialTriggerTapCount: Int
     public var radialTargetHighlightEnabled: Bool
     public var radialTargetHighlightColor: RadialHighlightColor
+    /// When true, pressing the same half shortcut again moves the window to the adjacent display
+    /// (Rectangle-style). Defaults to false for predictable dual-monitor behavior.
+    public var repeatHalfAcrossDisplays: Bool
 
     public init(
-        enabled: Bool = false,
+        enabled: Bool = true,
         dragAnywhereEnabled: Bool = true,
         dragModifier: WindowGestureModifier = .option,
         edgeSnapEnabled: Bool = true,
@@ -43,7 +46,8 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialTriggerModifier: WindowGestureModifier = [.control, .option],
         radialTriggerTapCount: Int = 1,
         radialTargetHighlightEnabled: Bool = true,
-        radialTargetHighlightColor: RadialHighlightColor = .focusRingDefault
+        radialTargetHighlightColor: RadialHighlightColor = .focusRingDefault,
+        repeatHalfAcrossDisplays: Bool = false
     ) {
         self.enabled = enabled
         self.dragAnywhereEnabled = dragAnywhereEnabled
@@ -65,6 +69,7 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         self.radialTriggerTapCount = radialTriggerTapCount
         self.radialTargetHighlightEnabled = radialTargetHighlightEnabled
         self.radialTargetHighlightColor = radialTargetHighlightColor
+        self.repeatHalfAcrossDisplays = repeatHalfAcrossDisplays
     }
 
     // Custom decoder so legacy payloads without the radial keys decode with
@@ -92,6 +97,7 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialTargetHighlightEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialTargetHighlightEnabled) ?? true
         radialTargetHighlightColor = try container.decodeIfPresent(RadialHighlightColor.self, forKey: .radialTargetHighlightColor)
             ?? .focusRingDefault
+        repeatHalfAcrossDisplays = try container.decodeIfPresent(Bool.self, forKey: .repeatHalfAcrossDisplays) ?? false
     }
 
     public static let `default` = WindowControlSettings()

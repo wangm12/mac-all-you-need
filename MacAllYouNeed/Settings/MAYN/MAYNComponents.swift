@@ -905,6 +905,16 @@ extension VoiceASRModelRowPresentation.StatusKind {
     }
 }
 
+// MARK: - Switch toggle
+
+extension View {
+    /// Standard green macOS switch styling for settings and dashboard feature cards.
+    func maynSwitchToggleStyle() -> some View {
+        toggleStyle(.switch)
+            .tint(MAYNTheme.switchTint)
+    }
+}
+
 // MARK: - PermissionCard
 
 struct PermissionCard: View {

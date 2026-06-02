@@ -1,6 +1,29 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import Platform
+
+// MARK: - Screen geometry (multi-monitor)
+
+extension NSScreen {
+    /// Screen frame in CG global coordinates (origin top-left, Y increases downward).
+    var cgFrame: CGRect {
+        guard let primaryHeight = NSScreen.screens.first?.frame.height else { return frame }
+        return CGRect(
+            x: frame.minX,
+            y: primaryHeight - frame.maxY,
+            width: frame.width,
+            height: frame.height
+        )
+    }
+
+    /// Resolve the screen containing a point in AX / Quartz (top-left origin) space.
+    static func screenFromQuartzPoint(_ point: CGPoint) -> NSScreen {
+        guard let primary = NSScreen.screens.first else { return NSScreen.main ?? NSScreen.screens[0] }
+        let appKitPoint = CGPoint(x: point.x, y: primary.frame.maxY - point.y)
+        return NSScreen.screens.first { $0.frame.contains(appKitPoint) } ?? NSScreen.main ?? primary
+    }
+}
 
 /// Dock icon and preview placement math aligned with DockDoor (`DockObserver` + `SharedPreviewWindowCoordinator`).
 enum DockPreviewDockCoordinates {
@@ -41,7 +64,11 @@ enum DockPreviewDockCoordinates {
     }
 
     static func screen(containingAXPoint point: CGPoint) -> NSScreen {
-        NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main!
+        NSScreen.screenFromQuartzPoint(point)
+    }
+
+    static func cgPoint(fromAppKit point: CGPoint) -> CGPoint {
+        WindowScreenDetector.cgPoint(fromAppKit: point)
     }
 
     /// DockDoor `SharedPreviewWindowCoordinator.calculateWindowPosition` (Cocoa panel origin).

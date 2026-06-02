@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// Looping settings preview (GIF-style) with uniform padding, corner radius, and context-specific motion.
@@ -9,8 +8,17 @@ struct DockSettingsAnimatedPreview: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let previewRadius = MAYNControlMetrics.cardRadius
-    private let cardWidth: CGFloat = 96
     private let cardHeight: CGFloat = 60
+    /// Fits three cards inside the 340pt preview column with symmetric 20pt gutters.
+    private let previewContentWidth: CGFloat = 300
+
+    private var cardWidth: CGFloat {
+        let panelPadding = 24.0 + DockPreviewHoverPadding.dockStyleOuter * 2
+        let spacing = CGFloat(max(0, snapshot.windows.count - 1)) * 8
+        let available = previewContentWidth - panelPadding - spacing
+        let count = max(1, snapshot.windows.count)
+        return min(96, floor(available / CGFloat(count)))
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
@@ -20,8 +28,7 @@ struct DockSettingsAnimatedPreview: View {
                 indicatorCaption
             }
         }
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: 168)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var indicatorCaption: some View {
@@ -29,7 +36,7 @@ struct DockSettingsAnimatedPreview: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
+            .frame(width: previewContentWidth)
     }
 
     @ViewBuilder
@@ -109,28 +116,13 @@ struct DockSettingsAnimatedPreview: View {
 
     @ViewBuilder
     private func previewPanel(selectedIndex: Int, emphasizeSelection: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if snapshot.showAppHeader {
-                HStack(spacing: 6) {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: "/System/Applications/Preview.app"))
-                        .resizable()
-                        .frame(width: 14, height: 14)
-                    Text(snapshot.appName)
-                        .font(.caption.weight(.medium))
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 4)
+        HStack(spacing: 8) {
+            ForEach(Array(snapshot.windows.enumerated()), id: \.offset) { index, window in
+                mockWindowCard(
+                    window: window,
+                    isSelected: emphasizeSelection && index == selectedIndex
+                )
             }
-
-            HStack(spacing: 8) {
-                ForEach(Array(snapshot.windows.enumerated()), id: \.offset) { index, window in
-                    mockWindowCard(
-                        window: window,
-                        isSelected: emphasizeSelection && index == selectedIndex
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(12)
         .dockPreviewDockStyle(
@@ -148,6 +140,8 @@ struct DockSettingsAnimatedPreview: View {
                 Text(window.title)
                     .font(.system(size: 9, weight: .medium))
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: cardWidth, alignment: .leading)
                     .foregroundStyle(.secondary)
             }
 

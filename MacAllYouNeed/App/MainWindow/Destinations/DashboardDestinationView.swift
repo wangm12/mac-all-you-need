@@ -24,8 +24,10 @@ struct DashboardDestinationView: View {
             }
             .frame(maxWidth: 1040, alignment: .leading)
             .padding(.horizontal, 36)
-            .padding(.vertical, 30)
+            .padding(.top, 30)
+            .padding(.bottom, 48)
         }
+        .contentMargins(.bottom, 12, for: .scrollContent)
         .scrollIndicators(.never)
         .task {
             await controller.downloaderVM.refresh()
@@ -203,7 +205,13 @@ struct DashboardDestinationView: View {
             Color(red: 0.20, green: 0.48, blue: 0.72)
         case .grabAnywhere:
             Color(red: 0.24, green: 0.46, blue: 0.36)
-        case .dashboard, .settings, .voiceReminders, .finderHistory, .aiFileOrganizer, .dockPreviews:
+        case .dockPreviews:
+            Color(red: 0.10, green: 0.42, blue: 0.92)
+        case .finderHistory:
+            Color(red: 0.86, green: 0.46, blue: 0.12)
+        case .aiFileOrganizer:
+            Color(red: 0.02, green: 0.58, blue: 0.42)
+        case .dashboard, .settings, .voiceReminders:
             .secondary
         }
     }

@@ -110,13 +110,14 @@ enum DockLockerGeometry {
         dockEdge: DockPreviewPanelGeometry.DockEdge,
         edgePosition: CGFloat
     ) -> Bool {
+        // Frames must be in CG global coordinates (see `NSScreen.cgFrame`).
         switch dockEdge {
         case .bottom:
-            abs(other.maxY - edgePosition) <= adjacencyTolerance && other.maxX > frame.minX && other.minX < frame.maxX
+            abs(other.minY - edgePosition) <= adjacencyTolerance
         case .left:
-            abs(other.minX - edgePosition) <= adjacencyTolerance && other.maxY > frame.minY && other.minY < frame.maxY
+            abs(other.maxX - edgePosition) <= adjacencyTolerance
         case .right:
-            abs(other.maxX - edgePosition) <= adjacencyTolerance && other.maxY > frame.minY && other.minY < frame.maxY
+            abs(other.minX - edgePosition) <= adjacencyTolerance
         }
     }
 
@@ -151,7 +152,7 @@ enum DockLockerGeometry {
                 width: triggerDepth,
                 height: interval.length
             )
-            return DockTriggerZone(rect: rect, nudgeVector: CGVector(dx: -triggerDepth, dy: 0))
+            return DockTriggerZone(rect: rect, nudgeVector: CGVector(dx: triggerDepth, dy: 0))
         case .right:
             let rect = CGRect(
                 x: frame.maxX - triggerDepth,
@@ -159,7 +160,7 @@ enum DockLockerGeometry {
                 width: triggerDepth,
                 height: interval.length
             )
-            return DockTriggerZone(rect: rect, nudgeVector: CGVector(dx: triggerDepth, dy: 0))
+            return DockTriggerZone(rect: rect, nudgeVector: CGVector(dx: -triggerDepth, dy: 0))
         }
     }
 }

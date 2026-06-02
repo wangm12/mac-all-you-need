@@ -66,16 +66,24 @@ enum DockPreviewWindowFilter {
         dockIconRect: CGRect,
         settings: DockPreviewSettings
     ) -> [DockPreviewWindowEntry] {
-        filterByMonitor(entries, mouseLocation: CGPoint(x: dockIconRect.midX, y: dockIconRect.midY), settings: settings)
+        filterByMonitor(
+            entries,
+            mouseLocation: CGPoint(x: dockIconRect.midX, y: dockIconRect.midY),
+            settings: settings,
+            locationIsQuartz: true
+        )
     }
 
     static func filterByMonitor(
         _ entries: [DockPreviewWindowEntry],
         mouseLocation: CGPoint,
-        settings: DockPreviewSettings
+        settings: DockPreviewSettings,
+        locationIsQuartz: Bool = false
     ) -> [DockPreviewWindowEntry] {
         guard settings.currentMonitorOnly else { return entries }
-        guard let screen = screenContaining(point: mouseLocation) else { return entries }
+        guard let screen = screenContaining(point: mouseLocation, locationIsQuartz: locationIsQuartz) else {
+            return entries
+        }
         return entries.filter { entry in
             if settings.includeHiddenMinimized, entry.isMinimized || entry.isHidden {
                 return true
@@ -84,8 +92,11 @@ enum DockPreviewWindowFilter {
         }
     }
 
-    private static func screenContaining(point: CGPoint) -> NSScreen? {
-        NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
+    private static func screenContaining(point: CGPoint, locationIsQuartz: Bool) -> NSScreen? {
+        if locationIsQuartz {
+            return NSScreen.screenFromQuartzPoint(point)
+        }
+        return NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
     }
 
     private static func quartzRectToScreenFrame(_ quartz: CGRect, screen: NSScreen) -> CGRect {

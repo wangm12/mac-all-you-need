@@ -57,6 +57,13 @@ public struct WindowScreenDetector: WindowScreenDetecting, Sendable {
         }
     }
 
+    /// Union of all display frames in CG display coordinates.
+    public static func desktopBounds(for screens: [WindowControlScreen]) -> CGRect {
+        screens.map(\.frame).reduce(CGRect.null) { partial, frame in
+            partial.isNull ? frame : partial.union(frame)
+        }
+    }
+
     static func convertAppKitRectToCGDisplayCoordinates(
         appKitRect: CGRect,
         appKitScreenFrame: CGRect,
@@ -81,6 +88,118 @@ public struct WindowScreenDetector: WindowScreenDetecting, Sendable {
             width: cgRect.width,
             height: cgRect.height
         )
+    }
+
+    /// AppKit `NSScreen.frame` paired with `CGDisplayBounds` for each display.
+    public struct ScreenLayoutPair: Equatable, Sendable {
+        public let appKitFrame: CGRect
+        public let cgBounds: CGRect
+
+        public init(appKitFrame: CGRect, cgBounds: CGRect) {
+            self.appKitFrame = appKitFrame
+            self.cgBounds = cgBounds
+        }
+    }
+
+    /// Live display layout for coordinate conversion (refreshed on each call).
+    public static func currentScreenLayout() -> [ScreenLayoutPair] {
+        NSScreen.screens.enumerated().map { index, screen in
+            let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?
+                .uint32Value ?? UInt32(index)
+            return ScreenLayoutPair(appKitFrame: screen.frame, cgBounds: CGDisplayBounds(id))
+        }
+    }
+
+    /// Converts a global point from CG display coordinates (top-left origin) to AppKit desktop coordinates.
+    public static func appKitPoint(fromCG point: CGPoint, layout: [ScreenLayoutPair] = currentScreenLayout()) -> CGPoint {
+        if let pair = layout.first(where: { $0.cgBounds.contains(point) }) {
+            return appKitPoint(fromCG: point, appKitScreenFrame: pair.appKitFrame, cgDisplayBounds: pair.cgBounds)
+        }
+        if let pair = nearestLayoutPair(to: point, in: layout, space: .cg) {
+            return appKitPoint(fromCG: point, appKitScreenFrame: pair.appKitFrame, cgDisplayBounds: pair.cgBounds)
+        }
+        return legacyFlippedAppKitPoint(fromCG: point, layout: layout)
+    }
+
+    /// Converts a global point from AppKit desktop coordinates to CG display coordinates.
+    public static func cgPoint(fromAppKit point: CGPoint, layout: [ScreenLayoutPair] = currentScreenLayout()) -> CGPoint {
+        if let pair = layout.first(where: { $0.appKitFrame.contains(point) }) {
+            return cgPoint(fromAppKit: point, appKitScreenFrame: pair.appKitFrame, cgDisplayBounds: pair.cgBounds)
+        }
+        if let pair = nearestLayoutPair(to: point, in: layout, space: .appKit) {
+            return cgPoint(fromAppKit: point, appKitScreenFrame: pair.appKitFrame, cgDisplayBounds: pair.cgBounds)
+        }
+        return legacyFlippedCGPoint(fromAppKit: point, layout: layout)
+    }
+
+    public static func appKitPoint(
+        fromCG point: CGPoint,
+        appKitScreenFrame: CGRect,
+        cgDisplayBounds: CGRect
+    ) -> CGPoint {
+        CGPoint(
+            x: appKitScreenFrame.minX + (point.x - cgDisplayBounds.minX),
+            y: appKitScreenFrame.maxY - (point.y - cgDisplayBounds.minY)
+        )
+    }
+
+    public static func cgPoint(
+        fromAppKit point: CGPoint,
+        appKitScreenFrame: CGRect,
+        cgDisplayBounds: CGRect
+    ) -> CGPoint {
+        CGPoint(
+            x: cgDisplayBounds.minX + (point.x - appKitScreenFrame.minX),
+            y: cgDisplayBounds.minY + (appKitScreenFrame.maxY - point.y)
+        )
+    }
+
+    private enum LayoutCoordinateSpace {
+        case cg
+        case appKit
+    }
+
+    private static func nearestLayoutPair(
+        to point: CGPoint,
+        in layout: [ScreenLayoutPair],
+        space: LayoutCoordinateSpace
+    ) -> ScreenLayoutPair? {
+        layout.min { lhs, rhs in
+            distanceSquared(from: point, to: space == .cg ? lhs.cgBounds : lhs.appKitFrame)
+                < distanceSquared(from: point, to: space == .cg ? rhs.cgBounds : rhs.appKitFrame)
+        }
+    }
+
+    private static func distanceSquared(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        let dx: CGFloat
+        if point.x < rect.minX {
+            dx = rect.minX - point.x
+        } else if point.x > rect.maxX {
+            dx = point.x - rect.maxX
+        } else {
+            dx = 0
+        }
+
+        let dy: CGFloat
+        if point.y < rect.minY {
+            dy = rect.minY - point.y
+        } else if point.y > rect.maxY {
+            dy = point.y - rect.maxY
+        } else {
+            dy = 0
+        }
+
+        return dx * dx + dy * dy
+    }
+
+    private static func legacyFlippedAppKitPoint(fromCG point: CGPoint, layout: [ScreenLayoutPair]) -> CGPoint {
+        let globalHeight = layout.map(\.appKitFrame.maxY).max() ?? 0
+        return CGPoint(x: point.x, y: globalHeight - point.y)
+    }
+
+    private static func legacyFlippedCGPoint(fromAppKit point: CGPoint, layout: [ScreenLayoutPair]) -> CGPoint {
+        let globalHeight = layout.map(\.appKitFrame.maxY).max() ?? 0
+        return CGPoint(x: point.x, y: globalHeight - point.y)
     }
 
     public func screen(containing frame: CGRect) -> WindowControlScreen? {
@@ -152,5 +271,35 @@ public struct WindowScreenDetector: WindowScreenDetecting, Sendable {
         }
 
         return dx * dx + dy * dy
+    }
+}
+
+/// Reads the current `NSScreen` layout on every access so hot-plug and arrangement
+/// changes are visible without restarting the app.
+public struct LiveWindowScreenDetector: WindowScreenDetecting, Sendable {
+    public init() {}
+
+    private var snapshot: WindowScreenDetector {
+        WindowScreenDetector.current()
+    }
+
+    public var screens: [WindowControlScreen] {
+        snapshot.screens
+    }
+
+    public func screen(containing frame: CGRect) -> WindowControlScreen? {
+        snapshot.screen(containing: frame)
+    }
+
+    public func screen(containing point: CGPoint) -> WindowControlScreen? {
+        snapshot.screen(containing: point)
+    }
+
+    public func nextScreen(after screen: WindowControlScreen) -> WindowControlScreen? {
+        snapshot.nextScreen(after: screen)
+    }
+
+    public func previousScreen(before screen: WindowControlScreen) -> WindowControlScreen? {
+        snapshot.previousScreen(before: screen)
     }
 }

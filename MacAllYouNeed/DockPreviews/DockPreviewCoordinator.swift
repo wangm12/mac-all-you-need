@@ -62,6 +62,7 @@ final class DockPreviewCoordinator {
         let loadedHub = hub ?? DockHubSettingsStore.load()
         hubSettings = loadedHub
         settings = loadedHub.previews
+        DockPreviewWorklog.setEnabled(settings.enableWorklog)
         panelController.reloadSettings(loadedHub)
         thumbnailCache = DockPreviewThumbnailCache(ttl: settings.thumbnailCacheLifespan)
         observer.settings = { [weak self] in self?.settings ?? .default }
@@ -459,9 +460,11 @@ final class DockPreviewCoordinator {
     }
 
     private func logDismissSnapshot(trigger: String) {
+        guard settings.enableWorklog else { return }
         let keep = shouldKeepPreviewOpen()
         let onSurface = isPointerOnPreviewSurfaceOnly()
-        let snapshot = "keep=\(keep) surface=\(onSurface) panel=\(panel.isVisible) active=\(currentDockItemToken ?? 0) hover=\(observer.currentHoveredDockItemToken() ?? 0)"
+        let hoverToken = observer.currentHoveredDockItemToken() ?? 0
+        let snapshot = "keep=\(keep) surface=\(onSurface) panel=\(panel.isVisible) active=\(currentDockItemToken ?? 0) hover=\(hoverToken)"
         guard snapshot != lastLoggedDismissSnapshot else { return }
         lastLoggedDismissSnapshot = snapshot
         DockPreviewWorklog.log("dismiss.state", fields: [
@@ -470,7 +473,7 @@ final class DockPreviewCoordinator {
             "onSurface": onSurface,
             "panelVisible": panel.isVisible,
             "activeToken": currentDockItemToken ?? 0,
-            "hoverToken": observer.currentHoveredDockItemToken() ?? 0,
+            "hoverToken": hoverToken,
         ])
     }
 

@@ -50,10 +50,15 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
 
     // MARK: Radial menu
 
-    /// Whether the current tap was installed with radial trigger events in its
-    /// mask. CGEvent tap masks cannot be mutated while running, so flipping
-    /// `radialMenuEnabled` requires stopping and recreating the tap.
-    var radialKeysInstalled = false
+    /// Whether the current tap was installed with keyboard events in its mask.
+    /// CGEvent tap masks cannot be mutated while running, so changes require
+    /// stopping and recreating the tap.
+    var keyboardEventsInstalled = false
+
+    var layoutHotkeyBindings: [LayoutHotkeyBinding] = []
+
+    /// Dispatched when a registered layout shortcut is pressed (CGEvent path).
+    var layoutHotkeyHandler: (@MainActor (WindowAction) -> Void)?
 
     /// Installed by the coordinator to receive radial trigger phases. Locations
     /// are in CG display coordinates (top-left origin, +Y down).
@@ -91,6 +96,12 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         tapController != nil
     }
 
+    var layoutHotkeysEnabled: Bool {
+        runtime.featureAvailability.windowLayoutsEnabled
+            && runtime.axTrusted
+            && !layoutHotkeyBindings.isEmpty
+    }
+
     func updateRuntime(
         settings: WindowControlSettings,
         featureAvailability: WindowControlFeatureAvailability,
@@ -125,7 +136,11 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         stateMachine.start(enabled: runtime.anyRuntimeBehaviorEnabled, axTrusted: runtime.axTrusted)
 
         let includeRadialKeys = runtime.settings.radialMenuEnabled
-        let mask = eventMask(includeRadialKeys: includeRadialKeys)
+        let includeLayoutHotkeys = layoutHotkeysEnabled
+        let mask = eventMask(
+            includeRadialKeys: includeRadialKeys,
+            includeLayoutHotkeys: includeLayoutHotkeys
+        )
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
         let controller = CGEventTapController(
             tap: .cgSessionEventTap,
@@ -147,7 +162,15 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         }
         controller.enable()
         tapController = controller
-        radialKeysInstalled = includeRadialKeys
+        keyboardEventsInstalled = includeRadialKeys || includeLayoutHotkeys
+    }
+
+    func updateLayoutHotkeyBindings(_ bindings: [LayoutHotkeyBinding]) {
+        layoutHotkeyBindings = bindings
+        guard isRunning else { return }
+        let needsKeyboard = runtime.settings.radialMenuEnabled || layoutHotkeysEnabled
+        guard keyboardEventsInstalled != needsKeyboard else { return }
+        stop()
     }
 
     func stop() {
@@ -156,7 +179,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         tapController?.uninstall()
         tapController = nil
         radialActive = false
-        radialKeysInstalled = false
+        keyboardEventsInstalled = false
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -173,6 +196,19 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
 
         if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticEventMarker {
             return Unmanaged.passUnretained(event)
+        }
+
+        if type == .keyDown,
+           layoutHotkeysEnabled,
+           runtime.layoutsRuntimeEnabled,
+           runtime.coordinatorActive,
+           !runtime.recordingHotkey,
+           !radialActive,
+           let action = LayoutHotkeyBindings.action(for: event, bindings: layoutHotkeyBindings) {
+            if let layoutHotkeyHandler {
+                Task { @MainActor in layoutHotkeyHandler(action) }
+            }
+            return nil
         }
 
         if runtime.settings.radialMenuEnabled, runtime.layoutsRuntimeEnabled,

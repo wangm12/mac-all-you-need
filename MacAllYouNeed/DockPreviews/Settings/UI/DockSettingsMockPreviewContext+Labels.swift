@@ -13,23 +13,6 @@ extension DockSettingsMockPreviewContext {
     }
 }
 
-extension DockHeroArt {
-    var indicatorCaption: String {
-        switch self {
-        case .dockPreviews:
-            "Hover a Dock icon"
-        case .windowSwitcher:
-            "Alt ⌥ Tab"
-        case .cmdTab:
-            "Hold ⌘"
-        case .dockLocking:
-            "Dock stays on one display"
-        case .activeIndicator:
-            "Bar under active icon"
-        }
-    }
-}
-
 struct DockSettingsMockWindow: Equatable {
     let title: String
     let thumbnailLabel: String

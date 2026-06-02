@@ -14,6 +14,7 @@ public enum FeatureWorklog {
     private static let queue = DispatchQueue(label: "com.macallyouneed.feature-worklog", qos: .utility)
     private static let maxFileBytes = 2_000_000
     private static let retentionDays = 7
+    private static var lastPruneDay: String?
 
     private static func worklogsRoot() -> URL {
         AppGroup.containerURL().appendingPathComponent("worklogs", isDirectory: true)
@@ -145,7 +146,11 @@ public enum FeatureWorklog {
     }
 
     private static func writeLine(_ line: String, feature: Feature) {
-        pruneOldLogsOnQueue()
+        let day = dayFormatter.string(from: Date())
+        if lastPruneDay != day {
+            lastPruneDay = day
+            pruneOldLogsOnQueue()
+        }
         let dir = directory(for: feature)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 

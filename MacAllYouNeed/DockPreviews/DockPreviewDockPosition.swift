@@ -5,7 +5,10 @@ enum DockPreviewDockPosition {
     typealias DockEdge = DockPreviewPanelGeometry.DockEdge
 
     static func currentEdge() -> DockEdge {
-        guard let screen = NSScreen.main else { return .bottom }
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else {
+            return .bottom
+        }
         return currentEdge(for: screen)
     }
 

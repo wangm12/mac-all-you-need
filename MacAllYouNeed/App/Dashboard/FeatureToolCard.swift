@@ -1,16 +1,11 @@
 import SwiftUI
 import FeatureCore
 
-/// A wrapper around `MAYNToolCard` that adds feature lifecycle state UI.
+/// A dashboard tool card with feature lifecycle UI aligned to Dock Features toggles.
 ///
-/// When `state` is nil the card behaves exactly like a plain `MAYNToolCard`
-/// (full opacity, click → `onOpen`). When a `FeatureRuntimeState` is
-/// supplied the card overlays a status badge, an inline action button, and
-/// adjusts opacity to reflect install / enable state.
-///
-/// Callers inject tool-specific footer content via the `toolFooter` ViewBuilder.
-/// The footer is automatically hidden when the feature is not usable
-/// (disabled, not downloaded, downloading, or failed).
+/// Feature-managed tiles use `DashboardFeatureCardShell` with a bottom switch for
+/// enable/disable. Install, download, and failure states keep status + action at
+/// the bottom instead of a switch.
 struct FeatureToolCard<Footer: View>: View {
 
     // MARK: Static content
@@ -60,37 +55,11 @@ struct FeatureToolCard<Footer: View>: View {
     // MARK: Body
 
     var body: some View {
-        MAYNToolCard(
-            title: title,
-            subtitle: subtitle,
-            symbolName: symbolName,
-            accent: accent,
-            fixedHeight: fixedHeight,
-            action: cardAction
-        ) {
-            VStack(alignment: .leading, spacing: 8) {
-                // Status / action row
-                HStack(spacing: 8) {
-                    statusBadge
-                    Spacer(minLength: 0)
-                    inlineButton
-                }
-
-                // Tool-specific footer — shown only when the tool is usable
-                if showFooter {
-                    toolFooter()
-                }
-            }
-        }
-        .opacity(cardOpacity)
-        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: cardOpacity)
-        .overlay(alignment: .topTrailing) {
-            // Show spinner only while a transition is queued; downloading already shows its own progress bar.
-            if isPending, case .downloading = visualState {} else if isPending {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(8)
-                    .accessibilityLabel("Operation pending for \(title)")
+        Group {
+            if state != nil {
+                featureManagedCard
+            } else {
+                unmanagedCard
             }
         }
         .contextMenu { contextMenuItems }
@@ -103,10 +72,103 @@ struct FeatureToolCard<Footer: View>: View {
         }
     }
 
+    // MARK: Feature-managed card (Dock Features layout)
+
+    private var featureManagedCard: some View {
+        DashboardFeatureCardShell(
+            title: title,
+            subtitle: subtitle,
+            symbolName: symbolName,
+            accent: accent,
+            fixedHeight: fixedHeight,
+            isHighlighted: visualState == .enabled,
+            onHeaderTap: cardAction,
+            middle: {
+                if showFooter {
+                    toolFooter()
+                }
+            },
+            bottom: { lifecycleBottom }
+        )
+        .opacity(cardOpacity)
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: cardOpacity)
+        .overlay(alignment: .topTrailing) {
+            if isPending, case .downloading = visualState {} else if isPending {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .accessibilityLabel("Operation pending for \(title)")
+            }
+        }
+    }
+
+    // MARK: Unmanaged card (no feature runtime)
+
+    private var unmanagedCard: some View {
+        MAYNToolCard(
+            title: title,
+            subtitle: subtitle,
+            symbolName: symbolName,
+            accent: accent,
+            fixedHeight: fixedHeight,
+            action: onOpen
+        ) {
+            toolFooter()
+        }
+    }
+
+    // MARK: Bottom lifecycle control
+
+    @ViewBuilder
+    private var lifecycleBottom: some View {
+        switch visualState {
+        case .unmanaged:
+            EmptyView()
+        case .enabled, .disabled:
+            Toggle("", isOn: enableBinding)
+                .labelsHidden()
+                .controlSize(.small)
+                .maynSwitchToggleStyle()
+                .disabled(isPending)
+                .accessibilityLabel("\(title), \(visualState == .enabled ? "enabled" : "disabled")")
+        case .notDownloaded:
+            HStack(spacing: 8) {
+                StatusPill(text: "Not installed", kind: .neutral)
+                Spacer(minLength: 0)
+                MAYNButton("Install", role: .primary, action: { onInstall?() })
+            }
+        case .downloading(let progress):
+            ProgressView(value: progress, total: 1.0)
+                .progressViewStyle(.linear)
+                .tint(MAYNTheme.progress)
+                .accessibilityLabel("Downloading: \(Int(progress * 100))%")
+        case .failed(let reason):
+            HStack(spacing: 8) {
+                StatusPill(text: "Failed", kind: .danger)
+                    .accessibilityLabel("Download failed for \(title): \(reason)")
+                Spacer(minLength: 0)
+                MAYNButton("Retry", role: .primary, action: { onRetryInstall?() })
+            }
+        }
+    }
+
+    private var enableBinding: Binding<Bool> {
+        Binding(
+            get: { visualState == .enabled },
+            set: { enabled in
+                if enabled {
+                    onEnable?()
+                } else {
+                    onDisable?()
+                }
+            }
+        )
+    }
+
     // MARK: Derived properties
 
-    /// The tap action forwarded to MAYNToolCard.
-    /// nil disables the built-in card press gesture.
+    /// The tap action for the card header.
+    /// nil disables the built-in header press gesture.
     private var cardAction: (() -> Void)? {
         switch visualState {
         case .unmanaged, .enabled: return onOpen
@@ -129,53 +191,6 @@ struct FeatureToolCard<Footer: View>: View {
         }
     }
 
-    // MARK: Status badge
-
-    @ViewBuilder
-    private var statusBadge: some View {
-        switch visualState {
-        case .unmanaged:
-            // No badge for non-feature-managed tiles
-            EmptyView()
-        case .enabled:
-            StatusPill(text: "Enabled", kind: .success)
-        case .disabled:
-            StatusPill(text: "Disabled", kind: .neutral)
-        case .notDownloaded:
-            StatusPill(text: "Not installed", kind: .neutral)
-        case .downloading(let progress):
-            ProgressView(value: progress, total: 1.0)
-                .progressViewStyle(.linear)
-                .frame(maxWidth: 100)
-                .tint(MAYNTheme.progress)
-                .accessibilityLabel("Downloading: \(Int(progress * 100))%")
-        case .failed(let reason):
-            StatusPill(text: "Failed", kind: .danger)
-                .accessibilityLabel("Download failed for \(title): \(reason)")
-        }
-    }
-
-    // MARK: Inline button
-
-    @ViewBuilder
-    private var inlineButton: some View {
-        switch visualState {
-        case .unmanaged, .enabled:
-            // "Disable" is intentionally right-click only — it is a destructive-ish
-            // action and should not sit next to the primary open affordance.
-            EmptyView()
-        case .disabled:
-            MAYNButton("Enable", role: .primary, action: { onEnable?() })
-        case .notDownloaded:
-            MAYNButton("Install", role: .primary, action: { onInstall?() })
-        case .downloading:
-            MAYNButton("Cancel", role: .secondary, action: { onCancelDownload?() })
-                .accessibilityLabel("Cancel download for \(title)")
-        case .failed:
-            MAYNButton("Retry", role: .primary, action: { onRetryInstall?() })
-        }
-    }
-
     // MARK: Context menu
 
     @ViewBuilder
@@ -193,10 +208,6 @@ struct FeatureToolCard<Footer: View>: View {
         case .unmanaged:
             EmptyView()
         case .enabled:
-            // Divider() is correct here: SwiftUI context menus require the platform
-            // separator primitive. MAYNDivider renders as a Rectangle and is
-            // invisible inside a context menu — context menus are an accepted
-            // exception to the MAYNDivider rule (design.md §10).
             Divider()
             Button("Disable") { onDisable?() }
         case .disabled:

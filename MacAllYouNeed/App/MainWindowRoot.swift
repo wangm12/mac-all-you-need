@@ -394,7 +394,7 @@ enum DashboardRenderingPresentation {
     static let usesStaticStartupSummary = false
     static let usesToolCards = true
     static let usesPlainRows = false
-    static let toolCardHeight: CGFloat = 156
+    static let toolCardHeight: CGFloat = 170
 }
 
 enum MainClipboardPreviewKind: Equatable {

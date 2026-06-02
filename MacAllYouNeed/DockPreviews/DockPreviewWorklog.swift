@@ -5,9 +5,15 @@ import Foundation
 /// Dock hover preview worklog — gated by Dock Preview settings (`enableWorklog`).
 enum DockPreviewWorklog {
     private static let feature = FeatureWorklog.Feature.dockPreviews
+    /// In-memory gate — updated from `DockPreviewCoordinator.reloadSettings()` (avoid decoding hub JSON per log line).
+    private static var enabled = false
+
+    static func setEnabled(_ value: Bool) {
+        enabled = value
+    }
 
     static func log(_ event: String, details: String? = nil, file: String = #fileID, line: Int = #line) {
-        guard isEnabled else { return }
+        guard enabled else { return }
         FeatureWorklog.log(feature, event, details: details, file: file, line: line)
     }
 
@@ -17,12 +23,8 @@ enum DockPreviewWorklog {
         file: String = #fileID,
         line: Int = #line
     ) {
-        guard isEnabled else { return }
+        guard enabled else { return }
         FeatureWorklog.log(feature, event, fields: fields, file: file, line: line)
-    }
-
-    static var isEnabled: Bool {
-        DockHubSettingsStore.loadPreviews().enableWorklog
     }
 
     static func revealInFinder() {
@@ -33,10 +35,6 @@ enum DockPreviewWorklog {
 
     static func clear() {
         FeatureWorklog.clear(feature)
-    }
-
-    static var lineCount: Int {
-        FeatureWorklog.lineCount(for: feature)
     }
 
     /// Avoid calling from SwiftUI `body`; use async refresh instead.

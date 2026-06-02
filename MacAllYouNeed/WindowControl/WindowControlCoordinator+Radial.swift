@@ -9,14 +9,7 @@ extension WindowControlCoordinator {
     /// Opens the radial menu at the current cursor location (invoked from a hotkey).
     func openRadialMenu() {
         guard settings.radialMenuEnabled else { return }
-        let cursor = NSEvent.mouseLocation
-        // Convert AppKit point (bottom-left origin) to CG display coordinates (top-left origin).
-        let cgCursor: CGPoint
-        if let globalHeight = NSScreen.screens.map(\.frame.maxY).max() {
-            cgCursor = CGPoint(x: cursor.x, y: globalHeight - cursor.y)
-        } else {
-            cgCursor = CGPoint(x: cursor.x, y: cursor.y)
-        }
+        let cgCursor = Self.cgPoint(fromAppKit: NSEvent.mouseLocation)
         handleRadialPhase(.open(center: cgCursor))
         (tap as? WindowControlEventTap)?.radialActive = true
     }
@@ -25,11 +18,15 @@ extension WindowControlCoordinator {
     /// display coordinates (top-left origin); panels need AppKit coordinates.
     func handleRadialPhase(_ phase: WindowControlEventTap.RadialPhase) {
         switch phase {
-        case let .open(center):
-            let menuCenterCG = radialMenuCenterCG(cursorCG: center)
+        case .open:
+            // Modifier `flagsChanged` locations can be stale on multi-display setups;
+            // always anchor to the live cursor in CG display space.
+            let cursorCG = Self.cgPoint(fromAppKit: NSEvent.mouseLocation)
+            let menuCenterCG = radialMenuCenterCG(cursorCG: cursorCG)
             let appKitCenter = Self.appKitPoint(fromCG: menuCenterCG)
-            let screenBounds = WindowScreenDetector.current().screen(containing: menuCenterCG)?.frame
-            radialMenuCoordinator.open(at: menuCenterCG, screenBounds: screenBounds)
+            let detector = WindowScreenDetector.current()
+            let desktopBounds = WindowScreenDetector.desktopBounds(for: detector.screens)
+            radialMenuCoordinator.open(at: menuCenterCG, desktopBounds: desktopBounds)
             refreshRadialOverlays(appKitMenuCenter: appKitCenter)
             installRadialEscMonitor()
         case let .update(cursor):
@@ -117,6 +114,14 @@ extension WindowControlCoordinator {
         removeRadialEscMonitor()
     }
 
+    /// Tears down an open radial session when displays are reconfigured.
+    func endRadialMenuForDisplayChange() {
+        guard radialMenuCoordinator.state != .idle else { return }
+        dismissRadialUI()
+        radialMenuCoordinator.reset()
+        (tap as? WindowControlEventTap)?.radialActive = false
+    }
+
     private func refreshRadialTargetHighlight() {
         guard settings.radialTargetHighlightEnabled,
               let frame = radialTargetWindowAppKitFrame()
@@ -163,18 +168,12 @@ extension WindowControlCoordinator {
     }
 
     static func appKitPoint(fromCG point: CGPoint) -> NSPoint {
-        guard let primaryHeight = NSScreen.screens.first?.frame.maxY else {
-            return NSPoint(x: point.x, y: point.y)
-        }
-        let globalHeight = NSScreen.screens.map(\.frame.maxY).max() ?? primaryHeight
-        return NSPoint(x: point.x, y: globalHeight - point.y)
+        let converted = WindowScreenDetector.appKitPoint(fromCG: point)
+        return NSPoint(x: converted.x, y: converted.y)
     }
 
     static func cgPoint(fromAppKit point: NSPoint) -> CGPoint {
-        guard let globalHeight = NSScreen.screens.map(\.frame.maxY).max() else {
-            return CGPoint(x: point.x, y: point.y)
-        }
-        return CGPoint(x: point.x, y: globalHeight - point.y)
+        WindowScreenDetector.cgPoint(fromAppKit: CGPoint(x: point.x, y: point.y))
     }
 
     func appKitOverlayFrame(for cgFrame: CGRect) -> CGRect? {
@@ -195,7 +194,36 @@ extension WindowControlCoordinator {
     }
 
     private static func screen(containingAppKit point: NSPoint) -> NSScreen? {
-        NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
+        if let containing = NSScreen.screens.first(where: { $0.frame.contains(point) }) {
+            return containing
+        }
+        return NSScreen.screens.min { lhs, rhs in
+            let lhsDistance = distanceSquared(from: point, to: lhs.frame)
+            let rhsDistance = distanceSquared(from: point, to: rhs.frame)
+            return lhsDistance < rhsDistance
+        } ?? NSScreen.main
+    }
+
+    private static func distanceSquared(from point: NSPoint, to rect: NSRect) -> CGFloat {
+        let dx: CGFloat
+        if point.x < rect.minX {
+            dx = rect.minX - point.x
+        } else if point.x > rect.maxX {
+            dx = point.x - rect.maxX
+        } else {
+            dx = 0
+        }
+
+        let dy: CGFloat
+        if point.y < rect.minY {
+            dy = rect.minY - point.y
+        } else if point.y > rect.maxY {
+            dy = point.y - rect.maxY
+        } else {
+            dy = 0
+        }
+
+        return dx * dx + dy * dy
     }
 
     /// Focused window for radial preview, highlight, and commit (single source of truth).

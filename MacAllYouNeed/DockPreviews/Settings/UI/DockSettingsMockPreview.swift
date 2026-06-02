@@ -16,7 +16,7 @@ enum DockSettingsMockPreviewContext {
 
 /// Live settings preview that animates selection and reflects current appearance choices.
 struct DockSettingsMockPreview: View {
-    let hub: DockHubSettings
+    @Binding var hub: DockHubSettings
     let context: DockSettingsMockPreviewContext
 
     private var refreshSignature: String {
@@ -28,13 +28,9 @@ struct DockSettingsMockPreview: View {
     }
 
     var body: some View {
-        MAYNSection(title: "Preview") {
-            DockSettingsAnimatedPreview(snapshot: snapshot, context: context)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 18)
-                .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .preferredColorScheme(DockSettingsPreviewBuilder.preferredColorScheme(for: hub.appearance.appAppearanceMode))
-        .id(refreshSignature)
+        DockSettingsAnimatedPreview(snapshot: snapshot, context: context)
+            .padding(.vertical, 20)
+            .preferredColorScheme(DockSettingsPreviewBuilder.preferredColorScheme(for: hub.appearance.appAppearanceMode))
+            .id(refreshSignature)
     }
 }

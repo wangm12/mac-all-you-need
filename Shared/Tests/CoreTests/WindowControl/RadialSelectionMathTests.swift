@@ -77,4 +77,23 @@ final class RadialSelectionMathTests: XCTestCase {
         })
         XCTAssertEqual(selections.count, 8)
     }
+
+    func testEdgeClampIgnoresInterMonitorEdge() {
+        let left = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let right = CGRect(x: 1000, y: 0, width: 1000, height: 800)
+        let desktop = left.union(right)
+        let nearInternalEdge = CGPoint(x: 995, y: 400)
+        var clamp = RadialSelectionMath.EdgeClamp(initial: nearInternalEdge, desktopBounds: desktop)
+        let resolved = clamp.resolve(current: nearInternalEdge, deltaX: 10, deltaY: 0)
+        XCTAssertEqual(resolved, nearInternalEdge)
+    }
+
+    func testEdgeClampCompensatesAtDesktopPerimeter() {
+        let desktop = CGRect(x: 0, y: 0, width: 2000, height: 800)
+        let atRightEdge = CGPoint(x: 1999, y: 400)
+        var clamp = RadialSelectionMath.EdgeClamp(initial: atRightEdge, desktopBounds: desktop)
+        let pinned = CGPoint(x: 2000, y: 400)
+        let resolved = clamp.resolve(current: pinned, deltaX: 30, deltaY: 0)
+        XCTAssertGreaterThan(resolved.x, pinned.x)
+    }
 }

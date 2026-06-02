@@ -47,9 +47,12 @@ public struct WindowMovementResult: Equatable, Sendable {
 public final class WindowMover {
     private let screenDetector: any WindowScreenDetecting
     private let geometry: WindowGeometryCalculator
+    /// When false (default), pressing the same half shortcut again keeps the window on the
+    /// current display instead of jumping to the adjacent monitor (Rectangle-style).
+    public var repeatHalfAcrossDisplays: Bool = false
 
     public init(
-        screenDetector: any WindowScreenDetecting = WindowScreenDetector.current(),
+        screenDetector: any WindowScreenDetecting = LiveWindowScreenDetector(),
         geometry: WindowGeometryCalculator = WindowGeometryCalculator()
     ) {
         self.screenDetector = screenDetector
@@ -240,7 +243,9 @@ public final class WindowMover {
         preserveSize: Bool,
         previousResult: WindowMovementResult?
     ) -> CGRect? {
-        guard let previousResult,
+        guard repeatHalfAcrossDisplays,
+              screenDetector.screens.count > 1,
+              let previousResult,
               previousResult.status == .moved,
               previousResult.action == action,
               approximatelyEqual(previousResult.resultingFrame, currentFrame),
@@ -262,7 +267,9 @@ public final class WindowMover {
         currentFrame: CGRect,
         previousResult: WindowMovementResult?
     ) -> WindowAction? {
-        guard let previousResult,
+        guard repeatHalfAcrossDisplays,
+              screenDetector.screens.count > 1,
+              let previousResult,
               previousResult.status == .moved,
               previousResult.action == action,
               approximatelyEqual(previousResult.resultingFrame, currentFrame),

@@ -114,7 +114,14 @@ final class WindowControlCoordinator {
         self.settings = settings
         self.featureAvailability = featureAvailability
         self.tap = tap ?? WindowControlEventTap()
-        self.actionPerformer = actionPerformer ?? WindowKeyboardActionPerformer()
+        if let custom = actionPerformer {
+            self.actionPerformer = custom
+        } else {
+            self.actionPerformer = WindowKeyboardActionPerformer()
+        }
+        if let keyboardPerformer = self.actionPerformer as? WindowKeyboardActionPerformer {
+            keyboardPerformer.repeatHalfAcrossDisplays = settings.repeatHalfAcrossDisplays
+        }
         self.restoreHistory = restoreHistory
         self.accessibilityTrust = accessibilityTrust
         self.frontmostBundleID = frontmostBundleID
@@ -135,11 +142,29 @@ final class WindowControlCoordinator {
             eventTap.radialPhaseHandler = { [weak self] phase in
                 self?.handleRadialPhase(phase)
             }
+            eventTap.layoutHotkeyHandler = { [weak self] action in
+                self?.perform(action: action)
+            }
+        }
+    }
+
+    func syncLayoutHotkeyBindings(_ bindings: [LayoutHotkeyBinding]) {
+        guard let eventTap = tap as? WindowControlEventTap else { return }
+        let wasRunning = eventTap.isRunning
+        eventTap.updateLayoutHotkeyBindings(bindings)
+        if wasRunning, !eventTap.isRunning {
+            reconcileLifecycle()
         }
     }
 
     var windowActionPerformerAvailable: Bool {
         layoutsRuntimeEnabled && axTrusted && !suspendedForHotkeyRecording && actionPerformer.isAvailable
+    }
+
+    /// Global shortcuts for layout actions register when the feature is enabled and
+    /// Accessibility is trusted — independent of the internal `settings.enabled` pause flag.
+    var windowLayoutHotkeysRegisterable: Bool {
+        featureAvailability.windowLayoutsEnabled && axTrusted && !suspendedForHotkeyRecording
     }
 
     var windowLayoutsEnabled: Bool {
@@ -159,7 +184,9 @@ final class WindowControlCoordinator {
 
     func start() {
         axTrusted = accessibilityTrust()
+        syncLayoutsMasterSwitchWithFeature()
         reconcileLifecycle()
+        onHotkeyRegistrationNeedsRefresh()
     }
 
     func stop() {
@@ -172,6 +199,16 @@ final class WindowControlCoordinator {
         applySettings(WindowControlSettingsStore.load())
     }
 
+    /// Re-reads the display layout after connect/disconnect or arrangement changes.
+    func refreshDisplayLayout() {
+        endRadialMenuForDisplayChange()
+        if let eventTap = tap as? WindowControlEventTap {
+            eventTap.updateRuntime(radialMenuEnabled: settings.radialMenuEnabled)
+        }
+        reconcileLifecycle()
+        onHotkeyRegistrationNeedsRefresh()
+    }
+
     func setHotkeyRegistrationNeedsRefresh(_ handler: @escaping () -> Void) {
         onHotkeyRegistrationNeedsRefresh = handler
     }
@@ -181,6 +218,9 @@ final class WindowControlCoordinator {
         let layoutsRuntimeChanged = layoutsRuntimeEnabled != (featureAvailability.windowLayoutsEnabled && next.enabled)
         let radialChanged = settings.radialMenuEnabled != next.radialMenuEnabled
         settings = next
+        if let keyboardPerformer = actionPerformer as? WindowKeyboardActionPerformer {
+            keyboardPerformer.repeatHalfAcrossDisplays = next.repeatHalfAcrossDisplays
+        }
         if radialChanged {
             // The CGEvent tap mask can only be set at creation, so flipping the
             // radial setting requires recreating the tap; stop it here and let
@@ -197,6 +237,7 @@ final class WindowControlCoordinator {
         let wasAvailable = windowActionPerformerAvailable
         let layoutsChanged = featureAvailability.windowLayoutsEnabled != availability.windowLayoutsEnabled
         featureAvailability = availability
+        syncLayoutsMasterSwitchWithFeature()
         reconcileLifecycle()
         if layoutsChanged || wasAvailable != windowActionPerformerAvailable {
             onHotkeyRegistrationNeedsRefresh()
@@ -205,9 +246,10 @@ final class WindowControlCoordinator {
 
     func refreshAccessibilityTrust(_ trusted: Bool? = nil) {
         let wasAvailable = windowActionPerformerAvailable
+        let wasRegisterable = windowLayoutHotkeysRegisterable
         axTrusted = trusted ?? accessibilityTrust()
         reconcileLifecycle()
-        if wasAvailable != windowActionPerformerAvailable {
+        if wasAvailable != windowActionPerformerAvailable || wasRegisterable != windowLayoutHotkeysRegisterable {
             onHotkeyRegistrationNeedsRefresh()
         }
     }
@@ -311,6 +353,16 @@ final class WindowControlCoordinator {
 
     private var anyRuntimeBehaviorEnabled: Bool {
         layoutsRuntimeEnabled || grabRuntimeEnabled
+    }
+
+    /// Turns on the layouts master switch when the Window Layouts feature is active.
+    /// There is no separate UI for `settings.enabled`; leaving it off prevented hotkeys from registering.
+    private func syncLayoutsMasterSwitchWithFeature() {
+        guard featureAvailability.windowLayoutsEnabled, !settings.enabled else { return }
+        var next = settings
+        next.enabled = true
+        settings = next
+        WindowControlSettingsStore.save(next)
     }
 
     private func recordMovement(

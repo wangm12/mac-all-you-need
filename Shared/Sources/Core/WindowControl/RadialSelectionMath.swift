@@ -56,21 +56,25 @@ public enum RadialSelectionMath {
         return .ring(segment)
     }
 
-    /// Compensates for the cursor pinning at screen edges while the radial menu is open.
+    /// Compensates for macOS cursor pinning at the **desktop** perimeter while the radial menu is open.
+    ///
+    /// Uses `desktopBounds` (union of all displays) so inter-monitor edges are not treated as
+    /// pinned edges — that mismatch caused the cursor to appear stuck or loop on one screen
+    /// when multiple monitors were attached.
     public struct EdgeClamp {
         private var latest: CGPoint
-        private let screenBounds: CGRect
+        private let desktopBounds: CGRect
         private let shouldAccountForAbsolute: Bool
 
-        public init(initial: CGPoint, screenBounds: CGRect) {
+        public init(initial: CGPoint, desktopBounds: CGRect) {
             latest = initial
-            self.screenBounds = screenBounds
+            self.desktopBounds = desktopBounds
             let threshold: CGFloat = 5
             shouldAccountForAbsolute =
-                initial.x <= screenBounds.minX + threshold
-                || initial.x >= screenBounds.maxX - threshold
-                || initial.y <= screenBounds.minY + threshold
-                || initial.y >= screenBounds.maxY - threshold
+                initial.x <= desktopBounds.minX + threshold
+                || initial.x >= desktopBounds.maxX - threshold
+                || initial.y <= desktopBounds.minY + threshold
+                || initial.y >= desktopBounds.maxY - threshold
         }
 
         public mutating func resolve(current: CGPoint, deltaX: CGFloat, deltaY: CGFloat) -> CGPoint {
@@ -82,22 +86,22 @@ public enum RadialSelectionMath {
             let edgeThreshold: CGFloat = 1
             let maxOffset = RadialSelectionMath.activationDistance + RadialSelectionMath.centerBandRadius
 
-            let atMinX = abs(current.x - screenBounds.minX) < edgeThreshold
-            let atMaxX = abs(current.x - screenBounds.maxX) < edgeThreshold
-            let atMinY = abs(current.y - screenBounds.minY) < edgeThreshold
-            let atMaxY = abs(current.y - screenBounds.maxY) < edgeThreshold
+            let atMinX = abs(current.x - desktopBounds.minX) < edgeThreshold
+            let atMaxX = abs(current.x - desktopBounds.maxX) < edgeThreshold
+            let atMinY = abs(current.y - desktopBounds.minY) < edgeThreshold
+            let atMaxY = abs(current.y - desktopBounds.maxY) < edgeThreshold
 
             var resolved = current
 
             if atMinX || atMaxX {
                 let unclampedX = latest.x + deltaX
-                let minX = screenBounds.minX - maxOffset
-                let maxX = screenBounds.maxX + maxOffset
+                let minX = desktopBounds.minX - maxOffset
+                let maxX = desktopBounds.maxX + maxOffset
                 resolved.x = min(max(unclampedX, minX), maxX)
             } else if atMinY || atMaxY {
                 let unclampedY = latest.y + deltaY
-                let minY = screenBounds.minY - maxOffset
-                let maxY = screenBounds.maxY + maxOffset
+                let minY = desktopBounds.minY - maxOffset
+                let maxY = desktopBounds.maxY + maxOffset
                 resolved.y = min(max(unclampedY, minY), maxY)
             }
 

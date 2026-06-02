@@ -28,7 +28,7 @@ struct KeyboardShortcutVisualizerState: Equatable {
     static let inactive = KeyboardShortcutVisualizerState(isRecording: false, pressedKeys: [])
 
     static func recording(keyCode: UInt16? = nil, cgFlags: CGEventFlags = []) -> KeyboardShortcutVisualizerState {
-        var pressedKeys = physicalModifierKeys(from: cgFlags)
+        var pressedKeys = physicalModifierKeys(from: cgFlags, keyCode: keyCode)
         if let keyCode, !isModifierKeyCode(keyCode) {
             pressedKeys.insert(.keyCode(keyCode))
         }
@@ -39,14 +39,17 @@ struct KeyboardShortcutVisualizerState: Equatable {
         keyCode: UInt16? = nil,
         modifierFlags: NSEvent.ModifierFlags
     ) -> KeyboardShortcutVisualizerState {
-        var pressedKeys = fallbackModifierKeys(from: modifierFlags)
+        var pressedKeys = fallbackModifierKeys(from: modifierFlags, keyCode: keyCode)
         if let keyCode, !isModifierKeyCode(keyCode) {
             pressedKeys.insert(.keyCode(keyCode))
         }
         return KeyboardShortcutVisualizerState(isRecording: true, pressedKeys: pressedKeys)
     }
 
-    private static func physicalModifierKeys(from flags: CGEventFlags) -> Set<KeyboardShortcutVisualizerKeyID> {
+    private static func physicalModifierKeys(
+        from flags: CGEventFlags,
+        keyCode: UInt16?
+    ) -> Set<KeyboardShortcutVisualizerKeyID> {
         let rawFlags = flags.rawValue
         var keys: Set<KeyboardShortcutVisualizerKeyID> = []
 
@@ -67,19 +70,46 @@ struct KeyboardShortcutVisualizerState: Equatable {
         if rightCommand { keys.insert(.rightCommand) }
         if leftShift || (flags.contains(.maskShift) && !rightShift) { keys.insert(.leftShift) }
         if rightShift { keys.insert(.rightShift) }
-        if flags.contains(.maskSecondaryFn) { keys.insert(.fn) }
+        if flags.contains(.maskSecondaryFn), !suppressesSpuriousFnIndicator(for: keyCode) {
+            keys.insert(.fn)
+        }
 
         return keys
     }
 
-    private static func fallbackModifierKeys(from flags: NSEvent.ModifierFlags) -> Set<KeyboardShortcutVisualizerKeyID> {
+    private static func fallbackModifierKeys(
+        from flags: NSEvent.ModifierFlags,
+        keyCode: UInt16?
+    ) -> Set<KeyboardShortcutVisualizerKeyID> {
         var keys: Set<KeyboardShortcutVisualizerKeyID> = []
         if flags.contains(.control) { keys.insert(.genericControl) }
         if flags.contains(.option) { keys.insert(.genericOption) }
         if flags.contains(.command) { keys.insert(.genericCommand) }
         if flags.contains(.shift) { keys.insert(.genericShift) }
-        if flags.contains(.function) { keys.insert(.fn) }
+        if flags.contains(.function), !suppressesSpuriousFnIndicator(for: keyCode) {
+            keys.insert(.fn)
+        }
         return keys
+    }
+
+    /// MacBook arrow/F-keys often set `maskSecondaryFn` without a deliberate Fn press.
+    /// Hide that bit in the on-screen keyboard while recording those keys.
+    private static func suppressesSpuriousFnIndicator(for keyCode: UInt16?) -> Bool {
+        guard let keyCode else { return false }
+        return isFnSpecialKey(keyCode)
+    }
+
+    private static func isFnSpecialKey(_ keyCode: UInt16) -> Bool {
+        switch Int(keyCode) {
+        case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+             kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8,
+             kVK_F9, kVK_F10, kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15,
+             kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20,
+             kVK_Help, kVK_ForwardDelete:
+            true
+        default:
+            false
+        }
     }
 
     private static func isModifierKeyCode(_ keyCode: UInt16) -> Bool {

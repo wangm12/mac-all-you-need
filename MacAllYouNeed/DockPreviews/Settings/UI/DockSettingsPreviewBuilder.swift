@@ -2,8 +2,6 @@ import AppKit
 import SwiftUI
 
 struct DockSettingsPreviewSnapshot {
-    let appName: String
-    let showAppHeader: Bool
     let panelOpacity: Double
     let appearance: DockPreviewAppearanceContext
     let backgroundStyle: DockBackgroundStyleFull
@@ -14,6 +12,9 @@ enum DockSettingsPreviewBuilder {
     static func signature(hub: DockHubSettings, context: DockSettingsMockPreviewContext) -> String {
         let appearance = hub.appearance
         let options = hub.previews.appearanceOptions
+        let previews = hub.previews
+        let switcher = hub.switcher
+        let cmdTab = hub.cmdTab
         return [
             context.presentationMode.rawValue,
             appearance.appAppearanceMode.rawValue,
@@ -21,6 +22,8 @@ enum DockSettingsPreviewBuilder {
             appearance.backgroundMaterial.rawValue,
             appearance.useOpaqueBackground.description,
             String(appearance.glassOpacity),
+            String(appearance.glassBlurRadius),
+            String(appearance.glassSaturation),
             String(appearance.backgroundTintOpacity),
             String(appearance.backgroundBorderOpacity),
             String(appearance.backgroundBorderWidth),
@@ -32,12 +35,15 @@ enum DockSettingsPreviewBuilder {
             String(appearance.uniformCardRadius),
             String(appearance.globalPaddingMultiplier),
             String(appearance.hideHoverContainerBackground),
-            String(hub.previews.showThumbnails),
+            String(appearance.unselectedContentOpacity),
+            String(options.selectionOpacity),
+            String(previews.showThumbnails),
             String(hub.advanced.disableImagePreview),
-            String(hub.previews.showAppNameInHeader),
-            String(hub.switcher.showAppHeader),
+            String(switcher.showAppHeader),
+            String(switcher.showWindowTitle),
+            String(cmdTab.autoSelectFirstWindow),
             options.previewHoverAction.rawValue,
-            String(hub.previews.enableFullSizeHoverPreview),
+            String(previews.enableFullSizeHoverPreview),
         ].joined(separator: "|")
     }
 
@@ -59,18 +65,7 @@ enum DockSettingsPreviewBuilder {
             hubAppearance: appearanceSettings,
             switcherShowAppHeader: hub.switcher.showAppHeader
         )
-        let appName: String = switch context {
-        case .dock: "Preview"
-        case .windowSwitcher: "All windows"
-        case .cmdTab: "Safari"
-        }
-        let showHeader: Bool = switch context {
-        case .windowSwitcher: hub.switcher.showAppHeader
-        case .dock, .cmdTab: resolved.showAppHeader
-        }
         return DockSettingsPreviewSnapshot(
-            appName: appName,
-            showAppHeader: showHeader,
             panelOpacity: previews.hideHoverContainerBackground ? 0 : previews.panelBackgroundOpacity,
             appearance: resolved,
             backgroundStyle: appearanceSettings.backgroundStyle,
@@ -89,8 +84,8 @@ enum DockSettingsPreviewBuilder {
             ? .titlesOnly
             : .fullPreview
         state.enableLivePreview = false
-        state.appName = snap.appName
-        state.appIcon = NSWorkspace.shared.icon(forFile: "/System/Applications/Preview.app")
+        state.appName = ""
+        state.appIcon = nil
         state.dockEdge = .bottom
         state.anchorRect = CGRect(x: 400, y: 100, width: 1, height: 1)
         state.appearance = snap.appearance

@@ -18,11 +18,10 @@ struct DockHoverPreviewsPage: View {
             subtitle: "Hover previews, window switcher, Cmd+Tab, dock lock, and active-app indicator.",
             selection: selectedTab
         ) {
-            FunctionPageScrollContent {
-                DockFunctionTabContent(tab: selectedTab.wrappedValue) {
-                    controller.dockPreviewsReloadSettings()
-                }
+            DockSettingsPageBody(tab: selectedTab.wrappedValue) {
+                controller.dockPreviewsReloadSettings()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             controller.dockPreviewsRefreshPermissions()

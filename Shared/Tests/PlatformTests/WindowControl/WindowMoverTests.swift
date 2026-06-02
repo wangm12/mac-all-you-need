@@ -241,12 +241,41 @@ final class WindowMoverTests: XCTestCase {
         )
         let element = FakeWindowElement(frame: repeatedFrame)
         let mover = WindowMover(screenDetector: WindowScreenDetector(screens: [left, right]))
+        mover.repeatHalfAcrossDisplays = true
 
         let result = mover.move(element, action: .rightHalf, previousResult: previous)
 
         XCTAssertEqual(result.action, .leftHalf)
         XCTAssertEqual(result.proposedFrame, CGRect(x: 1000, y: 0, width: 500, height: 800))
         XCTAssertEqual(element.frame, CGRect(x: 1000, y: 0, width: 500, height: 800))
+    }
+
+    func testRepeatedRightHalfStaysOnSameDisplayWhenCrossDisplayRepeatDisabled() {
+        let left = WindowControlScreen(
+            id: 1,
+            frame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+        let right = WindowControlScreen(
+            id: 2,
+            frame: CGRect(x: 1000, y: 0, width: 1000, height: 800),
+            visibleFrame: CGRect(x: 1000, y: 0, width: 1000, height: 800)
+        )
+        let repeatedFrame = CGRect(x: 500, y: 0, width: 500, height: 800)
+        let previous = WindowMovementResult(
+            action: .rightHalf,
+            status: .moved,
+            originalFrame: CGRect(x: 100, y: 100, width: 600, height: 400),
+            proposedFrame: repeatedFrame,
+            resultingFrame: repeatedFrame
+        )
+        let element = FakeWindowElement(frame: repeatedFrame)
+        let mover = WindowMover(screenDetector: WindowScreenDetector(screens: [left, right]))
+
+        let result = mover.move(element, action: .rightHalf, previousResult: previous)
+
+        XCTAssertEqual(result.action, .rightHalf)
+        XCTAssertEqual(result.proposedFrame, repeatedFrame)
     }
 
     func testRepeatedTopHalfMovesToDisplayAboveBottomHalf() {
@@ -270,6 +299,7 @@ final class WindowMoverTests: XCTestCase {
         )
         let element = FakeWindowElement(frame: repeatedFrame)
         let mover = WindowMover(screenDetector: WindowScreenDetector(screens: [lower, upper]))
+        mover.repeatHalfAcrossDisplays = true
 
         let result = mover.move(element, action: .topHalf, previousResult: previous)
 

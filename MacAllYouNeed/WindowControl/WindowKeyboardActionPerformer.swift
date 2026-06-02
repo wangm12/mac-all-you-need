@@ -14,6 +14,10 @@ final class WindowKeyboardActionPerformer: WindowControlActionPerforming {
     private var pendingWindow: ResolvedWindow?
     private var previousResult: WindowMovementResult?
     private var previousIdentity: WindowIdentity?
+    var repeatHalfAcrossDisplays: Bool {
+        get { mover.repeatHalfAcrossDisplays }
+        set { mover.repeatHalfAcrossDisplays = newValue }
+    }
 
     init(mover: WindowMover = WindowMover()) {
         self.mover = mover

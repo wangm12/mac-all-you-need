@@ -261,6 +261,14 @@ final class AppController {
         registerConfiguredHotkeys()
 
         NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.windowControl.refreshDisplayLayout() }
+        }
+
+        NotificationCenter.default.addObserver(
             forName: .finderHistoryHotkeyDidChange,
             object: nil,
             queue: .main
@@ -350,8 +358,7 @@ final class AppController {
         try hotkeys.applyMap(
             map,
             controller: self,
-            windowControlEnabled: windowControl.settings.enabled,
-            windowActionPerformerAvailable: windowControl.windowActionPerformerAvailable
+            registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable
         )
         folderHistory?.reloadHotkey()
     }
@@ -422,12 +429,12 @@ final class AppController {
     }
 
     private func registerConfiguredHotkeys() {
+        let map = HotkeyMapStore.load()
         do {
             try hotkeys.applyMap(
-                HotkeyMapStore.load(),
+                map,
                 controller: self,
-                windowControlEnabled: windowControl.settings.enabled,
-                windowActionPerformerAvailable: windowControl.windowActionPerformerAvailable
+                registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable
             )
         } catch {
             let hk = GlobalHotkey(descriptor: .defaultClipboard) { [weak clipboardDock] in
@@ -436,7 +443,16 @@ final class AppController {
             try? hk.register()
             hotkeys.installFallbackHotkey(hk)
         }
+        syncLayoutHotkeysToEventTap(from: map)
         folderHistory?.reloadHotkey()
+    }
+
+    private func syncLayoutHotkeysToEventTap(from map: [HotkeyAction: [Platform.HotkeyDescriptor]]) {
+        let activeMap = HotkeyRegistryRegistrationPlan.activeMap(
+            from: map,
+            registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable
+        )
+        windowControl.syncLayoutHotkeyBindings(LayoutHotkeyBindings.from(activeMap))
     }
 
     private func startDownloadTasks(coordinator: DownloadCoordinator, viewModel: DownloaderViewModel) {

@@ -1,8 +1,12 @@
 import SwiftUI
 
 struct DockSettingsTabDock: View {
+    @Binding var hub: DockHubSettings
     var onSettingsChanged: (() -> Void)?
-    @State private var hub = DockHubSettingsStore.load()
+
+    private var settings: DockSettingsHubBindings {
+        DockSettingsHubBindings(hub: $hub, onSettingsChanged: onSettingsChanged)
+    }
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -11,7 +15,6 @@ struct DockSettingsTabDock: View {
 
     var body: some View {
         featureGrid
-            .onAppear { hub = DockHubSettingsStore.load() }
     }
 
     private var featureGrid: some View {
@@ -24,16 +27,11 @@ struct DockSettingsTabDock: View {
                     accent: feature.accent,
                     isOn: Binding(
                         get: { hub[keyPath: feature.keyPath] },
-                        set: { hub[keyPath: feature.keyPath] = $0; persist() }
+                        set: { hub[keyPath: feature.keyPath] = $0; settings.persist() }
                     )
                 )
             }
         }
-    }
-
-    private func persist() {
-        DockHubSettingsStore.save(hub)
-        onSettingsChanged?()
     }
 }
 

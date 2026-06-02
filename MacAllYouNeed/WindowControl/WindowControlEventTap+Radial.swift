@@ -20,7 +20,7 @@ extension WindowControlEventTap {
     /// Builds the CGEvent mask. Radial keys (`flagsChanged` + `mouseMoved`) are
     /// only included when the radial menu is enabled, so the tap does not see
     /// pointer/modifier traffic it would otherwise ignore.
-    func eventMask(includeRadialKeys: Bool) -> CGEventMask {
+    func eventMask(includeRadialKeys: Bool, includeLayoutHotkeys: Bool) -> CGEventMask {
         let mouseMask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
             | CGEventMask(1 << CGEventType.leftMouseDragged.rawValue)
             | CGEventMask(1 << CGEventType.leftMouseUp.rawValue)
@@ -33,16 +33,19 @@ extension WindowControlEventTap {
         if includeRadialKeys {
             mask |= CGEventMask(1 << CGEventType.flagsChanged.rawValue)
             mask |= CGEventMask(1 << CGEventType.mouseMoved.rawValue)
+        }
+        if includeLayoutHotkeys || includeRadialKeys {
             mask |= CGEventMask(1 << CGEventType.keyDown.rawValue)
         }
         return mask
     }
 
-    /// Reconciles the tap mask when `radialMenuEnabled` flips. The mask can only
-    /// be set at creation, so we stop and let the caller restart via `start()`.
+    /// Reconciles the tap mask when radial or layout-hotkey keyboard handling changes.
+    /// The mask can only be set at creation, so we stop and let the caller restart via `start()`.
     func updateRuntime(radialMenuEnabled: Bool) {
         guard isRunning else { return }
-        guard radialKeysInstalled != radialMenuEnabled else { return }
+        let needsKeyboard = radialMenuEnabled || layoutHotkeysEnabled
+        guard keyboardEventsInstalled != needsKeyboard else { return }
         stop()
     }
 
@@ -193,7 +196,9 @@ extension WindowControlEventTap {
         if let radialPhaseHandler {
             Task { @MainActor in radialPhaseHandler(phase) }
         }
-        return type == .mouseMoved
+        // Never suppress pointer events — blocking `mouseMoved` prevented the cursor from
+        // crossing to another display while the radial menu was open.
+        return false
     }
 }
 

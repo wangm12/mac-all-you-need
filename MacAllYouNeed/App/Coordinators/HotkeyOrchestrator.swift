@@ -67,15 +67,13 @@ final class HotkeyOrchestrator {
     func applyMap(
         _ map: [HotkeyAction: [Platform.HotkeyDescriptor]],
         controller: AppController,
-        windowControlEnabled: Bool,
-        windowActionPerformerAvailable: Bool
+        registerWindowLayoutHotkeys: Bool
     ) throws {
         fallbackHotkey = nil
         try registry.apply(
             map,
             controller: controller,
-            windowControlEnabled: windowControlEnabled,
-            windowActionPerformerAvailable: windowActionPerformerAvailable
+            registerWindowLayoutHotkeys: registerWindowLayoutHotkeys
         )
     }
 

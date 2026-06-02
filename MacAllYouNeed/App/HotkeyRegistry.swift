@@ -30,13 +30,14 @@ enum HotkeyRegistryApplyPlan {
 }
 
 enum HotkeyRegistryRegistrationPlan {
+    /// Window-layout shortcuts register when the feature is on and Accessibility is granted.
+    /// Runtime behavior (moving windows) is still gated separately by `settings.enabled`.
     static func activeMap(
         from map: [HotkeyAction: [Platform.HotkeyDescriptor]],
-        windowControlEnabled: Bool,
-        windowActionPerformerAvailable: Bool = false
+        registerWindowLayoutHotkeys: Bool
     ) -> [HotkeyAction: [Platform.HotkeyDescriptor]] {
         map.filter { action, _ in
-            !action.isWindowControlAction || (windowControlEnabled && windowActionPerformerAvailable)
+            !action.isWindowControlAction || registerWindowLayoutHotkeys
         }
     }
 }
@@ -53,13 +54,11 @@ final class HotkeyRegistry {
     func apply(
         _ map: [HotkeyAction: [Platform.HotkeyDescriptor]],
         controller: AppController,
-        windowControlEnabled: Bool = WindowControlSettingsStore.load().enabled,
-        windowActionPerformerAvailable: Bool = false
+        registerWindowLayoutHotkeys: Bool = false
     ) throws {
         let activeMap = HotkeyRegistryRegistrationPlan.activeMap(
             from: map,
-            windowControlEnabled: windowControlEnabled,
-            windowActionPerformerAvailable: windowActionPerformerAvailable
+            registerWindowLayoutHotkeys: registerWindowLayoutHotkeys
         )
         if HotkeyRegistryApplyPlan.shouldSkipApply(
             next: activeMap,

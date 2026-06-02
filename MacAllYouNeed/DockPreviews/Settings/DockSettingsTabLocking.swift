@@ -2,8 +2,12 @@ import AppKit
 import SwiftUI
 
 struct DockSettingsTabLocking: View {
+    @Binding var hub: DockHubSettings
     var onSettingsChanged: (() -> Void)?
-    @State private var hub = DockHubSettingsStore.load()
+
+    private var settings: DockSettingsHubBindings {
+        DockSettingsHubBindings(hub: $hub, onSettingsChanged: onSettingsChanged)
+    }
 
     var body: some View {
         Group {
@@ -13,12 +17,6 @@ struct DockSettingsTabLocking: View {
             }
             infoSection
         }
-        .onAppear { hub = DockHubSettingsStore.load() }
-    }
-
-    private func persist() {
-        DockHubSettingsStore.save(hub)
-        onSettingsChanged?()
     }
 
     private var generalSection: some View {
@@ -26,7 +24,7 @@ struct DockSettingsTabLocking: View {
             MAYNSettingsRow(title: "Lock Dock to screen", subtitle: "Prevent the Dock from jumping to other displays on multi-monitor setups.") {
                 Toggle("", isOn: Binding(
                     get: { hub.master.enableDockLocking },
-                    set: { hub.master.enableDockLocking = $0; persist() }
+                    set: { hub.master.enableDockLocking = $0; settings.persist() }
                 )).labelsHidden()
             }
         }
@@ -38,7 +36,7 @@ struct DockSettingsTabLocking: View {
                 MAYNDropdown(
                     selection: Binding(
                         get: { hub.dockLock.lockedScreenIdentifier ?? "" },
-                        set: { hub.dockLock.lockedScreenIdentifier = $0.isEmpty ? nil : $0; persist() }
+                        set: { hub.dockLock.lockedScreenIdentifier = $0.isEmpty ? nil : $0; settings.persist() }
                     ),
                     options: screenOptions.map(\.id)
                 ) { id in
@@ -49,7 +47,7 @@ struct DockSettingsTabLocking: View {
             MAYNSettingsRow(title: "Bypass modifier key", subtitle: "Hold this key to temporarily allow the Dock to move to another display.") {
                 MAYNDropdown(selection: Binding(
                     get: { hub.dockLock.overrideModifier },
-                    set: { hub.dockLock.overrideModifier = $0; persist() }
+                    set: { hub.dockLock.overrideModifier = $0; settings.persist() }
                 ), options: DockLockOverrideModifier.allCases) { $0.displayName }
             }
         }

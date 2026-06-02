@@ -248,6 +248,16 @@ final class HotkeyRecorderTests: XCTestCase {
         XCTAssertTrue(state.pressedKeys.contains(.fn))
     }
 
+    func testKeyboardVisualizerSuppressesSpuriousFnOnArrowKeys() {
+        let state = KeyboardShortcutVisualizerState.recording(
+            keyCode: UInt16(kVK_LeftArrow),
+            cgFlags: [.maskControl, .maskAlternate, .maskSecondaryFn]
+        )
+
+        XCTAssertFalse(state.pressedKeys.contains(.fn))
+        XCTAssertTrue(state.pressedKeys.contains(.keyCode(UInt16(kVK_LeftArrow))))
+    }
+
     func testConfirmationControlsUseExplicitConfirmCancelResetCopy() {
         XCTAssertEqual(KeyboardShortcutConfirmationPresentation.resetTitle, "Reset")
         XCTAssertEqual(KeyboardShortcutConfirmationPresentation.confirmTitle, "Confirm")
@@ -355,7 +365,7 @@ final class HotkeyRecorderTests: XCTestCase {
             .windowLeftHalf: [HotkeyDescriptor(keyCode: UInt32(kVK_LeftArrow), modifiers: [.control, .option])]
         ]
 
-        let active = HotkeyRegistryRegistrationPlan.activeMap(from: map, windowControlEnabled: false)
+        let active = HotkeyRegistryRegistrationPlan.activeMap(from: map, registerWindowLayoutHotkeys: false)
 
         XCTAssertEqual(active[.clipboard], [.defaultClipboard])
         XCTAssertNil(active[.windowLeftHalf])
@@ -370,8 +380,7 @@ final class HotkeyRecorderTests: XCTestCase {
 
         let active = HotkeyRegistryRegistrationPlan.activeMap(
             from: map,
-            windowControlEnabled: true,
-            windowActionPerformerAvailable: false
+            registerWindowLayoutHotkeys: false
         )
 
         XCTAssertEqual(active[.clipboard], [.defaultClipboard])
@@ -387,8 +396,7 @@ final class HotkeyRecorderTests: XCTestCase {
 
         let active = HotkeyRegistryRegistrationPlan.activeMap(
             from: map,
-            windowControlEnabled: true,
-            windowActionPerformerAvailable: true
+            registerWindowLayoutHotkeys: true
         )
 
         XCTAssertEqual(active[.clipboard], [.defaultClipboard])

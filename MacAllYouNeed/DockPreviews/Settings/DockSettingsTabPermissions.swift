@@ -2,6 +2,16 @@ import ApplicationServices
 import SwiftUI
 
 struct DockSettingsTabPermissions: View {
+    @Binding var hub: DockHubSettings
+    var onSettingsChanged: (() -> Void)?
+    @State private var worklogLineCount = 0
+
+    private var settings: DockSettingsHubBindings {
+        DockSettingsHubBindings(hub: $hub, onSettingsChanged: onSettingsChanged) {
+            DockPreviewWorklog.setEnabled(hub.previews.enableWorklog)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             InstructionStrip(
@@ -42,6 +52,42 @@ struct DockSettingsTabPermissions: View {
                     }
                 }
             }
+
+            MAYNSection(title: "Diagnostics") {
+                MAYNSettingsRow(
+                    title: "Worklog",
+                    subtitle: "Append hover, show, and dismiss events to worklogs."
+                ) {
+                    Toggle("", isOn: settings.bool(\.previews.enableWorklog)).labelsHidden()
+                }
+                MAYNDivider()
+                MAYNSettingsRow(title: "Reveal worklog", subtitle: worklogSubtitle) {
+                    HStack(spacing: 8) {
+                        MAYNButton("Reveal") { DockPreviewWorklog.revealInFinder() }
+                        MAYNButton("Clear", role: .destructive) {
+                            DockPreviewWorklog.clear()
+                            refreshWorklogLineCount()
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear {
+            DockPreviewWorklog.setEnabled(hub.previews.enableWorklog)
+            refreshWorklogLineCount()
+        }
+    }
+
+    private var worklogSubtitle: String {
+        worklogLineCount == 0
+            ? "No entries yet today."
+            : "\(worklogLineCount) lines in today's worklog."
+    }
+
+    private func refreshWorklogLineCount() {
+        Task {
+            let count = await DockPreviewWorklog.fetchLineCount()
+            worklogLineCount = count
         }
     }
 }

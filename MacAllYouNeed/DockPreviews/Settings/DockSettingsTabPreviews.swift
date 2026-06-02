@@ -33,14 +33,16 @@ private enum DockHoverDelayPreset: String, CaseIterable, Identifiable {
 }
 
 struct DockSettingsTabPreviews: View {
+    @Binding var hub: DockHubSettings
     var onSettingsChanged: (() -> Void)?
-    @State private var hub = DockHubSettingsStore.load()
-    @State private var worklogLineCount = 0
+
+    private var settings: DockSettingsHubBindings {
+        DockSettingsHubBindings(hub: $hub, onSettingsChanged: onSettingsChanged)
+    }
 
     var body: some View {
         Group {
             generalSection
-            DockSettingsMockPreview(hub: hub, context: .dock)
             DockAdvancedSettingsDisclosure {
                 fadeTimingSection
                 livePreviewAdvancedSection
@@ -49,18 +51,8 @@ struct DockSettingsTabPreviews: View {
                 placementSection
                 dockInteractionsSection
                 advancedBehaviorSection
-                diagnosticsSection
             }
         }
-        .onAppear {
-            hub = DockHubSettingsStore.load()
-            refreshWorklogLineCount()
-        }
-    }
-
-    private func persist() {
-        DockHubSettingsStore.save(hub)
-        onSettingsChanged?()
     }
 
     // MARK: General
@@ -68,14 +60,14 @@ struct DockSettingsTabPreviews: View {
     private var generalSection: some View {
         MAYNSection(title: "Previews") {
             MAYNSettingsRow(title: "Show window thumbnails", subtitle: "Requires Screen Recording; falls back to titles-only when denied.") {
-                Toggle("", isOn: boolBinding(\.previews.showThumbnails)).labelsHidden()
+                Toggle("", isOn: settings.bool(\.previews.showThumbnails)).labelsHidden()
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Hover delay", subtitle: "Time before the preview panel appears.") {
                 MAYNDropdown(
                     selection: Binding(
                         get: { DockHoverDelayPreset.from(milliseconds: hub.previews.hoverDelayMS) },
-                        set: { hub.previews.hoverDelayMS = $0.milliseconds; persist() }
+                        set: { hub.previews.hoverDelayMS = $0.milliseconds; settings.persist() }
                     ),
                     options: DockHoverDelayPreset.allCases
                 ) { $0.displayName }
@@ -87,7 +79,7 @@ struct DockSettingsTabPreviews: View {
                     ? "Stream low-frame-rate video instead of static thumbnails."
                     : "Requires Screen Recording permission."
             ) {
-                Toggle("", isOn: boolBinding(\.previews.enableLivePreview))
+                Toggle("", isOn: settings.bool(\.previews.enableLivePreview))
                     .labelsHidden()
                     .disabled(!DockPreviewPermissionGate.screenRecordingGranted())
             }
@@ -99,11 +91,11 @@ struct DockSettingsTabPreviews: View {
     private var fadeTimingSection: some View {
         MAYNSection(title: "Timing") {
             MAYNSettingsRow(title: "Fade out duration", subtitle: "Panel dismiss animation length.") {
-                MAYNNumericStepper(text: "Fade out", value: intBinding(\.previews.fadeOutDurationMS), range: 0...2000, step: 50, presets: [200, 400, 800], suffix: "ms")
+                MAYNNumericStepper(text: "Fade out", value: settings.int(\.previews.fadeOutDurationMS), range: 0...2000, step: 50, presets: [200, 400, 800], suffix: "ms")
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Dismiss inactivity", subtitle: "Delay after leaving the Dock icon before hiding.") {
-                MAYNNumericStepper(text: "Inactivity", value: intBinding(\.previews.dismissInactivityMS), range: 0...1000, step: 50, presets: [100, 200, 400], suffix: "ms")
+                MAYNNumericStepper(text: "Inactivity", value: settings.int(\.previews.dismissInactivityMS), range: 0...1000, step: 50, presets: [100, 200, 400], suffix: "ms")
             }
         }
     }
@@ -111,31 +103,31 @@ struct DockSettingsTabPreviews: View {
     private var livePreviewAdvancedSection: some View {
         MAYNSection(title: "Live preview") {
             MAYNSettingsRow(title: "Dock preview quality", subtitle: "Live stream resolution for dock hover.") {
-                MAYNDropdown(selection: binding(\.advanced.dockLivePreviewQuality), options: DockLivePreviewQuality.allCases) { $0.displayName }
+                MAYNDropdown(selection: settings.value(\.advanced.dockLivePreviewQuality), options: DockLivePreviewQuality.allCases) { $0.displayName }
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Dock preview frame rate", subtitle: "Maximum frames per second for dock hover.") {
-                MAYNDropdown(selection: binding(\.advanced.dockLivePreviewFrameRate), options: DockLivePreviewFrameRate.allCases) { $0.displayName }
+                MAYNDropdown(selection: settings.value(\.advanced.dockLivePreviewFrameRate), options: DockLivePreviewFrameRate.allCases) { $0.displayName }
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Enable for window switcher", subtitle: "Live preview in the Alt+Tab window switcher.") {
-                Toggle("", isOn: boolBinding(\.advanced.enableLivePreviewForSwitcher)).labelsHidden()
+                Toggle("", isOn: settings.bool(\.advanced.enableLivePreviewForSwitcher)).labelsHidden()
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Switcher quality", subtitle: "Live stream resolution for window switcher.") {
-                MAYNDropdown(selection: binding(\.advanced.switcherLivePreviewQuality), options: DockLivePreviewQuality.allCases) { $0.displayName }
+                MAYNDropdown(selection: settings.value(\.advanced.switcherLivePreviewQuality), options: DockLivePreviewQuality.allCases) { $0.displayName }
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Switcher frame rate", subtitle: "Maximum frames per second for window switcher.") {
-                MAYNDropdown(selection: binding(\.advanced.switcherLivePreviewFrameRate), options: DockLivePreviewFrameRate.allCases) { $0.displayName }
+                MAYNDropdown(selection: settings.value(\.advanced.switcherLivePreviewFrameRate), options: DockLivePreviewFrameRate.allCases) { $0.displayName }
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Switcher scope", subtitle: "Which windows get live preview in the switcher.") {
-                MAYNDropdown(selection: binding(\.advanced.switcherLivePreviewScope), options: DockLivePreviewScope.allCases) { $0.displayName }
+                MAYNDropdown(selection: settings.value(\.advanced.switcherLivePreviewScope), options: DockLivePreviewScope.allCases) { $0.displayName }
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Stream keep-alive", subtitle: "Seconds to keep live streams running after the panel closes (0 = stop immediately).") {
-                MAYNNumericStepper(text: "Keep-alive", value: intBinding(\.advanced.livePreviewStreamKeepAlive), range: 0...30, step: 1, presets: [0, 3, 5, 10], suffix: "sec")
+                MAYNNumericStepper(text: "Keep-alive", value: settings.int(\.advanced.livePreviewStreamKeepAlive), range: 0...30, step: 1, presets: [0, 3, 5, 10], suffix: "sec")
             }
         }
     }
@@ -143,56 +135,56 @@ struct DockSettingsTabPreviews: View {
     private var captureSection: some View {
         MAYNSection(title: "Capture") {
             MAYNSettingsRow(title: "Window image quality", subtitle: "Screenshot capture resolution mode.") {
-                MAYNDropdown(selection: binding(\.advanced.windowImageCaptureQuality), options: DockWindowImageCaptureQuality.allCases) { $0.displayName }
+                MAYNDropdown(selection: settings.value(\.advanced.windowImageCaptureQuality), options: DockWindowImageCaptureQuality.allCases) { $0.displayName }
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Thumbnail cache lifespan", subtitle: "Reuse captured thumbnails within this window.") {
-                MAYNNumericStepper(text: "Cache", value: intBinding(\.previews.thumbnailCacheLifespanSec), range: 5...120, step: 5, presets: [10, 30, 60], suffix: "sec")
+                MAYNNumericStepper(text: "Cache", value: settings.int(\.previews.thumbnailCacheLifespanSec), range: 5...120, step: 5, presets: [10, 30, 60], suffix: "sec")
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Thumbnail scale", subtitle: "Capture resolution multiplier (1×–4×).") {
-                MAYNNumericStepper(text: "Scale", value: intBinding(\.advanced.windowPreviewImageScale), range: 1...4, step: 1, presets: [1, 2, 3, 4], suffix: "×")
+                MAYNNumericStepper(text: "Scale", value: settings.int(\.advanced.windowPreviewImageScale), range: 1...4, step: 1, presets: [1, 2, 3, 4], suffix: "×")
             }
         }
     }
 
     private var windowsSection: some View {
         MAYNSection(title: "Windows shown") {
-            toggleRow("Current Space only", "Only windows on the active desktop Space.", \.previews.currentSpaceOnly)
+            settings.toggleRow("Current Space only", "Only windows on the active desktop Space.", \.previews.currentSpaceOnly)
             MAYNDivider()
-            toggleRow("Current monitor only", "Only windows on the display with the hovered Dock icon.", \.previews.currentMonitorOnly)
+            settings.toggleRow("Current monitor only", "Only windows on the display with the hovered Dock icon.", \.previews.currentMonitorOnly)
             MAYNDivider()
-            toggleRow("Include hidden/minimized", "Show minimized and hidden windows in the strip.", \.previews.includeHiddenMinimized)
+            settings.toggleRow("Include hidden/minimized", "Show minimized and hidden windows in the strip.", \.previews.includeHiddenMinimized)
             MAYNDivider()
-            toggleRow("Show windowless apps", "Show a placeholder when an app has no windows.", \.previews.showWindowlessApps)
+            settings.toggleRow("Show windowless apps", "Show a placeholder when an app has no windows.", \.previews.showWindowlessApps)
             MAYNDivider()
-            toggleRow("Keep preview when app quits", "Leave the panel visible if the hovered app terminates.", \.previews.keepPreviewOnAppQuit)
+            settings.toggleRow("Keep preview when app quits", "Leave the panel visible if the hovered app terminates.", \.previews.keepPreviewOnAppQuit)
             MAYNDivider()
-            toggleRow("Group app instances", "Combine windows from duplicate Dock icons.", \.previews.groupAppInstances)
+            settings.toggleRow("Group app instances", "Combine windows from duplicate Dock icons.", \.previews.groupAppInstances)
             MAYNDivider()
-            toggleRow("Ignore single-window apps", "Skip previews for apps with only one window.", \.previews.ignoreSingleWindowApps)
+            settings.toggleRow("Ignore single-window apps", "Skip previews for apps with only one window.", \.previews.ignoreSingleWindowApps)
             MAYNDivider()
             MAYNSettingsRow(title: "Sort order", subtitle: "Order of window cards in the panel.") {
-                MAYNDropdown(selection: binding(\.previews.sortOrder), options: DockPreviewSortOrder.allCases) { $0.displayName }
+                MAYNDropdown(selection: settings.value(\.previews.sortOrder), options: DockPreviewSortOrder.allCases) { $0.displayName }
             }
         }
     }
 
     private var placementSection: some View {
         MAYNSection(title: "Placement") {
-            toggleRow("Anchor to Dock icon", "Position the panel beside the hovered icon.", \.previews.anchorToDockIcon)
+            settings.toggleRow("Anchor to Dock icon", "Position the panel beside the hovered icon.", \.previews.anchorToDockIcon)
             MAYNDivider()
             MAYNSettingsRow(title: "Buffer from Dock", subtitle: "Pixel offset from the Dock edge (negative moves closer).") {
-                MAYNNumericStepper(text: "Buffer", value: intBinding(\.previews.bufferFromDock), range: -100...100, step: 5, presets: [-40, -20, 0, 20], suffix: "px")
+                MAYNNumericStepper(text: "Buffer", value: settings.int(\.previews.bufferFromDock), range: -100...100, step: 5, presets: [-40, -20, 0, 20], suffix: "px")
             }
             MAYNDivider()
-            toggleRow("Prevent Dock auto-hide", "Keep the Dock visible while a preview is open.", \.previews.preventDockAutoHideWhileOpen)
+            settings.toggleRow("Prevent Dock auto-hide", "Keep the Dock visible while a preview is open.", \.previews.preventDockAutoHideWhileOpen)
             MAYNDivider()
-            toggleRow("Skip delay when switching apps", "No hover delay when moving between icons with panel open.", \.previews.skipDelayWhenPanelVisible)
+            settings.toggleRow("Skip delay when switching apps", "No hover delay when moving between icons with panel open.", \.previews.skipDelayWhenPanelVisible)
             MAYNDivider()
-            toggleRow("Delay only on first open", "Apply hover delay only when opening the first preview.", \.previews.useDelayOnlyForInitialOpen)
+            settings.toggleRow("Delay only on first open", "Apply hover delay only when opening the first preview.", \.previews.useDelayOnlyForInitialOpen)
             MAYNDivider()
-            toggleRow("Block re-entry during fade", "Ignore mouse re-entry while the panel is fading out.", \.previews.preventPreviewReentryDuringFadeOut)
+            settings.toggleRow("Block re-entry during fade", "Ignore mouse re-entry while the panel is fading out.", \.previews.preventPreviewReentryDuringFadeOut)
         }
     }
 
@@ -210,7 +202,7 @@ struct DockSettingsTabPreviews: View {
                             if $0 != .fullSizePreview {
                                 hub.previews.enableFullSizeHoverPreview = false
                             }
-                            persist()
+                            settings.persist()
                         }
                     ),
                     options: DockPreviewPreviewHoverAction.allCases
@@ -221,31 +213,31 @@ struct DockSettingsTabPreviews: View {
                 title: "Full-size hover overlay",
                 subtitle: "Show a large floating preview when hovering a window card."
             ) {
-                Toggle("", isOn: boolBinding(\.previews.enableFullSizeHoverPreview))
+                Toggle("", isOn: settings.bool(\.previews.enableFullSizeHoverPreview))
                     .labelsHidden()
                     .disabled(hub.previews.appearanceOptions.previewHoverAction != .fullSizePreview)
             }
             MAYNDivider()
             MAYNSettingsRow(title: "CMD + Right-Click to quit", subtitle: "Quickly quit an app by right-clicking its Dock icon while holding ⌘.") {
-                Toggle("", isOn: boolBinding(\.interaction.enableCmdRightClickQuit)).labelsHidden()
+                Toggle("", isOn: settings.bool(\.interaction.enableCmdRightClickQuit)).labelsHidden()
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Quit app on last window close", subtitle: "Automatically quit the app when you close its last window.") {
-                Toggle("", isOn: boolBinding(\.interaction.quitAppOnLastWindowClose)).labelsHidden()
+                Toggle("", isOn: settings.bool(\.interaction.quitAppOnLastWindowClose)).labelsHidden()
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Hide all windows on Dock click", subtitle: "Clicking the Dock icon hides all app windows.") {
-                Toggle("", isOn: boolBinding(\.interaction.hideAllOnDockClick)).labelsHidden()
+                Toggle("", isOn: settings.bool(\.interaction.hideAllOnDockClick)).labelsHidden()
             }
             if hub.interaction.hideAllOnDockClick {
                 MAYNDivider()
                 MAYNSettingsRow(title: "Dock click action", subtitle: "What happens when clicking the Dock icon.") {
-                    MAYNDropdown(selection: binding(\.interaction.dockClickAction), options: DockClickAction.allCases) { $0.displayName }
+                    MAYNDropdown(selection: settings.value(\.interaction.dockClickAction), options: DockClickAction.allCases) { $0.displayName }
                 }
                 if hub.interaction.dockClickAction == .minimize {
                     MAYNDivider()
                     MAYNSettingsRow(title: "Restore all minimized on click", subtitle: "Restore all minimized windows when clicking the Dock icon again.") {
-                        Toggle("", isOn: boolBinding(\.interaction.restoreAllMinimizedOnDockClick)).labelsHidden()
+                        Toggle("", isOn: settings.bool(\.interaction.restoreAllMinimizedOnDockClick)).labelsHidden()
                     }
                 }
             }
@@ -255,68 +247,16 @@ struct DockSettingsTabPreviews: View {
     private var advancedBehaviorSection: some View {
         MAYNSection(title: "Advanced behavior") {
             MAYNSettingsRow(title: "Open new window for windowless apps", subtitle: "Open a new window when clicking an app with no open windows.") {
-                Toggle("", isOn: boolBinding(\.advanced.openNewWindowForWindowlessApps)).labelsHidden()
+                Toggle("", isOn: settings.bool(\.advanced.openNewWindowForWindowlessApps)).labelsHidden()
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Show small windows (under 100px)", subtitle: "Include very small windows that are normally hidden.") {
-                Toggle("", isOn: boolBinding(\.advanced.disableMinWindowSizeFilter)).labelsHidden()
+                Toggle("", isOn: settings.bool(\.advanced.disableMinWindowSizeFilter)).labelsHidden()
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Raised window level", subtitle: "Show preview panel above app labels (restarts app).") {
-                Toggle("", isOn: boolBinding(\.advanced.raisedWindowLevel)).labelsHidden()
+                Toggle("", isOn: settings.bool(\.advanced.raisedWindowLevel)).labelsHidden()
             }
         }
-    }
-
-    private var diagnosticsSection: some View {
-        MAYNSection(title: "Diagnostics") {
-            toggleRow("Worklog", "Append hover, show, and dismiss events to worklogs.", \.previews.enableWorklog)
-            MAYNDivider()
-            MAYNSettingsRow(title: "Reveal worklog", subtitle: worklogSubtitle) {
-                HStack(spacing: 8) {
-                    MAYNButton("Reveal") { DockPreviewWorklog.revealInFinder() }
-                    MAYNButton("Clear", role: .destructive) {
-                        DockPreviewWorklog.clear()
-                        refreshWorklogLineCount()
-                    }
-                }
-            }
-        }
-    }
-
-    private var worklogSubtitle: String {
-        worklogLineCount == 0
-            ? "No entries yet today."
-            : "\(worklogLineCount) lines in today's worklog."
-    }
-
-    private func refreshWorklogLineCount() {
-        Task {
-            let count = await DockPreviewWorklog.fetchLineCount()
-            worklogLineCount = count
-        }
-    }
-
-    // MARK: Helpers
-
-    private func toggleRow(_ title: String, _ subtitle: String, _ keyPath: WritableKeyPath<DockHubSettings, Bool>) -> some View {
-        MAYNSettingsRow(title: title, subtitle: subtitle) {
-            Toggle("", isOn: Binding(
-                get: { hub[keyPath: keyPath] },
-                set: { hub[keyPath: keyPath] = $0; persist() }
-            )).labelsHidden()
-        }
-    }
-
-    private func boolBinding(_ keyPath: WritableKeyPath<DockHubSettings, Bool>) -> Binding<Bool> {
-        Binding(get: { hub[keyPath: keyPath] }, set: { hub[keyPath: keyPath] = $0; persist() })
-    }
-
-    private func intBinding(_ keyPath: WritableKeyPath<DockHubSettings, Int>) -> Binding<Int> {
-        Binding(get: { hub[keyPath: keyPath] }, set: { hub[keyPath: keyPath] = $0; persist() })
-    }
-
-    private func binding<T>(_ keyPath: WritableKeyPath<DockHubSettings, T>) -> Binding<T> {
-        Binding(get: { hub[keyPath: keyPath] }, set: { hub[keyPath: keyPath] = $0; persist() })
     }
 }

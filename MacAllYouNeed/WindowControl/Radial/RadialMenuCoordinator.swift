@@ -39,13 +39,13 @@ final class RadialMenuCoordinator {
         self.frameResolver = frameResolver
     }
 
-    func open(at point: CGPoint, screenBounds: CGRect? = nil) {
+    func open(at point: CGPoint, desktopBounds: CGRect? = nil) {
         state = .open(menuCenter: point)
         selection = .none
         proposedFrame = nil
         lastCursor = nil
-        if let screenBounds {
-            edgeClamp = RadialSelectionMath.EdgeClamp(initial: point, screenBounds: screenBounds)
+        if let desktopBounds, !desktopBounds.isNull, !desktopBounds.isEmpty {
+            edgeClamp = RadialSelectionMath.EdgeClamp(initial: point, desktopBounds: desktopBounds)
         } else {
             edgeClamp = nil
         }
