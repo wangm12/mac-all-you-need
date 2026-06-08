@@ -8,6 +8,8 @@ enum DockPreviewWorklog {
     /// In-memory gate — updated from `DockPreviewCoordinator.reloadSettings()` (avoid decoding hub JSON per log line).
     private static var enabled = false
 
+    static var isEnabled: Bool { enabled }
+
     static func setEnabled(_ value: Bool) {
         enabled = value
     }

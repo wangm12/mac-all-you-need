@@ -1,51 +1,55 @@
 import AppKit
 import Foundation
 
-/// Invalidates window cache on workspace / app lifecycle events (DockDoor `WindowManipulationObservers` behavior).
+/// Workspace lifecycle hooks for dock preview cache (DockDoor: terminate purges; activate hides panel only).
 @MainActor
 final class DockWindowManipulationObservers {
-    private var observers: [NSObjectProtocol] = []
+    private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private weak var cache: DockPreviewWindowCache?
     var onInvalidate: (() -> Void)?
+    /// DockDoor `appDidActivate` — hide preview, do not clear warmed thumbnails.
+    var onApplicationActivated: (() -> Void)?
 
     func start(cache: DockPreviewWindowCache) {
         stop()
         self.cache = cache
         let center = NSWorkspace.shared.notificationCenter
-        let names: [Notification.Name] = [
-            NSWorkspace.didTerminateApplicationNotification,
-            NSWorkspace.didLaunchApplicationNotification,
-            NSWorkspace.didActivateApplicationNotification,
-        ]
-        for name in names {
-            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                self?.handleWorkspace(note)
-            }
-            observers.append(token)
-        }
-        let screenToken = NotificationCenter.default.addObserver(
+        observers.append((center, center.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            self?.handleTerminate(note)
+        }))
+        observers.append((center, center.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.onApplicationActivated?()
+        }))
+        let appCenter = NotificationCenter.default
+        observers.append((appCenter, appCenter.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             self?.invalidateAll()
-        }
-        observers.append(screenToken)
+        }))
     }
 
     func stop() {
-        for token in observers {
-            NSWorkspace.shared.notificationCenter.removeObserver(token)
-            NotificationCenter.default.removeObserver(token)
+        for (center, token) in observers {
+            center.removeObserver(token)
         }
         observers = []
         cache = nil
+        onApplicationActivated = nil
     }
 
-    private func handleWorkspace(_ note: Notification) {
-        if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
-            cache?.clear(pid: app.processIdentifier)
-        }
+    private func handleTerminate(_ note: Notification) {
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        cache?.clear(pid: app.processIdentifier)
         onInvalidate?()
     }
 

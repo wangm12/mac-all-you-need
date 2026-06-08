@@ -4,6 +4,19 @@ public struct PasteboardChange: Equatable, Sendable {
     public let changeCount: Int
     public let frontmostAppBundleID: String?
     public let items: [PasteboardItem]
+    public let pasteboardTypes: [String]
+
+    public init(
+        changeCount: Int,
+        frontmostAppBundleID: String?,
+        items: [PasteboardItem],
+        pasteboardTypes: [String] = []
+    ) {
+        self.changeCount = changeCount
+        self.frontmostAppBundleID = frontmostAppBundleID
+        self.items = items
+        self.pasteboardTypes = pasteboardTypes
+    }
 
     public var historyCaptureItems: [PasteboardItem] {
         let capturableItems = items.filter(\.hasVisibleHistoryContent)

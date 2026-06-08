@@ -12,5 +12,12 @@ final class FinderHistoryDescriptorTests: XCTestCase {
         XCTAssertTrue(d.requiredPermissions.contains(.accessibility))
         XCTAssertNotNil(d.settingsTabFactory)
         XCTAssertNotNil(d.menuBarItemFactory)
+        XCTAssertNotNil(d.onboardingSetupFactory)
+        if case .staticBundleExtension(let config) = d.osExtensionPolicy {
+            XCTAssertEqual(config.extensionBundleID, "com.macallyouneed.app.finderhistory")
+            XCTAssertTrue(config.respectsFeatureFlag)
+        } else {
+            XCTFail("Expected staticBundleExtension policy")
+        }
     }
 }

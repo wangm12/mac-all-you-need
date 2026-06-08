@@ -5,83 +5,87 @@ import Foundation
 @MainActor
 final class DockPreviewWindowCacheMaintainer {
     private let cache: DockPreviewWindowCache
-    private let enumerator: any WindowEnumerating
-    private var observers: [NSObjectProtocol] = []
+    private let pipeline: DockPreviewWindowCapturePipeline
+    private weak var refreshScope: DockPreviewRefreshScope?
+    private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var refreshTasks: [pid_t: Task<Void, Never>] = [:]
 
-    init(cache: DockPreviewWindowCache, enumerator: any WindowEnumerating) {
+    init(cache: DockPreviewWindowCache, pipeline: DockPreviewWindowCapturePipeline) {
         self.cache = cache
-        self.enumerator = enumerator
+        self.pipeline = pipeline
     }
 
-    func start() {
+    func reloadSettings(hub: DockHubSettings? = nil) {
+        pipeline.reloadSettings(hub: hub)
+    }
+
+    func start(refreshScope: DockPreviewRefreshScope? = nil) {
         stop()
+        self.refreshScope = refreshScope
         let center = NSWorkspace.shared.notificationCenter
-        observers.append(center.addObserver(
+        observers.append((center, center.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            self?.refresh(pid: app.processIdentifier)
-        })
-        observers.append(center.addObserver(
+            self?.refresh(pid: app.processIdentifier, bundleIdentifier: app.bundleIdentifier)
+        }))
+        observers.append((center, center.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             self?.handleTermination(pid: app.processIdentifier, bundleID: app.bundleIdentifier)
-        })
-        observers.append(DistributedNotificationCenter.default().addObserver(
+        }))
+        let distributed = DistributedNotificationCenter.default()
+        observers.append((distributed, distributed.addObserver(
             forName: NSNotification.Name("com.apple.screenIsLocked"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
             self?.refreshAllRunningApps()
-        })
-        observers.append(DistributedNotificationCenter.default().addObserver(
+        }))
+        observers.append((distributed, distributed.addObserver(
             forName: NSNotification.Name("com.apple.screenIsUnlocked"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
             self?.refreshAllRunningApps()
-        })
+        }))
     }
 
     func stop() {
-        for observer in observers {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-            DistributedNotificationCenter.default().removeObserver(observer)
+        for (center, token) in observers {
+            center.removeObserver(token)
         }
         observers = []
         for task in refreshTasks.values { task.cancel() }
         refreshTasks = [:]
     }
 
-    func refresh(pid: pid_t) {
+    func refresh(pid: pid_t, bundleIdentifier: String? = nil) {
+        guard refreshScope?.shouldRefresh(pid: pid) ?? false else { return }
         refreshTasks[pid]?.cancel()
-        let settings = DockHubSettingsStore.loadPreviews()
         refreshTasks[pid] = Task { @MainActor [weak self] in
             guard let self else { return }
-            let entries = await self.enumerator.windows(for: pid, settings: settings, bundleIdentifier: nil)
-            _ = self.cache.update(entries: entries, for: pid)
+            await self.pipeline.refreshApp(pid: pid, bundleIdentifier: bundleIdentifier)
             self.refreshTasks[pid] = nil
         }
     }
 
-    private func refreshAllRunningApps() {
-        let selfPID = ProcessInfo.processInfo.processIdentifier
-        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && app.processIdentifier != selfPID {
-            refresh(pid: app.processIdentifier)
+    /// Screen lock/unlock and wake recovery — always warm; do not gate on dock-idle scope.
+    func refreshAllRunningApps() {
+        Task { @MainActor [weak self] in
+            await self?.pipeline.warmAllRunningApps(throttle: true)
         }
     }
 
     private func handleTermination(pid: pid_t, bundleID: String?) {
         refreshTasks[pid]?.cancel()
         refreshTasks[pid] = nil
-        let settings = DockHubSettingsStore.loadPreviews()
-        guard !settings.keepPreviewOnAppQuit else { return }
         cache.clear(pid: pid)
+        _ = bundleID
     }
 }

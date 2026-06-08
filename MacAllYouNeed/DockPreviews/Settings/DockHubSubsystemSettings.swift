@@ -341,12 +341,16 @@ struct DockWidgetSettings: Equatable {
     var folderSortOrder: DockFolderSortOrder
     var folderSortReversed: Bool
     var folderRememberSortPerFolder: Bool
+    /// Per-folder sort order overrides (`path` → `DockFolderSortOrder.rawValue`).
+    var folderSortOrders: [String: String]
+    /// Per-folder reverse-sort overrides.
+    var folderSortReversedByPath: [String: Bool]
     var filteredCalendarIdentifiers: [String]
 
     static let `default` = DockWidgetSettings(
         enableMediaWidget: true,
         enableCalendarWidget: true,
-        enableFolderWidget: false,
+        enableFolderWidget: true,
         folderShowHiddenFiles: false,
         enableDockItemWidgets: true,
         showSpecialAppControls: true,
@@ -357,6 +361,8 @@ struct DockWidgetSettings: Equatable {
         folderSortOrder: .dateModified,
         folderSortReversed: true,
         folderRememberSortPerFolder: true,
+        folderSortOrders: [:],
+        folderSortReversedByPath: [:],
         filteredCalendarIdentifiers: []
     )
 }
@@ -379,6 +385,8 @@ extension DockWidgetSettings: Codable {
         folderSortOrder = d(.folderSortOrder, s.folderSortOrder)
         folderSortReversed = d(.folderSortReversed, s.folderSortReversed)
         folderRememberSortPerFolder = d(.folderRememberSortPerFolder, s.folderRememberSortPerFolder)
+        folderSortOrders = d(.folderSortOrders, s.folderSortOrders)
+        folderSortReversedByPath = d(.folderSortReversedByPath, s.folderSortReversedByPath)
         filteredCalendarIdentifiers = d(.filteredCalendarIdentifiers, s.filteredCalendarIdentifiers)
     }
 }
@@ -691,7 +699,7 @@ struct DockAdvancedSettings: Equatable {
         disableImagePreview: false,
         debugMode: false,
         windowImageCaptureQuality: .nominal,
-        screenCaptureCacheLifespan: 30,
+        screenCaptureCacheLifespan: 60,
         windowPreviewImageScale: 1,
         enableLivePreviewForDock: false,
         dockLivePreviewQuality: .high,

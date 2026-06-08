@@ -57,10 +57,7 @@ final class DaemonContainer {
         )
         pinboards = PinboardStore(database: pinboardDB, deviceKey: key)
         observer = PasteboardObserver(reader: SystemPasteboardReader(), rules: Self.loadRules())
-        let expander = SnippetExpander { [snippets] trigger in
-            try? snippets.find(trigger: trigger)?.body
-        }
-        workerHost = PerFeatureWorkerHost(observer: observer, expander: expander)
+        workerHost = PerFeatureWorkerHost(observer: observer)
         featureObserver = FeatureStateDarwinObserver()
 
         // Wire onChange before calling start() so the initial reload triggers startWorkers.
@@ -77,23 +74,23 @@ final class DaemonContainer {
         startRetentionTimer()
     }
 
-    func persist(item: PasteboardItem, source: String?) throws {
+    func persist(item: PasteboardItem, source: String?, pasteboardTypes: [String] = []) throws {
         if isExcludedByRules(item) { return }
 
         switch item {
         case let .text(s):
-            guard let (text, json) = smartTextDecision(for: s) else { return }
+            guard let (text, json) = smartTextDecision(for: s, pasteboardTypes: pasteboardTypes) else { return }
             let meta = try clip.append(.text(text), sourceAppBundleID: source, detectedTypeJSON: json)
             try search.upsert(kind: .clipboardItem, id: meta.id, text: text)
         case let .rtf(d):
             let plain = NSAttributedString(rtf: d, documentAttributes: nil)?.string ?? ""
-            guard smartTextDecision(for: plain) != nil else { return }
+            guard smartTextDecision(for: plain, pasteboardTypes: pasteboardTypes) != nil else { return }
             let meta = try clip.append(.rtf(d), sourceAppBundleID: source)
             if !plain.isEmpty {
                 try search.upsert(kind: .clipboardItem, id: meta.id, text: plain)
             }
         case let .html(s):
-            guard smartTextDecision(for: s) != nil else { return }
+            guard smartTextDecision(for: s, pasteboardTypes: pasteboardTypes) != nil else { return }
             let meta = try clip.append(.html(s), sourceAppBundleID: source)
             try search.upsert(kind: .clipboardItem, id: meta.id, text: s)
         case let .png(d), let .tiff(d):
@@ -141,13 +138,16 @@ final class DaemonContainer {
     /// the text to store (possibly auto-cleaned) and the detection JSON to persist.
     /// When the Smart Text feature is disabled, the original text is kept verbatim
     /// with no detection JSON, preserving prior capture behavior exactly.
-    private func smartTextDecision(for text: String) -> (text: String, detectedTypeJSON: String?)? {
+    private func smartTextDecision(
+        for text: String,
+        pasteboardTypes: [String]
+    ) -> (text: String, detectedTypeJSON: String?)? {
         guard isSmartTextEnabled() else { return (text, nil) }
         let defaults = AppGroupSettings.defaults
         let decision = SmartCapturePolicy.decideText(
             text,
             windowTitle: nil,
-            pasteboardTypes: NSPasteboard.general.types?.map(\.rawValue) ?? [],
+            pasteboardTypes: pasteboardTypes,
             sensitiveEnabled: SmartTextSettings.sensitiveEnabled(defaults),
             autoCleanLinks: SmartTextSettings.linkMode(defaults) == .auto
         )

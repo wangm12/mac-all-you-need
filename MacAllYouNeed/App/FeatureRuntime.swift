@@ -10,11 +10,13 @@ import Foundation
 public actor FeatureRuntime {
     public let registry: FeatureRegistry
     public let manager: FeatureManager
+    private weak var workerHost: AppFeatureWorkerHost?
     private var active: Set<FeatureID> = []
 
-    public init(registry: FeatureRegistry, manager: FeatureManager) {
+    init(registry: FeatureRegistry, manager: FeatureManager, workerHost: AppFeatureWorkerHost? = nil) {
         self.registry = registry
         self.manager = manager
+        self.workerHost = workerHost
     }
 
     public func isActive(_ id: FeatureID) -> Bool {
@@ -29,6 +31,7 @@ public actor FeatureRuntime {
             do {
                 try await descriptor.activator.activate()
                 active.insert(descriptor.id)
+                await startWorker(for: descriptor.id)
             } catch {
                 // On activation failure, demote to disabled but preserve asset state.
                 try? await manager.transition(.disable, for: descriptor.id)
@@ -40,8 +43,12 @@ public actor FeatureRuntime {
     /// Called on app quit. Deactivates all active features.
     public func deactivateAll() async {
         for descriptor in registry.descriptors where active.contains(descriptor.id) {
+            await stopWorker(for: descriptor.id)
             try? await descriptor.activator.deactivate()
             active.remove(descriptor.id)
+        }
+        if let workerHost {
+            await workerHost.deactivateAll()
         }
     }
 
@@ -57,13 +64,25 @@ public actor FeatureRuntime {
             if !active.contains(id) {
                 try await descriptor.activator.activate()
                 active.insert(id)
+                await startWorker(for: id)
             }
         case .disable:
             if active.contains(id) {
+                await stopWorker(for: id)
                 try await descriptor.activator.deactivate()
                 active.remove(id)
             }
         }
         NotificationCenter.default.post(name: .featureRuntimeStateChanged, object: nil)
+    }
+
+    private func startWorker(for id: FeatureID) async {
+        guard let workerHost else { return }
+        await workerHost.startWorker(for: id)
+    }
+
+    private func stopWorker(for id: FeatureID) async {
+        guard let workerHost else { return }
+        await workerHost.stopWorker(for: id)
     }
 }

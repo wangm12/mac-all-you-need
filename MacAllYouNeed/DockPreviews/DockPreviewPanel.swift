@@ -93,10 +93,12 @@ final class DockPreviewPanel {
         }
         hasPerformedInitialShow = true
 
-        if settings.enableLivePreview, presentation.mode == .fullPreview {
-            let hub = DockHubSettingsStore.load()
+        if presentation.enableLivePreview, presentation.mode == .fullPreview {
+            let context: DockPreviewLiveCaptureContext = state.mode == .windowSwitcher
+                ? .windowSwitcher
+                : .dockHover
             let ids: [CGWindowID]
-            if state.mode == .windowSwitcher, hub.advanced.enableLivePreviewForSwitcher {
+            if state.mode == .windowSwitcher {
                 ids = DockPreviewLiveCaptureScope.windowIDs(
                     windows: state.windows,
                     selectedIndex: state.selectedIndex,
@@ -105,7 +107,14 @@ final class DockPreviewPanel {
             } else {
                 ids = state.windows.filter { !$0.title.isEmpty }.map(\.id)
             }
-            DockPreviewLiveCaptureManager.shared.setActiveWindowIDs(ids, settings: settings)
+            DockPreviewLiveCaptureManager.shared.setActiveWindowIDs(
+                ids,
+                hub: hub,
+                context: context,
+                enabled: true
+            )
+        } else {
+            DockPreviewLiveCaptureManager.shared.stopAll()
         }
     }
 
@@ -283,6 +292,15 @@ final class DockPreviewPanel {
 
     func clearMouseInPreview() {
         mouseIsWithinPreview = false
+    }
+
+    /// Hides the panel when sliding to another dock icon without tearing down the host view or LRU thumbnails.
+    func hideForDockIconTransition() {
+        mouseIsWithinPreview = false
+        isFadingOut = false
+        pinnedPlacementKey = nil
+        panel?.alphaValue = 1
+        panel?.orderOut(nil)
     }
 
     func dismiss(animated: Bool = true) {

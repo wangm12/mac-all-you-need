@@ -122,7 +122,7 @@ struct MainWindowRoot: View {
         case .folderPreview:
             AnyView(FolderPreviewDestinationView(controller: controller))
         case .finderHistory:
-            AnyView(FinderFolderHistoryPage(controller: controller))
+            AnyView(FolderHistoryPageView(controller: controller))
         case .snippets:
             AnyView(SnippetsDestinationView(controller: controller))
         case .windowLayouts:
@@ -243,7 +243,7 @@ enum MainWindowDestinationRouter {
         case .downloads: String(describing: DownloadsDestinationView.self)
         case .aiFileOrganizer: String(describing: AIFileOrganizerPage.self)
         case .folderPreview: String(describing: FolderPreviewDestinationView.self)
-        case .finderHistory: String(describing: FinderFolderHistoryPage.self)
+        case .finderHistory: String(describing: FolderHistoryPageView.self)
         case .snippets: String(describing: SnippetsDestinationView.self)
         case .windowLayouts: String(describing: WindowLayoutsDestinationView.self)
         case .grabAnywhere: String(describing: WindowGrabDestinationView.self)

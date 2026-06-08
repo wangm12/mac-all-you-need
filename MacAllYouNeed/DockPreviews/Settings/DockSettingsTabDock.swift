@@ -31,6 +31,31 @@ struct DockSettingsTabDock: View {
                     )
                 )
             }
+            DockMagnificationFeatureCard()
+        }
+    }
+}
+
+/// Reflects and controls macOS Dock magnification (CoreDock API).
+private struct DockMagnificationFeatureCard: View {
+    @State private var isEnabled = DockPreviewDockMagnification.isEnabled()
+
+    var body: some View {
+        DockFeatureToggleCard(
+            title: "Dock magnification",
+            subtitle: "Animate Dock icons on hover. Turn off if preview panels look misaligned.",
+            symbolName: "magnifyingglass",
+            accent: .mint,
+            isOn: Binding(
+                get: { isEnabled },
+                set: { newValue in
+                    isEnabled = newValue
+                    DockPreviewDockMagnification.setEnabled(newValue)
+                }
+            )
+        )
+        .onAppear {
+            isEnabled = DockPreviewDockMagnification.isEnabled()
         }
     }
 }

@@ -19,6 +19,8 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
     /// dock uses — handles RTF/HTML/image/file URLs, not just plain text.
     let clip: ClipboardStore
     let blobs: BlobStore
+    let search: SearchStore
+    let clipboardWorker: ClipboardWorker
     let dockModel: ClipboardDockModel
 
     /// Pinboards, snippets, the clipboard store, and the blob store are all
@@ -33,7 +35,9 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
         pinboards: PinboardStore,
         snippets: SnippetStore,
         clip: ClipboardStore,
-        blobs: BlobStore
+        blobs: BlobStore,
+        search: SearchStore,
+        clipboardWorker: ClipboardWorker
     ) {
         let client = ClipboardXPCClient(resumesImmediately: false)
         xpc = client
@@ -49,6 +53,8 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
         snippetStore = snippets
         self.clip = clip
         self.blobs = blobs
+        self.search = search
+        self.clipboardWorker = clipboardWorker
 
         dockModel = ClipboardDockModel(
             xpc: client,
@@ -59,7 +65,9 @@ final class AppDependencies: NSObject, ClipboardXPCClientCallback {
             pinboards: pinboards,
             snippets: snippets,
             clip: clip,
-            blobs: blobs
+            blobs: blobs,
+            searchStore: search,
+            clipboardWorker: clipboardWorker
         )
 
         super.init()

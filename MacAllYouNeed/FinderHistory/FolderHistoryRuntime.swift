@@ -1,46 +1,54 @@
+import ApplicationServices
 import Core
 import Foundation
 import Platform
 
-/// Owns the Finder Folder History runtime: the AX recorder, the quick-switcher
-/// panel, and the global show-switcher hotkey. AppController drives it via
-/// `applyEnabled(_:)` whenever the feature's activation state changes.
+/// Owns Finder Folder History: AX recorder, hotkey history panel, and global hotkey.
 @MainActor
 final class FolderHistoryRuntime {
     private let store: FolderHistoryStore
     private let recorder: FolderHistoryRecorder
     private let switcher: FolderHistorySwitcherPanel
     private var hotkey: GlobalHotkey?
-    private var isActive = false
+    private var isRecordingEnabled = false
+    private let log = Logging.logger(for: "folder-history", category: "runtime")
 
-    init?() {
+    init?(historyWorker: FolderHistoryFeatureWorker? = nil) {
         guard let store = FolderHistoryStoreLocator.shared() else { return nil }
         self.store = store
         let engine = SystemAXObserverEngine()
         let coordinator = AXObserverCoordinator(engine: engine)
-        recorder = FolderHistoryRecorder(store: store, coordinator: coordinator)
+        recorder = FolderHistoryRecorder(
+            store: store,
+            coordinator: coordinator,
+            historyWorker: historyWorker
+        )
         switcher = FolderHistorySwitcherPanel(store: store)
+        registerHotkey()
     }
 
-    /// Starts (or stops) recording and the show-switcher hotkey to match the
-    /// feature's enabled state. Idempotent.
     func applyEnabled(_ enabled: Bool) {
-        guard enabled != isActive else { return }
-        isActive = enabled
+        guard enabled != isRecordingEnabled else { return }
+        isRecordingEnabled = enabled
         if enabled {
             recorder.start()
-            registerHotkey()
         } else {
             recorder.stop()
-            unregisterHotkey()
             switcher.dismiss()
         }
     }
 
-    /// Re-register the switcher hotkey after the user edits it in settings.
     func reloadHotkey() {
-        guard isActive else { return }
         registerHotkey()
+    }
+
+    func panelContext() -> FolderHistoryPanelContext {
+        let settings = FolderHistorySettingsStore.load()
+        return FolderHistoryPanelContext(
+            isFeatureEnabled: isRecordingEnabled,
+            isAccessibilityGranted: AXIsProcessTrusted(),
+            isPaused: settings.isPaused
+        )
     }
 
     private func registerHotkey() {
@@ -49,10 +57,18 @@ final class FolderHistoryRuntime {
         let descriptors = map[.finderHistory] ?? HotkeyAction.finderHistory.defaultDescriptors
         let descriptor = descriptors.first ?? .defaultFolderHistory
         let hk = GlobalHotkey(descriptor: descriptor) { [weak self] in
-            Task { @MainActor in self?.switcher.toggle() }
+            Task { @MainActor in
+                guard let self else { return }
+                self.switcher.show(context: self.panelContext())
+            }
         }
-        try? hk.register()
-        hotkey = hk
+        do {
+            try hk.register()
+            hotkey = hk
+        } catch {
+            log.error("Failed to register folder history hotkey: \(error.localizedDescription, privacy: .public)")
+            hotkey = nil
+        }
     }
 
     private func unregisterHotkey() {

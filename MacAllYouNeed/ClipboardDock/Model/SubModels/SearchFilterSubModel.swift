@@ -134,7 +134,13 @@ final class SearchFilterSubModel {
         let limit = loadBroadly ? 200 : 50
 
         let xpcItems: [ClipboardXPCMeta]
-        if let clip = model.clip {
+        if let worker = model.clipboardWorker {
+            xpcItems = await worker.loadHistory(
+                query: query,
+                limit: limit,
+                fuzzyEnabled: fuzzyEnabled
+            )
+        } else if let clip = model.clip {
             xpcItems = await loadHistoryLocally(
                 clip: clip, query: effectiveQuery, limit: limit
             )
@@ -146,6 +152,8 @@ final class SearchFilterSubModel {
         }
 
         let pinned = model.pinboardsSubModel.pinnedIDs()
+        let bundleIDs = xpcItems.compactMap(\.sourceAppBundleID)
+        model.appIcons.prefetch(bundleIDs: bundleIDs)
         let candidates = xpcItems.map { meta in
             let isPinned: Bool
             if let id = RecordID(rawValue: meta.id) {
@@ -155,29 +163,38 @@ final class SearchFilterSubModel {
             }
             return buildDockItem(from: meta, isPinned: isPinned)
         }
-        return filteredAndRanked(items: candidates, query: query)
+        if model.clipboardWorker != nil {
+            return candidates
+        }
+        // Plain-text history search is already ranked/filtered in SQLite via FTS5
+        // (local SearchStore or daemon XPC). Re-filtering preview substrings in
+        // memory would drop OCR-only hits and redo work the index already did.
+        let databasePrefiltered = !loadBroadly
+            && (model.searchStore != nil || model.clip == nil)
+        return filteredAndRanked(
+            items: candidates,
+            query: query,
+            databasePrefiltered: databasePrefiltered
+        )
     }
 
     func loadHistoryLocally(
         clip: ClipboardStore, query: String?, limit: Int
     ) async -> [ClipboardXPCMeta] {
-        await Task.detached {
+        let searchStore = model.searchStore
+        return await Task.detached {
             // Over-fetch so dedup has room to collapse multi-record pastes
             // (e.g. CleanShot writes png + file URL + sometimes rtf for one
             // copy action) before we trim to the requested limit.
             let fetchLimit = max(limit * 3, limit + 30)
             let window = ClipboardHistoryWindow.listParameters()
-            let raw: [ClipboardItemMeta]
-            if let query, !query.isEmpty {
-                let recent = (try? clip.list(
-                    limit: max(fetchLimit, 200),
-                    modifiedOnOrAfter: window.modifiedOnOrAfter
-                )) ?? []
-                let lower = query.lowercased()
-                raw = Array(recent.filter { $0.preview.lowercased().contains(lower) })
-            } else {
-                raw = (try? clip.list(limit: fetchLimit, modifiedOnOrAfter: window.modifiedOnOrAfter)) ?? []
-            }
+            let raw: [ClipboardItemMeta] = (try? ClipboardHistoryQueryLoader.load(
+                clip: clip,
+                search: searchStore,
+                query: query,
+                limit: fetchLimit,
+                modifiedOnOrAfter: window.modifiedOnOrAfter
+            )) ?? []
             let deduped = SearchFilterSubModel.dedupSamePaste(raw, limit: limit)
             return deduped.map { SearchFilterSubModel.xpcMeta(from: $0, clip: clip) }
         }.value
@@ -230,7 +247,9 @@ final class SearchFilterSubModel {
         guard !ids.isEmpty else { return [] }
 
         let xpcItems: [ClipboardXPCMeta]
-        if let clip = model.clip {
+        if let worker = model.clipboardWorker {
+            xpcItems = await worker.loadByIDs(ids)
+        } else if let clip = model.clip {
             xpcItems = await loadByIDsLocally(clip: clip, ids: ids)
         } else {
             xpcItems = await model.xpc.metasByIDs(ids: ids).items
@@ -243,6 +262,7 @@ final class SearchFilterSubModel {
         }
 
         let pinned = model.pinboardsSubModel.pinnedIDs()
+        model.appIcons.prefetch(bundleIDs: metas.compactMap(\.sourceAppBundleID))
         let candidates = metas.map { meta in
             let isPinned: Bool
             if forcePinned {
@@ -253,6 +273,9 @@ final class SearchFilterSubModel {
                 isPinned = false
             }
             return buildDockItem(from: meta, isPinned: isPinned)
+        }
+        if model.clipboardWorker != nil, query == nil {
+            return candidates
         }
         return filteredAndRanked(items: candidates, query: query)
     }
@@ -271,7 +294,8 @@ final class SearchFilterSubModel {
         var imgWidth = 0
         var imgHeight = 0
         var imgBlobID: String?
-        if let body = try? clip.body(for: meta.id),
+        if meta.preview.hasPrefix("(image "),
+           let body = try? clip.body(for: meta.id),
            case let .image(blobID, w, h) = body
         {
             imgWidth = w
@@ -308,10 +332,18 @@ final class SearchFilterSubModel {
         AppGroupSettings.defaults.object(forKey: "search.fuzzy") as? Bool ?? false
     }
 
-    func filteredAndRanked(items: [DockItem], query: String?) -> [DockItem] {
+    func filteredAndRanked(
+        items: [DockItem],
+        query: String?,
+        databasePrefiltered: Bool = false
+    ) -> [DockItem] {
         guard let query else { return items }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return items }
+
+        if databasePrefiltered {
+            return items
+        }
 
         let smart = SmartSearchQuery(trimmed)
         if smart.hasOperators {
@@ -327,11 +359,12 @@ final class SearchFilterSubModel {
             var orderByID: [String: Int] = [:]
             var rank = 0
             for preview in rankedPreviews {
+                var assignedAny = false
                 for item in items where item.preview == preview && orderByID[item.id] == nil {
                     orderByID[item.id] = rank
-                    rank += 1
-                    break
+                    assignedAny = true
                 }
+                if assignedAny { rank += 1 }
             }
             return items
                 .filter { orderByID[$0.id] != nil }

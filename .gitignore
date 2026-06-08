@@ -17,6 +17,7 @@ DerivedData/
 .DS_Store
 
 # Secrets & local config
+Config/Signing.local.xcconfig
 .claude/
 *.p12
 *.cer
@@ -32,3 +33,6 @@ docs/voice-cloning/reference-pack/**/*.wav
 docs/voice-cloning/reference-pack/instant-concat.txt
 .build/voice-cloning-eval/
 .worktrees/
+
+# Local reference projects (not tracked)
+reference-projects/

@@ -3,9 +3,8 @@ import Core
 import FinderSync
 import Foundation
 
-/// FinderSync toolbar button that surfaces the user's recent folders. Reads the
-/// same plaintext `folder-history.sqlite` written by the main app via the shared
-/// App Group container, then opens recent folders from a popup menu.
+/// FinderSync toolbar button: read-only recent-folders menu (no search).
+/// Capture lives in the main app; this extension only reads the shared store and opens paths.
 @objc(FinderSyncExtension)
 final class FinderSyncExtension: FIFinderSync {
     private var store: FolderHistoryStore?
@@ -18,12 +17,11 @@ final class FinderSyncExtension: FIFinderSync {
         {
             store = try? FolderHistoryStore(url: url)
         }
-        // Observe the whole home tree so the toolbar item is available broadly.
         FIFinderSyncController.default().directoryURLs = [URL(fileURLWithPath: NSHomeDirectory())]
     }
 
     override var toolbarItemName: String { "Recent Folders" }
-    override var toolbarItemToolTip: String { "Show recently visited folders" }
+    override var toolbarItemToolTip: String { "Recently visited folders" }
     override var toolbarItemImage: NSImage {
         NSImage(systemSymbolName: "folder.badge.clock", accessibilityDescription: "Recent Folders") ?? NSImage()
     }
@@ -33,17 +31,27 @@ final class FinderSyncExtension: FIFinderSync {
 
     override func menu(for menuKind: FIMenuKind) -> NSMenu? {
         guard menuKind == .toolbarItemMenu, let store else { return nil }
-        let rows = (try? store.list(limit: 15)) ?? []
+        return Self.recentFoldersMenu(store: store, openAction: #selector(openFolder(_:)), target: self)
+    }
+
+    /// Builds a plain recents menu (pinned first, no search field).
+    static func recentFoldersMenu(
+        store: FolderHistoryStore,
+        openAction: Selector,
+        target: AnyObject
+    ) -> NSMenu {
         let menu = NSMenu(title: "Recent Folders")
-        if rows.isEmpty {
+        let rows = (try? store.list(limit: FolderHistoryDisplayLimits.quickPickCount)) ?? []
+        let existing = rows.filter { FileManager.default.fileExists(atPath: $0.path) }
+        if existing.isEmpty {
             let empty = NSMenuItem(title: "No recent folders", action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
             return menu
         }
-        for row in rows {
-            let item = NSMenuItem(title: row.displayName, action: #selector(openFolder(_:)), keyEquivalent: "")
-            item.target = self
+        for row in existing {
+            let item = NSMenuItem(title: row.displayName, action: openAction, keyEquivalent: "")
+            item.target = target
             item.toolTip = row.path
             item.representedObject = row.path
             menu.addItem(item)

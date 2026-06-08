@@ -59,6 +59,13 @@ enum CommandCenterFooterPresentation {
                 openButtonTitle: "Open Voice",
                 showsCapturePause: false
             )
+        case .folders:
+            CommandCenterFooterModel(
+                shortcutText: "⌘⇧H",
+                label: "visited folders",
+                openButtonTitle: "Open Finder History",
+                showsCapturePause: false
+            )
         }
     }
 }

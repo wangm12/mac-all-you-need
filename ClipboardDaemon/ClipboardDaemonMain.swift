@@ -13,7 +13,11 @@ struct ClipboardDaemonMain {
             if container.isCaptureSuspended() { return }
             for item in change.historyCaptureItems {
                 do {
-                    try container.persist(item: item, source: change.frontmostAppBundleID)
+                    try container.persist(
+                        item: item,
+                        source: change.frontmostAppBundleID,
+                        pasteboardTypes: change.pasteboardTypes
+                    )
                 } catch {
                     container.log.error("persist failed: \(error.localizedDescription)")
                 }

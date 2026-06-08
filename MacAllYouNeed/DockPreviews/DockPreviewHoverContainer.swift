@@ -345,9 +345,20 @@ struct DockPreviewHoverContainer: View {
         }
     }
 
+    /// Folder (and other widget-only) previews have no window cards — never route them through compact list.
+    private var usesEmbeddedOnlyLayout: Bool {
+        state.embeddedContent != .none && state.windows.isEmpty
+    }
+
     @ViewBuilder
     private var windowGridContent: some View {
-        if showScreenRecordingBanner || state.isWindowlessPlaceholder {
+        if usesEmbeddedOnlyLayout {
+            embeddedContent
+                .dockPreviewGlobalPadding(
+                    DockPreviewHoverPadding.contentInner,
+                    multiplier: CGFloat(state.settings.globalPaddingMultiplier)
+                )
+        } else if showScreenRecordingBanner || state.isWindowlessPlaceholder {
             VStack(alignment: .leading, spacing: 12) {
                 if showScreenRecordingBanner {
                     DockPreviewScreenRecordingBanner {
@@ -619,7 +630,14 @@ struct DockPreviewHoverContainer: View {
                     onHoverIndex: { hovering in
                         guard state.isWindowSwitcherActive else { return }
                         handleHoverIndexChange(hovering ? index : nil)
-                    }
+                    },
+                    middleClickAction: DockHubSettingsStore.load().gestures.middleClickAction
+                )
+                .dockPreviewAeroShake(
+                    enabled: DockHubSettingsStore.load().gestures.enableDockPreviewGestures,
+                    action: DockHubSettingsStore.load().gestures.aeroShakeAction,
+                    entries: state.windows,
+                    selectedIndex: state.selectedIndex
                 )
                 .id(entry.id)
             }
@@ -632,14 +650,24 @@ struct DockPreviewHoverContainer: View {
         case .none:
             EmptyView()
         case let .folder(title, url):
-            DockFolderWidgetView(title: title, url: url, showHidden: state.settings.folderShowHiddenFiles)
+            DockFolderWidgetView(
+                title: title,
+                url: url,
+                showHidden: state.settings.folderShowHiddenFiles,
+                onDismissPreview: onDismissRequest
+            )
         case .media:
-            DockMediaWidgetView(compact: false)
+            DockMediaWidgetView(
+                compact: false,
+                showLyrics: true,
+                bundleIdentifier: state.bundleIdentifier
+            )
                 .dockPreviewPinnable(
                     appName: state.appName,
                     bundleIdentifier: state.bundleIdentifier ?? "",
                     type: .media,
-                    enablePinning: DockHubSettingsStore.load().widgets.enablePinning
+                    enablePinning: DockHubSettingsStore.load().widgets.enablePinning,
+                    onPin: onDismissRequest
                 )
                 .dockPreviewMediaVolumeScroll()
         case .calendar:
@@ -648,7 +676,8 @@ struct DockPreviewHoverContainer: View {
                     appName: state.appName,
                     bundleIdentifier: state.bundleIdentifier ?? "",
                     type: .calendar,
-                    enablePinning: DockHubSettingsStore.load().widgets.enablePinning
+                    enablePinning: DockHubSettingsStore.load().widgets.enablePinning,
+                    onPin: onDismissRequest
                 )
         }
     }

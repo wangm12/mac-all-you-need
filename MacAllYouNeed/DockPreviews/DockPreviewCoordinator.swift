@@ -10,8 +10,13 @@ final class DockPreviewCoordinator {
     private let observer: DockHoverObserver
     private let enumerator: any WindowEnumerating
     private let thumbnailService: any ThumbnailCapturing
+    let diskStore: DockPreviewThumbnailDiskStore
     let cache: DockPreviewWindowCache
-    private var thumbnailCache: DockPreviewThumbnailCache
+    let capturePipeline: DockPreviewWindowCapturePipeline
+    private let visibleThumbnailCache: DockPreviewVisibleThumbnailCache
+    private let dockWorker: DockPreviewWorker
+    private let refreshScope = DockPreviewRefreshScope()
+    private let axCacheObservers = DockPreviewWindowAXCacheObservers()
     private let raiseService: DockPreviewRaiseService
     private let panelController: DockPreviewPanelController
     private var panel: DockPreviewPanel { panelController.panel }
@@ -36,23 +41,41 @@ final class DockPreviewCoordinator {
     private var showWorkItem: DispatchWorkItem?
     private var showWorkToken: UInt = 0
     private var windowRefreshTask: Task<Void, Never>?
-    private var thumbnailTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var settingsObserver: NSObjectProtocol?
-    private var mouseMonitors: [Any] = []
+    private var clickMonitors: [Any] = []
+    private var moveMonitors: [Any] = []
+    private var coalescedPointerWorkItem: DispatchWorkItem?
+    private var lastDockSelectionPollTime: CFAbsoluteTime = 0
     private var terminateObserver: NSObjectProtocol?
     private var lastLoggedDismissSnapshot: String?
+    private var dockPrewarmTask: Task<Void, Never>?
+    /// Bumps on each `mergePanel` so stale async disk hydrates cannot repaint the wrong hover.
+    private var mergeHydrationGeneration: UInt64 = 0
 
     var dockHoverObserver: DockHoverObserver { observer }
     var onAppHoverPID: ((pid_t?) -> Void)?
 
-    init(panelController: DockPreviewPanelController, coordinator axCoordinator: AXObserverCoordinator) {
+    init(
+        panelController: DockPreviewPanelController,
+        coordinator axCoordinator: AXObserverCoordinator,
+        dockWorker: DockPreviewWorker
+    ) {
         self.panelController = panelController
+        self.dockWorker = dockWorker
         observer = DockHoverObserver(coordinator: axCoordinator)
         enumerator = SystemWindowEnumerator()
         thumbnailService = DockPreviewThumbnailService()
-        cache = DockPreviewWindowCache()
-        cacheMaintainer = DockPreviewWindowCacheMaintainer(cache: cache, enumerator: enumerator)
-        thumbnailCache = DockPreviewThumbnailCache(ttl: DockPreviewSettings.default.thumbnailCacheLifespan)
+        diskStore = DockPreviewThumbnailDiskStore()
+        cache = DockPreviewWindowCache(diskStore: diskStore)
+        visibleThumbnailCache = DockPreviewVisibleThumbnailCache(diskStore: diskStore)
+        capturePipeline = DockPreviewWindowCapturePipeline(
+            cache: cache,
+            diskStore: diskStore,
+            enumerator: enumerator,
+            thumbnailService: thumbnailService,
+            dockWorker: dockWorker
+        )
+        cacheMaintainer = DockPreviewWindowCacheMaintainer(cache: cache, pipeline: capturePipeline)
         raiseService = DockPreviewRaiseService(enumerator: enumerator)
         panel.onDismissRequest = { [weak self] in self?.handleInactivityDismiss() }
         panel.onDismissPreservePendingShow = { [weak self] in self?.dismissPreservingPendingShow() }
@@ -64,8 +87,14 @@ final class DockPreviewCoordinator {
         settings = loadedHub.previews
         DockPreviewWorklog.setEnabled(settings.enableWorklog)
         panelController.reloadSettings(loadedHub)
-        thumbnailCache = DockPreviewThumbnailCache(ttl: settings.thumbnailCacheLifespan)
+        capturePipeline.reloadSettings(hub: loadedHub)
+        cacheMaintainer.reloadSettings(hub: loadedHub)
         observer.settings = { [weak self] in self?.settings ?? .default }
+        if panel.isVisible, let pid = currentPID, case .app = currentHover {
+            mergePanel(for: pid, reposition: false)
+        } else if !settings.enableLivePreview {
+            liveCapture.stopAll()
+        }
     }
 
     func start() {
@@ -76,7 +105,12 @@ final class DockPreviewCoordinator {
         DockPreviewWorklog.log("runtime.start", fields: [
             "axTrusted": AXIsProcessTrusted(),
             "worklog": settings.enableWorklog,
+            "thumbRoot": diskStore.rootPath,
+            "cacheLifespanSec": capturePipeline.cacheLifespan,
         ])
+        if settings.enableWorklog {
+            Task { await diskStore.logInventory() }
+        }
         observer.settings = { [weak self] in self?.settings ?? .default }
         observer.onHoverBegan = { [weak self] target in
             self?.handleHoverBegan(target)
@@ -84,12 +118,26 @@ final class DockPreviewCoordinator {
         observer.onHoverEnded = { [weak self] in
             self?.handleHoverEnded()
         }
+        observer.shouldSuppressSelectionPolling = { [weak self] in
+            guard let self else { return false }
+            if DockPreviewDockPosition.isMouseInDockRegion(padding: 48) {
+                return false
+            }
+            return self.shouldKeepPreviewOpen()
+        }
         DockHoverObserver.lastHoveredTokenProvider = { [weak self] in
             self?.observer.currentHoveredDockItemToken()
         }
+        observer.onDockProximity = { [weak self] in
+            self?.handleDockProximity()
+        }
         observer.start()
-        DockPreviewLaunchSeeder.seed(cache: cache, enumerator: enumerator, settings: settings)
-        cacheMaintainer.start()
+        DockPreviewLaunchSeeder.seed(pipeline: capturePipeline)
+        cacheMaintainer.start(refreshScope: refreshScope)
+        axCacheObservers.onSpaceWillChange = { [weak self] in
+            self?.dismissDockPreviewForWorkspaceChange(reason: "spaceChange")
+        }
+        axCacheObservers.start(pipeline: capturePipeline, refreshScope: refreshScope)
         terminateObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
@@ -104,7 +152,8 @@ final class DockPreviewCoordinator {
         ) { [weak self] _ in
             self?.reloadSettings()
         }
-        installPointerEventMonitors()
+        installClickEventMonitors()
+        syncPointerMoveMonitoring()
     }
 
     /// Warms the shared window cache for switcher-only mode (no dock hover observers).
@@ -112,30 +161,31 @@ final class DockPreviewCoordinator {
         guard !isRunning else { return }
         isRunning = true
         settings = hubSettings.previews
-        DockPreviewLaunchSeeder.seed(
-            cache: cache,
-            enumerator: enumerator,
-            settings: settings,
-            maxApps: Int.max
-        )
-        cacheMaintainer.start()
+        DockPreviewLaunchSeeder.seed(pipeline: capturePipeline)
+        cacheMaintainer.start(refreshScope: refreshScope)
+        axCacheObservers.start(pipeline: capturePipeline, refreshScope: refreshScope)
     }
 
     func stop() {
         DockPreviewWorklog.log("runtime.stop")
         isRunning = false
         cacheMaintainer.stop()
+        axCacheObservers.stop()
         if let terminateObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(terminateObserver)
         }
         terminateObserver = nil
         dockAutoHide.restoreIfNeeded()
         removePointerEventMonitors()
+        coalescedPointerWorkItem?.cancel()
+        coalescedPointerWorkItem = nil
+        clearSwitcherSession()
         showWorkItem?.cancel()
         showWorkItem = nil
         windowRefreshTask?.cancel()
         windowRefreshTask = nil
-        cancelThumbnailTasks()
+        dockPrewarmTask?.cancel()
+        dockPrewarmTask = nil
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
         }
@@ -143,8 +193,8 @@ final class DockPreviewCoordinator {
         observer.stop()
         panel.dismiss(animated: false)
         liveCapture.stopAll()
+        visibleThumbnailCache.evictAll()
         cache.clearAll()
-        thumbnailCache.invalidateAll()
         currentPID = nil
         currentBundleIdentifier = nil
         currentHover = .none
@@ -153,6 +203,77 @@ final class DockPreviewCoordinator {
     func refreshPermissions() {
         if panel.isVisible, let pid = currentPID {
             mergePanel(for: pid, reposition: false)
+        }
+    }
+
+    func hydrateForDisplay(_ entries: [DockPreviewWindowEntry]) -> [DockPreviewWindowEntry] {
+        visibleThumbnailCache.hydrate(entries)
+    }
+
+    func hydrateForDisplayAsync(_ entries: [DockPreviewWindowEntry]) async -> [DockPreviewWindowEntry] {
+        let prefetched = await dockWorker.hydrateEntries(entries, diskStore: diskStore)
+        return visibleThumbnailCache.hydrate(prefetched)
+    }
+
+    func evictVisibleThumbnails() {
+        visibleThumbnailCache.evictAll()
+    }
+
+    /// Keeps AX window observers and `refreshApp` scoped to switcher-visible PIDs while Option+Tab is open.
+    func noteSwitcherSession(pids: [pid_t]) {
+        refreshScope.noteSwitcherSession(pids: pids)
+        guard isRunning else { return }
+        axCacheObservers.reconcileObservers()
+    }
+
+    func clearSwitcherSession() {
+        refreshScope.clearSwitcherSession()
+        guard isRunning else { return }
+        axCacheObservers.reconcileObservers()
+    }
+
+    /// Refreshes warmed window caches after sleep/wake (AX recovery is owned by `DockHoverObserver`).
+    func refreshCachesAfterWake() {
+        guard isRunning else { return }
+        cacheMaintainer.refreshAllRunningApps()
+    }
+
+    /// DockDoor `appDidActivate` / `activeSpaceDidChange` — dismiss dock hover panel, keep cache warm.
+    func dismissDockPreviewForWorkspaceChange(reason: String) {
+        guard panel.isVisible else { return }
+        switch panelController.state.mode {
+        case .windowSwitcher, .cmdTab:
+            return
+        case .dockHover:
+            dismissImmediately(reason: reason, cancelPendingShow: false)
+        }
+    }
+
+    func handleApplicationActivated() {
+        dismissDockPreviewForWorkspaceChange(reason: "appActivated")
+        refreshScope.noteDockProximity()
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.activationPolicy == .regular,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier
+        else { return }
+        Task { @MainActor [weak self] in
+            await self?.capturePipeline.refreshAppIfNeeded(
+                pid: app.processIdentifier,
+                bundleIdentifier: app.bundleIdentifier
+            )
+        }
+    }
+
+    /// Starts background warm when the pointer enters the dock band after a long idle spell.
+    private func handleDockProximity() {
+        refreshScope.noteDockProximity()
+        guard refreshScope.isIdle else { return }
+        dockPrewarmTask?.cancel()
+        dockPrewarmTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            DockPreviewWorklog.log("warm.dockProximity", fields: [:])
+            await self.capturePipeline.warmAllRunningApps(throttle: true)
+            self.dockPrewarmTask = nil
         }
     }
 
@@ -167,7 +288,6 @@ final class DockPreviewCoordinator {
                 "title": info.title,
                 "token": info.dockItemToken,
             ])
-            cancelThumbnailTasks()
             windowRefreshTask?.cancel()
             liveCapture.stopAll()
             currentHover = target
@@ -211,51 +331,107 @@ final class DockPreviewCoordinator {
                 hubAppearance: hubSettings.appearance
             )
 
-            if panel.mouseIsWithinPreview,
-               currentDockItemToken == info.dockItemToken,
-               let displayedPID = currentPID,
-               displayedPID != 0,
-               info.pid != 0,
-               displayedPID != info.pid {
+            if DockPreviewDockMouse.shouldIgnoreDockHoverChange(
+                panelVisible: panel.isVisible,
+                mouseIsWithinPreview: panel.mouseIsWithinPreview,
+                panelFrame: panel.isVisible ? panel.panelFrame : nil,
+                folderFrame: nil,
+                currentToken: currentDockItemToken,
+                newToken: info.dockItemToken,
+                currentPID: currentPID,
+                newPID: info.pid,
+                currentBundleID: currentBundleIdentifier,
+                newBundleID: info.bundleIdentifier
+            ) {
+                DockPreviewWorklog.log("hover.ignoredOnPreview", fields: [
+                    "app": info.appName,
+                    "pid": info.pid,
+                    "activeToken": currentDockItemToken ?? 0,
+                    "hoverToken": info.dockItemToken,
+                ])
                 return
             }
 
             let switchingIcons = panel.isVisible && currentDockItemToken != info.dockItemToken
+            let previouslyDisplayedPID = currentPID
+            let crossAppSwitch = DockPreviewDockMouse.isCrossAppDockSwitch(
+                displayedPID: previouslyDisplayedPID,
+                targetPID: info.pid,
+                displayedBundleID: currentBundleIdentifier,
+                targetBundleID: info.bundleIdentifier
+            )
+            let pointerInDockRegion = DockPreviewDockPosition.isMouseInDockRegion(padding: 48)
+
+            if DockPreviewDockMouse.shouldAbsorbSameAppDockTokenChurn(
+                panelVisible: panel.isVisible,
+                mouseIsWithinPreview: panel.mouseIsWithinPreview,
+                pointerInDockRegion: pointerInDockRegion,
+                currentPID: currentPID,
+                newPID: info.pid,
+                currentToken: currentDockItemToken,
+                newToken: info.dockItemToken
+            ) {
+                currentDockItemToken = info.dockItemToken
+                currentDockItemElement = observer.getHoveredDockItemElement()
+                freezePlacementAnchor(axIconRect: info.iconRect, dockItemToken: info.dockItemToken)
+                DockPreviewWorklog.log("hover.sameAppTokenAbsorbed", fields: [
+                    "app": info.appName,
+                    "pid": info.pid,
+                    "token": info.dockItemToken,
+                ])
+                return
+            }
 
             if panel.isVisible,
-               currentPID == info.pid,
                let shown = currentDockItemElement,
                let hovered = observer.getHoveredDockItemElement(),
                CFEqual(shown, hovered) {
                 freezePlacementAnchor(axIconRect: info.iconRect, dockItemToken: info.dockItemToken)
-                panel.resetFadeState()
-                scheduleWindowRefresh(for: info.pid, iconRect: info.iconRect, debounce: 0.05)
+                if panel.mouseIsWithinPreview || pointerInDockRegion {
+                    panel.resetFadeState()
+                }
+                if currentPID == info.pid, info.pid != 0 {
+                    scheduleWindowRefresh(for: info.pid, iconRect: info.iconRect, debounce: 0.05)
+                }
                 return
             }
 
-            let cachedForPID = cache.readCached(pid: info.pid)
-            cancelThumbnailTasks(except: Set(cachedForPID.map(\.id)))
             windowRefreshTask?.cancel()
             if switchingIcons {
                 liveCapture.stopAll()
                 panel.clearMouseInPreview()
                 panel.resetFadeState()
             }
-            currentHover = target
-            currentPID = info.pid
-            currentBundleIdentifier = info.bundleIdentifier
-            currentAppName = info.appName
-            currentDockItemToken = info.dockItemToken
-            currentDockItemElement = observer.getHoveredDockItemElement()
-            panelController.state.dockItemToken = info.dockItemToken
-            currentAppIcon = info.pid != 0
-                ? NSWorkspace.shared.runningApplications.first { $0.processIdentifier == info.pid }?.icon
-                : nil
+
+            let wantsInstantPresent = switchingIcons
+                || (panel.isVisible && settings.skipDelayWhenPanelVisible)
+            if wantsInstantPresent, info.pid != 0 {
+                let hovered = observer.currentAppHoverInfo()
+                guard DockPreviewDockMouse.shouldAllowInstantDockSwitch(
+                    mouseIsWithinPreview: panel.mouseIsWithinPreview,
+                    onPreviewSurface: isPointerOnPreviewSurfaceOnly(),
+                    pointerInDockRegion: pointerInDockRegion,
+                    targetBundleID: info.bundleIdentifier,
+                    targetPID: info.pid,
+                    hoveredBundleID: hovered?.bundleIdentifier,
+                    hoveredPID: hovered?.pid ?? 0,
+                    displayedPID: previouslyDisplayedPID,
+                    crossAppSwitch: crossAppSwitch
+                ) else {
+                    DockPreviewWorklog.log("hover.blockedInstantSwitch", fields: [
+                        "app": info.appName,
+                        "pid": info.pid,
+                        "displayedPID": previouslyDisplayedPID ?? 0,
+                        "hoveredPID": hovered?.pid ?? 0,
+                        "crossApp": crossAppSwitch,
+                    ])
+                    return
+                }
+            }
+
+            commitAppHoverState(target: target, info: info)
 
             if info.pid == 0 {
-                if switchingIcons {
-                    panelController.state.dismissalAnchorDockItem = currentDockItemElement
-                }
                 if settings.showWindowlessApps {
                     let delay = hoverDelayForPresent(switchingIcons: switchingIcons)
                     scheduleShow(delay: delay, dockItemToken: info.dockItemToken, expectedPID: 0) { [weak self] in
@@ -268,15 +444,15 @@ final class DockPreviewCoordinator {
                 return
             }
 
-            guard DockPreviewDockVisibility.isDockVisible() else {
-                DockPreviewWorklog.log("panel.suppressed", fields: ["reason": "dockHidden"])
+            if let suppression = DockPreviewDockVisibility.suppressionDetail() {
+                DockPreviewWorklog.log("panel.suppressed", fields: [
+                    "reason": "dockHidden",
+                    "detail": suppression,
+                ])
                 return
             }
 
-            if switchingIcons || (panel.isVisible && settings.skipDelayWhenPanelVisible) {
-                if switchingIcons {
-                    panelController.state.dismissalAnchorDockItem = currentDockItemElement
-                }
+            if wantsInstantPresent {
                 presentCachedThenRefresh(
                     pid: info.pid,
                     iconRect: info.iconRect,
@@ -310,6 +486,8 @@ final class DockPreviewCoordinator {
 
     private func handleHoverEnded() {
         onAppHoverPID?(nil)
+        refreshScope.noteHoverEnded()
+        axCacheObservers.reconcileObservers()
         logDismissSnapshot(trigger: "hoverEnded")
         // DockDoor: AX selection clearing does not hide the panel — inactivity fade owns dismissal.
         if isPointerOnPreviewSurfaceOnly() {
@@ -325,11 +503,27 @@ final class DockPreviewCoordinator {
 
     private func isExpectedAppStillHovered(bundleID: String) -> Bool {
         guard let hovered = observer.currentAppHoverInfo() else { return false }
-        guard hovered.dockItemToken == currentDockItemToken else { return false }
         if let hoveredBundle = hovered.bundleIdentifier, !hoveredBundle.isEmpty {
             return hoveredBundle == bundleID
         }
+        guard let currentPID, currentPID != 0 else { return false }
         return hovered.pid == currentPID
+    }
+
+    private func commitAppHoverState(target: DockHoverTarget, info: DockHoverTarget.AppHoverInfo) {
+        currentHover = target
+        currentPID = info.pid
+        currentBundleIdentifier = info.bundleIdentifier
+        currentAppName = info.appName
+        currentDockItemToken = info.dockItemToken
+        currentDockItemElement = observer.getHoveredDockItemElement()
+        panelController.state.dockItemToken = info.dockItemToken
+        currentAppIcon = info.pid != 0
+            ? NSWorkspace.shared.runningApplications.first { $0.processIdentifier == info.pid }?.icon
+            : nil
+        refreshScope.noteHover(pid: info.pid)
+        axCacheObservers.ensureObserver(for: info.pid)
+        axCacheObservers.reconcileObservers()
     }
 
     private func hoverDelayForPresent(switchingIcons: Bool) -> TimeInterval {
@@ -365,6 +559,7 @@ final class DockPreviewCoordinator {
             action()
         }
         showWorkItem = work
+        syncPointerMoveMonitoring()
         if delay <= 0 {
             work.perform()
         } else {
@@ -379,10 +574,9 @@ final class DockPreviewCoordinator {
         ])
         windowRefreshTask?.cancel()
         windowRefreshTask = nil
-        cancelThumbnailTasks()
         dockAutoHide.restoreIfNeeded()
-        panel.dismiss(animated: false)
-        liveCapture.scheduleStopAfterKeepAlive(settings: settings)
+        panel.hideForDockIconTransition()
+        liveCapture.scheduleStopAfterKeepAlive(hub: hubSettings)
         panelController.state.dismissalAnchorDockItem = nil
     }
 
@@ -401,13 +595,14 @@ final class DockPreviewCoordinator {
             showWorkItem?.cancel()
             showWorkItem = nil
         }
+        mergeHydrationGeneration &+= 1
         lastLoggedDismissSnapshot = nil
         windowRefreshTask?.cancel()
         windowRefreshTask = nil
-        cancelThumbnailTasks()
         dockAutoHide.restoreIfNeeded()
         panel.dismiss(animated: animated)
-        liveCapture.scheduleStopAfterKeepAlive(settings: settings)
+        liveCapture.scheduleStopAfterKeepAlive(hub: hubSettings)
+        visibleThumbnailCache.evictAll()
         panelController.state.dismissalAnchorDockItem = nil
         currentPID = nil
         currentBundleIdentifier = nil
@@ -416,6 +611,8 @@ final class DockPreviewCoordinator {
         placementAnchorRect = .zero
         anchoredAXIconRect = nil
         frozenDockItemToken = nil
+        refreshScope.setPanelVisible(false)
+        syncPointerMoveMonitoring()
     }
 
     private func handleInactivityDismiss() {
@@ -456,6 +653,7 @@ final class DockPreviewCoordinator {
             DockPreviewWorklog.log("show.cancelled", details: "left hover zone before delay elapsed")
             showWorkItem?.cancel()
             showWorkItem = nil
+            syncPointerMoveMonitoring()
         }
     }
 
@@ -477,31 +675,57 @@ final class DockPreviewCoordinator {
         ])
     }
 
-    private func installPointerEventMonitors() {
+    private func installClickEventMonitors() {
         removePointerEventMonitors()
         let clickMask: NSEvent.EventTypeMask = [.rightMouseDown, .otherMouseDown, .leftMouseDown]
-        let moveMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: clickMask) { [weak self] event in
+            Task { @MainActor in self?.handlePointerEvent(event) }
+        } {
+            clickMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: clickMask) { [weak self] event in
+            Task { @MainActor in self?.handlePointerEvent(event) }
+            return event
+        } {
+            clickMonitors.append(local)
+        }
+    }
 
-        for mask in [clickMask, moveMask] {
-            if let global = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
+    private func syncPointerMoveMonitoring() {
+        refreshScope.setPanelVisible(panel.isVisible)
+        refreshScope.setPendingShow(showWorkItem != nil)
+        let needsMove = panel.isVisible || showWorkItem != nil
+        if needsMove, moveMonitors.isEmpty {
+            let moveMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+            if let global = NSEvent.addGlobalMonitorForEvents(matching: moveMask) { [weak self] event in
                 Task { @MainActor in self?.handlePointerEvent(event) }
             } {
-                mouseMonitors.append(global)
+                moveMonitors.append(global)
             }
-            if let local = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            if let local = NSEvent.addLocalMonitorForEvents(matching: moveMask) { [weak self] event in
                 Task { @MainActor in self?.handlePointerEvent(event) }
                 return event
             } {
-                mouseMonitors.append(local)
+                moveMonitors.append(local)
             }
+        } else if !needsMove, !moveMonitors.isEmpty {
+            coalescedPointerWorkItem?.cancel()
+            coalescedPointerWorkItem = nil
+            for monitor in moveMonitors {
+                NSEvent.removeMonitor(monitor)
+            }
+            moveMonitors = []
         }
     }
 
     private func removePointerEventMonitors() {
-        for monitor in mouseMonitors {
+        coalescedPointerWorkItem?.cancel()
+        coalescedPointerWorkItem = nil
+        for monitor in clickMonitors + moveMonitors {
             NSEvent.removeMonitor(monitor)
         }
-        mouseMonitors = []
+        clickMonitors = []
+        moveMonitors = []
     }
 
     private func handlePointerEvent(_ event: NSEvent) {
@@ -514,13 +738,32 @@ final class DockPreviewCoordinator {
                 handleContextMenuMouseDown(event)
             }
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged:
-            evaluatePendingShowCancellation()
-            if panel.isVisible, !settings.preventPreviewReentryDuringFadeOut, shouldKeepPreviewOpen() {
-                panel.resetFadeState()
-            }
+            scheduleCoalescedPointerEvaluation()
         default:
             break
         }
+    }
+
+    private func scheduleCoalescedPointerEvaluation() {
+        coalescedPointerWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.coalescedPointerWorkItem = nil
+            self.evaluatePendingShowCancellation()
+            if self.panel.isVisible {
+                let now = CFAbsoluteTimeGetCurrent()
+                if now - self.lastDockSelectionPollTime >= 0.15 {
+                    self.lastDockSelectionPollTime = now
+                    self.observer.pollDockSelectionIfPointerInDockRegion()
+                }
+                if !self.settings.preventPreviewReentryDuringFadeOut,
+                   self.shouldKeepPreviewOpen() {
+                    self.panel.resetFadeState()
+                }
+            }
+        }
+        coalescedPointerWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0, execute: work)
     }
 
     private func handleContextMenuMouseDown(_ event: NSEvent) {
@@ -569,30 +812,17 @@ final class DockPreviewCoordinator {
             }
             guard !Task.isCancelled, let self else { return }
             guard self.currentPID == pid else { return }
-            var entries = await self.enumerator.windows(
-                for: pid,
-                settings: self.settings,
-                bundleIdentifier: self.currentBundleIdentifier,
-                disableMinWindowSizeFilter: self.hubSettings.advanced.disableMinWindowSizeFilter
-            )
-            entries = DockPreviewWindowFilter.filter(entries, settings: self.settings)
-            entries = DockPreviewWindowFilter.filterBySpace(entries, settings: self.settings)
-            entries = DockPreviewWindowFilter.filterByMonitor(entries, dockIconRect: iconRect, settings: self.settings)
-            entries = DockPreviewWindowFilter.applyHubFilters(
-                entries,
-                hub: self.hubSettings,
-                bundleIdentifier: self.currentBundleIdentifier,
-                appName: self.currentAppName
-            )
-            if self.settings.ignoreSingleWindowApps, entries.count <= 1 {
-                entries = []
-            }
-            guard self.currentPID == pid else { return }
             if pid != 0,
                let bundleID = self.currentBundleIdentifier,
                !self.isExpectedAppStillHovered(bundleID: bundleID) {
                 return
             }
+            await self.capturePipeline.refreshAppIfNeeded(
+                pid: pid,
+                bundleIdentifier: self.currentBundleIdentifier
+            )
+            guard self.currentPID == pid else { return }
+            let entries = self.filteredCachedEntries(pid: pid, iconRect: iconRect)
             if entries.isEmpty {
                 if self.settings.showWindowlessApps {
                     self.showWindowlessApp(DockHoverTarget.AppHoverInfo(
@@ -610,27 +840,11 @@ final class DockPreviewCoordinator {
             if !self.panel.isVisible {
                 self.dockAutoHide.preventHidingIfNeeded(settings: self.settings)
             }
-            _ = self.cache.update(entries: entries, for: pid)
-            let cached = self.cache.readCached(pid: pid)
-            self.mergePanel(for: pid, entries: cached, reposition: false)
-            self.captureThumbnailsIfNeeded(for: pid, entries: cached)
+            self.mergePanel(for: pid, entries: entries, reposition: false)
         }
     }
 
-    private func presentCachedThenRefresh(
-        pid: pid_t,
-        iconRect: CGRect,
-        reposition: Bool,
-        forceShellUpdate: Bool = false
-    ) {
-        guard case .app = currentHover, currentPID == pid else { return }
-        freezePlacementAnchor(axIconRect: iconRect, dockItemToken: currentDockItemToken ?? 0)
-        DockPreviewWorklog.log("panel.present", fields: [
-            "pid": pid,
-            "reposition": reposition,
-            "cached": cache.readCached(pid: pid).count,
-            "forceShell": forceShellUpdate,
-        ])
+    private func filteredCachedEntries(pid: pid_t, iconRect: CGRect) -> [DockPreviewWindowEntry] {
         var entries = cache.readCached(pid: pid)
         entries = DockPreviewWindowFilter.filter(entries, settings: settings)
         entries = DockPreviewWindowFilter.filterBySpace(entries, settings: settings)
@@ -647,8 +861,26 @@ final class DockPreviewCoordinator {
             order: settings.sortOrder
         )
         if settings.ignoreSingleWindowApps, entries.count <= 1 {
-            entries = []
+            return []
         }
+        return entries
+    }
+
+    private func presentCachedThenRefresh(
+        pid: pid_t,
+        iconRect: CGRect,
+        reposition: Bool,
+        forceShellUpdate: Bool = false
+    ) {
+        guard case .app = currentHover, currentPID == pid else { return }
+        freezePlacementAnchor(axIconRect: iconRect, dockItemToken: currentDockItemToken ?? 0)
+        DockPreviewWorklog.log("panel.present", fields: [
+            "pid": pid,
+            "reposition": reposition,
+            "cached": cache.readCached(pid: pid).count,
+            "forceShell": forceShellUpdate,
+        ])
+        var entries = filteredCachedEntries(pid: pid, iconRect: iconRect)
         if entries.isEmpty, settings.showWindowlessApps {
             showWindowlessApp(DockHoverTarget.AppHoverInfo(
                 pid: pid, appName: currentAppName, bundleIdentifier: currentBundleIdentifier,
@@ -658,9 +890,6 @@ final class DockPreviewCoordinator {
             return
         }
         if entries.isEmpty {
-            if forceShellUpdate, panel.isVisible {
-                dismissImmediately(reason: "iconSwitchEmpty", cancelPendingShow: false)
-            }
             scheduleWindowRefresh(for: pid, iconRect: iconRect, debounce: 0)
             return
         }
@@ -675,20 +904,72 @@ final class DockPreviewCoordinator {
         allowEmpty: Bool = false
     ) {
         guard currentPID == pid, case .app = currentHover else { return }
-        let list = entries ?? cache.readCached(pid: pid)
+        let raw = entries ?? cache.readCached(pid: pid)
+        mergeHydrationGeneration &+= 1
+        let generation = mergeHydrationGeneration
+
+        // Paint immediately from LRU / in-memory thumbnails so hover does not wait on disk I/O.
+        let quickList = visibleThumbnailCache.hydrate(raw)
+        applyMergePanel(
+            for: pid,
+            list: quickList,
+            reposition: reposition,
+            allowEmpty: allowEmpty
+        )
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard generation == self.mergeHydrationGeneration else { return }
+            guard self.currentPID == pid, case .app = self.currentHover else { return }
+            let hydrated = await self.hydrateForDisplayAsync(raw)
+            guard generation == self.mergeHydrationGeneration else { return }
+            guard self.currentPID == pid, case .app = self.currentHover else { return }
+            guard Self.entriesNeedThumbnailRefresh(quickList, hydrated) else { return }
+            self.applyMergePanel(
+                for: pid,
+                list: hydrated,
+                reposition: false,
+                allowEmpty: allowEmpty
+            )
+        }
+    }
+
+    private static func entriesNeedThumbnailRefresh(
+        _ before: [DockPreviewWindowEntry],
+        _ after: [DockPreviewWindowEntry]
+    ) -> Bool {
+        guard before.count == after.count else { return true }
+        for (lhs, rhs) in zip(before, after) {
+            if lhs.id != rhs.id { return true }
+            let hadThumb = lhs.thumbnail != nil
+            let hasThumb = rhs.thumbnail != nil
+            if hadThumb != hasThumb { return true }
+        }
+        return false
+    }
+
+    private func applyMergePanel(
+        for pid: pid_t,
+        list: [DockPreviewWindowEntry],
+        reposition: Bool,
+        allowEmpty: Bool
+    ) {
         guard !list.isEmpty || panelController.state.embeddedContent != .none || allowEmpty else { return }
         if !panel.isVisible {
             panelController.state.dismissalAnchorDockItem = currentDockItemElement
+            refreshScope.setPanelVisible(true)
+            syncPointerMoveMonitoring()
         }
         if !panel.isVisible {
             dockAutoHide.preventHidingIfNeeded(settings: settings)
             DockPreviewWorklog.log("panel.show", fields: [
                 "pid": pid,
                 "windows": list.count,
-                "mode": String(describing: DockPreviewPermissionGate.currentMode(settings: settings)),
+                "mode": String(describing: DockPreviewPermissionGate.currentMode(settings: settings, hub: hubSettings)),
             ])
         }
-        let mode = DockPreviewPermissionGate.currentMode(settings: settings)
+        let mode = DockPreviewPermissionGate.currentMode(settings: settings, hub: hubSettings)
+        let liveEnabled = settings.enableLivePreview && hubSettings.master.enableDockPreviews
         let anchor = settings.anchorToDockIcon ? placementAnchorRect : .zero
         let presentation = DockPreviewPanelPresentation(
             appIcon: currentAppIcon,
@@ -697,7 +978,7 @@ final class DockPreviewCoordinator {
             mode: mode,
             anchorRect: anchor,
             dockEdge: DockPreviewDockPosition.currentEdge(),
-            enableLivePreview: settings.enableLivePreview,
+            enableLivePreview: liveEnabled,
             embeddedContent: panelController.state.embeddedContent
         )
         let placementKey = currentDockItemToken ?? 0
@@ -716,41 +997,31 @@ final class DockPreviewCoordinator {
                 }
             }
         )
-        if settings.enableLivePreview, mode == .fullPreview {
+        if liveEnabled, mode == .fullPreview {
             let liveIDs = list.filter { !$0.title.isEmpty }.map(\.id)
-            liveCapture.setActiveWindowIDs(liveIDs, settings: settings)
+            liveCapture.setActiveWindowIDs(
+                liveIDs,
+                hub: hubSettings,
+                context: .dockHover,
+                enabled: true
+            )
+        } else {
+            liveCapture.stopAll()
         }
     }
 
     private func captureThumbnailsIfNeeded(for pid: pid_t, entries: [DockPreviewWindowEntry]) {
-        guard DockPreviewPermissionGate.currentMode(settings: settings) == .fullPreview else { return }
-        for entry in entries where !entry.title.isEmpty {
-            if let cached = thumbnailCache.get(windowID: entry.id) {
-                cache.setThumbnail(cached, windowID: entry.id, pid: pid)
-                continue
+        guard DockPreviewPermissionGate.shouldCaptureWindowImages(hub: hubSettings) else { return }
+        guard !capturePipeline.isDisplayCacheFresh(pid: pid) else { return }
+        _ = entries
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.capturePipeline.attachThumbnails(pid: pid)
+            if !self.settings.enableLivePreview {
+                await self.capturePipeline.seedLiveSnapshotsForMissingThumbnails(pid: pid, maxCaptures: 3)
             }
-            thumbnailTasks[entry.id]?.cancel()
-            thumbnailTasks[entry.id] = Task { @MainActor [weak self] in
-                guard let self, self.currentPID == pid else { return }
-                let scale = CGFloat(self.settings.thumbnailScale)
-                if let thumb = await self.thumbnailService.capture(windowID: entry.id, scale: max(1, scale)) {
-                    guard self.currentPID == pid else { return }
-                    self.thumbnailCache.set(windowID: entry.id, image: thumb)
-                    self.cache.setThumbnail(thumb, windowID: entry.id, pid: pid)
-                    self.mergePanel(
-                        for: pid,
-                        entries: self.cache.readCached(pid: pid),
-                        reposition: false
-                    )
-                }
-            }
-        }
-    }
-
-    private func cancelThumbnailTasks(except keep: Set<CGWindowID> = []) {
-        for (windowID, task) in thumbnailTasks where !keep.contains(windowID) {
-            task.cancel()
-            thumbnailTasks.removeValue(forKey: windowID)
+            guard self.currentPID == pid else { return }
+            self.mergePanel(for: pid, reposition: false)
         }
     }
 
@@ -776,8 +1047,11 @@ final class DockPreviewCoordinator {
     }
 
     private func presentFolderPreview(info: DockHoverTarget.FolderHoverInfo) {
-        guard settings.enableFolderWidget else { return }
+        guard hubSettings.widgets.enableDockItemWidgets, settings.enableFolderWidget else { return }
+        let folderURL = DockFolderWidgetBookmarkStore.accessibleURL(for: info.url) ?? info.url
         dockAutoHide.preventHidingIfNeeded(settings: settings)
+        refreshScope.setPanelVisible(true)
+        syncPointerMoveMonitoring()
         let presentation = DockPreviewPanelPresentation(
             appIcon: nil,
             appName: info.title,
@@ -786,7 +1060,7 @@ final class DockPreviewCoordinator {
             anchorRect: placementAnchorRect,
             dockEdge: DockPreviewDockPosition.currentEdge(),
             enableLivePreview: false,
-            embeddedContent: .folder(title: info.title, url: info.url)
+            embeddedContent: .folder(title: info.title, url: folderURL)
         )
         panelController.present(
             presentation: presentation,
@@ -805,4 +1079,5 @@ final class DockPreviewCoordinator {
         keyDown?.post(tap: .cghidEventTap)
         keyUp?.post(tap: .cghidEventTap)
     }
+
 }

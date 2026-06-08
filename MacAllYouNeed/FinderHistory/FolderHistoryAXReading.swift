@@ -12,20 +12,36 @@ protocol FolderHistoryAXReader: Sendable {
 /// then kAXURLAttribute as a fallback for modern macOS Finder variants.
 struct SystemFolderHistoryAXReader: FolderHistoryAXReader {
     func documentPath(for windowElement: AXUIElement) -> String? {
-        // kAXDocumentAttribute returns a file URL string on most Finder windows.
         var value: CFTypeRef?
         if AXUIElementCopyAttributeValue(windowElement, kAXDocumentAttribute as CFString, &value) == .success,
-           let raw = value as? String,
-           let normalized = FolderPathNormalizer.normalize(raw) {
+           let normalized = Self.normalizedPath(from: value)
+        {
             return normalized
         }
-        // Fallback: some modern macOS Finder windows expose kAXURLAttribute instead.
-        if AXUIElementCopyAttributeValue(windowElement, kAXURLAttribute as CFString, &value) == .success {
-            if let url = value as? URL {
-                return FolderPathNormalizer.normalize(url.absoluteString)
-            }
-            if let raw = value as? String {
-                return FolderPathNormalizer.normalize(raw)
+        value = nil
+        if AXUIElementCopyAttributeValue(windowElement, kAXURLAttribute as CFString, &value) == .success,
+           let normalized = Self.normalizedPath(from: value)
+        {
+            return normalized
+        }
+        return nil
+    }
+
+    private static func normalizedPath(from value: CFTypeRef?) -> String? {
+        guard let value else { return nil }
+        if let raw = value as? String {
+            return FolderPathNormalizer.normalize(raw)
+        }
+        if let url = value as? URL {
+            return FolderPathNormalizer.normalize(url.path)
+        }
+        if let url = value as? NSURL, let path = url.path {
+            return FolderPathNormalizer.normalize(path)
+        }
+        if CFGetTypeID(value) == CFURLGetTypeID() {
+            let cfURL = value as! CFURL // swiftlint:disable:this force_cast
+            if let path = CFURLCopyFileSystemPath(cfURL, .cfurlposixPathStyle) as String? {
+                return FolderPathNormalizer.normalize(path)
             }
         }
         return nil

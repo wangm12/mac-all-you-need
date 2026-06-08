@@ -147,13 +147,12 @@ struct ClipboardPopoverView: View {
                 let store = reader.store
                 let initialIDs = Array(reader.selectedIDs)
 
-                // Briefly tell the daemon to stop capturing. The daemon checks
-                // `captureSuspendUntil` at the start of every poll callback —
-                // this prevents ANY re-capture during the 2s window, regardless
-                // of whether something (CleanShot, etc.) re-asserts pasteboard
-                // ownership. Same mechanism the "Pause 60s" feature uses.
-                let until = Date().addingTimeInterval(2.0).timeIntervalSince1970
+                // Tell the daemon to stop capturing for the same window the
+                // reader uses to suppress re-captured previews.
+                let until = Date().addingTimeInterval(LocalClipboardReader.deleteSuppressionWindow)
+                    .timeIntervalSince1970
                 AppGroupSettings.defaults.set(until, forKey: "captureSuspendUntil")
+                reader.startRewriteSuppression()
 
                 // Expand to include all sibling records from the same copy
                 // event (within 2.0s). The daemon writes one record per
@@ -174,6 +173,9 @@ struct ClipboardPopoverView: View {
                     guard let store else { return }
                     for idStr in idsToDelete {
                         guard let rid = RecordID(rawValue: idStr) else { continue }
+                        if let preview = reader.items.first(where: { $0.id.rawValue == idStr })?.preview {
+                            reader.markDeleted(preview: preview)
+                        }
                         if let body = try? store.body(for: rid),
                            case let .image(blobID, _, _) = body {
                             try? blobs.delete(id: blobID)

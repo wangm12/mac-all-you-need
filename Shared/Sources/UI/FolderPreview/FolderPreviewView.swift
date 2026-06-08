@@ -120,7 +120,7 @@ public struct FolderPreviewView: View {
             let includeHidden = AppGroupSettings.defaults.bool(forKey: "folderPreviewIncludeHidden")
             let cascade = FolderPreviewSettings.cascadeEnabled()
             do {
-                let inv = try await FolderEnumerator.enumerate(
+                let inv = try await FolderPreviewListing.enumerate(
                     url: currentURL,
                     maxEntries: maxEntries == 0 ? 50000 : maxEntries,
                     includeHidden: includeHidden,

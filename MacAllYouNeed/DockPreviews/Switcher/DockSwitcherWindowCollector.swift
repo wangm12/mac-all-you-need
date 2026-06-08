@@ -34,7 +34,7 @@ enum DockSwitcherWindowCollector {
 
     static func refreshParallel(
         cache: DockPreviewWindowCache,
-        enumerator: any WindowEnumerating,
+        pipeline: DockPreviewWindowCapturePipeline,
         hub: DockHubSettings
     ) async -> [DockPreviewWindowEntry] {
         let previewSettings = previewSettings(from: hub)
@@ -53,17 +53,13 @@ enum DockSwitcherWindowCollector {
         await withTaskGroup(of: (pid_t, [DockPreviewWindowEntry]).self) { group in
             for app in eligible {
                 let pid = app.processIdentifier
-                group.addTask {
-                    let entries = await enumerator.windows(
-                        for: pid,
-                        settings: previewSettings,
-                        bundleIdentifier: app.bundleIdentifier
-                    )
-                    return (pid, entries)
+                let bundleID = app.bundleIdentifier
+                group.addTask { @MainActor in
+                    await pipeline.refreshApp(pid: pid, bundleIdentifier: bundleID)
+                    return (pid, cache.readCached(pid: pid))
                 }
             }
             for await (pid, entries) in group {
-                _ = cache.update(entries: entries, for: pid)
                 guard let app = appByPID[pid] else { continue }
                 let filtered = windowsForSwitcher(
                     entries,

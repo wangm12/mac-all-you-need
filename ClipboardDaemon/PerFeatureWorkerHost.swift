@@ -6,23 +6,20 @@ import Platform
 ///
 /// Currently only `.clipboard` has daemon-side workers:
 /// - `PasteboardObserver` — polls NSPasteboard for changes.
-/// - `SnippetExpander` — expands snippet triggers via CGEventTap.
+/// Snippet expansion runs in the main app (needs its Accessibility permission).
 ///
 /// `.downloader`, `.folderPreview`, `.voice`, `.windowLayouts`, and `.windowGrab`
 /// have no daemon-side workers (the DispatchServer and Window Control live in the main app).
 final class PerFeatureWorkerHost {
     private let observer: PasteboardObserver
-    private let expander: SnippetExpander
-
     /// Called when the pasteboard observer detects a change.
     /// Must be set before `startWorkers(for: .clipboard)` is called.
     var onPasteboardChange: ((PasteboardChange) -> Void)?
 
     private var clipboardRunning = false
 
-    init(observer: PasteboardObserver, expander: SnippetExpander) {
+    init(observer: PasteboardObserver) {
         self.observer = observer
-        self.expander = expander
     }
 
     /// Idempotent. Starts workers for the given feature if not already running.
@@ -33,7 +30,6 @@ final class PerFeatureWorkerHost {
             if let cb = onPasteboardChange {
                 observer.start(callback: cb)
             }
-            expander.start()
             clipboardRunning = true
         case .downloader, .folderPreview, .voice, .windowLayouts, .windowGrab,
              .clipboardSmartText, .folderHistory, .voiceReminders, .aiFileOrganizer, .dockPreviews:
@@ -47,7 +43,6 @@ final class PerFeatureWorkerHost {
         case .clipboard:
             guard clipboardRunning else { return }
             observer.stop()
-            expander.stop()
             clipboardRunning = false
         case .downloader, .folderPreview, .voice, .windowLayouts, .windowGrab,
              .clipboardSmartText, .folderHistory, .voiceReminders, .aiFileOrganizer, .dockPreviews:

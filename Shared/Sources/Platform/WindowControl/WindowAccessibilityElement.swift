@@ -75,6 +75,17 @@ public final class WindowAccessibilityElement: WindowTargetElement {
         return true
     }
 
+    /// Tie-breaker when multiple AX windows match one CGWindow (Finder, Notes, iTerm).
+    public var windowTargetSelectionPriority: Int {
+        guard role == "AXWindow" else { return 0 }
+        switch subrole {
+        case "AXStandardWindow": return 100
+        case "AXDocumentWindow": return 90
+        case "AXDialog": return 40
+        default: return 10
+        }
+    }
+
     public var enhancedUserInterfaceEnabled: Bool? {
         boolAttribute("AXEnhancedUserInterface" as CFString)
     }

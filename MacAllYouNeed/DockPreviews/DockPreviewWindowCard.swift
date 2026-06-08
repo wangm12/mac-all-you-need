@@ -18,6 +18,7 @@ struct DockPreviewWindowCard: View, Equatable {
     let onSelect: () -> Void
     let onClose: () -> Void
     let onHoverIndex: (Bool) -> Void
+    var middleClickAction: DockMiddleClickAction = .none
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.entry.id == rhs.entry.id
@@ -30,11 +31,25 @@ struct DockPreviewWindowCard: View, Equatable {
     @State private var isHovered = false
 
     private var isLoadingPlaceholder: Bool { entry.title.isEmpty }
+
+    /// Minimized / off-screen windows cannot be live-captured or reliably snapshotted — do not spin forever.
+    private var isInactiveForPreview: Bool {
+        (entry.isMinimized || entry.isHidden) && appearance.showMinimizedHiddenLabels
+    }
     private var isAwaitingThumbnail: Bool {
         !isLoadingPlaceholder
+            && !isInactiveForPreview
             && entry.thumbnail == nil
             && liveImage == nil
             && mode == .fullPreview
+    }
+    /// Keep a dimmed snapshot visible under the minimized/hidden eye-slash overlay.
+    private var inactiveBackdropOpacity: Double {
+        guard isInactiveForPreview else { return 1 }
+        if entry.thumbnail != nil || liveImage != nil {
+            return max(appearance.unselectedOpacity, 0.88)
+        }
+        return appearance.unselectedOpacity
     }
     private var showAsSelected: Bool {
         isWindowSwitcher ? (isSelected || isHovered) : isHovered
@@ -71,6 +86,9 @@ struct DockPreviewWindowCard: View, Equatable {
             .dockPreviewWindowInteractions(
                 onSelect: onSelect,
                 onClose: onClose,
+                onMiddleClick: middleClickAction == .none ? nil : { item in
+                    DockPreviewInteractionGestures.handleMiddleClick(action: middleClickAction, entry: item)
+                },
                 enableFullSizeOnHover: appearance.allowsFullSizeHoverPreview,
                 enableWindowDrag: enableWindowDrag,
                 entry: entry,
@@ -142,7 +160,6 @@ struct DockPreviewWindowCard: View, Equatable {
 
     @ViewBuilder
     private func windowContent(isSelected: Bool) -> some View {
-        let inactive = (entry.isMinimized || entry.isHidden) && appearance.showMinimizedHiddenLabels
         Group {
             if isLoadingPlaceholder {
                 ZStack {
@@ -162,6 +179,13 @@ struct DockPreviewWindowCard: View, Equatable {
                     Color.primary.opacity(0.06)
                     ProgressView().controlSize(.small)
                 }
+            } else if isInactiveForPreview {
+                ZStack {
+                    Color.primary.opacity(0.08)
+                    Image(systemName: "macwindow")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.tertiary)
+                }
             } else {
                 ZStack {
                     Color.primary.opacity(0.08)
@@ -172,11 +196,11 @@ struct DockPreviewWindowCard: View, Equatable {
             }
         }
         .dockPreviewMarkHidden(
-            isHidden: inactive || (isWindowSwitcher && !isSelected),
-            unselectedOpacity: appearance.unselectedOpacity
+            isHidden: isInactiveForPreview || (isWindowSwitcher && !isSelected),
+            unselectedOpacity: isInactiveForPreview ? inactiveBackdropOpacity : appearance.unselectedOpacity
         )
         .overlay {
-            if inactive {
+            if isInactiveForPreview {
                 Image(systemName: "eye.slash")
                     .font(.largeTitle)
                     .foregroundStyle(.primary)
@@ -184,7 +208,7 @@ struct DockPreviewWindowCard: View, Equatable {
                     .transition(.opacity)
             }
         }
-        .animation(appearance.showAnimations ? MAYNMotion.hoverAnimation(reduceMotion: reduceMotion) : nil, value: inactive)
+        .animation(appearance.showAnimations ? MAYNMotion.hoverAnimation(reduceMotion: reduceMotion) : nil, value: isInactiveForPreview)
         .clipShape(RoundedRectangle(cornerRadius: imageCornerRadius, style: .continuous))
         .opacity(isSelected ? 1 : appearance.unselectedOpacity)
     }

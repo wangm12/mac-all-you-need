@@ -45,6 +45,18 @@ final class DockGestureController {
         runLoopSource = nil
     }
 
+    /// Reinstalls the event tap when macOS disables it after long uptime or wake (DockDoor health check).
+    func recoverEventTapIfNeeded() {
+        let needsTap = hubSettings.gestures.enableDockScrollGesture
+            || hubSettings.gestures.enableTitleBarScrollGesture
+            || hubSettings.interaction.hideAllOnDockClick
+            || hubSettings.interaction.enableCmdRightClickQuit
+        guard needsTap, AXIsProcessTrusted() else { return }
+        if let eventTap, CGEvent.tapIsEnabled(tap: eventTap) { return }
+        stop()
+        installEventTap()
+    }
+
     func noteHoverBegan(pid: pid_t) {
         lastHoveredPID = pid
         lastHoveredWasFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
@@ -69,7 +81,7 @@ final class DockGestureController {
             callback: { _, type, event, refcon in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 let controller = Unmanaged<DockGestureController>.fromOpaque(refcon).takeUnretainedValue()
-                return controller.handleEvent(type: type, event: event)
+                return controller.handleCGEvent(type: type, event: event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else { return }
@@ -80,6 +92,23 @@ final class DockGestureController {
             CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
         CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    /// Event tap is installed on the main run loop; hop onto MainActor before touching state.
+    private nonisolated func handleCGEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                handleEvent(type: type, event: event)
+            }
+        }
+        var result: Unmanaged<CGEvent>?
+        DispatchQueue.main.sync { [weak self] in
+            guard let self else { return }
+            result = MainActor.assumeIsolated {
+                self.handleEvent(type: type, event: event)
+            }
+        }
+        return result ?? Unmanaged.passUnretained(event)
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {

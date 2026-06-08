@@ -260,6 +260,7 @@ final class DockWindowController {
     }
 
     func hide() {
+        model.prepareForDismiss()
         PreviewPanel.dismiss()
         ClipboardSystemQuickLookCoordinator.shared.dismiss()
         model.isQuickLooking = false

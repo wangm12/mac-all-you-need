@@ -138,8 +138,15 @@ struct DockSettingsTabPreviews: View {
                 MAYNDropdown(selection: settings.value(\.advanced.windowImageCaptureQuality), options: DockWindowImageCaptureQuality.allCases) { $0.displayName }
             }
             MAYNDivider()
-            MAYNSettingsRow(title: "Thumbnail cache lifespan", subtitle: "Reuse captured thumbnails within this window.") {
-                MAYNNumericStepper(text: "Cache", value: settings.int(\.previews.thumbnailCacheLifespanSec), range: 5...120, step: 5, presets: [10, 30, 60], suffix: "sec")
+            MAYNSettingsRow(title: "Window image cache lifespan", subtitle: "Reuse captured thumbnails within this window (DockDoor screen capture cache).") {
+                MAYNNumericStepper(
+                    text: "Cache",
+                    value: settings.roundedInt(from: \.advanced.screenCaptureCacheLifespan),
+                    range: 0...60,
+                    step: 10,
+                    presets: [0, 10, 30, 60],
+                    suffix: "sec"
+                )
             }
             MAYNDivider()
             MAYNSettingsRow(title: "Thumbnail scale", subtitle: "Capture resolution multiplier (1×–4×).") {

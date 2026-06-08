@@ -48,7 +48,14 @@ extension VoiceCoordinator {
         generation: Int
     ) async throws {
         let phase = ReminderWritePhase(writer: writer, settings: reminderSettings)
-        let created = try await phase.execute(cleanedText: cleanedText)
+        let created: CreatedReminder
+        if let remindersWorker {
+            created = try await remindersWorker.performWrite {
+                try await phase.execute(cleanedText: cleanedText)
+            }
+        } else {
+            created = try await phase.execute(cleanedText: cleanedText)
+        }
         lastCreatedReminder = created
         log.info("reminder written — list: \(created.listName, privacy: .public) hasDue: \(created.dueDate != nil, privacy: .public)")
         NotificationCenter.default.post(name: .voiceReminderCreated, object: created)

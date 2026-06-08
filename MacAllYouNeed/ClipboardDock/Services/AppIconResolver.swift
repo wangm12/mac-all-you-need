@@ -17,6 +17,14 @@ final class AppIconResolver {
         return icon
     }
 
+    /// Resolves icons and display names for unique bundle IDs before building dock rows.
+    func prefetch(bundleIDs: [String]) {
+        for id in Set(bundleIDs) where !id.isEmpty {
+            _ = icon(for: id)
+            _ = displayName(for: id)
+        }
+    }
+
     func displayName(for bundleID: String) -> String {
         if let cached = nameCache[bundleID] { return cached }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),

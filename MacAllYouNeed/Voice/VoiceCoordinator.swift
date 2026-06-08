@@ -66,6 +66,7 @@ final class VoiceCoordinator {
     /// path is unchanged when `activeIntent == .dictation`.
     var activeIntent: VoiceIntent = .dictation
     var reminderWriterOverride: (any RemindersWriter)?
+    var remindersWorker: RemindersFeatureWorker?
     let reminderSettings: () -> ReminderSettings
     /// The reminder created on the most recent `.reminder` run, for UI/tests.
     var lastCreatedReminder: CreatedReminder?
@@ -444,6 +445,7 @@ final class VoiceCoordinator {
     func undoLastCancel() async {
         guard let undo = undoBookkeeping.consumePendingUndo() else { return }
         cancelUndoExpiration()
+        activeIntent = .dictation
         log.info("undoLastCancel — replay (asrPreset: \(undo.asrResult != nil, privacy: .public) age: \(Int(Date().timeIntervalSince(undo.cancelledAt) * 1000), privacy: .public)ms)")
         await processCapturedAudio(
             captured: undo.captured,
@@ -483,6 +485,7 @@ final class VoiceCoordinator {
         let savedAppBundleID = undoBookkeeping.inflightAppBundleID
 
         operationGeneration += 1
+        activeIntent = .dictation
         levelTask?.cancel()
         levelTask = nil
         monitorTask?.cancel()

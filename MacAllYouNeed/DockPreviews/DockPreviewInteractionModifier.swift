@@ -5,6 +5,7 @@ import SwiftUI
 struct DockPreviewWindowInteractionsModifier: ViewModifier {
     let onSelect: () -> Void
     let onClose: () -> Void
+    let onMiddleClick: ((DockPreviewWindowEntry) -> Void)?
     let enableFullSizeOnHover: Bool
     let enableWindowDrag: Bool
     let entry: DockPreviewWindowEntry
@@ -16,6 +17,10 @@ struct DockPreviewWindowInteractionsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .background(
+                DockPreviewMiddleClickMonitor(entry: entry, onMiddleClick: onMiddleClick)
+                    .frame(width: 0, height: 0)
+            )
             .gesture(windowDragGesture)
             .onTapGesture {
                 cancelFullPreviewTimer()
@@ -49,7 +54,7 @@ struct DockPreviewWindowInteractionsModifier: ViewModifier {
             .onEnded { _ in
                 guard isDragging else { return }
                 isDragging = false
-                DockDragPreviewCoordinator.shared.endDragging()
+                DockDragPreviewCoordinator.shared.endDragging(entry: entry)
             }
     }
 
@@ -72,10 +77,34 @@ struct DockPreviewWindowInteractionsModifier: ViewModifier {
     }
 }
 
+private struct DockPreviewMiddleClickMonitor: NSViewRepresentable {
+    let entry: DockPreviewWindowEntry
+    let onMiddleClick: ((DockPreviewWindowEntry) -> Void)?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = MiddleClickView()
+        view.onMiddleClick = { onMiddleClick?(entry) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? MiddleClickView)?.onMiddleClick = { onMiddleClick?(entry) }
+    }
+
+    final class MiddleClickView: NSView {
+        var onMiddleClick: (() -> Void)?
+        override func otherMouseDown(with event: NSEvent) {
+            if event.buttonNumber == 2 { onMiddleClick?() }
+            super.otherMouseDown(with: event)
+        }
+    }
+}
+
 extension View {
     func dockPreviewWindowInteractions(
         onSelect: @escaping () -> Void,
         onClose: @escaping () -> Void,
+        onMiddleClick: ((DockPreviewWindowEntry) -> Void)? = nil,
         enableFullSizeOnHover: Bool,
         enableWindowDrag: Bool = false,
         entry: DockPreviewWindowEntry,
@@ -85,6 +114,7 @@ extension View {
         modifier(DockPreviewWindowInteractionsModifier(
             onSelect: onSelect,
             onClose: onClose,
+            onMiddleClick: onMiddleClick,
             enableFullSizeOnHover: enableFullSizeOnHover,
             enableWindowDrag: enableWindowDrag,
             entry: entry,

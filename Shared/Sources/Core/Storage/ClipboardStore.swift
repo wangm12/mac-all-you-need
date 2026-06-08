@@ -179,8 +179,18 @@ public final class ClipboardStore {
     // Read/write helpers for the migration-008 columns (detected_type, ocr_text,
     // embedding) live in `ClipboardStore+SmartText.swift`.
 
-    public func list(limit: Int, offset: Int = 0, modifiedOnOrAfter: Date? = nil) throws -> [ClipboardItemMeta] {
-        try listRows(limit: limit, offset: offset, modifiedOnOrAfter: modifiedOnOrAfter)
+    public func list(
+        limit: Int,
+        offset: Int = 0,
+        modifiedOnOrAfter: Date? = nil,
+        structured: ClipboardHistoryStructuredFilter = ClipboardHistoryStructuredFilter()
+    ) throws -> [ClipboardItemMeta] {
+        try listRows(
+            limit: limit,
+            offset: offset,
+            modifiedOnOrAfter: modifiedOnOrAfter,
+            structured: structured
+        )
     }
 
     /// Binary overload keeps a stable symbol for older call sites (`list(limit:offset:)`).
@@ -188,24 +198,54 @@ public final class ClipboardStore {
         try listRows(limit: limit, offset: offset, modifiedOnOrAfter: nil)
     }
 
-    private func listRows(limit: Int, offset: Int, modifiedOnOrAfter: Date?) throws -> [ClipboardItemMeta] {
-        try db.queue.read { conn in
-            if let modifiedOnOrAfter {
-                let ms = Int(modifiedOnOrAfter.timeIntervalSince1970 * 1000)
-                return try Row.fetchAll(conn, sql: """
-                    SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
-                           frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
-                    FROM clipboard_records
-                    WHERE modified >= ?
-                    ORDER BY modified DESC, lamport DESC LIMIT ? OFFSET ?
-                    """, arguments: [ms, limit, max(0, offset)]).map(Self.metaRow)
-            }
-            return try Row.fetchAll(conn, sql: """
-                SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
-                       frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
-                FROM clipboard_records ORDER BY modified DESC, lamport DESC LIMIT ? OFFSET ?
-                """, arguments: [limit, max(0, offset)]).map(Self.metaRow)
+    private func listRows(
+        limit: Int,
+        offset: Int,
+        modifiedOnOrAfter: Date?,
+        structured: ClipboardHistoryStructuredFilter = ClipboardHistoryStructuredFilter()
+    ) throws -> [ClipboardItemMeta] {
+        let (whereSQL, whereArgs) = Self.structuredWhereSQL(
+            structured: structured,
+            modifiedOnOrAfter: modifiedOnOrAfter
+        )
+        let select = """
+            SELECT id, created, modified, device_id, lamport, kind, preview, source_app,
+                   frequency, last_accessed, custom_label, detected_type, ocr_text, embedding
+            FROM clipboard_records\(whereSQL)
+            ORDER BY modified DESC, lamport DESC LIMIT ? OFFSET ?
+            """
+        var args = whereArgs
+        args.append(limit)
+        args.append(max(0, offset))
+        return try db.queue.read { conn in
+            try Row.fetchAll(conn, sql: select, arguments: StatementArguments(args)).map(Self.metaRow)
         }
+    }
+
+    private static func structuredWhereSQL(
+        structured: ClipboardHistoryStructuredFilter,
+        modifiedOnOrAfter: Date?
+    ) -> (sql: String, arguments: [DatabaseValueConvertible]) {
+        var clauses: [String] = []
+        var arguments: [DatabaseValueConvertible] = []
+        let cutoff = structured.modifiedOnOrAfter ?? modifiedOnOrAfter
+        if let cutoff {
+            clauses.append("modified >= ?")
+            arguments.append(Int(cutoff.timeIntervalSince1970 * 1000))
+        }
+        if !structured.appIncludes.isEmpty {
+            let parts = structured.appIncludes.map { _ in "LOWER(COALESCE(source_app, '')) LIKE ?" }
+            clauses.append("(\(parts.joined(separator: " OR ")))")
+            for app in structured.appIncludes {
+                arguments.append("%\(app.lowercased())%")
+            }
+        }
+        for app in structured.appExcludes {
+            clauses.append("(source_app IS NULL OR LOWER(source_app) NOT LIKE ?)")
+            arguments.append("%\(app.lowercased())%")
+        }
+        guard !clauses.isEmpty else { return ("", arguments) }
+        return (" WHERE \(clauses.joined(separator: " AND "))", arguments)
     }
 
     public func metas(for ids: [RecordID]) throws -> [ClipboardItemMeta] {

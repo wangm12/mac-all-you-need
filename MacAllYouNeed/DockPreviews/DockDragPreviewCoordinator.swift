@@ -56,10 +56,16 @@ final class DockDragPreviewCoordinator {
         window.setFrame(frame, display: true)
     }
 
-    func endDragging() {
+    func endDragging(entry: DockPreviewWindowEntry? = nil) {
         previewWindow?.orderOut(nil)
         previewWindow = nil
         dragStartLocation = nil
         initialFrame = nil
+        if let entry {
+            Task {
+                await DockPreviewRaiseService(enumerator: SystemWindowEnumerator())
+                    .raise(entry: entry, settings: DockHubSettingsStore.loadPreviews())
+            }
+        }
     }
 }

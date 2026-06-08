@@ -9,14 +9,17 @@ final class FolderHistoryRecorderTests: XCTestCase {
     }
 
     @MainActor
-    private func makeRecorder(store: FolderHistoryStore, exclusions: Set<String> = []) -> FolderHistoryRecorder {
+    private func makeRecorder(
+        store: FolderHistoryStore,
+        settings: FolderHistorySettings = .default
+    ) -> FolderHistoryRecorder {
         let engine = SystemAXObserverEngine()
         let coordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 999)
         return FolderHistoryRecorder(
             store: store,
             coordinator: coordinator,
             axReader: SystemFolderHistoryAXReader(),
-            exclusions: { exclusions }
+            settings: { settings }
         )
     }
 
@@ -44,8 +47,20 @@ final class FolderHistoryRecorderTests: XCTestCase {
     @MainActor
     func testSkipsExcludedPath() throws {
         let store = try FolderHistoryStore(url: temporaryURL())
-        let recorder = makeRecorder(store: store, exclusions: ["/Users/me/Secret"])
+        var settings = FolderHistorySettings.default
+        settings.excludedPaths = ["/Users/me/Secret"]
+        let recorder = makeRecorder(store: store, settings: settings)
         recorder.record(path: "/Users/me/Secret")
+        XCTAssertEqual(try store.list(limit: 10).count, 0)
+    }
+
+    @MainActor
+    func testRespectsPause() throws {
+        let store = try FolderHistoryStore(url: temporaryURL())
+        var settings = FolderHistorySettings.default
+        settings.isPaused = true
+        let recorder = makeRecorder(store: store, settings: settings)
+        recorder.record(path: "/Users/me/Documents")
         XCTAssertEqual(try store.list(limit: 10).count, 0)
     }
 }

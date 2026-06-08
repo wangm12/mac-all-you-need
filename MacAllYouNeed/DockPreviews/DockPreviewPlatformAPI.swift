@@ -29,6 +29,49 @@ private func dockPreviewCoreDockGetAutoHideEnabled() -> Bool
 @_silgen_name("CoreDockSetAutoHideEnabled")
 private func dockPreviewCoreDockSetAutoHideEnabled(_ flag: Bool)
 
+@_silgen_name("CoreDockIsMagnificationEnabled")
+private func dockPreviewCoreDockIsMagnificationEnabled() -> Bool
+
+@_silgen_name("CoreDockSetMagnificationEnabled")
+private func dockPreviewCoreDockSetMagnificationEnabled(_ flag: Bool)
+
+@_silgen_name("CoreDockGetOrientationAndPinning")
+private func dockPreviewCoreDockGetOrientationAndPinning(
+    _ outOrientation: UnsafeMutablePointer<Int32>,
+    _ outPinning: UnsafeMutablePointer<Int32>
+)
+
+/// Dock geometry from CoreDock + screen frames (DockDoor `DockUtils.getDockSize`).
+enum DockPreviewDockMetrics {
+    static func dockEdge() -> DockPreviewPanelGeometry.DockEdge {
+        var orientation: Int32 = 0
+        var pinning: Int32 = 0
+        dockPreviewCoreDockGetOrientationAndPinning(&orientation, &pinning)
+        switch orientation {
+        case 3: return .left
+        case 4: return .right
+        default: return .bottom
+        }
+    }
+
+    static func dockSize(on screen: NSScreen) -> CGFloat {
+        let edge = dockEdge()
+        switch edge {
+        case .right:
+            return screen.frame.maxX - screen.visibleFrame.maxX
+        case .left:
+            return screen.visibleFrame.minX - screen.frame.minX
+        case .bottom:
+            return screen.visibleFrame.minY - screen.frame.minY
+        }
+    }
+
+    /// Largest dock inset across displays (avoids `NSScreen.main` returning zero on a non-dock screen).
+    static func maximumDockSize() -> CGFloat {
+        NSScreen.screens.map { dockSize(on: $0) }.max() ?? 0
+    }
+}
+
 enum DockPreviewSpaceQuery {
     static func activeSpaceIDs() -> Set<Int> {
         let connection = dockPreviewCGSMainConnectionID()
@@ -85,24 +128,46 @@ enum DockPreviewSpaceQuery {
 enum DockPreviewDockVisibility {
     /// False when the frontmost app is fullscreen (Dock is hidden) or the Dock has zero thickness.
     static func isDockVisible() -> Bool {
+        suppressionDetail() == nil
+    }
+
+    /// Worklog detail when `isDockVisible()` is false.
+    static func suppressionDetail() -> String? {
+        if DockPreviewDockPosition.isMouseInDockRegion(padding: 48) {
+            return nil
+        }
         if let frontmost = NSWorkspace.shared.frontmostApplication,
            DockPreviewFullscreenDetection.isAppFullscreen(frontmost)
         {
-            return false
+            return "frontmostFullscreen:\(frontmost.bundleIdentifier ?? frontmost.localizedName ?? "?")"
         }
-        return estimatedDockThickness() > 0
+        let dockSize = DockPreviewDockMetrics.maximumDockSize()
+        if dockSize <= 0 {
+            return "dockSizeZero"
+        }
+        return nil
+    }
+}
+
+enum DockPreviewDockMagnification {
+    static func isEnabled() -> Bool {
+        dockPreviewCoreDockIsMagnificationEnabled()
     }
 
-    private static func estimatedDockThickness() -> CGFloat {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return 0 }
-        let edge = DockPreviewDockPosition.currentEdge()
-        switch edge {
-        case .bottom:
-            return screen.visibleFrame.minY - screen.frame.minY
-        case .left:
-            return screen.visibleFrame.minX - screen.frame.minX
-        case .right:
-            return screen.frame.maxX - screen.visibleFrame.maxX
+    /// Persists in macOS Dock settings (CoreDock API).
+    static func setEnabled(_ enabled: Bool) {
+        dockPreviewCoreDockSetMagnificationEnabled(enabled)
+    }
+
+    static func openSystemSettings() {
+        let candidates = [
+            "x-apple.systempreferences:com.apple.Dock-settings.extension",
+            "x-apple.systempreferences:com.apple.preference.dock",
+        ]
+        for raw in candidates {
+            if let url = URL(string: raw), NSWorkspace.shared.open(url) {
+                return
+            }
         }
     }
 }

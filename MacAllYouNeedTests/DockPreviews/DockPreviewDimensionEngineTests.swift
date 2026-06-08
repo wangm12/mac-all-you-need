@@ -53,7 +53,8 @@ final class DockPreviewDimensionEngineTests: XCTestCase {
             windowCount: 1,
             dockEdge: .bottom,
             hasEmbedded: false,
-            isWindowSwitcher: false
+            isWindowSwitcher: false,
+            globalPaddingMultiplier: CGFloat(DockPreviewSettings.default.globalPaddingMultiplier)
         )
         XCTAssertGreaterThan(size.width, 0)
         XCTAssertGreaterThan(size.height, 0)

@@ -15,7 +15,7 @@ struct FolderHistoryMenuBarView: View {
                     .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
                     .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
             } else {
-                ForEach(rows.prefix(15)) { row in
+                ForEach(rows.prefix(FolderHistoryDisplayLimits.commandCenterCount)) { row in
                     Button {
                         FolderHistoryActions.open(path: row.path)
                     } label: {
@@ -32,6 +32,6 @@ struct FolderHistoryMenuBarView: View {
                 }
             }
         }
-        .task { rows = (try? store.list(limit: 15)) ?? [] }
+        .task { rows = (try? store.list(limit: FolderHistoryDisplayLimits.commandCenterCount)) ?? [] }
     }
 }

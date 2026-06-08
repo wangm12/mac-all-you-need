@@ -73,6 +73,13 @@ enum DockHubSettingsStore {
         h.switcher.scrollDirection = o.switcherScrollVertical ? .vertical : .horizontal
         h.switcher.ignoreScreenLimit = o.switcherIgnoreScreenLimit
 
+        if h.previews.thumbnailCacheLifespanSec != Int(DockAdvancedSettings.default.screenCaptureCacheLifespan) {
+            h.advanced.screenCaptureCacheLifespan = Double(h.previews.thumbnailCacheLifespanSec)
+        }
+
+        h.previews.enableFolderWidget = h.widgets.enableFolderWidget
+        h.previews.folderShowHiddenFiles = h.widgets.folderShowHiddenFiles
+
         return h
     }
 
@@ -150,6 +157,7 @@ enum DockHubSettingsStore {
         hub.previews.uniformCardRadius = a.uniformCardRadius
         hub.previews.hideHoverContainerBackground = a.hideHoverContainerBackground
         hub.previews.compactModeThreshold = a.dockPreviewCompactThreshold
+        hub.previews.thumbnailCacheLifespanSec = Int(hub.advanced.screenCaptureCacheLifespan.rounded())
 
         // AppearanceOptions fields
         hub.previews.appearanceOptions.controlPosition = a.controlPosition

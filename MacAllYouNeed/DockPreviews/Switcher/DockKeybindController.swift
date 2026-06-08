@@ -9,7 +9,10 @@ import Platform
 final class DockKeybindController {
     private weak var panelController: DockPreviewPanelController?
     private let windowCache: DockPreviewWindowCache
-    private let enumerator: any WindowEnumerating
+    private let capturePipeline: DockPreviewWindowCapturePipeline
+    private let hydrateEntries: ([DockPreviewWindowEntry]) async -> [DockPreviewWindowEntry]
+    private let onSwitcherSessionPIDs: ([pid_t]) -> Void
+    private let onDisplaySessionEnd: () -> Void
     private var hubSettings: DockHubSettings = .default
 
     private var eventTap: CFMachPort?
@@ -35,15 +38,22 @@ final class DockKeybindController {
     init(
         panelController: DockPreviewPanelController,
         windowCache: DockPreviewWindowCache,
-        enumerator: any WindowEnumerating = SystemWindowEnumerator()
+        capturePipeline: DockPreviewWindowCapturePipeline,
+        hydrateEntries: @escaping ([DockPreviewWindowEntry]) async -> [DockPreviewWindowEntry] = { $0 },
+        onSwitcherSessionPIDs: @escaping ([pid_t]) -> Void = { _ in },
+        onDisplaySessionEnd: @escaping () -> Void = {}
     ) {
         self.panelController = panelController
         self.windowCache = windowCache
-        self.enumerator = enumerator
+        self.capturePipeline = capturePipeline
+        self.hydrateEntries = hydrateEntries
+        self.onSwitcherSessionPIDs = onSwitcherSessionPIDs
+        self.onDisplaySessionEnd = onDisplaySessionEnd
     }
 
     func apply(settings: DockHubSettings) {
         hubSettings = settings
+        capturePipeline.reloadSettings(hub: settings)
         tapKeyCode = settings.switcher.shortcutKeyCode
         tapModifiers = settings.switcher.shortcutModifiers
         stopEventTap()
@@ -210,7 +220,7 @@ final class DockKeybindController {
                 guard let self else { return }
                 let collected = await DockSwitcherWindowCollector.refreshParallel(
                     cache: self.windowCache,
-                    enumerator: self.enumerator,
+                    pipeline: self.capturePipeline,
                     hub: self.hubSettings
                 )
                 guard !Task.isCancelled else { return }
@@ -235,7 +245,7 @@ final class DockKeybindController {
             guard let self else { return }
             let fresh = await DockSwitcherWindowCollector.refreshParallel(
                 cache: self.windowCache,
-                enumerator: self.enumerator,
+                pipeline: self.capturePipeline,
                 hub: self.hubSettings
             )
             guard !Task.isCancelled else { return }
@@ -245,7 +255,12 @@ final class DockKeybindController {
 
     private func finishSessionBootstrap(with collected: [DockPreviewWindowEntry]) {
         pendingSession = false
+        Task { @MainActor in
+            await self.finishSessionBootstrapAsync(with: collected)
+        }
+    }
 
+    private func finishSessionBootstrapAsync(with collected: [DockPreviewWindowEntry]) async {
         if shouldSelectImmediately {
             shouldSelectImmediately = false
             pendingTabCycles = 0
@@ -260,17 +275,20 @@ final class DockKeybindController {
 
         guard switcherModifierHeld, !collected.isEmpty else { return }
 
+        let display = await hydrateEntries(collected)
         if sessionActive {
-            entries = collected
-            panelController?.mergeSwitcherEntries(collected)
+            entries = display
+            onSwitcherSessionPIDs(display.map(\.pid).filter { $0 != 0 })
+            panelController?.mergeSwitcherEntries(display)
             applyPendingTabCycles()
         } else {
-            openSwitcherSession(with: collected)
+            openSwitcherSession(with: display)
         }
     }
 
     private func openSwitcherSession(with collected: [DockPreviewWindowEntry]) {
         entries = collected
+        onSwitcherSessionPIDs(collected.map(\.pid).filter { $0 != 0 })
         let startIndex = hubSettings.switcher.useClassicWindowOrdering && collected.count > 1 ? 1 : 0
         selectedIndex = startIndex
         sessionActive = true
@@ -309,6 +327,7 @@ final class DockKeybindController {
         entries = []
         panelController?.hideSearchWindow()
         panelController?.dismiss(animated: true)
+        onDisplaySessionEnd()
     }
 
     // MARK: - Selection
@@ -350,7 +369,7 @@ final class DockKeybindController {
         if collected.isEmpty {
             collected = await DockSwitcherWindowCollector.refreshParallel(
                 cache: windowCache,
-                enumerator: enumerator,
+                pipeline: capturePipeline,
                 hub: hubSettings
             )
         }

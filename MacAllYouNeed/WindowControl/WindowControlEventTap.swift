@@ -132,7 +132,13 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
     }
 
     func start() throws {
-        guard tapController == nil else { return }
+        if tapController != nil {
+            if case .error = stateMachine.state {
+                stop()
+            } else {
+                return
+            }
+        }
         stateMachine.start(enabled: runtime.anyRuntimeBehaviorEnabled, axTrusted: runtime.axTrusted)
 
         let includeRadialKeys = runtime.settings.radialMenuEnabled
@@ -190,6 +196,9 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
                 if stateMachine.isTapActive {
                     controller.reenableAfterTimeout()
                 }
+            } else if case .error = stateMachine.state {
+                tapController?.uninstall()
+                tapController = nil
             }
             return Unmanaged.passUnretained(event)
         }

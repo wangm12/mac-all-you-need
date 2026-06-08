@@ -5,6 +5,7 @@ struct DockSettingsTabCustomizations: View {
     @Binding var hub: DockHubSettings
     var onSettingsChanged: (() -> Void)?
     @State private var newWindowFilter = ""
+    @State private var newWidgetFilter = ""
 
     private var settings: DockSettingsHubBindings {
         DockSettingsHubBindings(hub: $hub, onSettingsChanged: onSettingsChanged)
@@ -655,6 +656,61 @@ struct DockSettingsTabCustomizations: View {
                         settings.persist()
                     }
                     .disabled(newWindowFilter.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Widget app filters", subtitle: "Hide media/calendar widgets for apps whose name or bundle ID contains these strings.") {
+                EmptyView()
+            }
+            ForEach(Array(hub.filters.widgetAppFilters.enumerated()), id: \.offset) { idx, filter in
+                MAYNDivider()
+                MAYNSettingsRow(title: filter, subtitle: nil) {
+                    MAYNButton("Remove", role: .destructive) {
+                        hub.filters.widgetAppFilters.remove(at: idx)
+                        settings.persist()
+                    }
+                }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Add widget filter", subtitle: nil) {
+                HStack(spacing: 8) {
+                    MAYNTextField(placeholder: "App name", text: $newWidgetFilter)
+                        .frame(width: 160)
+                    MAYNButton("Add") {
+                        let trimmed = newWidgetFilter.trimmingCharacters(in: .whitespaces)
+                        guard !trimmed.isEmpty else { return }
+                        hub.filters.widgetAppFilters.append(trimmed)
+                        newWidgetFilter = ""
+                        settings.persist()
+                    }
+                    .disabled(newWidgetFilter.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Custom application directories", subtitle: "Scan extra folders for applications (e.g. ~/Applications).") {
+                EmptyView()
+            }
+            ForEach(Array(hub.filters.customAppDirectories.enumerated()), id: \.offset) { idx, path in
+                MAYNDivider()
+                MAYNSettingsRow(title: path, subtitle: nil) {
+                    MAYNButton("Remove", role: .destructive) {
+                        hub.filters.customAppDirectories.remove(at: idx)
+                        settings.persist()
+                    }
+                }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Add application directory", subtitle: nil) {
+                MAYNButton("Choose folder…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.allowsMultipleSelection = false
+                    guard panel.runModal() == .OK, let url = panel.url else { return }
+                    let path = url.path
+                    guard !hub.filters.customAppDirectories.contains(path) else { return }
+                    hub.filters.customAppDirectories.append(path)
+                    settings.persist()
                 }
             }
         }

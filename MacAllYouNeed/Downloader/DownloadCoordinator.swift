@@ -29,6 +29,7 @@ final class DownloadCoordinator {
     let binaries: any BinaryLocator
     var dispatch: DispatchServer?
     private var destinationObserver: NSObjectProtocol?
+    private var metadataFetchTasks: [RecordID: Task<Void, Never>] = [:]
     private let log = Logging.logger(for: "downloader", category: "coordinator")
 
     init(binaries: any BinaryLocator) throws {
@@ -149,12 +150,14 @@ final class DownloadCoordinator {
     }
 
     func cancelDownload(id: RecordID) async {
+        cancelMetadataFetch(for: id)
         await queue.cancel(id)
         try? store.updateState(id: id, to: .failed)
         Self.postStateChanged(id: id, state: .failed)
     }
 
     func deleteDownload(id: RecordID) async {
+        cancelMetadataFetch(for: id)
         await queue.cancel(id)
         try? store.delete(id: id)
         Self.postStateChanged(id: id, state: .failed)
@@ -193,7 +196,11 @@ final class DownloadCoordinator {
             try store.insert(record)
             // Fire-and-forget: fetch metadata first, then start the download.
             // The record is visible in the list immediately with a "Fetching info…" phase.
-            Task { [weak self] in await self?.fetchMetadataThenStart(record: record, url: url, dest: dest) }
+            let task = Task { [weak self] in
+                guard let self else { return }
+                await self.fetchMetadataThenStart(record: record, url: url, dest: dest)
+            }
+            metadataFetchTasks[record.id] = task
         } catch {
             log.error("enqueue failed: \(error.localizedDescription)")
         }
@@ -211,7 +218,20 @@ final class DownloadCoordinator {
         }
     }
 
+    private func cancelMetadataFetch(for id: RecordID) {
+        metadataFetchTasks[id]?.cancel()
+        metadataFetchTasks.removeValue(forKey: id)
+    }
+
+    private func shouldStillEnqueue(recordID: RecordID) -> Bool {
+        guard let record = try? store.fetch(id: recordID) else { return false }
+        return record.state == .queued
+    }
+
     private func fetchMetadataThenStart(record: DownloadRecord, url: String, dest: URL) async {
+        defer { metadataFetchTasks.removeValue(forKey: record.id) }
+        guard !Task.isCancelled else { return }
+
         // Signal that we're fetching info before the download starts
         NotificationCenter.default.post(
             name: .downloadPhase, object: nil,
@@ -242,6 +262,8 @@ final class DownloadCoordinator {
             try? store.update(updated)
             Self.postStateChanged(id: record.id, state: .queued)
         }
+
+        guard !Task.isCancelled, shouldStillEnqueue(recordID: record.id) else { return }
 
         // Now start the actual download
         do {

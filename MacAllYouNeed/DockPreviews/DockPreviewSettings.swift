@@ -224,7 +224,7 @@ struct DockPreviewSettings: Codable, Equatable {
         panelBackground: .default,
         hideHoverContainerBackground: false,
         detachedSwitcherSearch: false,
-        enableWorklog: true
+        enableWorklog: false
     )
 
     init(from decoder: Decoder) throws {

@@ -52,14 +52,14 @@ final class DockPreviewStateCoordinatorFilterTests: XCTestCase {
 
 final class DockPreviewEmbedRoutingTests: XCTestCase {
     func testMusicRoutesToMediaWidget() {
-        let widgets = DockWidgetSettings(
-            enableMediaWidget: true,
-            enableCalendarWidget: true,
-            enableFolderWidget: false,
-            folderShowHiddenFiles: false
-        )
+        let widgets = DockWidgetSettings.default
         XCTAssertEqual(
-            DockPreviewEmbedRouting.embeddedContent(bundleIdentifier: "com.apple.Music", widgets: widgets),
+            DockPreviewEmbedRouting.embeddedContent(
+                bundleIdentifier: "com.apple.Music",
+                appName: "Music",
+                widgets: widgets,
+                filters: .default
+            ),
             .media
         )
     }
@@ -67,7 +67,12 @@ final class DockPreviewEmbedRoutingTests: XCTestCase {
     func testCalendarRoutesToCalendarWidget() {
         let widgets = DockWidgetSettings.default
         XCTAssertEqual(
-            DockPreviewEmbedRouting.embeddedContent(bundleIdentifier: "com.apple.iCal", widgets: widgets),
+            DockPreviewEmbedRouting.embeddedContent(
+                bundleIdentifier: "com.apple.iCal",
+                appName: "Calendar",
+                widgets: widgets,
+                filters: .default
+            ),
             .calendar
         )
     }

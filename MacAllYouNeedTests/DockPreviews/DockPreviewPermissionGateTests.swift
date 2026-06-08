@@ -12,4 +12,5 @@ final class DockPreviewPermissionGateTests: XCTestCase {
         settings.showThumbnails = false
         XCTAssertEqual(DockPreviewPermissionGate.currentMode(settings: settings), .titlesOnly)
     }
+
 }

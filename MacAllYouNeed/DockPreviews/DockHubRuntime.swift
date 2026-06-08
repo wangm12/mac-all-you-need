@@ -5,6 +5,7 @@ import Platform
 /// Unified Dock hub runtime: hover previews, switcher, Cmd+Tab, lock, and indicator.
 @MainActor
 final class DockHubRuntime {
+    private let dockWorker: DockPreviewWorker
     private let panelController = DockPreviewPanelController()
     private let hoverCoordinator: DockPreviewCoordinator
     private let manipulationObservers = DockWindowManipulationObservers()
@@ -36,14 +37,30 @@ final class DockHubRuntime {
     private var featureEnabled = false
     private var suspendedForHotkeyRecording = false
 
-    init() {
+    init(dockWorker: DockPreviewWorker) {
+        self.dockWorker = dockWorker
         let engine = SystemAXObserverEngine()
         let axCoordinator = AXObserverCoordinator(engine: engine, healthCheckInterval: 5)
-        hoverCoordinator = DockPreviewCoordinator(panelController: panelController, coordinator: axCoordinator)
+        hoverCoordinator = DockPreviewCoordinator(
+            panelController: panelController,
+            coordinator: axCoordinator,
+            dockWorker: dockWorker
+        )
         keybindController = DockKeybindController(
             panelController: panelController,
             windowCache: hoverCoordinator.cache,
-            enumerator: SystemWindowEnumerator()
+            capturePipeline: hoverCoordinator.capturePipeline,
+            hydrateEntries: { [weak hoverCoordinator] entries in
+                guard let hoverCoordinator else { return entries }
+                return await hoverCoordinator.hydrateForDisplayAsync(entries)
+            },
+            onSwitcherSessionPIDs: { [weak hoverCoordinator] pids in
+                hoverCoordinator?.noteSwitcherSession(pids: pids)
+            },
+            onDisplaySessionEnd: { [weak hoverCoordinator] in
+                hoverCoordinator?.clearSwitcherSession()
+                hoverCoordinator?.evictVisibleThumbnails()
+            }
         )
         cmdTabController = DockCmdTabController(panelController: panelController)
         hoverCoordinator.onAppHoverPID = { [weak self] pid in
@@ -54,6 +71,18 @@ final class DockHubRuntime {
                 self.gestureController.noteHoverEnded()
             }
         }
+        hoverCoordinator.dockHoverObserver.onSystemWakeRecovery = { [weak self] in
+            self?.runDockHealthRecovery()
+        }
+        hoverCoordinator.dockHoverObserver.onPeriodicHealthCheck = { [weak self] in
+            self?.gestureController.recoverEventTapIfNeeded()
+        }
+    }
+
+    private func runDockHealthRecovery() {
+        guard isActive else { return }
+        gestureController.recoverEventTapIfNeeded()
+        hoverCoordinator.refreshCachesAfterWake()
     }
 
     func applyEnabled(_ enabled: Bool) {
@@ -110,6 +139,10 @@ final class DockHubRuntime {
     private func startAll() {
         if hubSettings.master.enableDockPreviews {
             hoverCoordinator.start()
+            DockPreviewMagnificationNotice.presentIfNeeded()
+            manipulationObservers.onApplicationActivated = { [weak self] in
+                self?.hoverCoordinator.handleApplicationActivated()
+            }
             manipulationObservers.start(cache: hoverCoordinator.cache)
         } else if hubSettings.master.enableWindowSwitcher {
             hoverCoordinator.startWindowCacheOnly()

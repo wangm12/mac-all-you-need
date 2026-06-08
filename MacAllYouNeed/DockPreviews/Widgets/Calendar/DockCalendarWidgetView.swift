@@ -1,3 +1,4 @@
+import AppKit
 import EventKit
 import SwiftUI
 
@@ -13,6 +14,7 @@ private struct CalendarEvent: Identifiable {
 /// Calendar dock widget with event times and calendar colors (DockDoor CalendarEmbeddedView parity).
 struct DockCalendarWidgetView: View {
     @State private var events: [CalendarEvent] = []
+    @State private var isLoading = true
     @State private var authorized = EKEventStore.authorizationStatus(for: .event) == .fullAccess
         || EKEventStore.authorizationStatus(for: .event) == .authorized
 
@@ -27,10 +29,19 @@ struct DockCalendarWidgetView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Today")
                 .font(.headline)
-            if !authorized {
-                Text("Grant Calendar access in System Settings to see events.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if isLoading {
+                DockCalendarSkeleton()
+            } else if !authorized {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Calendar access is required to show today's events.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    MAYNButton("Open System Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
             } else if events.isEmpty {
                 Text("No upcoming events today.")
                     .font(.caption)
@@ -69,6 +80,8 @@ struct DockCalendarWidgetView: View {
     }
 
     private func loadEvents() async {
+        await MainActor.run { isLoading = true }
+        defer { Task { @MainActor in isLoading = false } }
         guard authorized else { return }
         let store = EKEventStore()
         let filteredIDs = DockHubSettingsStore.load().widgets.filteredCalendarIdentifiers

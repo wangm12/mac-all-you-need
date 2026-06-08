@@ -14,7 +14,7 @@ VOICE_FINETUNE_DIR ?= $(CURDIR)/.build/voice-finetune-pilot
 VOICE_TRAIN_MAX_STEPS ?= 12
 VOICE_PYTHON ?= python3.12
 
-.PHONY: help bootstrap generate test build run open-app release dmg clean clean-cache clean-dist import-typeless
+.PHONY: help bootstrap generate test build run open-app release dmg provision-extensions clean clean-cache clean-dist import-typeless
 .PHONY: voice-training-stats voice-training-export voice-training-extract
 .PHONY: voice-training-venv voice-training-prepare voice-training-train-smoke
 .PHONY: voice-training-pilot voice-training-clean
@@ -28,7 +28,10 @@ help:
 	@echo "  make build       Build the Debug app (DerivedData: .build/DerivedData)"
 	@echo "  make run         Build Debug, then open the built app"
 	@echo "  make open-app    Open last make-built Debug app without rebuilding"
-	@echo "  make release     Build Release and create dist/MacAllYouNeed.dmg"
+	@echo "  make release     Build signed Release DMG (needs Xcode account + team)"
+	@echo "                   Override team: DEVELOPMENT_TEAM=… or Config/Signing.local.xcconfig"
+	@echo "                   Unsigned only: CODE_SIGNING_ALLOWED=NO make release"
+	@echo "  make provision-extensions  One-time Finder History signing setup check"
 	@echo "  make dmg         Alias for make release"
 	@echo "  make clean       Remove local build caches and dist output"
 	@echo "  make clean-cache Remove local build caches only"
@@ -65,6 +68,7 @@ build:
 		-destination "$(DESTINATION)" \
 		-derivedDataPath "$(DERIVED_DATA)" \
 		-allowProvisioningUpdates \
+		CODE_SIGNING_ALLOWED=NO \
 		build
 
 run: build
@@ -77,6 +81,9 @@ open-app:
 
 release:
 	./scripts/package-dmg.sh
+
+provision-extensions:
+	./scripts/ensure-embedded-extension-provisioning.sh
 
 dmg: release
 

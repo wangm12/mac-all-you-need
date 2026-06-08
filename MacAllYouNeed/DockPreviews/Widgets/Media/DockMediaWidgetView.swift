@@ -3,6 +3,8 @@ import SwiftUI
 /// Now Playing dock widget with progress bar and artwork tint (DockDoor MediaControlsEmbeddedView parity).
 struct DockMediaWidgetView: View {
     var compact: Bool = false
+    var showLyrics: Bool = false
+    var bundleIdentifier: String?
     @ObservedObject private var media = DockMediaRemoteService.shared
     @State private var dominantColor: Color = .accentColor
 
@@ -42,6 +44,11 @@ struct DockMediaWidgetView: View {
                     transportControls
                 }
                 Spacer()
+            }
+
+            if showLyrics, shouldShowLyrics {
+                DockMediaLyricsView(bundleIdentifier: bundleIdentifier ?? mediaSourceBundleID)
+                    .padding(.top, 6)
             }
 
             if media.duration > 0 {
@@ -138,6 +145,15 @@ struct DockMediaWidgetView: View {
             let color = dominantColorFrom(artwork)
             await MainActor.run { dominantColor = color }
         }
+    }
+
+    private var shouldShowLyrics: Bool {
+        let hub = DockHubSettingsStore.load()
+        return hub.widgets.mediaDetectionMode == .appleScriptOnly
+    }
+
+    private var mediaSourceBundleID: String? {
+        bundleIdentifier
     }
 
     private func dominantColorFrom(_ image: NSImage) -> Color {

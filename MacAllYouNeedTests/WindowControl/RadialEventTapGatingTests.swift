@@ -9,7 +9,7 @@ final class RadialEventTapGatingTests: XCTestCase {
 
     func testRadialKeysNotInMaskWhenDisabled() {
         let tap = WindowControlEventTap()
-        let withoutRadial = tap.eventMask(includeRadialKeys: false)
+        let withoutRadial = tap.eventMask(includeRadialKeys: false, includeLayoutHotkeys: false)
         let flagsChangedBit = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         let mouseMovedBit = CGEventMask(1 << CGEventType.mouseMoved.rawValue)
         XCTAssertEqual(withoutRadial & flagsChangedBit, 0)
@@ -18,7 +18,7 @@ final class RadialEventTapGatingTests: XCTestCase {
 
     func testRadialKeysInMaskWhenEnabled() {
         let tap = WindowControlEventTap()
-        let withRadial = tap.eventMask(includeRadialKeys: true)
+        let withRadial = tap.eventMask(includeRadialKeys: true, includeLayoutHotkeys: false)
         let flagsChangedBit = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         let mouseMovedBit = CGEventMask(1 << CGEventType.mouseMoved.rawValue)
         XCTAssertNotEqual(withRadial & flagsChangedBit, 0)

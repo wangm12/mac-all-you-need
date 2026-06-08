@@ -1,6 +1,6 @@
 # Dock Hub parity matrix (MAYN vs DockDoor reference)
 
-Behavioral spec only — no GPL source in MAYN. Out of scope: WindowAction pickers, user filters tab, AppleScript, FluidGradient verbatim, menu-bar shell, permissions/updater/support surfaces, dock/titlebar/trackpad/middle-click gestures.
+Behavioral spec only — no GPL source in MAYN.
 
 ## Status legend
 
@@ -22,9 +22,9 @@ Behavioral spec only — no GPL source in MAYN. Out of scope: WindowAction picke
 | P07 | Previews | Frame-aware dismissal + icon transition preserve | `DockPreviewDismissalView` | done |
 | P08 | Previews | DockDoor card chrome (blur, embedded controls, dynamic frame) | `DockPreviewWindowCard` + `DockPreviewHoverChrome` | done |
 | P09 | Previews | Control position / title visibility settings | `DockPreviewAppearanceTypes` + `DockPreviewAppearanceContext` | done |
-| W01 | Widgets | Folder embedded in hover panel | `Widgets/Folder/DockFolderWidgetView` | done |
-| W02 | Widgets | Media embedded (Now Playing + transport) | `Widgets/Media/` + `DockMediaRemoteService` | partial |
-| W03 | Widgets | Calendar embedded (EventKit) | `Widgets/Calendar/DockCalendarWidgetView` | partial |
+| W01 | Widgets | Folder embedded in hover panel | `Widgets/Folder/DockFolderWidget*` | done |
+| W02 | Widgets | Media embedded (Now Playing + transport + lyrics) | `Widgets/Media/` + `DockMediaRemoteService` | done |
+| W03 | Widgets | Calendar embedded (EventKit) | `Widgets/Calendar/DockCalendarWidgetView` | done |
 | S01 | Switcher | Global hotkey session + shared panel | `DockKeybindController` | done |
 | S02 | Switcher | Search + cycle selection | `DockPreviewSearchBar` + `DockPreviewSearchWindow` | done |
 | S03 | Switcher | Edge-scroll while hovering panel | `DockPreviewHoverContainer` | done |
@@ -34,42 +34,43 @@ Behavioral spec only — no GPL source in MAYN. Out of scope: WindowAction picke
 | A01 | Appearance | Dynamic sizing, animations, padding keys | `DockPreviewSettings` | done |
 | I02 | Interactions | Full-size hover overlay | `DockPreviewFullSizeOverlay` | done |
 | I03 | Interactions | Windowless app card | `DockPreviewWindowlessCard` | done |
-| I04 | Interactions | Drag ghost (subset) | deferred | excluded |
+| I04 | Interactions | Drag ghost between apps | `DockDragPreviewCoordinator` | done |
+| G01 | Gestures | Dock scroll on icon | `DockGestureController` | done |
+| G02 | Gestures | Title-bar scroll resize | `DockTitleBarScrollController` | done |
+| G03 | Gestures | Trackpad swipe in preview | `DockPreviewTrackpadGestureModifier` | done |
+| G04 | Gestures | Middle-click / Aero-shake on preview | `DockPreviewInteractionGestures` | done |
+| F01 | Filters | App / window title filters | `DockSettingsTabCustomizations` + `DockPreviewWindowFilter` | done |
+| F02 | Filters | Custom app directories | `DockSettingsTabCustomizations` + `DockAppDiscovery` | done |
+| F03 | Filters | Widget app filters | `DockPreviewEmbedRouting` + settings UI | done |
+| X09 | Pinning | Pinnable media/calendar | `DockPinnedWindowController` | done |
+| FH01 | Finder bridge | Dock folder → Browse + History | `DockFolderWidgetActions` | done |
 
 ## Excluded (not shipped)
 
 | ID | Subsystem | Behavior | Reason |
 |----|-----------|----------|--------|
 | X01 | Shell | Menu bar icon, onboarding, settings search shell | MAYN uses main-window Dock page |
-| X02 | Gestures | Dock scroll on icon | Excluded per product scope |
-| X03 | Gestures | Title-bar scroll gesture | Excluded per product scope |
-| X04 | Gestures | Trackpad swipe in preview | Excluded per product scope |
-| X05 | Gestures | Middle-click / Aero-shake action pickers | Excluded per product scope |
 | X06 | Support | Permissions/updater/donation surfaces | Overview tab covers TCC only |
-| X07 | Automation | AppleScript command surface | Excluded per product scope |
-| X08 | Filters | App name / window title filter tab | Deferred |
-| X09 | Pinning | Pinnable media/calendar full windows | Deferred |
+| X07 | Automation | AppleScript command surface | Product choice — no external automation API |
+| X10 | Visual | GPL FluidGradient / NSGlassEffectView verbatim | License |
+| X11 | Product | DockDoor Pro replacement dock | Separate product |
 
 ## Manual QA (side-by-side with DockDoor)
 
 1. Enable Dock on Dashboard; grant Accessibility + Screen Recording.
 2. Hover Safari (2–3 windows) — frosted panel, embedded title pill on thumbnails, icon-to-icon without full dismiss flash.
-3. Hover Music — embedded Now Playing row with transport buttons.
-4. Hover Calendar — today's events or permission hint.
-5. Hover dock folder — file list in same panel.
+3. Hover Music — embedded Now Playing row with transport buttons; lyrics in AppleScript mode.
+4. Hover Calendar — today's events or permission hint; calendar filter in settings.
+5. Hover dock folder — navigate, sort, open items, grant access if needed.
 6. Option+Tab — centered panel; optional detached search.
 7. Hold Cmd+Tab — preview tracks frontmost app; no fade on dismiss.
 8. Reduce Motion — spatial animations respect system setting.
 9. 8+ windows — compact list or horizontal scroll with edge fade.
+10. Pin media/calendar — panel dismisses; pinned window stays.
 
 ## Intentional exclusions (summary)
 
-- Menu-bar shell, onboarding, standalone settings search
-- Dock/titlebar/trackpad/middle-click gesture behaviors
-- Permissions/updater/support donation surfaces (beyond Overview TCC rows)
-- AppleScript command surface
-- WindowAction enum / swipe action pickers / aero-shake picker
-- Filters settings (app name, window title, custom app dirs)
-- GPL FluidGradient / liquid-glass NSGlassEffectView verbatim port
-- Pinnable media/calendar full windows (deferred)
+- Menu-bar-only shell, standalone settings search catalog
+- AppleScript / CLI command surface for dock hub
+- DockDoor donation/updater UX parity
 - Cmd+Tab first-run overlay hints (deferred)

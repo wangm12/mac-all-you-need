@@ -107,6 +107,9 @@ public actor DownloadQueue {
     /// already use `await queue.enqueue(job)` without `try`.
     public func enqueueAndWait(_ job: DownloadJob) async throws {
         try await withCheckedThrowingContinuation { continuation in
+            if let prior = asyncContinuations[job.recordID] {
+                prior.resume(throwing: CocoaError(.userCancelled))
+            }
             asyncContinuations[job.recordID] = continuation
             enqueue(job)
         }
@@ -225,7 +228,8 @@ public actor DownloadQueue {
         if pausedIDs.contains(recordID) {
             // Job was terminated for pause — don't fire failure completion
             pausedIDs.remove(recordID)
-            asyncContinuations.removeValue(forKey: recordID)  // drop; caller will re-enqueue
+            asyncContinuations.removeValue(forKey: recordID)?
+                .resume(throwing: CocoaError(.userCancelled))
             await tryStart()
             return
         }

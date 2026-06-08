@@ -114,7 +114,7 @@ struct OnboardingWizardView: View {
         switch step {
         case .featureSetup:
             guard let coord = coordinator else { return false }
-            return coord.subStep == .complete || coord.subStep == .config
+            return coord.subStep == .config
         default:
             return true
         }

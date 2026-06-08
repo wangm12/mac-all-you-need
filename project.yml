@@ -5,6 +5,10 @@ options:
     macOS: "14.0"
   createIntermediateGroups: true
 
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -12,6 +16,11 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 2N55H39FC4
     ENABLE_HARDENED_RUNTIME: YES
+  configs:
+    Debug:
+      # Matches scripts/ci-build.sh — Debug builds must not require per-extension
+      # provisioning profiles (e.g. com.macallyouneed.app.finderhistory).
+      CODE_SIGNING_ALLOWED: NO
 
 packages:
   Shared:
@@ -39,6 +48,7 @@ targets:
         MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
         NSMicrophoneUsageDescription: MacAllYouNeed needs microphone access for voice dictation.
         NSRemindersFullAccessUsageDescription: MacAllYouNeed saves spoken reminders to Apple Reminders.
+        NSAppleEventsUsageDescription: Mac All You Need reads the front Finder window folder for your folder history when Accessibility cannot resolve the path.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app
@@ -62,12 +72,10 @@ targets:
       - target: FolderPreview
         embed: true
         codeSign: true
-      # FinderHistoryExtension and RemindersWidget are not embedded here —
-      # they need their own provisioning profiles. Open Xcode → Signing &
-      # Capabilities for each target to auto-provision, then re-add below.
-      # - target: FinderHistoryExtension
-      #   embed: true
-      #   codeSign: true
+      - target: FinderHistoryExtension
+        embed: true
+        codeSign: true
+      # RemindersWidget is not embedded here — needs its own provisioning profile.
       # - target: RemindersWidget
       #   embed: true
       #   codeSign: true
@@ -169,6 +177,9 @@ targets:
   FolderPreview:
     type: app-extension
     platform: macOS
+    attributes:
+      DevelopmentTeam: 2N55H39FC4
+      ProvisioningStyle: Automatic
     sources:
       - path: FolderPreview
     info:
@@ -191,6 +202,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.folderpreview
         CODE_SIGN_ENTITLEMENTS: FolderPreview/FolderPreview.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 2N55H39FC4
     dependencies:
       - package: Shared
         product: Core
@@ -202,6 +215,9 @@ targets:
   FinderHistoryExtension:
     type: app-extension
     platform: macOS
+    attributes:
+      DevelopmentTeam: 2N55H39FC4
+      ProvisioningStyle: Automatic
     sources:
       - path: FinderHistoryExtension
     info:

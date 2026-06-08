@@ -11,6 +11,11 @@ final class DockPreviewWindowCache {
     }
 
     private var cache: [pid_t: [CGWindowID: DockPreviewWindowEntry]] = [:]
+    private let diskStore: DockPreviewThumbnailDiskStore?
+
+    init(diskStore: DockPreviewThumbnailDiskStore? = nil) {
+        self.diskStore = diskStore
+    }
 
     func entries(for pid: pid_t) -> [DockPreviewWindowEntry] {
         Array(cache[pid, default: [:]].values).sorted { $0.id < $1.id }
@@ -19,7 +24,7 @@ final class DockPreviewWindowCache {
     func update(entries: [DockPreviewWindowEntry], for pid: pid_t) -> Diff {
         let old = cache[pid, default: [:]]
         let merged = entries.map { entry in
-            entry.mergingThumbnail(from: old[entry.id])
+            entry.mergingCaptureMetadata(from: old[entry.id])
         }
         let newMap = Dictionary(uniqueKeysWithValues: merged.map { ($0.id, $0) })
         let added = merged.filter { old[$0.id] == nil }
@@ -32,13 +37,42 @@ final class DockPreviewWindowCache {
         return Diff(added: added, removed: Array(removed), updated: updated)
     }
 
-    func clear(pid: pid_t) { cache[pid] = nil }
-    func clearAll() { cache = [:] }
+    func clear(pid: pid_t) {
+        cache[pid] = nil
+        if let diskStore {
+            Task { await diskStore.removeAll(pid: pid) }
+        }
+    }
 
-    func setThumbnail(_ image: NSImage, windowID: CGWindowID, pid: pid_t) {
+    func clearAll() {
+        cache = [:]
+        if let diskStore {
+            Task { await diskStore.removeAll() }
+        }
+    }
+
+    func recordThumbnailCaptured(windowID: CGWindowID, pid: pid_t, capturedAt: Date = Date()) {
         guard var entry = cache[pid]?[windowID] else { return }
-        entry.thumbnail = image
+        entry.thumbnail = nil
+        entry.thumbnailCapturedAt = capturedAt
         cache[pid, default: [:]][windowID] = entry
+    }
+
+    func removeFromCache(windowID: CGWindowID, pid: pid_t) {
+        cache[pid]?.removeValue(forKey: windowID)
+        if let diskStore {
+            Task { await diskStore.remove(pid: pid, windowID: windowID) }
+        }
+    }
+
+    /// Window IDs whose on-disk thumbnail is still within `lifespan` (DockDoor `freshCachedWindowIDs`).
+    func freshWindowIDs(pid: pid_t, lifespan: TimeInterval, now: Date = Date()) -> Set<CGWindowID> {
+        guard let diskStore, lifespan > 0 else { return [] }
+        return Set(
+            entries(for: pid).compactMap { entry -> CGWindowID? in
+                diskStore.isFresh(pid: pid, windowID: entry.id, lifespan: lifespan, now: now) ? entry.id : nil
+            }
+        )
     }
 
     func readCached(pid: pid_t) -> [DockPreviewWindowEntry] {

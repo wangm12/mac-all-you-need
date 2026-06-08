@@ -198,6 +198,32 @@ struct WindowControlSettingsView: View {
                     kind: .neutral
                 )
             }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Export",
+                subtitle: "Copy a text snapshot for support or debugging."
+            ) {
+                MAYNButton("Copy diagnostics") {
+                    copyDiagnosticsReport()
+                }
+            }
+        }
+    }
+
+    private func copyDiagnosticsReport() {
+        let wc = controller.windowControl
+        let snapshot = WindowControlDiagnosticsSnapshot(
+            eventTapDetail: WindowControlDiagnosticsPresentation.eventTapDetail(for: wc.state),
+            eventTapStatus: WindowControlDiagnosticsPresentation.eventTapText(for: wc.state),
+            lastAction: WindowControlDiagnosticsPresentation.lastActionText(wc.lastAction),
+            lastResultDetail: WindowControlDiagnosticsPresentation.lastResultText(wc.lastMovementResult),
+            frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+            accessibilityTrusted: AXIsProcessTrusted()
+        )
+        Task {
+            let report = await controller.featureWorkerHost.windowControl.formatDiagnosticsReport(snapshot)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(report, forType: .string)
         }
     }
 

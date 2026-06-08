@@ -98,7 +98,8 @@ public enum RadialSelectionMath {
                 let minX = desktopBounds.minX - maxOffset
                 let maxX = desktopBounds.maxX + maxOffset
                 resolved.x = min(max(unclampedX, minX), maxX)
-            } else if atMinY || atMaxY {
+            }
+            if atMinY || atMaxY {
                 let unclampedY = latest.y + deltaY
                 let minY = desktopBounds.minY - maxOffset
                 let maxY = desktopBounds.maxY + maxOffset

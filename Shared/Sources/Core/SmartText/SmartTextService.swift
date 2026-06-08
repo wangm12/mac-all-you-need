@@ -16,7 +16,12 @@ public enum SmartTextService {
         guard normalized.range(of: #"\d\s*[-+*/%^]"#, options: .regularExpression) != nil,
               normalized.range(of: #"[-+*/%^]\s*[\d(]"#, options: .regularExpression) != nil else { return nil }
         guard let d = ExpressionEvaluator.evaluate(normalized), d.isFinite else { return nil }
-        let value = (d == d.rounded()) ? String(Int(d)) : String(d)
+        let value: String
+        if d == d.rounded(), d >= Double(Int.min), d <= Double(Int.max) {
+            value = String(Int(d))
+        } else {
+            value = String(d)
+        }
         return CalculationResult(expression: s, value: value)
     }
 }

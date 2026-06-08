@@ -77,16 +77,17 @@ final class DockPreviewDismissalTracker: NSView {
             dy: DockPreviewHoverPadding.container
         )
 
-        let isMouseOverDockIcon = checkIfMouseIsOverDockIcon()
+        let pointerInDockRegion = DockPreviewDockPosition.isMouseInDockRegion(padding: 48)
+        let overDisplayedDockIcon = isMouseOverDisplayedDockIcon()
 
-        if windowFrame.contains(mouse) || isMouseOverDockIcon {
+        if windowFrame.contains(mouse) || pointerInDockRegion || overDisplayedDockIcon {
             resetOpacityVisually()
         } else if fadeOutTimer == nil, window.alphaValue == 1.0 {
             startFadeOut()
         }
     }
 
-    private func checkIfMouseIsOverDockIcon() -> Bool {
+    private func isMouseOverDisplayedDockIcon() -> Bool {
         guard let dockItemElement else { return false }
         guard let current = DockHoverObserver.activeObserver?.getHoveredDockItemElement() else { return false }
         return CFEqual(dockItemElement, current)

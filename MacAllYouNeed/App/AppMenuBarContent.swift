@@ -13,6 +13,7 @@ struct AppMenuBarContent: View {
         case layouts = "Layouts"
         case snippets = "Snippets"
         case reminders = "Reminders"
+        case folders = "Folders"
 
         var title: String { rawValue }
 
@@ -24,6 +25,7 @@ struct AppMenuBarContent: View {
             case .layouts: "rectangle.3.group"
             case .snippets: "text.quote"
             case .reminders: "checklist"
+            case .folders: "clock.badge.checkmark"
             }
         }
 
@@ -76,6 +78,8 @@ struct AppMenuBarContent: View {
                     SnippetsListView(model: controller.clipboardDeps.dockModel)
                 case .reminders:
                     RemindersPopoverView(controller: controller)
+                case .folders:
+                    FolderHistoryCommandCenterView(controller: controller)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -150,6 +154,29 @@ struct AppMenuBarContent: View {
             // Reminders has no dedicated main-window destination; Voice is its
             // closest home (the reminder flow lives in the Voice pipeline).
             controller.showMainWindow(destination: .voice)
+        case .folders:
+            controller.showMainWindow(destination: .finderHistory)
+        }
+    }
+}
+
+/// Command Center tab for Finder Folder History when the feature is enabled.
+private struct FolderHistoryCommandCenterView: View {
+    let controller: AppController
+
+    var body: some View {
+        Group {
+            if let store = FolderHistoryStoreLocator.shared() {
+                ScrollView {
+                    FolderHistoryMenuBarView(store: store)
+                        .padding(.vertical, 8)
+                }
+            } else {
+                Text("Folder history is unavailable.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 }

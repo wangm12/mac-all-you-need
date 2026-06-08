@@ -66,16 +66,26 @@ public final class PasteboardObserver {
     }
 
     public func start(callback: @escaping (PasteboardChange) -> Void) {
-        self.callback = callback
-        lastCount = reader.currentChangeCount()
-        let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(50))
-        t.setEventHandler { [weak self] in self?.tick() }
-        timer = t
-        t.resume()
+        queue.sync { [weak self] in
+            guard let self else { return }
+            self.stopOnQueue()
+            self.callback = callback
+            self.lastCount = self.reader.currentChangeCount()
+            let t = DispatchSource.makeTimerSource(queue: self.queue)
+            t.schedule(deadline: .now() + self.interval, repeating: self.interval, leeway: .milliseconds(50))
+            t.setEventHandler { [weak self] in self?.tick() }
+            self.timer = t
+            t.resume()
+        }
     }
 
     public func stop() {
+        queue.sync { [weak self] in
+            self?.stopOnQueue()
+        }
+    }
+
+    private func stopOnQueue() {
         timer?.cancel()
         timer = nil
         callback = nil
@@ -96,6 +106,11 @@ public final class PasteboardObserver {
             return
         }
         lastCount = countAfterReadingItems
-        callback?(PasteboardChange(changeCount: count, frontmostAppBundleID: bundleID, items: items))
+        callback?(PasteboardChange(
+            changeCount: count,
+            frontmostAppBundleID: bundleID,
+            items: items,
+            pasteboardTypes: types
+        ))
     }
 }

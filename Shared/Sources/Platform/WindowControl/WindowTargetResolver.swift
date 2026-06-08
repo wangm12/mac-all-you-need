@@ -4,6 +4,7 @@ import CoreGraphics
 
 public protocol WindowTargetElement: WindowMovableElement {
     var processIdentifier: pid_t { get }
+    var windowTargetSelectionPriority: Int { get }
 }
 
 public struct WindowTargetWindowInfo: Equatable, Sendable {
@@ -74,8 +75,8 @@ public struct WindowTargetResolver {
                     && frame(candidate.frame, matches: info.bounds)
             }
 
-            guard matches.count == 1, let element = matches.first else {
-                return nil
+            guard let element = selectBestCandidate(matches, at: point) else {
+                continue
             }
 
             return ResolvedWindowTarget(windowID: info.windowID, windowInfo: info, element: element)
@@ -193,6 +194,32 @@ public struct WindowTargetResolver {
             && abs(lhs.minY - rhs.minY) <= frameTolerance
             && abs(lhs.width - rhs.width) <= frameTolerance
             && abs(lhs.height - rhs.height) <= frameTolerance
+    }
+
+    /// Finder / Notes / iTerm can expose several AXWindow elements for one CG window.
+    private func selectBestCandidate(
+        _ matches: [any WindowTargetElement],
+        at point: CGPoint
+    ) -> (any WindowTargetElement)? {
+        guard !matches.isEmpty else { return nil }
+        if matches.count == 1 { return matches[0] }
+
+        let containingPoint = matches.filter { candidate in
+            let frame = candidate.frame
+            return !frame.isNull && !frame.isEmpty && frame.contains(point)
+        }
+        let pool = containingPoint.isEmpty ? matches : containingPoint
+
+        return pool.max { lhs, rhs in
+            let lhsPriority = lhs.windowTargetSelectionPriority
+            let rhsPriority = rhs.windowTargetSelectionPriority
+            if lhsPriority != rhsPriority {
+                return lhsPriority < rhsPriority
+            }
+            let lhsArea = lhs.frame.width * lhs.frame.height
+            let rhsArea = rhs.frame.width * rhs.frame.height
+            return lhsArea < rhsArea
+        }
     }
 }
 

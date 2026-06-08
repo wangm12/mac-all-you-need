@@ -13,7 +13,11 @@ struct CGSWindowCaptureOptions: OptionSet {
 
 /// Protocol seam over private CGS/SkyLight symbols loaded via dlopen.
 protocol DockPreviewPrivateAPI {
-    func captureWindowThumbnail(windowID: CGWindowID, scale: CGFloat) -> CGImage?
+    func captureWindowThumbnail(
+        windowID: CGWindowID,
+        scale: CGFloat,
+        quality: DockWindowImageCaptureQuality
+    ) -> CGImage?
     func raiseWindow(windowID: CGWindowID, pid: pid_t) -> Bool
     func axWindowID(for element: AXUIElement) -> CGWindowID?
     func axElementWithRemoteToken(_ token: Data) -> AXUIElement?
@@ -80,13 +84,15 @@ final class SystemDockPreviewPrivateAPI: DockPreviewPrivateAPI {
         return windowID == 0 ? nil : windowID
     }
 
-    func captureWindowThumbnail(windowID: CGWindowID, scale: CGFloat) -> CGImage? {
+    func captureWindowThumbnail(
+        windowID: CGWindowID,
+        scale: CGFloat,
+        quality: DockWindowImageCaptureQuality
+    ) -> CGImage? {
         guard let connection = mainConnection?(), let capture = captureWindowList else { return nil }
         var wid = UInt32(windowID)
-        var options: CGSWindowCaptureOptions = [.ignoreGlobalClipShape, .bestResolution, .fullSize]
-        if scale <= 1 {
-            options.insert(.nominalResolution)
-        }
+        let qualityOption: CGSWindowCaptureOptions = quality == .best ? .bestResolution : .nominalResolution
+        let options: CGSWindowCaptureOptions = [.ignoreGlobalClipShape, qualityOption]
         guard let array = capture(connection, &wid, 1, options.rawValue)?.takeRetainedValue() as? [CGImage],
               let image = array.first
         else { return nil }

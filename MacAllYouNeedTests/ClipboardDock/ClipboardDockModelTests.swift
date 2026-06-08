@@ -532,6 +532,13 @@ final class ClipboardDockModelTests: XCTestCase {
         XCTAssertEqual(mock.listCalls, 1)
     }
 
+    func testPrepareForDismissClearsSearch() {
+        let model = makeModel(MockClient())
+        model.search = "needle"
+        model.prepareForDismiss()
+        XCTAssertEqual(model.search, "")
+    }
+
     func testFocusPreservedWhenItemStillPresent() async {
         let mock = MockClient()
         mock.listResults = [

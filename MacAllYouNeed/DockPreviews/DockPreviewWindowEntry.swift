@@ -7,7 +7,9 @@ struct DockPreviewWindowEntry: Identifiable, Equatable {
     let pid: pid_t
     let title: String
     let frame: CGRect            // Quartz coords (origin at bottom-left)
-    var thumbnail: NSImage?      // nil = loading or Screen Recording denied
+    /// Populated only for display-bound copies (visible LRU hydration); not stored in `DockPreviewWindowCache`.
+    var thumbnail: NSImage?
+    var thumbnailCapturedAt: Date? = nil
     var isMinimized: Bool
     var isOnScreen: Bool
 
@@ -18,11 +20,11 @@ struct DockPreviewWindowEntry: Identifiable, Equatable {
         lhs.id == rhs.id && lhs.isMinimized == rhs.isMinimized && lhs.title == rhs.title
     }
 
-    /// Keep captured thumbnails when a refresh returns entries without images yet.
-    func mergingThumbnail(from previous: DockPreviewWindowEntry?) -> DockPreviewWindowEntry {
-        guard thumbnail == nil, let previous, let previousThumb = previous.thumbnail else { return self }
+    /// Keep capture timestamps when a refresh returns entries without metadata yet.
+    func mergingCaptureMetadata(from previous: DockPreviewWindowEntry?) -> DockPreviewWindowEntry {
+        guard thumbnailCapturedAt == nil, let previous, let capturedAt = previous.thumbnailCapturedAt else { return self }
         var copy = self
-        copy.thumbnail = previousThumb
+        copy.thumbnailCapturedAt = capturedAt
         return copy
     }
 }

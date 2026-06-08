@@ -178,6 +178,64 @@ final class DownloadQueueAsyncParityTests: XCTestCase {
         }
     }
 
+    func testPauseRunningAsyncPathResumesWaiter() async throws {
+        let id = RecordID.generate()
+        let job = scriptedJob(id: id, exitCode: 0)
+        job.process.arguments = ["-c", "sleep 2; exit 0"]
+
+        let queue = DownloadQueue(
+            maxConcurrent: 1,
+            started: { _ in },
+            progress: { _, _ in },
+            completion: { _, result in
+                if case .failure = result {
+                    XCTFail("pause must not surface as failure completion")
+                }
+            }
+        )
+
+        let waitTask = Task {
+            try await queue.enqueueAndWait(job)
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        await queue.pauseForResume(id)
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        do {
+            try await waitTask.value
+            XCTFail("pause should cancel the async waiter")
+        } catch {
+            XCTAssertEqual((error as NSError).code, CocoaError.userCancelled.rawValue)
+        }
+    }
+
+    func testReenqueueAndWaitReplacesPriorWaiter() async throws {
+        let id = RecordID.generate()
+        let firstJob = scriptedJob(id: id, exitCode: 0)
+        let secondJob = scriptedJob(id: id, exitCode: 0)
+
+        let queue = DownloadQueue(
+            maxConcurrent: 0,
+            started: { _ in },
+            progress: { _, _ in },
+            completion: { _, _ in }
+        )
+
+        let firstWait = Task { try await queue.enqueueAndWait(firstJob) }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        let secondWait = Task { try await queue.enqueueAndWait(secondJob) }
+
+        do {
+            try await firstWait.value
+            XCTFail("first waiter should be cancelled when replaced")
+        } catch {
+            XCTAssertEqual((error as NSError).code, CocoaError.userCancelled.rawValue)
+        }
+
+        await queue.setMaxConcurrent(1)
+        try await secondWait.value
+    }
+
     func testCancelQueuedAsyncPath() async {
         let id = RecordID.generate()
         let job = scriptedJob(id: id, exitCode: 0)

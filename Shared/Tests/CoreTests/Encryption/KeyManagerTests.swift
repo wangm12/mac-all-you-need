@@ -17,6 +17,30 @@ final class KeyManagerTests: XCTestCase {
         XCTAssertEqual(k1.bitCount, 256)
     }
 
+    func testConcurrentDeviceKeyCreationConvergesOnOneKey() throws {
+        let sharedKeychain = InMemoryKeychain()
+        let lock = NSLock()
+        var collected: [Data] = []
+        let group = DispatchGroup()
+        for _ in 0 ..< 8 {
+            group.enter()
+            DispatchQueue.global().async {
+                defer { group.leave() }
+                let manager = KeyManager(keychain: sharedKeychain)
+                guard let key = try? manager.deviceKey().withUnsafeBytes({ Data($0) }) else { return }
+                lock.lock()
+                collected.append(key)
+                lock.unlock()
+            }
+        }
+        group.wait()
+        XCTAssertEqual(collected.count, 8)
+        let canonical = try KeyManager(keychain: sharedKeychain).deviceKey().withUnsafeBytes { Data($0) }
+        for key in collected {
+            XCTAssertEqual(key, canonical)
+        }
+    }
+
     func testSyncKeyDerivedFromPassphrase() throws {
         let salt = Data(repeating: 0xAB, count: 16)
         let params = KDFParameters(algorithm: .argon2id, iterations: 1, memoryKB: 256, parallelism: 1, outputLen: 32)

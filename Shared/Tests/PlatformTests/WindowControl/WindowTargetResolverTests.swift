@@ -72,22 +72,31 @@ final class WindowTargetResolverTests: XCTestCase {
         XCTAssertEqual(target?.windowID, 12)
     }
 
-    func testReturnsNilWhenFrameMatchIsAmbiguous() {
+    func testResolvesAmbiguousFrameMatchesByPreferringHigherPriorityCandidate() {
         let resolver = WindowTargetResolver(
             ownBundleIdentifier: "com.macallyouneed",
             visibleFrames: [CGRect(x: 0, y: 0, width: 1440, height: 875)]
         )
         let metadata = window(id: 10, pid: 200, bounds: CGRect(x: 100, y: 100, width: 800, height: 600))
-        let first = FakeTargetElement(processIdentifier: 200, frame: metadata.bounds)
-        let second = FakeTargetElement(processIdentifier: 200, frame: metadata.bounds)
+        let toolbarShim = FakeTargetElement(
+            processIdentifier: 200,
+            frame: metadata.bounds,
+            selectionPriority: 10
+        )
+        let mainWindow = FakeTargetElement(
+            processIdentifier: 200,
+            frame: metadata.bounds,
+            selectionPriority: 100
+        )
 
         let target = resolver.resolveTopmostWindow(
             at: CGPoint(x: 200, y: 200),
             windows: [metadata],
-            candidates: [first, second]
+            candidates: [toolbarShim, mainWindow]
         )
 
-        XCTAssertNil(target)
+        XCTAssertEqual(target?.windowID, 10)
+        XCTAssertTrue(target?.element === mainWindow)
     }
 
     func testReturnsNilWhenCandidateFrameIsOutsideTolerance() {
@@ -137,10 +146,16 @@ private final class FakeTargetElement: WindowTargetElement {
     let isMovable = true
     let isSupportedForWindowControl = true
     let enhancedUserInterfaceEnabled: Bool? = nil
+    let windowTargetSelectionPriority: Int
 
-    init(processIdentifier: pid_t, frame: CGRect = CGRect(x: 0, y: 0, width: 500, height: 500)) {
+    init(
+        processIdentifier: pid_t,
+        frame: CGRect = CGRect(x: 0, y: 0, width: 500, height: 500),
+        selectionPriority: Int = 50
+    ) {
         self.processIdentifier = processIdentifier
         self.frame = frame
+        self.windowTargetSelectionPriority = selectionPriority
     }
 
     func setEnhancedUserInterfaceEnabled(_ enabled: Bool) -> Bool { true }

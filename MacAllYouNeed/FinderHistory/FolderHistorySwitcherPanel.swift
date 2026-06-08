@@ -2,57 +2,47 @@ import AppKit
 import Core
 import SwiftUI
 
-/// Borderless floating panel hosting the folder-history quick switcher.
-/// Becomes key so the search field is focused immediately; dismissed on Esc,
-/// on focus loss, or after a selection. Arrow keys / Return are routed through
-/// a local key monitor into the SwiftUI view.
+/// Borderless floating panel for the Finder folder history list (global hotkey).
 @MainActor
 final class FolderHistorySwitcherPanel {
     private var panel: NSPanel?
     private var keyMonitor: Any?
     private let store: FolderHistoryStore
-    private var viewModel = ViewBox()
+    private let model = FolderHistorySwitcherModel()
 
     init(store: FolderHistoryStore) {
         self.store = store
     }
 
-    /// A reference box so the local key monitor can forward to the live view.
-    private final class ViewBox {
-        var move: ((Int) -> Void)?
-        var open: (() -> Void)?
-    }
-
-    func toggle() {
+    func toggle(context: FolderHistoryPanelContext) {
         if panel != nil {
             dismiss()
         } else {
-            show()
+            show(context: context)
         }
     }
 
-    func show() {
+    func show(context: FolderHistoryPanelContext) {
         dismiss()
 
-        let box = viewModel
+        model.reload(store: store)
+
         let view = FolderHistorySwitcherView(
-            store: store,
+            model: model,
+            context: context,
             onSelect: { [weak self] row in
                 FolderHistoryActions.open(path: row.path)
                 self?.dismiss()
-            },
-            onDismiss: { [weak self] in self?.dismiss() }
+            }
         )
 
         let hosting = NSHostingView(rootView: view)
         hosting.setFrameSize(hosting.fittingSize)
-        // Capture nav hooks from a fresh value-type copy is not possible; instead the
-        // monitor drives navigation by re-reading the hosting view's root view.
-        box.move = { [weak hosting] delta in hosting?.rootView.move(by: delta) }
-        box.open = { [weak hosting] in hosting?.rootView.openHighlighted() }
 
         let size = hosting.fittingSize
-        let origin = centeredOrigin(for: size)
+        let screen = FolderHistoryPanelPlacement.preferredScreen() ?? NSScreen.main
+        let origin = screen.map { FolderHistoryPanelPlacement.origin(panelSize: size, on: $0) }
+            ?? NSPoint(x: 0, y: 0)
         let p = KeyablePanel(
             contentRect: NSRect(origin: origin, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -62,15 +52,17 @@ final class FolderHistorySwitcherPanel {
         p.contentView = hosting
         p.isOpaque = false
         p.backgroundColor = .clear
-        p.level = .floating
+        p.level = .popUpMenu
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.hasShadow = true
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
         p.makeKeyAndOrderFront(nil)
+        p.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         panel = p
 
-        installKeyMonitor(box: box)
+        installKeyMonitor()
     }
 
     func dismiss() {
@@ -82,28 +74,31 @@ final class FolderHistorySwitcherPanel {
         panel = nil
     }
 
-    private func centeredOrigin(for size: NSSize) -> NSPoint {
-        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let x = screen.midX - size.width / 2
-        let y = screen.midY - size.height / 2 + screen.height * 0.1
-        return NSPoint(x: x, y: y)
-    }
-
-    private func installKeyMonitor(box: ViewBox) {
+    private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel != nil else { return event }
+            let optionHeld = event.modifierFlags.contains(.option)
             switch event.keyCode {
             case 53: // Esc
                 self.dismiss()
                 return nil
-            case 125: // Down arrow
-                box.move?(1)
+            case 125: // Down
+                self.model.move(by: 1)
                 return nil
-            case 126: // Up arrow
-                box.move?(-1)
+            case 126: // Up
+                self.model.move(by: -1)
                 return nil
             case 36, 76: // Return / numpad Enter
-                box.open?()
+                let items = self.model.displayedRows
+                guard !items.isEmpty else { return nil }
+                let index = items.indices.contains(self.model.highlighted) ? self.model.highlighted : 0
+                let row = items[index]
+                if optionHeld {
+                    FolderHistoryActions.reveal(path: row.path)
+                } else {
+                    FolderHistoryActions.open(path: row.path)
+                }
+                self.dismiss()
                 return nil
             default:
                 return event
@@ -112,8 +107,6 @@ final class FolderHistorySwitcherPanel {
     }
 }
 
-/// Borderless panels cannot become key by default; this subclass opts in so the
-/// embedded search field receives keystrokes.
 private final class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }

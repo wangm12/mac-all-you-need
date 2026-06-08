@@ -30,5 +30,7 @@
 	<string>MacAllYouNeed needs microphone access for voice dictation.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>MacAllYouNeed saves spoken reminders to Apple Reminders.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Mac All You Need reads the front Finder window folder for your folder history when Accessibility cannot resolve the path.</string>
 </dict>
 </plist>

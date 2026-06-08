@@ -41,7 +41,9 @@ final class SystemWindowEnumerator: WindowEnumerating, @unchecked Sendable {
         bundleIdentifier: String?,
         disableMinWindowSizeFilter: Bool = false
     ) async -> [DockPreviewWindowEntry] {
+        let previousMinFilter = DockPreviewWindowCandidateDiscriminator.disableMinWindowSizeFilter
         DockPreviewWindowCandidateDiscriminator.disableMinWindowSizeFilter = disableMinWindowSizeFilter
+        defer { DockPreviewWindowCandidateDiscriminator.disableMinWindowSizeFilter = previousMinFilter }
 
         let displayApp = NSRunningApplication(processIdentifier: pid)
         let pids = targetPIDs(primary: pid, bundleIdentifier: bundleIdentifier, settings: settings)
@@ -151,24 +153,17 @@ final class SystemWindowEnumerator: WindowEnumerating, @unchecked Sendable {
             let windowID = CGWindowID(window.windowID)
             guard seenIDs.insert(windowID).inserted else { continue }
 
-            guard let axRef = DockPreviewCGWindowValidation.findMatchingAXWindow(
+            let unconsumedAX = axPool.filter { !consumedAX.contains(ObjectIdentifier($0 as AnyObject)) }
+            let axRef = DockPreviewCGWindowValidation.findMatchingAXWindow(
                 windowID: windowID,
                 title: window.title,
                 frame: window.frame,
-                in: axPool.filter { !consumedAX.contains(ObjectIdentifier($0 as AnyObject)) },
+                in: unconsumedAX,
                 api: api
-            ) else { continue }
-            consumedAX.insert(ObjectIdentifier(axRef as AnyObject))
-
-            let attributes = DockPreviewWindowCandidateAttributes(axWindow: axRef)
-            let hasTrafficLights = hasTrafficLightControls(axRef)
-            let level = DockPreviewCGWindowValidation.level(for: windowID, in: cgCandidates)
-            guard hasTrafficLights || DockPreviewWindowCandidateDiscriminator.isActualWindow(
-                app: displayApp,
-                windowID: windowID,
-                level: level,
-                attributes: attributesAugmented(attributes, cgEntry: DockPreviewCGWindowValidation.entry(for: windowID, in: cgCandidates), frame: window.frame)
-            ) else { continue }
+            )
+            if let axRef {
+                consumedAX.insert(ObjectIdentifier(axRef as AnyObject))
+            }
 
             let cgEntry = DockPreviewCGWindowValidation.entry(for: windowID, in: cgCandidates)
                 ?? DockPreviewCGWindowValidation.syntheticEntry(
@@ -180,35 +175,59 @@ final class SystemWindowEnumerator: WindowEnumerating, @unchecked Sendable {
                 guard DockPreviewCGWindowValidation.isValidCandidate(windowID, in: cgCandidates) else { continue }
             }
 
-            guard DockPreviewCGWindowValidation.shouldAcceptWindow(
-                axWindow: axRef,
+            if let axRef {
+                let attributes = DockPreviewWindowCandidateAttributes(axWindow: axRef)
+                let hasTrafficLights = hasTrafficLightControls(axRef)
+                let level = DockPreviewCGWindowValidation.level(for: windowID, in: cgCandidates)
+                guard hasTrafficLights || DockPreviewWindowCandidateDiscriminator.isActualWindow(
+                    app: displayApp,
+                    windowID: windowID,
+                    level: level,
+                    attributes: attributesAugmented(
+                        attributes,
+                        cgEntry: DockPreviewCGWindowValidation.entry(for: windowID, in: cgCandidates),
+                        frame: window.frame
+                    )
+                ) else { continue }
+
+                guard DockPreviewCGWindowValidation.shouldAcceptWindow(
+                    axWindow: axRef,
+                    windowID: windowID,
+                    cgEntry: cgEntry,
+                    app: displayApp,
+                    activeSpaceIDs: activeSpaceIDs,
+                    scBacked: true
+                ) else { continue }
+
+                let isMinimized = DockPreviewAXAttributes.bool(axRef, kAXMinimizedAttribute as String) ?? false
+                let axTitle = attributes.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let scTitle = window.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let title: String = if !axTitle.isEmpty, axTitle != "Window" {
+                    axTitle
+                } else if !scTitle.isEmpty {
+                    scTitle
+                } else {
+                    axTitle.isEmpty ? "Window" : axTitle
+                }
+
+                entries.append(DockPreviewWindowEntry(
+                    id: windowID,
+                    pid: displayApp.processIdentifier,
+                    title: title,
+                    frame: window.frame,
+                    thumbnail: nil,
+                    isMinimized: isMinimized,
+                    isOnScreen: window.isOnScreen && !isMinimized
+                ))
+            } else if let cgOnly = screenCaptureEntryWithoutAXMatch(
+                window: window,
                 windowID: windowID,
                 cgEntry: cgEntry,
-                app: displayApp,
-                activeSpaceIDs: activeSpaceIDs,
-                scBacked: true
-            ) else { continue }
-
-            let isMinimized = DockPreviewAXAttributes.bool(axRef, kAXMinimizedAttribute as String) ?? false
-            let axTitle = attributes.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let scTitle = window.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let title: String = if !axTitle.isEmpty, axTitle != "Window" {
-                axTitle
-            } else if !scTitle.isEmpty {
-                scTitle
-            } else {
-                axTitle.isEmpty ? "Window" : axTitle
+                displayApp: displayApp,
+                activeSpaceIDs: activeSpaceIDs
+            ) {
+                entries.append(cgOnly)
             }
-
-            entries.append(DockPreviewWindowEntry(
-                id: windowID,
-                pid: displayApp.processIdentifier,
-                title: title,
-                frame: window.frame,
-                thumbnail: nil,
-                isMinimized: isMinimized,
-                isOnScreen: window.isOnScreen && !isMinimized
-            ))
         }
 
         return entries
@@ -300,6 +319,35 @@ final class SystemWindowEnumerator: WindowEnumerating, @unchecked Sendable {
     private func hasTrafficLightControls(_ axWindow: AXUIElement) -> Bool {
         DockPreviewAXAttributes.element(axWindow, kAXCloseButtonAttribute as String) != nil
             || DockPreviewAXAttributes.element(axWindow, kAXMinimizeButtonAttribute as String) != nil
+    }
+
+    /// Finder and similar apps may not pair SCK windows to an AX element; accept validated CG/SCK windows.
+    private func screenCaptureEntryWithoutAXMatch(
+        window: SCWindow,
+        windowID: CGWindowID,
+        cgEntry: [String: AnyObject],
+        displayApp: NSRunningApplication,
+        activeSpaceIDs: Set<Int>
+    ) -> DockPreviewWindowEntry? {
+        guard displayApp.bundleIdentifier == "com.apple.finder" else { return nil }
+        guard window.isOnScreen else { return nil }
+        let windowSpaces = Set(DockPreviewSpaceQuery.spaceIDs(for: windowID))
+        if !windowSpaces.isEmpty, windowSpaces.isDisjoint(with: activeSpaceIDs) {
+            return nil
+        }
+
+        let scTitle = window.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cgTitle = (cgEntry[kCGWindowName as String] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = !scTitle.isEmpty ? scTitle : (!cgTitle.isEmpty ? cgTitle : "Finder")
+        return DockPreviewWindowEntry(
+            id: windowID,
+            pid: displayApp.processIdentifier,
+            title: title,
+            frame: window.frame,
+            thumbnail: nil,
+            isMinimized: false,
+            isOnScreen: window.isOnScreen
+        )
     }
 
     private func collectAXWindows(

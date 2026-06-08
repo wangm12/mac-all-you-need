@@ -1,55 +1,46 @@
 import Core
 import SwiftUI
 
-/// Quick-switcher list of recent Finder folders. Supports type-to-filter and
-/// up/down keyboard navigation with Return to open the highlighted folder.
+/// Hotkey history panel: searchable list of visited Finder folders.
 struct FolderHistorySwitcherView: View {
-    let store: FolderHistoryStore
+    @ObservedObject var model: FolderHistorySwitcherModel
+    let context: FolderHistoryPanelContext
     let onSelect: (FolderHistoryRow) -> Void
-    let onDismiss: () -> Void
 
-    @State private var rows: [FolderHistoryRow] = []
-    @State private var searchText = ""
-    @State private var highlighted = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var filtered: [FolderHistoryRow] {
-        guard !searchText.isEmpty else { return rows }
-        return rows.filter {
-            $0.path.localizedCaseInsensitiveContains(searchText)
-                || $0.displayName.localizedCaseInsensitiveContains(searchText)
-        }
-    }
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             searchField
             MAYNDivider()
+            if model.rows.isEmpty {
+                hintBanner(context.emptyListHint)
+                MAYNDivider()
+            }
             content
-            MAYNDivider()
-            footer
         }
-        .frame(width: 480)
+        .frame(width: 520)
         .background(MAYNTheme.panel)
         .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
                 .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
         )
-        .task { reload() }
+        .onAppear {
+            searchFocused = true
+        }
     }
 
     private var searchField: some View {
         HStack(spacing: MAYNControlMetrics.rowControlSpacing) {
             Image(systemName: "magnifyingglass").foregroundStyle(MAYNTheme.muted)
-            // Search-chrome exception: raw TextField inside MAYN-styled chrome.
-            TextField("Search folders…", text: $searchText)
+            TextField("Search history…", text: $model.searchText)
                 .textFieldStyle(.plain)
                 .font(.callout)
-                .onChange(of: searchText) { highlighted = 0 }
-                .onSubmit { activateHighlighted() }
-            if !searchText.isEmpty {
-                Button { searchText = "" } label: {
+                .focused($searchFocused)
+                .onSubmit { model.openHighlighted(onSelect: onSelect) }
+            if !model.searchText.isEmpty {
+                Button { model.searchText = "" } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(MAYNTheme.muted)
                 }
                 .buttonStyle(.plain)
@@ -59,25 +50,49 @@ struct FolderHistorySwitcherView: View {
         .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
     }
 
+    private func hintBanner(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(MAYNTheme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+            .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
+    }
+
     @ViewBuilder
     private var content: some View {
-        if filtered.isEmpty {
-            Text(rows.isEmpty ? "No folders in history" : "No matches")
-                .foregroundStyle(MAYNTheme.muted)
-                .font(.callout)
-                .frame(maxWidth: .infinity)
-                .padding()
+        let items = model.displayedRows
+        if items.isEmpty {
+            if !model.rows.isEmpty {
+                Text("No matches")
+                    .foregroundStyle(MAYNTheme.muted)
+                    .font(.callout)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+            }
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(filtered.enumerated()), id: \.element.id) { index, row in
-                        rowView(row, isHighlighted: index == highlighted)
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, row in
+                        rowView(row, isHighlighted: index == model.highlighted)
                             .onTapGesture { onSelect(row) }
-                            .onHover { if $0 { highlighted = index } }
+                            .onHover { if $0 { model.highlighted = index } }
+                            .contextMenu {
+                                Button("Open in Finder") {
+                                    FolderHistoryActions.reveal(path: row.path)
+                                }
+                                Button("Browse in Mac All You Need") {
+                                    let url = URL(fileURLWithPath: row.path)
+                                    NotificationCenter.default.post(
+                                        name: .browseFolderRequested,
+                                        object: url
+                                    )
+                                }
+                            }
                     }
                 }
             }
-            .frame(maxHeight: 300)
+            .frame(maxHeight: CGFloat(FolderHistoryDisplayLimits.quickPickCount) * MAYNControlMetrics.rowMinHeight)
         }
     }
 
@@ -98,42 +113,5 @@ struct FolderHistorySwitcherView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isHighlighted ? MAYNTheme.selected : Color.clear)
         .contentShape(Rectangle())
-    }
-
-    private var footer: some View {
-        HStack {
-            Text("↑↓ navigate · ↵ open · esc dismiss")
-                .font(.caption)
-                .foregroundStyle(MAYNTheme.muted)
-            Spacer()
-            MAYNButton("Done", action: onDismiss)
-        }
-        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
-        .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
-    }
-
-    private func reload() {
-        rows = (try? store.list(limit: 100)) ?? []
-        highlighted = 0
-    }
-
-    private func activateHighlighted() {
-        let items = filtered
-        guard items.indices.contains(highlighted) else {
-            if let first = items.first { onSelect(first) }
-            return
-        }
-        onSelect(items[highlighted])
-    }
-
-    /// Drives keyboard navigation from the hosting panel's key handler.
-    func move(by delta: Int) {
-        let count = filtered.count
-        guard count > 0 else { return }
-        highlighted = max(0, min(count - 1, highlighted + delta))
-    }
-
-    func openHighlighted() {
-        activateHighlighted()
     }
 }

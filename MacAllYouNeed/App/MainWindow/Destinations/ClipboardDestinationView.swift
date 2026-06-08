@@ -71,6 +71,7 @@ struct ClipboardDestinationView: View {
         }
         .onChange(of: historySearch) { _, _ in
             historyPage = 0
+            reloadClipboardHistory()
         }
         .onChange(of: historyItems.map(\.id.rawValue)) { _, _ in
             clampClipboardHistoryPage()
@@ -141,7 +142,7 @@ struct ClipboardDestinationView: View {
     private var clipboardHistoryState: MainClipboardHistoryPageState {
         MainClipboardHistoryPresentation.state(
             items: historyItems,
-            query: historySearch,
+            query: "",
             requestedPage: historyPage,
             pageSize: Self.historyPageSize
         )
@@ -364,16 +365,31 @@ struct ClipboardDestinationView: View {
 
         let params = ClipboardHistoryWindow.listParameters()
         let limit = params.fetchLimit
+        let trimmedSearch = historySearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let worker = controller.clipboardDeps.clipboardWorker
         isHistoryLoading = true
         Task {
-            let cutoff = params.modifiedOnOrAfter
-            let result = await Task.detached(priority: .userInitiated) {
-                Result { try store.list(limit: limit, modifiedOnOrAfter: cutoff) }
-            }.value
+            let fuzzyEnabled = AppGroupSettings.defaults.object(forKey: "search.fuzzy") as? Bool ?? false
+            let result: Result<[ClipboardItemMeta], Error>
+            if trimmedSearch.isEmpty {
+                let items = await worker.loadHistoryMetas(
+                    query: nil,
+                    limit: limit,
+                    fuzzyEnabled: false
+                )
+                result = .success(LocalClipboardReader.deduplicate(items, limit: limit))
+            } else {
+                let items = await worker.loadHistoryMetas(
+                    query: trimmedSearch,
+                    limit: limit,
+                    fuzzyEnabled: fuzzyEnabled
+                )
+                result = .success(items)
+            }
 
             switch result {
             case let .success(fetched):
-                historyItems = LocalClipboardReader.deduplicate(fetched, limit: limit)
+                historyItems = fetched
             case .failure:
                 historyItems = controller.clipboardReader.items
             }

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Platform
 
 enum DockPreviewWindowFilter {
     static func isAppFiltered(
@@ -88,7 +89,7 @@ enum DockPreviewWindowFilter {
             if settings.includeHiddenMinimized, entry.isMinimized || entry.isHidden {
                 return true
             }
-            return screen.frame.intersects(quartzRectToScreenFrame(entry.frame, screen: screen))
+            return screen.frame.intersects(quartzRectToScreenFrame(entry.frame))
         }
     }
 
@@ -99,14 +100,8 @@ enum DockPreviewWindowFilter {
         return NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
     }
 
-    private static func quartzRectToScreenFrame(_ quartz: CGRect, screen: NSScreen) -> CGRect {
-        guard let primary = NSScreen.screens.first else { return quartz }
-        let primaryHeight = primary.frame.height
-        return CGRect(
-            x: quartz.origin.x,
-            y: primaryHeight - quartz.origin.y - quartz.height,
-            width: quartz.width,
-            height: quartz.height
-        )
+    private static func quartzRectToScreenFrame(_ quartz: CGRect) -> CGRect {
+        let origin = WindowScreenDetector.appKitPoint(fromCG: quartz.origin)
+        return CGRect(origin: origin, size: quartz.size)
     }
 }

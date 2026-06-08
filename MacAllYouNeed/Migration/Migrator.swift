@@ -66,14 +66,14 @@ struct Migrator {
             outcomes[descriptor.id] = outcome
         }
 
-        // Skip onboarding for upgraders
-        OnboardingState.completed.save()
-
         // Drop the Sparkle marker (best-effort)
         let marker = featuresBaseDir.appendingPathComponent(".sparkle-migration-pending")
         try? FileManager.default.removeItem(at: marker)
 
         MigrationSentinel.markMigrated(defaults: defaults)
+
+        // Skip onboarding for upgraders only after migration is durably marked.
+        OnboardingState.completed.save()
         return MigrationReport(didRun: true, outcomes: outcomes)
     }
 

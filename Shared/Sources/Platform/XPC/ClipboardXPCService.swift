@@ -37,6 +37,7 @@ import Foundation
             let trimmedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)
             let window = ClipboardHistoryWindow.listParameters()
             let metas: [ClipboardItemMeta]
+            let nextPageToken: String?
             if let trimmedQuery, !trimmedQuery.isEmpty {
                 let hits = try search.search(query: trimmedQuery, limit: pageSize, offset: offset)
                 var resolved = try clip.metas(for: hits.map(\.id))
@@ -44,6 +45,7 @@ import Foundation
                     resolved = resolved.filter { $0.modified >= cutoff }
                 }
                 metas = resolved
+                nextPageToken = hits.count == pageSize ? String(offset + hits.count) : nil
             } else {
                 switch historySortMode() {
                 case .recency:
@@ -59,9 +61,9 @@ import Foundation
                         limit: pageSize, offset: offset, modifiedOnOrAfter: window.modifiedOnOrAfter
                     )
                 }
+                nextPageToken = metas.count == pageSize ? String(offset + metas.count) : nil
             }
             let items = metas.map { xpcMeta(from: $0) }
-            let nextPageToken = items.count == pageSize ? String(offset + items.count) : nil
             reply(ClipboardXPCList(items: items, nextPageToken: nextPageToken))
         } catch {
             reply(ClipboardXPCList(items: [], nextPageToken: nil))
@@ -288,6 +290,7 @@ import Foundation
         var imgHeight = 0
         var imgBlobID: String?
         if meta.kind == .clipboardItem,
+           meta.preview.hasPrefix("(image "),
            let body = try? clip.body(for: meta.id),
            case let .image(blobID, w, h) = body {
             imgBlobID = blobID

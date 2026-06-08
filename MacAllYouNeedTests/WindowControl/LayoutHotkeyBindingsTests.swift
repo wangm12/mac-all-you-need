@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import Core
 import CoreGraphics
 import Platform

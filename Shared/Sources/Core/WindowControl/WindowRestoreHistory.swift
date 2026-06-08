@@ -32,6 +32,7 @@ public final class WindowRestoreHistory {
     }
 
     private let capacity: Int
+    private let lock = NSLock()
     private var framesByKey: [Key: CGRect] = [:]
     private var insertionOrder: [Key] = []
 
@@ -40,14 +41,17 @@ public final class WindowRestoreHistory {
     }
 
     public var entryCount: Int {
-        framesByKey.count
+        lock.lock()
+        defer { lock.unlock() }
+        return framesByKey.count
     }
 
     public func store(_ frame: CGRect, for identity: WindowIdentity) {
         guard capacity > 0, let key = identity.historyKey else {
             return
         }
-
+        lock.lock()
+        defer { lock.unlock() }
         insertionOrder.removeAll { $0 == key }
         insertionOrder.append(key)
         framesByKey[key] = frame
@@ -58,10 +62,14 @@ public final class WindowRestoreHistory {
         guard let key = identity.historyKey else {
             return nil
         }
+        lock.lock()
+        defer { lock.unlock() }
         return framesByKey[key]
     }
 
     public func clear() {
+        lock.lock()
+        defer { lock.unlock() }
         framesByKey.removeAll()
         insertionOrder.removeAll()
     }

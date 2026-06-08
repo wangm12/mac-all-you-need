@@ -154,14 +154,17 @@ final class DockPreviewStateCoordinator {
         for index in windows.indices {
             let windowID = windows[index].id
             guard let fresh = freshByID[windowID] else { continue }
-            let merged = fresh.mergingThumbnail(from: windows[index])
+            var merged = fresh.mergingCaptureMetadata(from: windows[index])
+            if merged.thumbnail == nil, let thumb = windows[index].thumbnail {
+                merged.thumbnail = thumb
+            }
             if windows[index] != merged {
                 windows[index] = merged
                 changed = true
             }
         }
         for entry in entries where !existingIDs.contains(entry.id) {
-            let merged = entry.mergingThumbnail(from: nil)
+            let merged = entry.mergingCaptureMetadata(from: nil)
             windows.append(merged)
             changed = true
         }

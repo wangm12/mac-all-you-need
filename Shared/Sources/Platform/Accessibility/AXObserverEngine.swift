@@ -37,7 +37,8 @@ public final class SystemAXObserverEngine: AXObserverEngine, @unchecked Sendable
             Unmanaged<Box>.fromOpaque(refcon).takeUnretainedValue().onEvent(notification as String)
         }
         guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return nil }
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        // Match DockDoor: `.commonModes` so AX callbacks fire during event-tracking run-loop modes.
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .commonModes)
         nextToken += 1
         boxes[nextToken] = Box(onEvent)
         let appElement = AXUIElementCreateApplication(pid)
@@ -53,13 +54,15 @@ public final class SystemAXObserverEngine: AXObserverEngine, @unchecked Sendable
     }
 
     public func unsubscribe(_ handle: AXObserverHandle, notification: String) {
-        guard let observer = handle.axObserver, let element = handle.appElement else { return }
+        guard let observer = handle.axObserver,
+              let element = handle.targetElement ?? handle.appElement
+        else { return }
         AXObserverRemoveNotification(observer, element, notification as CFString)
     }
 
     public func teardown(_ handle: AXObserverHandle) {
         if let observer = handle.axObserver {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .commonModes)
         }
         boxes[handle.token] = nil
     }

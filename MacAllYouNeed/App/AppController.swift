@@ -44,6 +44,7 @@ final class AppController {
     // because they are read by SwiftUI screens that took the legacy direct
     // properties.
     private let stores: AppStoreContainer
+    let featureWorkerHost: AppFeatureWorkerHost
 
     var deviceID: DeviceID { stores.deviceID }
     var voiceTranscriptStore: VoiceTranscriptStore { stores.voiceTranscripts }
@@ -62,7 +63,7 @@ final class AppController {
 
     /// Retains the reminder hotkey registered by `registerReminderHotkey()`
     /// (defined in the AppControllerVoice extension).
-    func setReminderHotkey(_ hotkey: GlobalHotkey) {
+    func setReminderHotkey(_ hotkey: GlobalHotkey?) {
         reminderHotkey?.unregister()
         reminderHotkey = hotkey
     }
@@ -87,7 +88,8 @@ final class AppController {
             let settings = VoiceCleanupSettingsStore.load()
             let keychain = SystemKeychain()
             let keyStore = VoiceCleanupKeyStore(keychain: keychain)
-            _fileOrganizerCoordinator = try? FileOrganizerCoordinator(llmGenerate: { systemPrompt, userText in
+            _fileOrganizerCoordinator = try? FileOrganizerCoordinator(
+                llmGenerate: { systemPrompt, userText in
                 guard let provider = try VoiceCleanupProviderFactory.makeTextGenerationProvider(
                     settings: settings,
                     keyStore: keyStore
@@ -95,7 +97,9 @@ final class AppController {
                     throw CocoaError(.coderInvalidValue)
                 }
                 return try await provider.generate(systemPrompt: systemPrompt, userText: userText)
-            })
+                },
+                organizerWorker: featureWorkerHost.organizer
+            )
         }
         return _fileOrganizerCoordinator
     }
@@ -154,9 +158,13 @@ final class AppController {
             key: KeyManager(keychain: keychain).deviceKey()
         )
         self.stores = stores
+        featureWorkerHost = AppFeatureWorkerHost(clip: stores.clipboard, search: stores.search)
+        FolderPreviewListing.install { [featureWorkerHost] request in
+            try await featureWorkerHost.folderPreview.enumerate(request)
+        }
         let cleanupKeyStore = VoiceCleanupKeyStore(keychain: keychain)
 
-        let deps = makeAppDependencies(stores: stores)
+        let deps = makeAppDependencies(stores: stores, workerHost: featureWorkerHost)
         let pasteCoordinator = DockPasteCoordinator(xpc: deps.xpc)
         let favicons = FaviconCache()
         let clipboardDock = DockWindowController(
@@ -174,7 +182,8 @@ final class AppController {
             transcriptStore: stores.voiceTranscripts,
             trainingExampleStore: stores.voiceTrainingExamples,
             audioRoot: AppGroup.containerURL().appendingPathComponent("voice-training-audio", isDirectory: true),
-            historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) }
+            historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) },
+            worker: featureWorkerHost.voice
         )
         let windowControl = WindowControlCoordinator()
         self.windowControl = windowControl
@@ -187,12 +196,20 @@ final class AppController {
             }
         )
 
-        clipboardReader = LocalClipboardReader(store: stores.clipboard)
+        clipboardReader = LocalClipboardReader(
+            store: stores.clipboard,
+            search: stores.search,
+            worker: featureWorkerHost.clipboard
+        )
         clipboardReader.blobsRef = stores.blob
         snippetExpander = Self.makeSnippetExpander(store: stores.snippet)
 
-        folderHistory = FolderHistoryRuntime()
-        dockPreviews = DockHubRuntime()
+        folderHistory = FolderHistoryRuntime(historyWorker: featureWorkerHost.folderHistory)
+        if folderHistory == nil {
+            Logging.logger(for: "folder-history", category: "runtime")
+                .error("Folder history database could not be opened; feature unavailable.")
+        }
+        dockPreviews = DockHubRuntime(dockWorker: featureWorkerHost.dockPreviews)
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
@@ -216,7 +233,7 @@ final class AppController {
         // Feature system (Phase 04) — initialized before first self-method calls
         let featureRegistry = FeatureRegistryProvider.makeRegistry()
         let fm = FeatureManager(registry: featureRegistry, defaults: AppGroupSettings.defaults)
-        let rt = FeatureRuntime(registry: featureRegistry, manager: fm)
+        let rt = FeatureRuntime(registry: featureRegistry, manager: fm, workerHost: featureWorkerHost)
         featureManager = fm
         runtime = rt
         featureStatePublisher = FeatureStatePublisher(manager: fm)
@@ -253,6 +270,7 @@ final class AppController {
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
         voiceCoordinator.start()
         voiceCoordinator.reminderWriterOverride = RemindersServiceWriter(service: remindersService)
+        voiceCoordinator.remindersWorker = featureWorkerHost.reminders
         registerReminderHotkey()
         voiceRetentionRunner.start()
         windowControl.start()
@@ -327,6 +345,7 @@ final class AppController {
             if let self {
                 await self.refreshFolderHistoryFeatureAvailability()
                 await self.refreshDockPreviewsFeatureAvailability()
+                await self.refreshVoiceFeatureAvailability()
             }
 
             // Surface the What's New sheet on first window appearance (upgrade only).
@@ -498,6 +517,7 @@ final class AppController {
             Task { await self.refreshWindowControlFeatureAvailability() }
             Task { await self.refreshFolderHistoryFeatureAvailability() }
             Task { await self.refreshDockPreviewsFeatureAvailability() }
+            Task { await self.refreshVoiceFeatureAvailability() }
         case .hotkeyRecordingStarted:
             suspendShortcutTriggersForHotkeyRecording()
         case .hotkeyRecordingStopped:
@@ -522,6 +542,26 @@ final class AppController {
     private func refreshDockPreviewsFeatureAvailability() async {
         let state = await featureManager.state(for: .dockPreviews)
         dockPreviews.applyEnabled(state.activationState == .enabled)
+    }
+
+    private func refreshVoiceFeatureAvailability() async {
+        let voiceState = await featureManager.state(for: .voice)
+        let remindersState = await featureManager.state(for: .voiceReminders)
+        if voiceState.activationState == .enabled {
+            voiceCoordinator.resumeActivationMonitoring()
+        } else {
+            voiceCoordinator.suspendActivationMonitoring()
+            if voiceCoordinator.state != .idle {
+                voiceCoordinator.cancelCurrentOperation()
+            }
+        }
+        if voiceState.activationState == .enabled, remindersState.activationState == .enabled {
+            if reminderHotkey == nil {
+                registerReminderHotkey()
+            }
+        } else {
+            setReminderHotkey(nil)
+        }
     }
 
     func dockPreviewsReloadSettings() {
@@ -645,12 +685,17 @@ enum ClipboardHistoryClearer {
 }
 
 @MainActor
-private func makeAppDependencies(stores: AppStoreContainer) -> AppDependencies {
+private func makeAppDependencies(
+    stores: AppStoreContainer,
+    workerHost: AppFeatureWorkerHost
+) -> AppDependencies {
     AppDependencies(
         pinboards: stores.pinboard,
         snippets: stores.snippet,
         clip: stores.clipboard,
-        blobs: stores.blob
+        blobs: stores.blob,
+        search: stores.search,
+        clipboardWorker: workerHost.clipboard
     )
 }
 

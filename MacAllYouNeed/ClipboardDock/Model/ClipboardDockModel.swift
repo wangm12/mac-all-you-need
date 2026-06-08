@@ -55,6 +55,10 @@ final class ClipboardDockModel {
     /// Companion to `clip`. Required for copy-to-pasteboard / delete /
     /// rename to work when XPC is unavailable.
     let blobs: BlobStore?
+    /// FTS index for in-process history search (same DB the daemon indexes).
+    let searchStore: SearchStore?
+    /// Background history search (FTS, dedup, fuzzy/smart rank).
+    let clipboardWorker: ClipboardWorker?
 
     var items: [DockItem] = []
     var snippetItems: [Snippet] = []
@@ -110,7 +114,9 @@ final class ClipboardDockModel {
         pinboards: PinboardStore,
         snippets: SnippetStore,
         clip: ClipboardStore? = nil,
-        blobs: BlobStore? = nil
+        blobs: BlobStore? = nil,
+        searchStore: SearchStore? = nil,
+        clipboardWorker: ClipboardWorker? = nil
     ) {
         self.xpc = xpc
         self.appIcons = appIcons
@@ -121,6 +127,8 @@ final class ClipboardDockModel {
         self.snippets = snippets
         self.clip = clip
         self.blobs = blobs
+        self.searchStore = searchStore
+        self.clipboardWorker = clipboardWorker
 
         snippetsSubModel = SnippetsSubModel(model: self, store: snippets)
         pinboardsSubModel = PinboardsSubModel(model: self, store: pinboards)
@@ -220,6 +228,12 @@ final class ClipboardDockModel {
 
     func requestSearchFocus() {
         searchFilterSubModel.requestSearchFocus()
+    }
+
+    /// Clears the query when the dock is dismissed so the next open starts fresh.
+    func prepareForDismiss() {
+        search = ""
+        searchFilterSubModel.bumpRefreshSequence()
     }
 
     /// Animated variant of `refresh`.

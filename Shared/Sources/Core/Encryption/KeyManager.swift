@@ -94,6 +94,8 @@ public enum KeyManagerError: Error {
 }
 
 public final class KeyManager {
+    private static let creationLock = NSLock()
+
     private let keychain: KeychainBackend
     private let deviceKeyAccount = "device-key.v1"
     private let log = Logging.logger(for: "encryption", category: "keys")
@@ -106,11 +108,20 @@ public final class KeyManager {
         if let existing = try keychain.get(deviceKeyAccount) {
             return SymmetricKey(data: existing)
         }
+        Self.creationLock.lock()
+        defer { Self.creationLock.unlock() }
+        if let existing = try keychain.get(deviceKeyAccount) {
+            return SymmetricKey(data: existing)
+        }
         let key = SymmetricKey(size: .bits256)
         let data = key.withUnsafeBytes { Data($0) }
         try keychain.set(data, for: deviceKeyAccount)
+        // Re-read after set so concurrent main-app/daemon creation races converge on one key.
+        guard let stored = try keychain.get(deviceKeyAccount) else {
+            throw KeyManagerError.keyGenerationFailed
+        }
         log.info("Generated new device key")
-        return key
+        return SymmetricKey(data: stored)
     }
 
     public func deriveSyncKey(passphrase: String, salt: Data, params: KDFParameters) throws -> SymmetricKey {

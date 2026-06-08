@@ -27,9 +27,11 @@ enum DockPreviewWindowMatcher {
             if let idIndex = ax.firstIndex(where: { $0.windowID == scWin.windowID }) {
                 matchedIndex = idIndex
             } else {
-                let candidate = ax.enumerated().min(by: {
-                    centroidDistance($0.element.frame, scWin.frame) < centroidDistance($1.element.frame, scWin.frame)
-                })
+                let candidate = ax.enumerated()
+                    .filter { !matchedAXIndices.contains($0.offset) }
+                    .min(by: {
+                        centroidDistance($0.element.frame, scWin.frame) < centroidDistance($1.element.frame, scWin.frame)
+                    })
                 if let candidate, centroidDistance(candidate.element.frame, scWin.frame) <= maxMatchDistance {
                     matchedIndex = candidate.offset
                 }
@@ -43,6 +45,7 @@ enum DockPreviewWindowMatcher {
                 axTitle: bestAX?.title
             )
             let isMinimized = bestAX?.isMinimized ?? false
+            let onScreen = !isMinimized && scWin.frame.width >= 120 && scWin.frame.height >= 80
             result.append(DockPreviewWindowEntry(
                 id: scWin.windowID,
                 pid: pid,
@@ -50,7 +53,7 @@ enum DockPreviewWindowMatcher {
                 frame: scWin.frame,
                 thumbnail: nil,
                 isMinimized: isMinimized,
-                isOnScreen: true
+                isOnScreen: onScreen
             ))
         }
 
@@ -99,7 +102,11 @@ enum DockPreviewWindowMatcher {
     }
 
     private static func syntheticWindowID(pid: pid_t, index: Int) -> CGWindowID {
-        CGWindowID((Int(pid) % 10_000) * 10_000 + index + 1)
+        var hasher = Hasher()
+        hasher.combine(pid)
+        hasher.combine(index)
+        let mixed = UInt32(bitPattern: Int32(truncatingIfNeeded: hasher.finalize()))
+        return CGWindowID(max(1, mixed))
     }
 
     static func centroidDistance(_ a: CGRect, _ b: CGRect) -> CGFloat {

@@ -120,15 +120,21 @@ final class DockPreviewPanelController {
     }
 
     private func updateSwitcherLiveStreams() {
-        guard hubSettings.advanced.enableLivePreviewForSwitcher else { return }
+        guard hubSettings.advanced.enableLivePreviewForSwitcher else {
+            DockPreviewLiveCaptureManager.shared.stopAll()
+            return
+        }
         let ids = DockPreviewLiveCaptureScope.windowIDs(
             windows: state.windows,
             selectedIndex: state.selectedIndex,
             scope: hubSettings.advanced.switcherLivePreviewScope
         )
-        var settings = hubSettings.previews
-        settings.enableLivePreview = true
-        DockPreviewLiveCaptureManager.shared.setActiveWindowIDs(ids, settings: settings)
+        DockPreviewLiveCaptureManager.shared.setActiveWindowIDs(
+            ids,
+            hub: hubSettings,
+            context: .windowSwitcher,
+            enabled: true
+        )
     }
 
     private func configureSwitcherSearch() {
@@ -222,7 +228,7 @@ final class DockPreviewPanelController {
         if hubSettings.advanced.disableImagePreview {
             previews.showThumbnails = false
         }
-        let mode = DockPreviewPermissionGate.currentMode(settings: previews)
+        let mode = DockPreviewPermissionGate.currentMode(settings: previews, hub: hubSettings)
         let liveEnabled: Bool
         if state.mode == .windowSwitcher {
             liveEnabled = hubSettings.advanced.enableLivePreviewForSwitcher && hubSettings.master.enableDockPreviews

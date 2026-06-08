@@ -8,6 +8,7 @@ final class VoiceTranscriptRetentionRunner {
     private let audioRoot: URL
     private let historySettings: () -> VoiceHistorySettings
     private let now: () -> Date
+    private weak var worker: VoiceFeatureWorker?
     private var timer: Timer?
     private var notificationToken: NSObjectProtocol?
     private let log = Logger(subsystem: "com.macallyouneed.voice", category: "retention")
@@ -17,13 +18,19 @@ final class VoiceTranscriptRetentionRunner {
         trainingExampleStore: VoiceTrainingExampleStore?,
         audioRoot: URL,
         historySettings: @escaping () -> VoiceHistorySettings,
+        worker: VoiceFeatureWorker? = nil,
         now: @escaping () -> Date = Date.init
     ) {
         self.transcriptStore = transcriptStore
         self.trainingExampleStore = trainingExampleStore
         self.audioRoot = audioRoot
         self.historySettings = historySettings
+        self.worker = worker
         self.now = now
+    }
+
+    func setWorker(_ worker: VoiceFeatureWorker?) {
+        self.worker = worker
     }
 
     func start() {
@@ -48,6 +55,14 @@ final class VoiceTranscriptRetentionRunner {
     }
 
     func sweepNow() {
+        if let worker {
+            Task { await worker.runRetention { [weak self] in self?.performSweep() } }
+        } else {
+            performSweep()
+        }
+    }
+
+    private func performSweep() {
         let settings = historySettings()
         if let maxAge = settings.retention.maxAgeSeconds {
             do {

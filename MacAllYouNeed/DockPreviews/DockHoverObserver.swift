@@ -9,12 +9,22 @@ final class DockHoverObserver {
     private var dockPID: pid_t?
     private var dockAXList: AXUIElement?
     private var healthCheckTask: Task<Void, Never>?
+    private var wakeObserver: NSObjectProtocol?
+    private var wakeRecoveryTask: Task<Void, Never>?
     private var lastHoverToken: UInt?
     private var lastAppHoverSignature: String?
     private let mainBundleID = Bundle.main.bundleIdentifier
 
     var onHoverBegan: ((DockHoverTarget) -> Void)?
     var onHoverEnded: (() -> Void)?
+    /// Called after wake recovery rebuilds the Dock AX subscription.
+    var onSystemWakeRecovery: (() -> Void)?
+    /// Called on each 5s health check (event tap recovery, cache refresh, etc.).
+    var onPeriodicHealthCheck: (() -> Void)?
+    /// Called when the pointer is in the dock band (health check / selection poll).
+    var onDockProximity: (() -> Void)?
+    /// When true, skip health-check polling of dock selection (cursor on preview panel).
+    var shouldSuppressSelectionPolling: (() -> Bool)?
     var settings: () -> DockPreviewSettings = { DockHubSettingsStore.loadPreviews() }
 
     init(coordinator: AXObserverCoordinator) {
@@ -26,12 +36,19 @@ final class DockHoverObserver {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
         resetSubscription()
         startHealthCheck()
+        installWakeObserverIfNeeded()
     }
 
     func stop() {
         if Self.activeObserver === self {
             Self.activeObserver = nil
         }
+        wakeRecoveryTask?.cancel()
+        wakeRecoveryTask = nil
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+        wakeObserver = nil
         healthCheckTask?.cancel()
         healthCheckTask = nil
         coordinator.stop()
@@ -76,6 +93,11 @@ final class DockHoverObserver {
               let item = selectedDockItem(in: listElement)
         else { return nil }
         return dockItemRect(item)
+    }
+
+    /// Rebuilds the Dock AX observer after sleep or a stale subscription (DockDoor `reset()`).
+    func recoverFromSystemWake() {
+        resetSubscription()
     }
 
     func resetSubscription() {
@@ -131,7 +153,68 @@ final class DockHoverObserver {
         let err = AXUIElementCopyAttributeValue(list, kAXRoleAttribute as CFString, &role)
         if err == .invalidUIElement || err == .cannotComplete || role == nil {
             resetSubscription()
+            return
         }
+        // AX notifications can stop while the list element still looks valid; poll selection as fallback.
+        if DockPreviewDockPosition.isMouseInDockRegion(padding: 48) {
+            onDockProximity?()
+        }
+        pollSelectedDockItemIfChanged(in: list)
+        onPeriodicHealthCheck?()
+    }
+
+    private func installWakeObserverIfNeeded() {
+        guard wakeObserver == nil else { return }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleWakeRecovery()
+        }
+    }
+
+    private func scheduleWakeRecovery() {
+        wakeRecoveryTask?.cancel()
+        wakeRecoveryTask = Task { @MainActor [weak self] in
+            var delayNanoseconds: UInt64 = 1_000_000_000
+            var waitedNanoseconds: UInt64 = 0
+            let maxWaitNanoseconds: UInt64 = 15_000_000_000
+            while !Task.isCancelled, waitedNanoseconds < maxWaitNanoseconds {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+                guard !Task.isCancelled, let self else { return }
+                waitedNanoseconds += delayNanoseconds
+                if AXIsProcessTrusted() {
+                    break
+                }
+                delayNanoseconds = min(delayNanoseconds * 2, maxWaitNanoseconds - waitedNanoseconds)
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.recoverFromSystemWake()
+            self.onSystemWakeRecovery?()
+        }
+    }
+
+    /// Polls dock selection when AX notifications may have gone silent (long uptime / Dock UI rebuild).
+    private func pollSelectedDockItemIfChanged(in list: AXUIElement) {
+        guard shouldSuppressSelectionPolling?() != true else { return }
+        guard DockPreviewDockPosition.isMouseInDockRegion(padding: 48) else { return }
+        pollSelectedDockItemIfChangedIgnoringSuppression(in: list)
+    }
+
+    /// Pointer-driven poll while the preview is open — runs even when the cursor is on the panel.
+    func pollDockSelectionIfPointerInDockRegion() {
+        guard DockPreviewDockPosition.isMouseInDockRegion(padding: 48),
+              let list = dockAXList
+        else { return }
+        pollSelectedDockItemIfChangedIgnoringSuppression(in: list)
+    }
+
+    private func pollSelectedDockItemIfChangedIgnoringSuppression(in list: AXUIElement) {
+        guard let item = selectedDockItem(in: list) else { return }
+        let token = elementToken(item)
+        guard token != lastHoverToken else { return }
+        handleDockEvent()
     }
 
     private func findDockIconList(in element: AXUIElement) -> AXUIElement? {
@@ -157,7 +240,13 @@ final class DockHoverObserver {
 
         let token = elementToken(item)
 
-        if let folder = folderHoverInfo(for: item), settings().enableFolderWidget {
+        if let folder = folderHoverInfo(for: item) {
+            let hub = DockHubSettingsStore.load()
+            guard hub.widgets.enableDockItemWidgets, settings().enableFolderWidget else {
+                lastHoverToken = token
+                lastAppHoverSignature = nil
+                return
+            }
             if token == lastHoverToken { return }
             lastHoverToken = token
             lastAppHoverSignature = nil
@@ -266,16 +355,22 @@ final class DockHoverObserver {
     }
 
     private func folderHoverInfo(for item: AXUIElement) -> DockHoverTarget.FolderHoverInfo? {
-        guard dockItemSubrole(item) != "AXApplicationDockItem" else { return nil }
-        guard let url = dockItemURL(item), url.pathExtension != "app" else { return nil }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        let axURL = dockItemURL(item)
+        let title = dockItemTitle(item)
+        guard let folderURL = DockDockFolderItemResolver.resolveFolderURL(axURL: axURL, title: title) else {
             return nil
         }
-        let title = dockItemTitle(item) ?? FileManager.default.displayName(atPath: url.path)
+        let displayTitle = title ?? FileManager.default.displayName(atPath: folderURL.path)
+        if axURL?.pathExtension == "app", title != nil {
+            DockPreviewWorklog.log("hover.folder.resolved", fields: [
+                "title": displayTitle,
+                "axURL": axURL?.path ?? "",
+                "folder": folderURL.path,
+            ])
+        }
         return DockHoverTarget.FolderHoverInfo(
-            url: url,
-            title: title,
+            url: folderURL,
+            title: displayTitle,
             iconRect: dockItemRect(item),
             dockItemToken: elementToken(item)
         )

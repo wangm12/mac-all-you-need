@@ -26,14 +26,53 @@ if command -v xcodegen >/dev/null 2>&1; then
   (cd "$ROOT" && xcodegen generate)
 fi
 
+# shellcheck source=scripts/resolve-development-team.sh
+source "$ROOT/scripts/resolve-development-team.sh"
+
 echo "==> Building $APP_NAME ($CONFIGURATION)"
-xcodebuild \
-  -project "$PROJECT" \
-  -scheme "$SCHEME" \
-  -configuration "$CONFIGURATION" \
-  -destination "platform=macOS,arch=arm64" \
-  -derivedDataPath "$DERIVED_DATA" \
-  build
+XCODEBUILD_ARGS=(
+  -project "$PROJECT"
+  -scheme "$SCHEME"
+  -configuration "$CONFIGURATION"
+  -destination "platform=macOS,arch=arm64"
+  -derivedDataPath "$DERIVED_DATA"
+)
+# Debug/CI uses CODE_SIGNING_ALLOWED=NO (see project.yml + scripts/ci-build.sh).
+# Release needs signing for embedded appex targets (FolderPreview, FinderHistoryExtension).
+# Unsigned local DMG: CODE_SIGNING_ALLOWED=NO make release
+if [[ "${CODE_SIGNING_ALLOWED:-}" == "NO" ]]; then
+  echo "==> Building without code signing (CODE_SIGNING_ALLOWED=NO)"
+  XCODEBUILD_ARGS+=(CODE_SIGNING_ALLOWED=NO)
+else
+  TEAM="$(require_development_team)"
+  echo "==> Code signing with team $TEAM"
+  export DEVELOPMENT_TEAM="$TEAM"
+  XCODEBUILD_ARGS+=(-allowProvisioningUpdates "DEVELOPMENT_TEAM=$TEAM")
+  "$ROOT/scripts/check-release-signing-ready.sh" "$TEAM"
+  "$ROOT/scripts/ensure-embedded-extension-provisioning.sh"
+fi
+
+build_log="$(mktemp)"
+trap 'rm -f "$build_log"' EXIT
+set +e
+xcodebuild "${XCODEBUILD_ARGS[@]}" build 2>&1 | tee "$build_log"
+build_status=${PIPESTATUS[0]}
+set -e
+if [[ "$build_status" -ne 0 ]]; then
+  if grep -q "com.macallyouneed.app.finderhistory" "$build_log"; then
+    cat >&2 <<EOF
+
+hint: Finder History is a new embedded extension (com.macallyouneed.app.finderhistory).
+Xcode must register its App ID + provisioning profile once:
+  1. Open MacAllYouNeed.xcodeproj in Xcode.
+  2. Select target FinderHistoryExtension → Signing & Capabilities.
+  3. Enable "Automatically manage signing" and choose team $TEAM.
+  4. Wait for Xcode to finish "Registering bundle identifier…", then run: make release
+
+EOF
+  fi
+  exit "$build_status"
+fi
 
 APP_PATH="$DERIVED_DATA/Build/Products/$CONFIGURATION/$APP_NAME.app"
 if [[ ! -d "$APP_PATH" ]]; then

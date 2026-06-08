@@ -60,10 +60,15 @@ enum DockPreviewWindowCandidateDiscriminator {
             preview(app, attributes.subrole) ||
             iina(app) ||
             openFLStudio(app, attributes.title) ||
+            appleDockPreviewApp(app, attributes) ||
             (level.map { crossoverWindow(app, attributes.role, attributes.subrole, $0) } ?? false) ||
             (level.map { alwaysOnTopScrcpy(app, $0, attributes.role, attributes.subrole) } ?? false)
 
-        let standardSubrole = [kAXStandardWindowSubrole as String, kAXDialogSubrole as String].contains(attributes.subrole ?? "")
+        let standardSubrole = [
+            kAXStandardWindowSubrole as String,
+            kAXDialogSubrole as String,
+            documentWindowSubrole,
+        ].contains(attributes.subrole ?? "")
         let appSpecificSubrole = openBoard(app) ||
             adobeAudition(app, attributes.subrole) ||
             adobeAfterEffects(app, attributes.subrole) ||
@@ -215,6 +220,20 @@ enum DockPreviewWindowCandidateDiscriminator {
 
     private static func autocad(_ app: NSRunningApplication, _ subrole: String?) -> Bool {
         (app.bundleIdentifier?.hasPrefix("com.autodesk.AutoCAD") ?? false) && subrole == documentWindowSubrole
+    }
+
+    /// Finder / Notes / iTerm often use AXDocumentWindow or omit traffic-light AX refs DockDoor still previews.
+    private static func appleDockPreviewApp(
+        _ app: NSRunningApplication,
+        _ attributes: DockPreviewWindowCandidateAttributes
+    ) -> Bool {
+        guard attributes.role == (kAXWindowRole as String) else { return false }
+        switch app.bundleIdentifier {
+        case "com.apple.finder", "com.apple.Notes", "com.googlecode.iterm2", "com.apple.iTerm2":
+            return true
+        default:
+            return false
+        }
     }
 }
 

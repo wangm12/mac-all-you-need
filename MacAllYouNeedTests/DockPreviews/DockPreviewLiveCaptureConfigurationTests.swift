@@ -1,0 +1,29 @@
+import XCTest
+@testable import MacAllYouNeed
+
+final class DockPreviewLiveCaptureConfigurationTests: XCTestCase {
+    func testDockHoverUsesAdvancedQualityAndFrameRate() {
+        var hub = DockHubSettings.default
+        hub.advanced.dockLivePreviewQuality = .retina
+        hub.advanced.dockLivePreviewFrameRate = .fps15
+        hub.advanced.livePreviewStreamKeepAlive = 5
+
+        let config = DockPreviewLiveCaptureConfiguration.resolve(hub: hub, context: .dockHover)
+
+        XCTAssertEqual(config.streamWidth, 480)
+        XCTAssertEqual(config.streamHeight, 300)
+        XCTAssertEqual(config.frameRate, 15)
+        XCTAssertEqual(config.keepAliveSec, 5)
+    }
+
+    func testSwitcherUsesSwitcherAdvancedSettings() {
+        var hub = DockHubSettings.default
+        hub.advanced.switcherLivePreviewQuality = .low
+        hub.advanced.switcherLivePreviewFrameRate = .fps10
+
+        let config = DockPreviewLiveCaptureConfiguration.resolve(hub: hub, context: .windowSwitcher)
+
+        XCTAssertEqual(config.streamWidth, 240)
+        XCTAssertEqual(config.frameRate, 10)
+    }
+}

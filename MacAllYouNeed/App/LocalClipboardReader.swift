@@ -11,6 +11,8 @@ final class LocalClipboardReader {
     /// Exposed so other read paths (e.g. the dock) can share this store rather
     /// than opening a second DatabaseQueue against the same SQLite file.
     let store: ClipboardStore?
+    let search: SearchStore?
+    let worker: ClipboardWorker?
     /// Optional blob store — used by the suppression filter to clean up image
     /// blobs of records the daemon re-captured after a user-initiated delete.
     weak var blobsRef: BlobStore?
@@ -25,13 +27,15 @@ final class LocalClipboardReader {
     /// Entries expire after `deleteSuppressionWindow` so genuine re-copies
     /// later still appear.
     private var recentlyDeletedPreviews: [String: Date] = [:]
-    private static let deleteSuppressionWindow: TimeInterval = 15
+    static let deleteSuppressionWindow: TimeInterval = 15
     private var pbSuppressionTask: Task<Void, Never>? = nil
     private var pollTask: Task<Void, Never>?
     private var changeObserver: NSObjectProtocol?
 
-    init(store: ClipboardStore) {
+    init(store: ClipboardStore, search: SearchStore? = nil, worker: ClipboardWorker? = nil) {
         self.store = store
+        self.search = search
+        self.worker = worker
         startPolling()
         // Reload immediately whenever the dock model mutates the store
         // (delete, rename, retention) so the menu bar popover stays in
@@ -131,21 +135,57 @@ final class LocalClipboardReader {
     private func reload() async {
         guard let store else { return }
         let currentQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let result = await Task.detached(priority: .userInitiated) {
-            let window = ClipboardHistoryWindow.listParameters()
-            return Result { try store.list(limit: 200, modifiedOnOrAfter: window.modifiedOnOrAfter) }
-        }.value
+        let result: Result<[ClipboardItemMeta], Error>
+        if let worker {
+            let loaded = await worker.loadForReader(query: currentQuery)
+            result = .success(loaded)
+        } else {
+            let searchStore = search
+            result = await Task.detached(priority: .userInitiated) {
+                let window = ClipboardHistoryWindow.listParameters()
+                return Result {
+                    if currentQuery.isEmpty {
+                        return try store.list(limit: 200, modifiedOnOrAfter: window.modifiedOnOrAfter)
+                    }
+                    if SmartSearchQuery(currentQuery).hasOperators {
+                        let recent = try store.list(limit: 200, modifiedOnOrAfter: window.modifiedOnOrAfter)
+                        return Self.applyQuery(currentQuery, to: recent)
+                    }
+                    return try ClipboardHistoryQueryLoader.load(
+                        clip: store,
+                        search: searchStore,
+                        query: currentQuery,
+                        limit: 90,
+                        modifiedOnOrAfter: window.modifiedOnOrAfter
+                    )
+                }
+            }.value
+        }
         switch result {
         case .success(let fetched):
-            let deduped = Self.deduplicate(fetched, limit: 30)
-            if currentQuery.isEmpty {
-                items = deduped
-            } else {
-                items = Self.applyQuery(currentQuery, to: deduped)
-            }
+            pruneRecentlyDeleted()
+            let visible = applyDeleteSuppression(to: fetched)
+            items = Self.deduplicate(visible, limit: 30)
         case .failure:
             items = []
         }
+    }
+
+    private func applyDeleteSuppression(to fetched: [ClipboardItemMeta]) -> [ClipboardItemMeta] {
+        guard !recentlyDeletedPreviews.isEmpty else { return fetched }
+        var suppressedIDs: [RecordID] = []
+        let visible = fetched.filter { item in
+            guard isSuppressed(preview: item.preview) else { return true }
+            suppressedIDs.append(item.id)
+            return false
+        }
+        if let store, !suppressedIDs.isEmpty {
+            for id in suppressedIDs {
+                try? store.delete(id: id)
+            }
+            NotificationCenter.default.post(name: .clipboardStoreDidChange, object: nil)
+        }
+        return visible
     }
 
     /// Applies the smart search query to popover items, matching the dock's
