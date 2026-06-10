@@ -14,7 +14,11 @@ private enum ClipboardVoiceMigration {
             app_bundle_id TEXT,
             language TEXT NOT NULL,
             model_identifier TEXT NOT NULL,
-            audio_path TEXT
+            audio_path TEXT,
+            status TEXT NOT NULL DEFAULT 'success',
+            failed_stage TEXT,
+            failure_reason TEXT,
+            retry_source_transcript_id TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_voice_transcripts_started_at
             ON voice_transcripts(started_at DESC);
@@ -119,6 +123,22 @@ public final class ClipboardStore {
             try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN ocr_text TEXT;")
             try conn.execute(sql: "ALTER TABLE clipboard_records ADD COLUMN embedding BLOB;")
             try conn.execute(sql: "CREATE INDEX IF NOT EXISTS idx_records_detected_type ON clipboard_records(detected_type);")
+        },
+        Migration(identifier: "009-voice-transcript-status") { conn in
+            let existing = Set(try Row.fetchAll(conn, sql: "PRAGMA table_info(voice_transcripts)")
+                .compactMap { $0["name"] as String? })
+            if !existing.contains("status") {
+                try conn.execute(sql: "ALTER TABLE voice_transcripts ADD COLUMN status TEXT NOT NULL DEFAULT 'success';")
+            }
+            if !existing.contains("failed_stage") {
+                try conn.execute(sql: "ALTER TABLE voice_transcripts ADD COLUMN failed_stage TEXT;")
+            }
+            if !existing.contains("failure_reason") {
+                try conn.execute(sql: "ALTER TABLE voice_transcripts ADD COLUMN failure_reason TEXT;")
+            }
+            if !existing.contains("retry_source_transcript_id") {
+                try conn.execute(sql: "ALTER TABLE voice_transcripts ADD COLUMN retry_source_transcript_id TEXT;")
+            }
         }
     ]
 

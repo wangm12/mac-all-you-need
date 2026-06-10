@@ -5,6 +5,7 @@ struct VoiceRecognitionSetupGuide: View {
     var footerText: String = "You can refine these later from Voice settings."
     var showsHeaderCopy: Bool = true
     var showsLanguageRow: Bool = true
+    var showsExactSelectionRow: Bool = true
 
     @State private var selectedASRModelID: VoiceASRModelID
     @State private var asrProviderKind: VoiceASRProviderKind
@@ -18,6 +19,7 @@ struct VoiceRecognitionSetupGuide: View {
     @State private var modelDownloadFractions: [VoiceASRModelID: Double] = [:]
     @State private var downloadingModelID: VoiceASRModelID?
     @State private var isShowingEnginePicker = false
+    @State private var appliedEngineID: VoiceEngineID
     @State private var pickerSelectedEngineID: VoiceEngineID
     @State private var pickerFilter: VoiceEnginePickerFilter = .all
     @State private var pickerSearchText = ""
@@ -26,12 +28,14 @@ struct VoiceRecognitionSetupGuide: View {
         controller: AppController,
         footerText: String = "You can refine these later from Voice settings.",
         showsHeaderCopy: Bool = true,
-        showsLanguageRow: Bool = true
+        showsLanguageRow: Bool = true,
+        showsExactSelectionRow: Bool = true
     ) {
         self.controller = controller
         self.footerText = footerText
         self.showsHeaderCopy = showsHeaderCopy
         self.showsLanguageRow = showsLanguageRow
+        self.showsExactSelectionRow = showsExactSelectionRow
 
         let asr = VoiceASRSettingsStore.load()
         let cloud = VoiceCloudASRSettingsStore.load()
@@ -50,15 +54,15 @@ struct VoiceRecognitionSetupGuide: View {
         )
         _cloudAPIKeys = State(initialValue: cloudKeys)
         _cloudSetupProviderKind = State(initialValue: asr.providerKind.isCloud ? asr.providerKind : cloud.modelID.providerKind)
-        _pickerSelectedEngineID = State(
-            initialValue: VoiceEngineCatalogPresentation.currentEngineID(
-                providerKind: asr.providerKind,
-                selectedLocalModelID: asr.modelID,
-                selectedCloudModelID: asr.providerKind.isCloud
-                    ? cloud.modelID(for: asr.providerKind)
-                    : cloud.modelID
-            )
+        let initialEngineID = VoiceEngineCatalogPresentation.currentEngineID(
+            providerKind: asr.providerKind,
+            selectedLocalModelID: asr.modelID,
+            selectedCloudModelID: asr.providerKind.isCloud
+                ? cloud.modelID(for: asr.providerKind)
+                : cloud.modelID
         )
+        _appliedEngineID = State(initialValue: initialEngineID)
+        _pickerSelectedEngineID = State(initialValue: initialEngineID)
     }
 
     var body: some View {
@@ -73,22 +77,30 @@ struct VoiceRecognitionSetupGuide: View {
 
             MAYNSection(title: "Recognition") {
                 MAYNSettingsRow(
-                    title: "Recognition engine",
-                    subtitle: recognitionSummary
+                    title: "Recommended engine",
+                    subtitle: engineSelectionDetail(appliedEngineID),
+                    belowSubtitle: { AnyView(selectedEngineBadge) }
                 ) {
                     MAYNButton("Change...") {
                         openEnginePicker()
                     }
                 }
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Exact selection",
-                    subtitle: "Advanced selection for exact local, cloud, and experimental recognizers."
-                ) {
-                    MAYNButton("Choose exact engine...") {
-                        openEnginePicker()
+                .id(appliedEngineID)
+
+                if showsExactSelectionRow {
+                    MAYNDivider()
+                    MAYNSettingsRow(
+                        title: "Exact selection",
+                        subtitle: exactSelectionDetail,
+                        belowSubtitle: { AnyView(selectedEngineBadge) }
+                    ) {
+                        MAYNButton("Choose exact engine...") {
+                            openEnginePicker()
+                        }
                     }
+                    .id("exact-\(appliedEngineID.id)")
                 }
+
                 if showsLanguageRow {
                     MAYNDivider()
                     MAYNSettingsRow(
@@ -119,9 +131,9 @@ struct VoiceRecognitionSetupGuide: View {
                 selectedEngineID: $pickerSelectedEngineID,
                 filter: $pickerFilter,
                 searchText: $pickerSearchText,
-                currentEngineID: currentEngineID,
+                currentEngineID: appliedEngineID,
                 entries: VoiceEngineCatalogPresentation.pickerEntries(),
-                onClose: { isShowingEnginePicker = false }
+                onClose: closeEnginePicker
             ) { engineID in
                 detailPane(for: engineID)
             }
@@ -142,7 +154,7 @@ struct VoiceRecognitionSetupGuide: View {
 
     private func localDetailPane(for modelID: VoiceASRModelID) -> some View {
         let installed = VoiceModelManager.isLocalASRModelInstalled(modelID)
-        let isCurrent = currentEngineID == .local(modelID)
+        let isCurrent = appliedEngineID == .local(modelID)
         let isDownloading = downloadingModelID == modelID
         let statusText: String
         let statusKind: StatusPill.Kind
@@ -213,7 +225,7 @@ struct VoiceRecognitionSetupGuide: View {
     private func cloudDetailPane(for modelID: VoiceCloudASRModelID) -> some View {
         let provider = modelID.providerKind
         let hasKey = hasUsableCloudAPIKey(for: provider)
-        let isCurrent = currentEngineID == .cloud(modelID)
+        let isCurrent = appliedEngineID == .cloud(modelID)
         let isProviderTesting = isTestingCloud && cloudSetupProviderKind == provider
         let statusText: String
         let statusKind: StatusPill.Kind
@@ -258,13 +270,15 @@ struct VoiceRecognitionSetupGuide: View {
                 width: MAYNControlMetrics.wideTextFieldWidth
             )
 
-            if hasKey {
-                MAYNButton("Use engine", role: .primary) {
-                    selectCloudModel(modelID)
-                }
-            } else {
-                MAYNButton("Configure API key", role: .primary) {
-                    selectCloudModel(modelID)
+            if !isCurrent {
+                if hasKey {
+                    MAYNButton("Use engine", role: .primary) {
+                        selectCloudModel(modelID)
+                    }
+                } else {
+                    MAYNButton("Configure API key", role: .primary) {
+                        selectCloudModel(modelID)
+                    }
                 }
             }
 
@@ -308,33 +322,70 @@ struct VoiceRecognitionSetupGuide: View {
         }
     }
 
-    private var currentEngineID: VoiceEngineID {
-        VoiceEngineCatalogPresentation.currentEngineID(
-            providerKind: asrProviderKind,
-            selectedLocalModelID: selectedASRModelID,
-            selectedCloudModelID: cloudModelID
-        )
+    private var selectedEngineEntry: VoiceEngineListEntry? {
+        VoiceEngineCatalogPresentation.pickerEntries().first { $0.id == appliedEngineID }
     }
 
-    private var recognitionSummary: String {
-        switch asrProviderKind {
+    private var selectedEngineBadge: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(engineTitle(appliedEngineID))
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                StatusPill(text: "In use", kind: .success)
+                StatusPill(text: engineKindLabel(appliedEngineID), kind: .neutral)
+            }
+        }
+    }
+
+    private var exactSelectionDetail: String {
+        if let entry = selectedEngineEntry, entry.subtitle != engineTitle(appliedEngineID) {
+            return entry.subtitle
+        }
+        return engineSelectionDetail(appliedEngineID)
+    }
+
+    private func engineSelectionDetail(_ engineID: VoiceEngineID) -> String {
+        switch engineID {
+        case let .local(modelID):
+            return "\(modelID.subtitle) On-device recognition."
+        case let .cloud(modelID):
+            return modelID.subtitle
+        case .experimental:
+            return "Experimental engine · not available for dictation in this build"
+        }
+    }
+
+    private func engineKindLabel(_ engineID: VoiceEngineID) -> String {
+        switch engineID {
         case .local:
-            selectedASRModelID.title
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
-            cloudModelID.title
+            "Local"
+        case let .cloud(modelID):
+            modelID.providerKind.label
+        case .experimental:
+            "Experimental"
         }
     }
 
     private func openEnginePicker() {
-        pickerSelectedEngineID = currentEngineID
+        syncPresentationFromStores()
+        pickerSelectedEngineID = appliedEngineID
         pickerFilter = .all
         pickerSearchText = ""
         isShowingEnginePicker = true
     }
 
+    private func closeEnginePicker() {
+        syncPresentationFromStores()
+        isShowingEnginePicker = false
+    }
+
     private func selectLocalModel(_ modelID: VoiceASRModelID) {
         selectedASRModelID = modelID
-        asrProviderKind = .local
+        asrProviderKind = VoiceASRModelSelectionState.providerKindAfterSelectingLocalModel()
         controller.applyVoiceASRSettings(
             VoiceASRSettings(
                 modelID: modelID,
@@ -342,11 +393,14 @@ struct VoiceRecognitionSetupGuide: View {
                 providerKind: .local
             )
         )
+        appliedEngineID = .local(modelID)
+        pickerSelectedEngineID = .local(modelID)
         modelDownloadStatus[modelID] = "Selected for future dictation."
+        syncPresentationFromStores()
     }
 
     private func selectCloudModel(_ modelID: VoiceCloudASRModelID) {
-        let provider = modelID.providerKind
+        let provider = VoiceASRModelSelectionState.providerKindAfterSelectingCloudModel(modelID)
         cloudSetupProviderKind = provider
         guard hasUsableCloudAPIKey(for: provider) else {
             cloudStatusMessage = "Add \(provider.apiKeyLabel) before selecting this cloud model."
@@ -368,9 +422,42 @@ struct VoiceRecognitionSetupGuide: View {
                 ),
                 cloudAPIKey: cloudAPIKeys[provider] ?? ""
             )
+            appliedEngineID = .cloud(modelID)
+            pickerSelectedEngineID = .cloud(modelID)
             cloudStatusMessage = "\(provider.label) selected."
+            syncPresentationFromStores()
         } catch {
             cloudStatusMessage = error.localizedDescription
+        }
+    }
+
+    private func syncPresentationFromStores() {
+        let asr = VoiceASRSettingsStore.load()
+        let cloud = VoiceCloudASRSettingsStore.load()
+        selectedASRModelID = asr.modelID
+        asrProviderKind = asr.providerKind
+        cloudLanguageHint = cloud.languageHint
+        if asr.providerKind.isCloud {
+            cloudModelID = cloud.modelID(for: asr.providerKind)
+            cloudSetupProviderKind = asr.providerKind
+        } else {
+            cloudModelID = cloud.modelID
+        }
+        appliedEngineID = VoiceEngineCatalogPresentation.currentEngineID(
+            providerKind: asrProviderKind,
+            selectedLocalModelID: selectedASRModelID,
+            selectedCloudModelID: cloudModelID
+        )
+    }
+
+    private func engineTitle(_ engineID: VoiceEngineID) -> String {
+        switch engineID {
+        case let .local(modelID):
+            modelID.title
+        case let .cloud(modelID):
+            modelID.title
+        case let .experimental(id):
+            VoiceEngineCatalogPresentation.experimentalDescriptor(for: id)?.title ?? "Experimental engine"
         }
     }
 
@@ -454,6 +541,9 @@ struct VoiceRecognitionSetupGuide: View {
                         cloudSettings: cloudSettings,
                         cloudAPIKey: key
                     )
+                    appliedEngineID = .cloud(cloudSettings.modelID)
+                    pickerSelectedEngineID = .cloud(cloudSettings.modelID)
+                    syncPresentationFromStores()
                 }
                 isTestingCloud = false
             }

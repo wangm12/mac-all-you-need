@@ -15,6 +15,8 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
     case restore
     case nextDisplay
     case previousDisplay
+    case nextSpace
+    case previousSpace
 
     public var title: String {
         switch self {
@@ -46,6 +48,10 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
             "Next display"
         case .previousDisplay:
             "Previous display"
+        case .nextSpace:
+            "Next space"
+        case .previousSpace:
+            "Previous space"
         }
     }
 
@@ -79,6 +85,10 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
             "rectangle.portrait.arrowtriangle.2.outward"
         case .previousDisplay:
             "rectangle.portrait.arrowtriangle.2.inward"
+        case .nextSpace:
+            "square.grid.3x1.below.line.grid.1x2"
+        case .previousSpace:
+            "square.grid.3x1.left.filled.below.line.grid.1x2"
         }
     }
 

@@ -153,6 +153,7 @@ struct DashboardDestinationView: View {
         switch action {
         case .enable:
             try? await controller.runtime.applyTransition(.enable, for: targetID)
+            controller.showFeatureOnboardingIfNeeded(for: targetID)
         case .disable:
             try? await controller.runtime.applyTransition(.disable, for: targetID)
         case .install:
@@ -190,30 +191,7 @@ struct DashboardDestinationView: View {
     }
 
     private func accent(for destination: MainAppDestination) -> Color {
-        switch destination {
-        case .clipboard:
-            Color(red: 0.10, green: 0.42, blue: 0.92)
-        case .voice:
-            Color(red: 0.64, green: 0.22, blue: 0.88)
-        case .downloads:
-            Color(red: 0.02, green: 0.58, blue: 0.42)
-        case .folderPreview:
-            Color(red: 0.86, green: 0.46, blue: 0.12)
-        case .snippets:
-            Color(red: 0.82, green: 0.18, blue: 0.36)
-        case .windowLayouts:
-            Color(red: 0.20, green: 0.48, blue: 0.72)
-        case .grabAnywhere:
-            Color(red: 0.24, green: 0.46, blue: 0.36)
-        case .dockPreviews:
-            Color(red: 0.10, green: 0.42, blue: 0.92)
-        case .finderHistory:
-            Color(red: 0.86, green: 0.46, blue: 0.12)
-        case .aiFileOrganizer:
-            Color(red: 0.02, green: 0.58, blue: 0.42)
-        case .dashboard, .settings, .voiceReminders:
-            .secondary
-        }
+        DashboardToolTilePresentation.accent(for: destination)
     }
 }
 

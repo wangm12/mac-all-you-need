@@ -77,6 +77,29 @@ struct DockSettingsTabSwitcher: View {
                 Toggle("", isOn: settings.bool(\.switcher.includeHiddenWindows)).labelsHidden()
                     .disabled(!hub.master.enableWindowSwitcher)
             }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Layout style", subtitle: "Horizontal thumbnail grid or vertical searchable list.") {
+                MAYNDropdown(
+                    selection: settings.value(\.switcher.switcherLayoutStyle),
+                    options: DockSwitcherLayoutStyle.allCases
+                ) { $0.displayName }
+                .disabled(!hub.master.enableWindowSwitcher)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Preview at original position", subtitle: "Show a border around the selected window on screen.") {
+                Toggle("", isOn: settings.bool(\.switcher.previewAtOriginalPosition)).labelsHidden()
+                    .disabled(!hub.master.enableWindowSwitcher)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Sticky switching", subtitle: "Keep the switcher open after selecting a window.") {
+                Toggle("", isOn: settings.bool(\.switcher.stickyWindowSwitching)).labelsHidden()
+                    .disabled(!hub.master.enableWindowSwitcher)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Cursor auto-center on focus", subtitle: "Move the pointer to the window center when switching.") {
+                Toggle("", isOn: settings.bool(\.switcher.cursorAutoCenterOnFocus)).labelsHidden()
+                    .disabled(!hub.master.enableWindowSwitcher)
+            }
         }
     }
 

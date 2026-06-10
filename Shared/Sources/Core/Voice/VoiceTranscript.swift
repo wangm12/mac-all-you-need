@@ -1,5 +1,18 @@
 import Foundation
 
+public enum VoiceTranscriptStatus: String, Sendable, Equatable {
+    case success
+    case failed
+    case retriedFrom
+}
+
+public enum VoiceTranscriptFailedStage: String, Sendable, Equatable {
+    case asr
+    case cleanup
+    case paste
+    case unknown
+}
+
 public struct VoiceTranscriptDraft: Sendable {
     public let startedAt: Date
     public let endedAt: Date
@@ -9,6 +22,10 @@ public struct VoiceTranscriptDraft: Sendable {
     public let language: VoiceLanguage
     public let modelIdentifier: String
     public let audioPath: String?
+    public let status: VoiceTranscriptStatus
+    public let failedStage: VoiceTranscriptFailedStage?
+    public let failureReason: String?
+    public let retrySourceTranscriptID: String?
 
     public init(
         startedAt: Date,
@@ -18,7 +35,11 @@ public struct VoiceTranscriptDraft: Sendable {
         appBundleID: String?,
         language: VoiceLanguage,
         modelIdentifier: String,
-        audioPath: String?
+        audioPath: String?,
+        status: VoiceTranscriptStatus = .success,
+        failedStage: VoiceTranscriptFailedStage? = nil,
+        failureReason: String? = nil,
+        retrySourceTranscriptID: String? = nil
     ) {
         self.startedAt = startedAt
         self.endedAt = endedAt
@@ -28,6 +49,10 @@ public struct VoiceTranscriptDraft: Sendable {
         self.language = language
         self.modelIdentifier = modelIdentifier
         self.audioPath = audioPath
+        self.status = status
+        self.failedStage = failedStage
+        self.failureReason = failureReason
+        self.retrySourceTranscriptID = retrySourceTranscriptID
     }
 }
 
@@ -42,6 +67,10 @@ public struct VoiceTranscript: Identifiable, Sendable, Equatable {
     public let language: VoiceLanguage
     public let modelIdentifier: String
     public let audioPath: String?
+    public let status: VoiceTranscriptStatus
+    public let failedStage: VoiceTranscriptFailedStage?
+    public let failureReason: String?
+    public let retrySourceTranscriptID: String?
 
     public init(
         id: String,
@@ -53,7 +82,11 @@ public struct VoiceTranscript: Identifiable, Sendable, Equatable {
         appBundleID: String?,
         language: VoiceLanguage,
         modelIdentifier: String,
-        audioPath: String?
+        audioPath: String?,
+        status: VoiceTranscriptStatus = .success,
+        failedStage: VoiceTranscriptFailedStage? = nil,
+        failureReason: String? = nil,
+        retrySourceTranscriptID: String? = nil
     ) {
         self.id = id
         self.startedAt = startedAt
@@ -65,5 +98,9 @@ public struct VoiceTranscript: Identifiable, Sendable, Equatable {
         self.language = language
         self.modelIdentifier = modelIdentifier
         self.audioPath = audioPath
+        self.status = status
+        self.failedStage = failedStage
+        self.failureReason = failureReason
+        self.retrySourceTranscriptID = retrySourceTranscriptID
     }
 }

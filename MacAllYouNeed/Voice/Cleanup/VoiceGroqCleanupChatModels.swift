@@ -39,13 +39,13 @@ enum VoiceGroqCleanupChatModel: String, CaseIterable, Identifiable {
     /// Stable order for the cleanup picker (fast defaults first).
     static var orderedForPicker: [VoiceGroqCleanupChatModel] {
         [
+            .gptOss20b,
             .llama31_8bInstant,
             .llama33_70bVersatile,
             .llama4Scout,
             .qwen3_32b,
             .compoundMini,
             .compound,
-            .gptOss20b,
             .gptOss120b
         ]
     }

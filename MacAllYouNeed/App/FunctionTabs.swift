@@ -141,6 +141,8 @@ enum WindowLayoutsFunctionTab: String, FunctionTabDestination {
     case radial
     case snap
     case apps
+    case rules
+    case diagnostics
 
     static let storageKey = "main.windowLayouts.selectedTab"
     static let defaultTab = WindowLayoutsFunctionTab.shortcuts
@@ -151,6 +153,8 @@ enum WindowLayoutsFunctionTab: String, FunctionTabDestination {
         case .radial: "Radial"
         case .snap: "Snap"
         case .apps: "Ignored Apps"
+        case .rules: "Rules"
+        case .diagnostics: "Diagnostics"
         }
     }
 
@@ -160,6 +164,8 @@ enum WindowLayoutsFunctionTab: String, FunctionTabDestination {
         case .radial: "circle.grid.cross"
         case .snap: "square.split.2x2"
         case .apps: "app.badge"
+        case .rules: "list.bullet.rectangle"
+        case .diagnostics: "stethoscope"
         }
     }
 }

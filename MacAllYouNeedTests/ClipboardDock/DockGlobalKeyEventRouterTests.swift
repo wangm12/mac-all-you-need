@@ -63,6 +63,6 @@ final class DockGlobalKeyEventRouterTests: XCTestCase {
         let mask = DockGlobalKeyFallbackPolicy.modifierMask(
             from: [.maskCommand, .maskAlphaShift]
         )
-        XCTAssertEqual(mask, NSEvent.ModifierFlags.command.rawValue)
+        XCTAssertEqual(mask, (NSEvent.ModifierFlags.command.union(.capsLock)).rawValue)
     }
 }

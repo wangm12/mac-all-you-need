@@ -53,6 +53,8 @@ public struct FeatureDescriptor: Sendable {
     public let activator: any FeatureActivator
     public let settingsTabFactory: (@Sendable () -> AnyView)?
     public let onboardingSetupFactory: (@Sendable () -> AnyView)?
+    /// Multi-step product wizard shown during onboarding. Must not request TCC permissions.
+    public let featureOnboardingWizardFactory: (@Sendable @MainActor () -> AnyView)?
     public let menuBarItemFactory: (@Sendable () -> AnyView)?
 
     public init(
@@ -69,6 +71,7 @@ public struct FeatureDescriptor: Sendable {
         activator: any FeatureActivator,
         settingsTabFactory: (@Sendable () -> AnyView)? = nil,
         onboardingSetupFactory: (@Sendable () -> AnyView)? = nil,
+        featureOnboardingWizardFactory: (@Sendable @MainActor () -> AnyView)? = nil,
         menuBarItemFactory: (@Sendable () -> AnyView)? = nil
     ) {
         self.id = id
@@ -84,6 +87,7 @@ public struct FeatureDescriptor: Sendable {
         self.activator = activator
         self.settingsTabFactory = settingsTabFactory
         self.onboardingSetupFactory = onboardingSetupFactory
+        self.featureOnboardingWizardFactory = featureOnboardingWizardFactory
         self.menuBarItemFactory = menuBarItemFactory
     }
 

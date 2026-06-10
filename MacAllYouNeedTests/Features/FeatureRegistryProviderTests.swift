@@ -9,9 +9,9 @@ final class FeatureRegistryProviderTests: XCTestCase {
         XCTAssertEqual(
             ids,
             [
-                .clipboard, .clipboardSmartText, .folderPreview, .downloader, .voice,
-                .windowLayouts, .windowGrab, .folderHistory, .voiceReminders,
-                .aiFileOrganizer, .dockPreviews,
+                .clipboard, .clipboardSmartText, .voice, .voiceReminders, .downloader,
+                .folderPreview, .folderHistory, .aiFileOrganizer, .windowLayouts,
+                .windowGrab, .dockPreviews,
             ],
             "Registry order is contractual; UI iterates this order."
         )

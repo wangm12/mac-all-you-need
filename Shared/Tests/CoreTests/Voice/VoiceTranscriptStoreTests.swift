@@ -29,6 +29,40 @@ final class VoiceTranscriptStoreTests: XCTestCase {
         XCTAssertEqual(fetched?.cleanedText, saved.cleanedText)
         XCTAssertEqual(fetched?.language, .mixed)
         XCTAssertEqual(fetched?.durationMs, 3000)
+        XCTAssertEqual(fetched?.status, .success)
+    }
+
+    func testSaveAndFetchFailedTranscriptMetadata() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoiceTranscriptStore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let db = try Database(
+            url: tempDir.appendingPathComponent("clipboard.sqlite"),
+            migrations: ClipboardStore.migrations
+        )
+        let store = VoiceTranscriptStore(database: db)
+
+        let saved = try store.save(VoiceTranscriptDraft(
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 15),
+            rawText: "",
+            cleanedText: "",
+            appBundleID: "com.apple.TextEdit",
+            language: .unknown,
+            modelIdentifier: "unknown",
+            audioPath: "/tmp/sample.aesgcm",
+            status: .failed,
+            failedStage: .cleanup,
+            failureReason: "cleanup_result_missing",
+            retrySourceTranscriptID: "source-id"
+        ))
+
+        let fetched = try store.fetch(id: saved.id)
+        XCTAssertEqual(fetched?.status, .failed)
+        XCTAssertEqual(fetched?.failedStage, .cleanup)
+        XCTAssertEqual(fetched?.failureReason, "cleanup_result_missing")
+        XCTAssertEqual(fetched?.retrySourceTranscriptID, "source-id")
     }
 
     func testListRecentTranscriptsReturnsNewestFirstWithLimit() throws {

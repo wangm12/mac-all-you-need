@@ -14,9 +14,12 @@ final class FeatureRuntimeTests: XCTestCase {
     }
 
     func testActivatesEnabledFeaturesOnBoot() async throws {
-        let (runtime, _) = try await makeRuntime()
-        await runtime.activateAllEnabled()
+        let (runtime, manager) = try await makeRuntime()
         let registry = await runtime.registry
+        for descriptor in registry.descriptors {
+            try await manager.transition(.enable, for: descriptor.id)
+        }
+        await runtime.activateAllEnabled()
         for descriptor in registry.descriptors {
             let isActive = await runtime.isActive(descriptor.id)
             XCTAssertTrue(isActive, "\(descriptor.id) should be active after boot")
@@ -30,6 +33,8 @@ final class FeatureRuntimeTests: XCTestCase {
 
         let clipboardActive = await runtime.isActive(.clipboard)
         XCTAssertFalse(clipboardActive)
+        try await manager.transition(.enable, for: .voice)
+        await runtime.activateAllEnabled()
         let voiceActive = await runtime.isActive(.voice)
         XCTAssertTrue(voiceActive)
     }

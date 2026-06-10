@@ -47,7 +47,9 @@ struct VoiceDestinationView: View {
     @State private var transcripts: [VoiceTranscript] = []
     @State private var transcriptPage = 0
     @State private var selectedTranscriptIDs: Set<String> = []
+    @State private var retryingTranscriptIDs: Set<String> = []
     @State private var voiceHistorySettings = VoiceHistorySettings()
+    @State private var historyFilter: VoiceHistoryFilter = .all
     @State private var historyToast: VoiceHistoryUndoToken?
     @State private var toastClearTask: Task<Void, Never>?
     @State private var transcriptAnchorID: String?
@@ -60,6 +62,28 @@ struct VoiceDestinationView: View {
     @State private var pickerFilter: VoiceEnginePickerFilter = .all
     @State private var pickerSearchText = ""
     private let microphoneRefreshTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    private enum VoiceHistoryFilter: String, SegmentedTabDestination {
+        case all
+        case failed
+        case success
+
+        var title: String {
+            switch self {
+            case .all: return "All"
+            case .failed: return "Failed"
+            case .success: return "Success"
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .all: return "line.3.horizontal.decrease.circle"
+            case .failed: return "exclamationmark.triangle"
+            case .success: return "checkmark.circle"
+            }
+        }
+    }
 
     init(controller: AppController) {
         self.controller = controller
@@ -235,13 +259,20 @@ struct VoiceDestinationView: View {
     private var voiceRecognitionModelsSection: some View {
         MAYNSection(
             title: "Recognition",
-            subtitle: "Pick your recognition engine and language; tap the engine row to open the full picker."
+            subtitle: recognitionSectionSubtitle
         ) {
             MAYNSettingsRow(
                 title: "Recognition engine",
                 subtitle: recognitionEngineRowSubtitle,
                 belowSubtitle: {
-                    AnyView(StatusPill(text: recognitionEngineSingleTag, kind: .neutral))
+                    AnyView(
+                        HStack(spacing: 6) {
+                            StatusPill(text: recognitionEngineSingleTag, kind: .neutral)
+                            if let recommendation = recognitionRecommendationTag {
+                                StatusPill(text: recommendation, kind: .success)
+                            }
+                        }
+                    )
                 }
             ) {
                 MAYNButton("Change...") {
@@ -251,7 +282,7 @@ struct VoiceDestinationView: View {
             MAYNDivider()
             MAYNSettingsRow(
                 title: "Dictation language",
-                subtitle: "Auto-detect is best for mixed Chinese and English; switch to one language only when results drift."
+                subtitle: dictationLanguageSubtitle
             ) {
                 MAYNDropdown(
                     selection: $languageHint,
@@ -267,10 +298,21 @@ struct VoiceDestinationView: View {
         let page = voiceTranscriptPageState
         return VStack(spacing: 12) {
             MAYNSection(title: "Recent transcripts") {
-                if transcripts.isEmpty {
+                MAYNSettingsRow(title: "Filter") {
+                    FunctionSegmentedTabStrip(
+                        tabs: Array(VoiceHistoryFilter.allCases),
+                        selection: historyFilter,
+                        fillsAvailableWidth: false,
+                        size: .control
+                    ) { historyFilter = $0 }
+                }
+                MAYNDivider()
+                if page.filtered.isEmpty {
                     MAYNSettingsRow(
-                        title: "No transcripts yet",
-                        subtitle: "Completed voice dictations appear here after transcription and paste."
+                        title: transcripts.isEmpty ? "No transcripts yet" : "No matching transcripts",
+                        subtitle: transcripts.isEmpty
+                            ? "Completed voice dictations appear here after transcription and paste."
+                            : "Try a different history filter."
                     ) {
                         EmptyView()
                     }
@@ -281,6 +323,7 @@ struct VoiceDestinationView: View {
                             transcript: transcript,
                             surface: .main,
                             isSelected: selectedTranscriptIDs.contains(transcript.id),
+                            isRetrying: retryingTranscriptIDs.contains(transcript.id),
                             onSelect: { selectVoiceTranscript(transcript) },
                             onCopy: { copyVoiceTranscripts(ids: [transcript.id]) },
                             onRetry: { retryTranscript(transcript) },
@@ -327,18 +370,28 @@ struct VoiceDestinationView: View {
     private struct VoiceTranscriptPageState {
         let visible: [VoiceTranscript]
         let pagination: MAYNListPaginationState
+        let filtered: [VoiceTranscript]
     }
 
     private static let voiceTranscriptPageSize = 15
 
     private var voiceTranscriptPageState: VoiceTranscriptPageState {
+        let filtered: [VoiceTranscript]
+        switch historyFilter {
+        case .all:
+            filtered = transcripts
+        case .failed:
+            filtered = transcripts.filter { $0.status == .failed }
+        case .success:
+            filtered = transcripts.filter { $0.status != .failed }
+        }
         let pagination = MAYNListPagination.make(
-            totalItems: transcripts.count,
+            totalItems: filtered.count,
             requestedPage: transcriptPage,
             pageSize: Self.voiceTranscriptPageSize
         )
-        let visible = MAYNListPagination.slice(transcripts, pagination: pagination)
-        return VoiceTranscriptPageState(visible: visible, pagination: pagination)
+        let visible = MAYNListPagination.slice(filtered, pagination: pagination)
+        return VoiceTranscriptPageState(visible: visible, pagination: pagination, filtered: filtered)
     }
 
     private var voiceActivationSection: some View {
@@ -389,7 +442,14 @@ struct VoiceDestinationView: View {
                 title: "Recognition engine",
                 subtitle: recognitionEngineRowSubtitle,
                 belowSubtitle: {
-                    AnyView(StatusPill(text: recognitionEngineSingleTag, kind: .neutral))
+                    AnyView(
+                        HStack(spacing: 6) {
+                            StatusPill(text: recognitionEngineSingleTag, kind: .neutral)
+                            if let recommendation = recognitionRecommendationTag {
+                                StatusPill(text: recommendation, kind: .success)
+                            }
+                        }
+                    )
                 }
             ) {
                 MAYNButton("Choose recognition engine") {
@@ -857,7 +917,7 @@ struct VoiceDestinationView: View {
     }
 
     private var voiceTranscriptIDs: [String] {
-        transcripts.map(\.id)
+        voiceTranscriptPageState.filtered.map(\.id)
     }
 
     private func selectVoiceTranscript(_ transcript: VoiceTranscript) {
@@ -1062,13 +1122,36 @@ struct VoiceDestinationView: View {
     }
 
     private func retryTranscript(_ transcript: VoiceTranscript) {
+        guard !retryingTranscriptIDs.contains(transcript.id) else { return }
+        retryingTranscriptIDs.insert(transcript.id)
         Task { @MainActor in
+            defer { retryingTranscriptIDs.remove(transcript.id) }
             do {
                 _ = try await controller.retryVoiceTranscript(id: transcript.id)
                 reload()
+                CopyHUD.show("Retry succeeded", symbol: "checkmark.circle.fill")
             } catch {
-                CopyHUD.show("Retry failed", symbol: "exclamationmark.triangle.fill")
+                let message = retryFailureMessage(error)
+                CopyHUD.show(message, symbol: "exclamationmark.triangle.fill")
             }
+        }
+    }
+
+    private func retryFailureMessage(_ error: Error) -> String {
+        guard let retryError = error as? VoiceRetryError else { return "Retry failed" }
+        switch retryError {
+        case .transcriptNotFound:
+            return "Retry failed: transcript not found"
+        case .audioMissing:
+            return "Retry failed: recording is missing"
+        case .audioDecryptFailed:
+            return "Retry failed: audio couldn't be read"
+        case .audioDecodeFailed:
+            return "Retry failed: audio format is invalid"
+        case .asrFailed:
+            return "Retry failed: recognition failed"
+        case .cleanupFailed:
+            return "Retry failed: cleanup failed"
         }
     }
 
@@ -1338,11 +1421,35 @@ struct VoiceDestinationView: View {
         }
     }
 
+    private var recognitionSectionSubtitle: String {
+        "Choose speed or accuracy. Local Qwen3 transcribes in the background while you speak; Groq Whisper is recommended for code-switching accuracy."
+    }
+
+    private var recognitionRecommendationTag: String? {
+        switch asrProviderKind {
+        case .local:
+            "Fast · On-device"
+        case .groq:
+            "Recommended for accuracy"
+        case .elevenLabs, .openAITranscribe, .deepgram:
+            nil
+        }
+    }
+
+    private var dictationLanguageSubtitle: String {
+        if asrProviderKind == .local {
+            return "For local Qwen3, Auto-detect works for mixed Chinese and English. Pick Chinese or English if results drift. Dictionary terms improve cleanup polish, not raw ASR."
+        }
+        return "Auto-detect is best for mixed Chinese and English; switch to one language only when results drift."
+    }
+
     private var recognitionEngineRowSubtitle: String {
         switch asrProviderKind {
         case .local:
-            selectedASRModelID.subtitle
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+            "\(selectedASRModelID.subtitle) Background transcription speeds up paste after you stop."
+        case .groq:
+            "\(cloudModelID.subtitle) Strong code-switching; audio is sent to Groq when you dictate."
+        case .elevenLabs, .openAITranscribe, .deepgram:
             cloudModelID.subtitle
         }
     }

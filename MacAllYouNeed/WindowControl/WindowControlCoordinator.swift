@@ -100,6 +100,8 @@ final class WindowControlCoordinator {
     @ObservationIgnored lazy var radialPreviewController = RadialPreviewController(viewModel: radialPreviewViewModel)
     @ObservationIgnored lazy var radialTargetHighlightController = RadialTargetHighlightController()
     @ObservationIgnored var radialEscMonitor: Any?
+    @ObservationIgnored private let activeWindowBorder = ActiveWindowBorderController()
+    @ObservationIgnored private let spaceMover = WindowSpaceMover()
 
     init(
         settings: WindowControlSettings = WindowControlSettingsStore.load(),
@@ -220,7 +222,13 @@ final class WindowControlCoordinator {
         settings = next
         if let keyboardPerformer = actionPerformer as? WindowKeyboardActionPerformer {
             keyboardPerformer.repeatHalfAcrossDisplays = next.repeatHalfAcrossDisplays
+            keyboardPerformer.animateMoves = next.animateWindowMoves
         }
+        radialFrameMover.animateMoves = next.animateWindowMoves
+        if next.disableSequoiaTilingHotkeys {
+            WindowControlPrivateAPI.applySequoiaTilingMitigation(disabled: true)
+        }
+        activeWindowBorder.apply(settings: next, runtimeEnabled: layoutsRuntimeEnabled)
         if radialChanged {
             // The CGEvent tap mask can only be set at creation, so flipping the
             // radial setting requires recreating the tap; stop it here and let
@@ -282,6 +290,7 @@ final class WindowControlCoordinator {
         }
         if let bundleID = frontmostBundleID(),
            settings.ignoredBundleIDs.contains(bundleID)
+            || WindowRulesEngine(rules: settings.windowRules).shouldIgnore(bundleID: bundleID, title: nil)
         {
             state = .suspended(.ignoredApp)
             return
@@ -291,6 +300,15 @@ final class WindowControlCoordinator {
         guard windowActionPerformerAvailable else {
             return
         }
+
+        switch action {
+        case .nextSpace, .previousSpace:
+            performSpaceMove(action)
+            return
+        default:
+            break
+        }
+
         let identity = actionPerformer.currentIdentity
         let restoreFrame = action == .restore ? identity.flatMap { restoreHistory.restoreFrame(for: $0) } : nil
         let result = actionPerformer.perform(action, restoreFrame: restoreFrame)
@@ -306,6 +324,7 @@ final class WindowControlCoordinator {
         guard anyRuntimeBehaviorEnabled else {
             updateTapRuntime(coordinatorActive: false)
             tap.stop()
+            activeWindowBorder.stop()
             state = .off
             return
         }
@@ -322,6 +341,7 @@ final class WindowControlCoordinator {
             return
         }
 
+        activeWindowBorder.apply(settings: settings, runtimeEnabled: layoutsRuntimeEnabled)
         do {
             updateTapRuntime(coordinatorActive: true)
             try tap.start()
@@ -357,6 +377,24 @@ final class WindowControlCoordinator {
 
     /// Turns on the layouts master switch when the Window Layouts feature is active.
     /// There is no separate UI for `settings.enabled`; leaving it off prevented hotkeys from registering.
+    private func performSpaceMove(_ action: WindowAction) {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
+              let axWindow = value
+        else { return }
+        let element = axWindow as! AXUIElement
+        let result: WindowSpaceMoveResult = switch action {
+        case .nextSpace: spaceMover.moveFrontWindowToNextSpace(element: element)
+        case .previousSpace: spaceMover.moveFrontWindowToPreviousSpace(element: element)
+        default: .unavailable
+        }
+        lastAction = action
+        lastMovementResult = nil
+        _ = result
+    }
+
     private func syncLayoutsMasterSwitchWithFeature() {
         guard featureAvailability.windowLayoutsEnabled, !settings.enabled else { return }
         var next = settings

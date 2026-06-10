@@ -79,6 +79,8 @@ struct DockPreviewSettings: Codable, Equatable {
     var detachedSwitcherSearch: Bool
     /// Append-only worklog under App Group `worklogs/dock-previews/` for debugging hover/dismiss behavior.
     var enableWorklog: Bool
+    /// Hide native Dock tooltip while hover preview is open (bottom-docked).
+    var overlayDockTooltip: Bool
     /// Runtime-only: widen ScreenCaptureKit discovery for switcher/cmd-tab (not persisted in hub settings).
     var useBroadWindowDiscovery: Bool = false
 
@@ -128,7 +130,8 @@ struct DockPreviewSettings: Codable, Equatable {
         panelBackground: DockPreviewPanelBackgroundOptions,
         hideHoverContainerBackground: Bool,
         detachedSwitcherSearch: Bool,
-        enableWorklog: Bool
+        enableWorklog: Bool,
+        overlayDockTooltip: Bool
     ) {
         self.showThumbnails = showThumbnails
         self.hoverDelayMS = hoverDelayMS
@@ -176,6 +179,7 @@ struct DockPreviewSettings: Codable, Equatable {
         self.hideHoverContainerBackground = hideHoverContainerBackground
         self.detachedSwitcherSearch = detachedSwitcherSearch
         self.enableWorklog = enableWorklog
+        self.overlayDockTooltip = overlayDockTooltip
     }
 
     static let `default` = DockPreviewSettings(
@@ -224,7 +228,8 @@ struct DockPreviewSettings: Codable, Equatable {
         panelBackground: .default,
         hideHoverContainerBackground: false,
         detachedSwitcherSearch: false,
-        enableWorklog: false
+        enableWorklog: false,
+        overlayDockTooltip: true
     )
 
     init(from decoder: Decoder) throws {
@@ -278,6 +283,7 @@ struct DockPreviewSettings: Codable, Equatable {
         hideHoverContainerBackground = decode(.hideHoverContainerBackground, default: false)
         detachedSwitcherSearch = decode(.detachedSwitcherSearch, default: false)
         enableWorklog = decode(.enableWorklog, default: Self.default.enableWorklog)
+        overlayDockTooltip = decode(.overlayDockTooltip, default: Self.default.overlayDockTooltip)
     }
 
     var hoverDelay: TimeInterval { TimeInterval(hoverDelayMS) / 1000 }

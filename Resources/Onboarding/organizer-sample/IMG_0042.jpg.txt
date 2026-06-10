@@ -1,0 +1,1 @@
+Placeholder stand-in for a photo file during onboarding scan demos.

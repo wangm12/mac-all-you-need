@@ -373,6 +373,18 @@ struct DockPreviewHoverContainer: View {
                 DockPreviewHoverPadding.contentInner,
                 multiplier: CGFloat(state.settings.globalPaddingMultiplier)
             )
+        } else if state.isWindowSwitcherActive,
+                  DockHubSettingsStore.load().switcher.switcherLayoutStyle == .verticalList {
+            DockSwitcherVerticalListView(
+                state: state,
+                showSearch: DockHubSettingsStore.load().switcher.enableSearch,
+                onSelect: onSelect,
+                onHoverIndex: handleHoverIndexChange
+            )
+            .dockPreviewGlobalPadding(
+                DockPreviewHoverPadding.contentInner,
+                multiplier: CGFloat(state.settings.globalPaddingMultiplier)
+            )
         } else if usesCompactList {
             DockPreviewCompactList(
                 state: state,

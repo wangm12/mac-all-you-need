@@ -4,11 +4,20 @@ import SwiftUI
 /// Hosts the active sub-step for one feature. Owns the FeatureSetupCoordinator instance and
 /// reports completion upward so the wizard can advance to the next selected feature.
 struct FeatureSetupContainerView: View {
-    @State private var coordinator: FeatureSetupCoordinator
+    @Bindable var coordinator: FeatureSetupCoordinator
+    let showsFeatureHeader: Bool
+    var tryItSucceeded: Binding<Bool>?
     let onFeatureCompleted: () -> Void
 
-    init(coordinator: FeatureSetupCoordinator, onFeatureCompleted: @escaping () -> Void) {
-        _coordinator = State(wrappedValue: coordinator)
+    init(
+        coordinator: FeatureSetupCoordinator,
+        showsFeatureHeader: Bool = true,
+        tryItSucceeded: Binding<Bool>? = nil,
+        onFeatureCompleted: @escaping () -> Void
+    ) {
+        self.coordinator = coordinator
+        self.showsFeatureHeader = showsFeatureHeader
+        self.tryItSucceeded = tryItSucceeded
         self.onFeatureCompleted = onFeatureCompleted
     }
 
@@ -31,14 +40,14 @@ struct FeatureSetupContainerView: View {
                     failureReason: reason,
                     onRetry: { coordinator.retryDownload() }
                 )
-            case .permissions:
-                FeatureSetupPermissionsView(descriptor: coordinator.descriptor) { permission in
-                    coordinator.markPermissionGranted(permission)
-                }
             case .config:
-                FeatureSetupConfigView(descriptor: coordinator.descriptor)
+                FeatureOnboardingStepView(
+                    descriptor: coordinator.descriptor,
+                    showsHeader: showsFeatureHeader,
+                    tryItSucceeded: tryItSucceeded
+                )
             case .complete:
-                Color.clear.onAppear { onFeatureCompleted() }
+                Color.clear.frame(height: 1)
             }
         }
     }

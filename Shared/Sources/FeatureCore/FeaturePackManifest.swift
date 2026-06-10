@@ -12,6 +12,12 @@ public struct FeaturePackManifest: Codable, Equatable, Sendable {
     }
 
     public struct PackEntry: Codable, Equatable, Sendable {
+        /// True when the bundled manifest still has placeholder release URL / SHA values.
+        /// Local dev builds seed packs from app resources instead of downloading.
+        public var isDevPlaceholder: Bool {
+            zipSha256.allSatisfy { $0 == "0" } || url.absoluteString.contains("<owner>")
+        }
+
         public let version: String
         public let url: URL
         public let zipSha256: String

@@ -18,7 +18,7 @@ final class DockPreviewWindowFilterTests: XCTestCase {
         var settings = DockPreviewSettings.default
         settings.includeHiddenMinimized = true
         let result = DockPreviewWindowFilter.filter([on, off, minimized], settings: settings)
-        XCTAssertEqual(result.count, 2)
-        XCTAssertFalse(result.contains { $0.id == 2 })
+        XCTAssertEqual(result.count, 3)
+        XCTAssertTrue(result.contains { $0.id == 2 })
     }
 }

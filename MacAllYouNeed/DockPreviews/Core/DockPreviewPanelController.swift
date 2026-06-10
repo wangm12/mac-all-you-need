@@ -138,14 +138,20 @@ final class DockPreviewPanelController {
     }
 
     private func configureSwitcherSearch() {
-        guard hubSettings.switcher.enableSearch,
-              let window = panel.underlyingWindow
-        else {
+        let wantsSearch = hubSettings.switcher.enableSearch
+            || hubSettings.switcher.switcherLayoutStyle == .verticalList
+        guard wantsSearch, let window = panel.underlyingWindow else {
+            searchWindow.hide()
+            return
+        }
+        if hubSettings.switcher.switcherLayoutStyle == .verticalList {
             searchWindow.hide()
             return
         }
         searchWindow.show(relativeTo: window)
-        if hubSettings.switcher.focusSearchOnOpen {
+        let autoFocus = hubSettings.switcher.focusSearchOnOpen
+            || hubSettings.switcher.switcherLayoutStyle == .verticalList
+        if autoFocus {
             searchWindow.focus()
         }
     }
@@ -191,6 +197,8 @@ final class DockPreviewPanelController {
 
     func dismiss(animated: Bool = true) {
         hideSearchWindow()
+        DockPreviewTooltipOverlay.shared.dismiss()
+        DockSwitcherOriginalPositionOverlay.shared.dismiss()
         DockDragPreviewCoordinator.shared.endDragging()
         panel.dismiss(animated: animated)
         if Self.active === self { Self.active = nil }

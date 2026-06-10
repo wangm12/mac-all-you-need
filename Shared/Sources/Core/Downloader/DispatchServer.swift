@@ -90,16 +90,28 @@ public actor DispatchServer {
             return await respond(conn, status: 400, body: "no body")
         }
         let bodyData = Data(raw[bodyStart.upperBound...].utf8)
-        struct Body: Codable { let url: String; let title: String? }
+        struct Body: Codable { let url: String?; let urls: [String]?; let title: String? }
         guard let parsed = try? JSONDecoder().decode(Body.self, from: bodyData) else {
             return await respond(conn, status: 400, body: "invalid json")
         }
-        guard let parsedURL = URL(string: parsed.url),
-              ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
-        else {
-            return await respond(conn, status: 400, body: "unsupported url")
+        let urlList: [String] = if let urls = parsed.urls, !urls.isEmpty {
+            urls
+        } else if let url = parsed.url {
+            [url]
+        } else {
+            []
         }
-        await handler(.init(url: parsed.url, title: parsed.title))
+        guard !urlList.isEmpty else {
+            return await respond(conn, status: 400, body: "missing url")
+        }
+        for url in urlList {
+            guard let parsedURL = URL(string: url),
+                  ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
+            else {
+                return await respond(conn, status: 400, body: "unsupported url")
+            }
+            await handler(.init(url: url, title: parsed.title))
+        }
         await respond(conn, status: 200, body: "ok")
     }
 

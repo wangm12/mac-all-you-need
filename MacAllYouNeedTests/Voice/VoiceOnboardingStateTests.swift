@@ -20,8 +20,6 @@ final class VoiceOnboardingStateTests: XCTestCase {
     func testStepOrderMatchesVoiceOnboardingSpec() {
         XCTAssertEqual(VoiceOnboardingStep.orderedCases, [
             .welcome,
-            .microphone,
-            .accessibility,
             .asr,
             .llm,
             .hotkey,
@@ -29,6 +27,11 @@ final class VoiceOnboardingStateTests: XCTestCase {
             .tryIt,
             .done
         ])
+    }
+
+    func testLegacyMicrophoneStepMigratesToASR() {
+        defaults.set("microphone", forKey: "voiceOnboardingCurrentStep")
+        XCTAssertEqual(VoiceOnboardingProgressStore.load(from: defaults).currentStep, .asr)
     }
 
     func testProgressDefaultsToWelcomeAndIncomplete() {

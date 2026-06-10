@@ -6,14 +6,14 @@ enum FeatureRegistryProvider {
         FeatureRegistry(descriptors: [
             ClipboardDescriptor.descriptor(),
             ClipboardSmartTextDescriptor.descriptor(),
-            FolderPreviewDescriptor.descriptor(),
-            DownloaderDescriptor.descriptor(),
             VoiceDescriptor.descriptor(),
+            RemindersFeatureDescriptor.descriptor(),
+            DownloaderDescriptor.descriptor(),
+            FolderPreviewDescriptor.descriptor(),
+            FinderHistoryDescriptor.descriptor(),
+            FileOrganizerDescriptor.descriptor(),
             WindowLayoutsDescriptor.descriptor(),
             WindowGrabDescriptor.descriptor(),
-            FinderHistoryDescriptor.descriptor(),
-            RemindersFeatureDescriptor.descriptor(),
-            FileOrganizerDescriptor.descriptor(),
             DockPreviewsDescriptor.descriptor(),
         ])
     }

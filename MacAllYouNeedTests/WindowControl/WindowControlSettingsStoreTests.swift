@@ -18,10 +18,16 @@ final class WindowControlSettingsStoreTests: XCTestCase {
         suiteName = nil
     }
 
+    private func seededDefault() -> WindowControlSettings {
+        var settings = WindowControlSettings.default
+        _ = settings.seedRecommendedIgnoredAppsIfNeeded()
+        return settings
+    }
+
     func testLoadReturnsDefaultWhenUnset() {
         let settings = WindowControlSettingsStore.load(from: defaults)
 
-        XCTAssertEqual(settings, .default)
+        XCTAssertEqual(settings, seededDefault())
     }
 
     func testSavesAndLoadsModifiedSettings() {
@@ -33,7 +39,9 @@ final class WindowControlSettingsStoreTests: XCTestCase {
         WindowControlSettingsStore.save(saved, to: defaults)
         let loaded = WindowControlSettingsStore.load(from: defaults)
 
-        XCTAssertEqual(loaded, saved)
+        var expected = saved
+        _ = expected.seedRecommendedIgnoredAppsIfNeeded()
+        XCTAssertEqual(loaded, expected)
         XCTAssertTrue(loaded.enabled)
     }
 
@@ -46,6 +54,6 @@ final class WindowControlSettingsStoreTests: XCTestCase {
 
         let loaded = WindowControlSettingsStore.load(from: defaults)
 
-        XCTAssertEqual(loaded, .default)
+        XCTAssertEqual(loaded, seededDefault())
     }
 }

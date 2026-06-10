@@ -423,25 +423,51 @@ struct MAYNSecureField: View {
     var placeholder = ""
     @Binding var text: String
     var width: CGFloat = MAYNControlMetrics.textFieldWidth
+    var allowsReveal = true
     @FocusState private var isFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
+    @State private var isRevealed = false
 
     var body: some View {
-        SecureField(placeholder, text: $text)
+        HStack(spacing: 0) {
+            Group {
+                if isRevealed {
+                    TextField(placeholder, text: $text)
+                } else {
+                    SecureField(placeholder, text: $text)
+                }
+            }
             .textFieldStyle(.plain)
             .font(.callout)
-            .padding(.horizontal, 10)
-            .frame(width: width, height: MAYNControlMetrics.controlHeight)
-            .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
-                    .stroke(isFocused ? MAYNTheme.focusRing : (isHovering ? MAYNTheme.strongBorder : MAYNTheme.subtleBorder), lineWidth: 1)
-            )
+            .padding(.leading, 10)
+            .padding(.trailing, allowsReveal ? 4 : 10)
             .focused($isFocused)
-            .onHover { isHovering = $0 }
-            .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
-            .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: isFocused)
+
+            if allowsReveal {
+                Button {
+                    isRevealed.toggle()
+                } label: {
+                    Image(systemName: isRevealed ? "eye.slash" : "eye")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: MAYNControlMetrics.controlHeight - 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 4)
+                .accessibilityLabel(isRevealed ? "Hide value" : "Show value")
+            }
+        }
+        .frame(width: width, height: MAYNControlMetrics.controlHeight)
+        .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
+                .stroke(isFocused ? MAYNTheme.focusRing : (isHovering ? MAYNTheme.strongBorder : MAYNTheme.subtleBorder), lineWidth: 1)
+        )
+        .onHover { isHovering = $0 }
+        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: isFocused)
     }
 }
 
@@ -929,6 +955,7 @@ struct PermissionCard: View {
     let reason: String
     let state: StateKind
     let actionTitle: String
+    var hidesActionWhenGranted = true
     var isHighlighted = false
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -954,8 +981,9 @@ struct PermissionCard: View {
 
             Spacer(minLength: 12)
 
-            MAYNButton(actionTitle, action: action)
-                .disabled(state == .granted)
+            if !(hidesActionWhenGranted && state == .granted) {
+                MAYNButton(actionTitle, action: action)
+            }
         }
         .padding(14)
         .background(cardBackground)

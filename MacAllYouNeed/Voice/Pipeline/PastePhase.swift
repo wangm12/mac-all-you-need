@@ -16,12 +16,16 @@ struct PastePhase {
         _ result: VoiceTranscriptionResult,
         _ cleanedText: String,
         _ appBundleID: String?,
-        _ audioPath: String?
+        _ audioPath: String?,
+        _ status: VoiceTranscriptStatus,
+        _ failedStage: VoiceTranscriptFailedStage?,
+        _ failureReason: String?,
+        _ retrySourceTranscriptID: String?
     ) throws -> VoiceTranscript
 
     /// Encrypts + persists the captured audio. Returns nil when the user has
     /// not opted into audio retention. Fire-and-forget on failure.
-    let persistAudio: (_ captured: CapturedAudio, _ transcriptID: String) -> String?
+    let persistAudio: (_ captured: CapturedAudio, _ transcriptID: String, _ forceSave: Bool) -> String?
 
     /// Saves the corresponding training example row when personalization is
     /// enabled. No-op when the user has opted out.
@@ -36,7 +40,7 @@ struct PastePhase {
 
     /// Performs the actual paste. Defaults to `CursorPaster.paste` in
     /// production; tests can inject a stub.
-    let paste: (String) async -> CursorPaster.Result
+    let paste: (_ text: String, _ preferredTarget: AXTargetSnapshot?) async -> CursorPaster.Result
 
     /// AX snapshot reader. Defaults to `AXFocusedTextReader.snapshotFocused`.
     let snapshotFocused: () -> AXTargetSnapshot?
@@ -51,33 +55,47 @@ struct PastePhase {
 
         // Snapshot AX target BEFORE paste so the learning monitor can track
         // the field across paste latency even if the user switched apps.
-        ctx.axSnapshot = snapshotFocused()
+        let axSnapshot = snapshotFocused()
+        ctx.axSnapshot = axSnapshot
 
-        let pasteResult = await paste(text)
-        log.info("paste — didPost: \(pasteResult.didPostPasteEvent, privacy: .public) chars: \(text.count, privacy: .public)")
+        let pasteResult = await paste(text, axSnapshot)
+        log.info(
+            "paste — path: \(pasteResult.deliveryPath.rawValue, privacy: .public) failure: \(pasteResult.failureReason?.rawValue ?? "none", privacy: .public) chars: \(text.count, privacy: .public)"
+        )
         ctx.pasteResult = pasteResult
+        let status: VoiceTranscriptStatus = pasteResult.insertedIntoActiveInput ? .success : .failed
+        let failedStage: VoiceTranscriptFailedStage? = pasteResult.insertedIntoActiveInput ? nil : .paste
+        let failureReason: String? = pasteResult.insertedIntoActiveInput
+            ? nil
+            : "paste_\(pasteResult.failureReason?.rawValue ?? "unknown")"
 
         let transcriptID = UUID().uuidString
-        let audioPath = persistAudio(ctx.captured, transcriptID)
+        let audioPath = persistAudio(ctx.captured, transcriptID, !pasteResult.insertedIntoActiveInput)
         let saved = try saveTranscript(
             transcriptID,
             ctx.captured,
             asrResult,
             text,
             ctx.appBundleID,
-            audioPath
+            audioPath,
+            status,
+            failedStage,
+            failureReason,
+            ctx.retrySourceTranscriptID
         )
         log.info("transcript saved — id: \(saved.id, privacy: .public) audioPath: \(audioPath ?? "nil", privacy: .public)")
         ctx.savedTranscript = saved
 
-        saveTrainingExample(
-            ctx.captured,
-            asrResult,
-            text,
-            saved.id,
-            ctx.appBundleID,
-            audioPath
-        )
+        if pasteResult.insertedIntoActiveInput {
+            saveTrainingExample(
+                ctx.captured,
+                asrResult,
+                text,
+                saved.id,
+                ctx.appBundleID,
+                audioPath
+            )
+        }
         NotificationCenter.default.post(name: .voiceTranscriptAppended, object: saved.id)
     }
 }

@@ -19,14 +19,43 @@ struct ASRPhase {
             return
         }
         let asrStart = Date()
-        let result = try await engine.transcribe(
+        var result = try await engine.transcribe(
             samples: ctx.captured.samples,
             sampleRate: ctx.captured.sampleRate,
             options: .default
         )
         let ms = Int(Date().timeIntervalSince(asrStart) * 1000)
+        var trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let capturedPeak = ctx.captured.peakLevel
+        let capturedDuration = ctx.captured.endedAt.timeIntervalSince(ctx.captured.startedAt)
+        let hasSpeechSignal = capturedDuration >= 1.0 && capturedPeak >= 0.02
+        if trimmed.isEmpty {
+            if hasSpeechSignal {
+                log.warning(
+                    "ASR empty_with_signal — retrying once model: \(result.modelIdentifier, privacy: .public) duration: \(capturedDuration, privacy: .public)s peak: \(capturedPeak, privacy: .public)"
+                )
+                result = try await engine.transcribe(
+                    samples: ctx.captured.samples,
+                    sampleRate: ctx.captured.sampleRate,
+                    options: .default
+                )
+                trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        if trimmed.isEmpty {
+            if hasSpeechSignal {
+                log.error(
+                    "ASR empty_with_signal — model: \(result.modelIdentifier, privacy: .public) lang: \(result.language.rawValue, privacy: .public) duration: \(capturedDuration, privacy: .public)s peak: \(capturedPeak, privacy: .public)"
+                )
+            } else {
+                log.info(
+                    "ASR empty_no_signal — model: \(result.modelIdentifier, privacy: .public) duration: \(capturedDuration, privacy: .public)s peak: \(capturedPeak, privacy: .public)"
+                )
+            }
+        }
         log.info("ASR done — \(ms, privacy: .public)ms model: \(result.modelIdentifier, privacy: .public) lang: \(result.language.rawValue, privacy: .public) chars: \(result.text.count, privacy: .public)")
         ctx.asrResult = result
         ctx.asrMs = ms
+        ctx.cleanupBudgetStartedAt = Date()
     }
 }

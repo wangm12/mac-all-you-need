@@ -1,5 +1,7 @@
+import AppKit
 import AVFAudio
 import AVFoundation
+import FeatureCore
 import SwiftUI
 
 struct VoiceMicrophoneStepView: View {
@@ -21,18 +23,32 @@ struct VoiceMicrophoneStepView: View {
             subtitle: "Voice dictation needs microphone access to capture audio locally before transcription."
         ) {
             VStack(alignment: .leading, spacing: 12) {
+                let inline = PermissionGrantPresenter.inlineInstruction(for: .microphone)
                 PermissionCard(
                     title: "Microphone",
                     reason: "macOS will ask once. After access is granted, speak briefly to confirm input level.",
                     state: permissionCardState,
-                    actionTitle: permission == .authorized ? "Microphone granted" : "Request access",
+                    actionTitle: permission == .authorized ? "Microphone granted" : "Grant",
                     action: requestPermission
                 )
                 if showsInstruction && permission != .authorized {
-                    InstructionStrip(
-                        text: "Choose Allow in the macOS microphone prompt.",
-                        symbol: "mic.badge.plus"
-                    )
+                    if permission == .notDetermined {
+                        InstructionStrip(
+                            text: "Choose Allow in the macOS microphone prompt.",
+                            symbol: "mic.badge.plus"
+                        )
+                    } else {
+                        InstructionStrip(
+                            text: inline.primaryText,
+                            appName: "Mac All You Need",
+                            symbol: inline.symbol,
+                            secondaryText: inline.secondaryText,
+                            dragAppURL: inline.dragAppURL,
+                            actionTitle: "Open Settings"
+                        ) {
+                            PermissionGateProbe.openSettings(for: .microphone)
+                        }
+                    }
                 }
                 if permission == .authorized {
                     VStack(alignment: .leading, spacing: 8) {
@@ -48,10 +64,6 @@ struct VoiceMicrophoneStepView: View {
                             .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
                     )
                 }
-                MAYNButton("Open Microphone Settings") {
-                    showsInstruction = true
-                    openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
-                }
                 permissionLabel
                 Text(statusMessage)
                     .font(.caption)
@@ -65,6 +77,7 @@ struct VoiceMicrophoneStepView: View {
         }
         .onDisappear {
             stopCapture()
+            PermissionGrantPresenter.dismissFloatingPanel()
         }
         .onReceive(timer) { _ in
             updateAudioDetection()
@@ -103,17 +116,38 @@ struct VoiceMicrophoneStepView: View {
     }
 
     private func requestPermission() {
-        showsInstruction = permission != .authorized
-        Task {
-            let granted = await Self.requestRecordPermission()
-            permission = granted ? .authorized : .denied
-            statusMessage = granted
-                ? "Microphone granted. Starting live level check..."
-                : "Microphone access was denied."
-            if granted {
-                showsInstruction = false
-                startCapture()
+        showsInstruction = true
+        switch permission {
+        case .notDetermined:
+            Task {
+                let granted = await Self.requestRecordPermission()
+                permission = granted ? .authorized : .denied
+                statusMessage = granted
+                    ? "Microphone granted. Starting live level check..."
+                    : "Microphone access was denied."
+                if granted {
+                    showsInstruction = false
+                    startCapture()
+                } else {
+                    presentDeniedMicrophoneGrant()
+                }
             }
+        case .denied, .restricted:
+            presentDeniedMicrophoneGrant()
+        case .authorized:
+            break
+        @unknown default:
+            presentDeniedMicrophoneGrant()
+        }
+    }
+
+    private func presentDeniedMicrophoneGrant() {
+        showsInstruction = true
+        PermissionGrantPresenter.presentGrant(
+            for: .microphone,
+            sourceWindow: NSApp.keyWindow
+        ) {
+            PermissionGateProbe.openSettings(for: .microphone)
         }
     }
 

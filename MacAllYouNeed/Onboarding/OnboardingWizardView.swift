@@ -6,8 +6,13 @@ struct OnboardingWizardView: View {
     let controller: AppController
     @State private var step: OnboardingState
     @State private var selectedIDs: [FeatureID]
-    @State private var skippedIDs: [FeatureID] = []
+    @State private var deferredPermissions: Set<Permission> = DeferredPermissionsStore.load()
     @State private var coordinator: FeatureSetupCoordinator?
+    @State private var voiceStep: VoiceOnboardingStep = .welcome
+    @State private var voiceTryItSucceeded = false
+    @State private var featureTryItSucceeded = false
+    @State private var voiceRevisitMode = false
+    @State private var hasStartedFeatureSetup: Bool
 
     private let selectionStore: OnboardingSelectionStore
 
@@ -17,21 +22,49 @@ struct OnboardingWizardView: View {
         self.selectionStore = store
 
         let loaded = controller.onboarding
-        let initial: OnboardingState = (loaded == .notStarted) ? .welcome : loaded
+        let initial: OnboardingState
+        if loaded == .notStarted {
+            initial = .welcome
+        } else {
+            initial = Self.normalized(loaded)
+        }
         _step = State(initialValue: initial)
         _selectedIDs = State(initialValue: store.selectedIDs)
+        _hasStartedFeatureSetup = State(initialValue: Self.initiallyStartedFeatureSetup(initial))
+    }
+
+    private static func initiallyStartedFeatureSetup(_ state: OnboardingState) -> Bool {
+        switch state {
+        case .notStarted, .welcome, .featurePicker:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private var showFeatureStepsInSidebar: Bool {
+        if hasStartedFeatureSetup { return true }
+        switch step {
+        case .notStarted, .welcome, .featurePicker:
+            return false
+        default:
+            return true
+        }
     }
 
     private var registry: FeatureRegistry { controller.runtime.registry }
     private var registryOrder: [FeatureID] { registry.descriptors.map(\.id) }
+    private var pickerOrder: [FeatureID] { OnboardingFeaturePickerOrdering.featureIDs }
 
     var body: some View {
         SetupWizardShell(
             title: "Mac All You Need",
             subtitle: "Initial setup",
             steps: stepDescriptors,
-            currentStep: sidebarStep,
+            currentStep: currentSidebarItem,
+            onSelectStep: navigateToSidebarItem,
             canGoBack: canGoBack,
+            backTitle: backTitle,
             canSkip: canSkip,
             primaryTitle: primaryTitle,
             canAdvance: canAdvance,
@@ -41,38 +74,55 @@ struct OnboardingWizardView: View {
         ) {
             content
         }
-        .frame(width: 760, height: 520)
-        .onAppear { setStep(step) }
+        .frame(width: 920, height: 640)
+        .onAppear {
+            if case .featureSetup(.voice) = step {
+                prepareVoiceSetup()
+            } else if case .featureSetup(let id) = step, coordinator == nil {
+                coordinator = makeCoordinator(for: id)
+            }
+            setStep(step)
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         switch step {
-        case .notStarted, .welcome:
-            WelcomeStep(next: { advanceTo(.featurePicker) })
-        case .featurePicker:
-            FeaturePickerView(
-                registry: registry,
-                selectedIDs: $selectedIDs,
-                onContinue: handlePrimary,
-                onSkip: handleSkip
-            )
+        case .notStarted, .welcome, .featurePicker:
+            FeaturePickerView(registry: registry, selectedIDs: $selectedIDs)
         case .featureSetup(let id):
-            if let coordinator, coordinator.descriptor.id == id {
-                FeatureSetupContainerView(coordinator: coordinator) {
+            if id == .voice {
+                VoiceOnboardingEmbeddedView(
+                    controller: controller,
+                    step: $voiceStep,
+                    tryItSucceeded: $voiceTryItSucceeded
+                )
+            } else if let coordinator, coordinator.descriptor.id == id {
+                FeatureSetupContainerView(
+                    coordinator: coordinator,
+                    showsFeatureHeader: false,
+                    tryItSucceeded: $featureTryItSucceeded
+                ) {
+                    FeatureOnboardingProgressStore.markCompleted(id)
                     selectionStore.markCompleted(id)
                     advanceToNextFeatureOrDone()
                 }
+                .id(id)
             } else {
-                ProgressView().onAppear {
-                    coordinator = makeCoordinator(for: id)
-                }
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 120)
+                    .onAppear { coordinator = makeCoordinator(for: id) }
             }
+        case .unifiedPermissions:
+            UnifiedPermissionsView(
+                registry: registry,
+                selectedIDs: selectedIDs,
+                deferredPermissions: $deferredPermissions
+            )
         case .done:
             OnboardingDoneView(
-                registry: registry,
-                installedIDs: selectedIDs,
-                skippedIDs: skippedIDs,
+                enabledIDs: selectedIDs,
+                deferredPermissions: deferredPermissions,
                 onDone: { setStep(.completed) }
             )
         case .completed:
@@ -82,39 +132,91 @@ struct OnboardingWizardView: View {
 
     // MARK: - Sidebar
 
-    private var stepDescriptors: [SetupStepDescriptor<OnboardingSidebarStep>] {
-        OnboardingSidebarStep.allCases.enumerated().map { idx, candidate in
-            SetupStepDescriptor(
-                id: candidate,
-                title: candidate.title,
-                subtitle: candidate.subtitle,
-                symbol: candidate.symbol,
-                isCompleted: idx < currentSidebarIndex
-            )
-        }
+    private var currentSidebarItem: OnboardingSidebarItem {
+        OnboardingSidebarBuilder.currentItem(for: step)
     }
 
-    private var sidebarStep: OnboardingSidebarStep { OnboardingSidebarStep.from(step) }
-    private var currentSidebarIndex: Int {
-        OnboardingSidebarStep.allCases.firstIndex(of: sidebarStep) ?? 0
+    private var stepDescriptors: [SetupStepDescriptor<OnboardingSidebarItem>] {
+        OnboardingSidebarBuilder.descriptors(
+            step: step,
+            selectedIDs: selectedIDs,
+            pickerOrder: pickerOrder,
+            completedFeatureIDs: selectionStore.completedIDs,
+            permissionCount: permissionEntries.count,
+            registry: registry,
+            voiceStep: voiceStep,
+            coordinator: coordinator,
+            showFeatureStepsInSidebar: showFeatureStepsInSidebar
+        )
+    }
+
+    private var permissionEntries: [PermissionUnionEntry] {
+        PermissionUnionPlanner.union(for: selectedIDs, registry: registry)
+    }
+
+    private func navigateToSidebarItem(_ item: OnboardingSidebarItem) {
+        switch item {
+        case .features:
+            coordinator = nil
+            if !selectedIDs.isEmpty {
+                hasStartedFeatureSetup = true
+            }
+            advanceTo(.welcome)
+        case .setupOverview:
+            break
+        case .feature(let id):
+            advanceTo(
+                .featureSetup(id),
+                isRevisit: OnboardingNavigationPlanner.isRevisit(
+                    featureID: id,
+                    completedIDs: selectionStore.completedIDs
+                )
+            )
+        case .permissions:
+            advanceTo(.unifiedPermissions)
+        case .done:
+            advanceTo(.done)
+        }
     }
 
     // MARK: - Navigation state
 
     private var primaryTitle: String {
         switch step {
-        case .notStarted, .welcome: return "Get Started"
-        case .featurePicker: return selectedIDs.isEmpty ? "Continue with no features" : "Continue"
-        case .featureSetup: return "Continue"
-        case .done, .completed: return "Done"
+        case .notStarted, .welcome, .featurePicker:
+            return selectedIDs.isEmpty ? "Continue with no features" : "Continue"
+        case .featureSetup(let id):
+            if id == .voice {
+                return VoiceOnboardingFlowHelpers.primaryTitle(for: voiceStep)
+            }
+            return "Continue"
+        case .unifiedPermissions:
+            return "Continue"
+        case .done, .completed:
+            return "Done"
         }
     }
 
     private var canAdvance: Bool {
         switch step {
-        case .featureSetup:
+        case .featureSetup(let id):
+            if id == .voice {
+                return VoiceOnboardingFlowHelpers.canAdvance(
+                    step: voiceStep,
+                    tryItSucceeded: voiceTryItSucceeded
+                )
+            }
             guard let coord = coordinator else { return false }
-            return coord.subStep == .config
+            switch coord.subStep {
+            case .config:
+                return true
+            case .complete:
+                return true
+            case .download(let progress):
+                return progress >= 1
+            case .downloadFailed, .idle:
+                return false
+            }
         default:
             return true
         }
@@ -122,16 +224,28 @@ struct OnboardingWizardView: View {
 
     private var canGoBack: Bool {
         switch step {
-        case .notStarted, .welcome, .completed: return false
-        default: return true
+        case .notStarted, .welcome, .featurePicker, .completed:
+            return false
+        case .featureSetup, .unifiedPermissions, .done:
+            return true
         }
+    }
+
+    private var backTitle: String {
+        OnboardingNavigationPlanner.backTitle(
+            from: step,
+            selectedIDs: selectedIDs,
+            pickerOrder: pickerOrder,
+            registry: registry
+        )
     }
 
     private var canSkip: Bool {
         switch step {
-        case .featurePicker: return true
-        case .featureSetup: return true   // skip just this feature
-        default: return false
+        case .welcome, .featurePicker, .featureSetup, .unifiedPermissions:
+            return true
+        default:
+            return false
         }
     }
 
@@ -139,16 +253,24 @@ struct OnboardingWizardView: View {
 
     private func handlePrimary() {
         switch step {
-        case .notStarted, .welcome:
-            advanceTo(.featurePicker)
-        case .featurePicker:
-            selectionStore.setSelection(selectedIDs)
-            skippedIDs = registryOrder.filter { !selectedIDs.contains($0) }
-            advanceToNextFeatureOrDone()
+        case .notStarted, .welcome, .featurePicker:
+            if hasStartedFeatureSetup {
+                resumeFeatureSetupAfterPickerReturn()
+            } else {
+                beginFeatureSetupFromScratch()
+            }
         case .featureSetup(let id):
+            if id == .voice {
+                handleVoicePrimary()
+                return
+            }
             coordinator?.markConfigDone()
+            FeatureOnboardingProgressStore.markCompleted(id)
             selectionStore.markCompleted(id)
             advanceToNextFeatureOrDone()
+        case .unifiedPermissions:
+            DeferredPermissionsStore.save(deferredPermissions)
+            advanceTo(.done)
         case .done, .completed:
             setStep(.completed)
         }
@@ -156,18 +278,29 @@ struct OnboardingWizardView: View {
 
     private func handleSkip() {
         switch step {
-        case .featurePicker:
-            // "Skip for now" → exit with zero features enabled.
+        case .welcome, .featurePicker:
             selectedIDs = []
-            skippedIDs = registryOrder
             selectionStore.clear()
+            DeferredPermissionsStore.reset()
+            hasStartedFeatureSetup = false
             setStep(.completed)
         case .featureSetup(let id):
-            // Skip this feature; keep it in skippedIDs.
+            if id == .voice, voiceStep.canSkip {
+                VoiceOnboardingFlowHelpers.skipCurrentStep(
+                    step: &voiceStep,
+                    tryItSucceeded: &voiceTryItSucceeded,
+                    controller: controller
+                )
+                return
+            }
             if let idx = selectedIDs.firstIndex(of: id) { selectedIDs.remove(at: idx) }
-            if !skippedIDs.contains(id) { skippedIDs.append(id) }
-            selectionStore.markCompleted(id)   // treat as "done" so nextPendingID skips it
+            FeatureOnboardingProgressStore.markCompleted(id)
+            selectionStore.markCompleted(id)
+            selectionStore.setSelection(selectedIDs)
             advanceToNextFeatureOrDone()
+        case .unifiedPermissions:
+            DeferredPermissionsStore.save(deferredPermissions)
+            advanceTo(.done)
         default:
             break
         }
@@ -175,131 +308,224 @@ struct OnboardingWizardView: View {
 
     private func back() {
         switch step {
-        case .featurePicker:
-            advanceTo(.welcome)
-        case .featureSetup:
-            advanceTo(.featurePicker)
+        case .featureSetup(let id):
+            if id == .voice {
+                if voiceRevisitMode, voiceStep == .done {
+                    // Fall through to previous feature.
+                } else if VoiceOnboardingFlowHelpers.moveBack(step: &voiceStep, tryItSucceeded: &voiceTryItSucceeded) {
+                    return
+                }
+            }
+            if let previous = previousSetupID(before: id) {
+                advanceTo(
+                    .featureSetup(previous),
+                    isRevisit: OnboardingNavigationPlanner.isRevisit(
+                        featureID: previous,
+                        completedIDs: selectionStore.completedIDs
+                    )
+                )
+            } else {
+                if !selectedIDs.isEmpty {
+                    hasStartedFeatureSetup = true
+                }
+                advanceTo(.welcome)
+            }
+        case .unifiedPermissions:
+            advanceToNextFeatureOrDone(fromPermissionsBack: true)
         case .done:
-            if let last = selectedIDs.last { advanceTo(.featureSetup(last)) }
-            else { advanceTo(.featurePicker) }
+            if permissionEntries.isEmpty {
+                advanceToNextFeatureOrDone(fromPermissionsBack: true)
+            } else {
+                advanceTo(.unifiedPermissions)
+            }
         default:
             break
         }
     }
 
-    private func advanceToNextFeatureOrDone() {
+    /// First Continue from the feature picker starts the per-feature setup loop from scratch.
+    private func beginFeatureSetupFromScratch() {
+        hasStartedFeatureSetup = true
+        selectionStore.setSelection(selectedIDs)
+        selectionStore.resetCompletedProgress()
+        for id in selectedIDs {
+            FeatureOnboardingProgressStore.reset(id)
+        }
         coordinator = nil
-        if let next = selectionStore.nextPendingID(in: registryOrder) {
-            advanceTo(.featureSetup(next))
-        } else {
+        voiceStep = .welcome
+        voiceTryItSucceeded = false
+        featureTryItSucceeded = false
+        voiceRevisitMode = false
+
+        if let first = selectionStore.firstSelectedID(in: pickerOrder) {
+            advanceTo(.featureSetup(first))
+        } else if permissionEntries.isEmpty {
             advanceTo(.done)
+        } else {
+            advanceTo(.unifiedPermissions)
         }
     }
 
-    private func advanceTo(_ newStep: OnboardingState) {
+    /// Continue after returning to the picker mid-setup keeps progress and resumes the next step.
+    private func resumeFeatureSetupAfterPickerReturn() {
+        hasStartedFeatureSetup = true
+        syncSelectionStore()
+        coordinator = nil
+        voiceTryItSucceeded = false
+        featureTryItSucceeded = false
+        voiceRevisitMode = false
+
+        if let next = selectionStore.nextPendingID(in: pickerOrder) {
+            advanceTo(.featureSetup(next))
+        } else if permissionEntries.isEmpty {
+            advanceTo(.done)
+        } else {
+            advanceTo(.unifiedPermissions)
+        }
+    }
+
+    private func advanceToNextFeatureOrDone(fromPermissionsBack: Bool = false) {
+        syncSelectionStore()
+
+        if fromPermissionsBack {
+            coordinator = nil
+            if let last = pickerOrder.filter({ selectedIDs.contains($0) }).last {
+                advanceTo(.featureSetup(last))
+            } else {
+                advanceTo(.welcome)
+            }
+            return
+        }
+
+        coordinator = nil
+        if let next = selectionStore.nextPendingID(in: pickerOrder) {
+            advanceTo(.featureSetup(next))
+        } else if permissionEntries.isEmpty {
+            advanceTo(.done)
+        } else {
+            advanceTo(.unifiedPermissions)
+        }
+    }
+
+    private func advanceTo(_ newStep: OnboardingState, isRevisit: Bool = false) {
+        featureTryItSucceeded = false
+        if case .featureSetup = newStep {
+            hasStartedFeatureSetup = true
+        }
+        if case .welcome = newStep {
+            syncSelectionStore()
+        }
         if case .featureSetup(let id) = newStep {
-            coordinator = makeCoordinator(for: id)
+            if id == .voice {
+                coordinator = nil
+                prepareVoiceSetup(revisit: isRevisit)
+            } else {
+                let coord = makeCoordinator(for: id)
+                if isRevisit {
+                    coord?.prepareForRevisit()
+                }
+                coordinator = coord
+            }
+        } else {
+            coordinator = nil
+            voiceRevisitMode = false
         }
         setStep(newStep)
+    }
+
+    private func prepareVoiceSetup(revisit: Bool = false) {
+        let progress = VoiceOnboardingProgressStore.load()
+        voiceRevisitMode = revisit && progress.isCompleted
+        if voiceRevisitMode {
+            voiceStep = .done
+        } else if progress.isCompleted {
+            voiceStep = .welcome
+        } else {
+            voiceStep = progress.currentStep
+        }
+        voiceTryItSucceeded = false
+    }
+
+    private func handleVoicePrimary() {
+        if voiceStep == .done {
+            finishVoiceSetup()
+            return
+        }
+        guard voiceStep.next != nil else {
+            finishVoiceSetup()
+            return
+        }
+        VoiceOnboardingFlowHelpers.advance(step: &voiceStep, tryItSucceeded: &voiceTryItSucceeded)
+    }
+
+    private func finishVoiceSetup() {
+        VoiceOnboardingProgressStore.markCompleted()
+        FeatureOnboardingProgressStore.markCompleted(.voice)
+        selectionStore.markCompleted(.voice)
+        advanceToNextFeatureOrDone()
     }
 
     private func setStep(_ newValue: OnboardingState) {
         step = newValue
         controller.setOnboarding(newValue)
         if newValue == .completed {
-            selectionStore.clear()
+            let selected = Set(selectedIDs)
+            let registry = registryOrder
+            selectionStore.setSelection(selectedIDs)
+            NSApplication.shared.keyWindow?.close()
             Task { @MainActor in
-                for id in selectedIDs {
-                    try? await controller.runtime.applyTransition(.enable, for: id)
+                for id in registry {
+                    if selected.contains(id) {
+                        try? await controller.runtime.applyTransition(.enable, for: id)
+                    } else if id != .clipboardSmartText {
+                        try? await controller.runtime.applyTransition(.disable, for: id)
+                    }
                 }
-                NSApplication.shared.keyWindow?.close()
+                selectionStore.clear()
             }
         }
     }
 
+    private func previousSetupID(before id: FeatureID) -> FeatureID? {
+        OnboardingNavigationPlanner.previousFeatureID(
+            before: id,
+            selectedIDs: selectedIDs,
+            pickerOrder: pickerOrder
+        )
+    }
+
+    private func syncSelectionStore() {
+        selectionStore.setSelection(selectedIDs)
+    }
+
     private func makeCoordinator(for id: FeatureID) -> FeatureSetupCoordinator? {
         guard let descriptor = registry.descriptor(for: id) else { return nil }
-        // Augment the descriptor with a Voice config factory if not already set.
-        // VoiceDescriptor is built without a controller reference (AppController isn't
-        // available when the registry is first constructed), so we wire it here where
-        // the wizard already holds the controller.
-        let augmented = augmented(descriptor)
+        let augmented = FeatureOnboardingWizardRegistry.augmented(descriptor, controller: controller)
         return FeatureSetupCoordinator(
             descriptor: augmented,
             installer: OnboardingInstaller(packInstallController: controller.packInstallController)
         )
     }
 
-    /// Returns the descriptor with `onboardingSetupFactory` wired if the registry didn't
-    /// supply one (e.g. VoiceDescriptor which needs the controller reference).
-    private func augmented(_ descriptor: FeatureDescriptor) -> FeatureDescriptor {
-        guard descriptor.onboardingSetupFactory == nil else { return descriptor }
-        guard descriptor.id == .voice else { return descriptor }
-        let c = controller
-        return FeatureDescriptor(
-            id: descriptor.id,
-            displayName: descriptor.displayName,
-            icon: descriptor.icon,
-            summary: descriptor.summary,
-            detailDescription: descriptor.detailDescription,
-            requiredPermissions: descriptor.requiredPermissions,
-            assetPacks: descriptor.assetPacks,
-            assetCaches: descriptor.assetCaches,
-            hotkeys: descriptor.hotkeys,
-            osExtensionPolicy: descriptor.osExtensionPolicy,
-            activator: descriptor.activator,
-            settingsTabFactory: descriptor.settingsTabFactory,
-            onboardingSetupFactory: { @Sendable @MainActor in
-                AnyView(VoiceProviderSetupView(controller: c))
-            },
-            menuBarItemFactory: descriptor.menuBarItemFactory
-        )
-    }
-}
-
-/// Sidebar navigation model. The actual flow has many states (one per feature in
-/// `.featureSetup`); the sidebar collapses them into four high-level phases.
-enum OnboardingSidebarStep: Hashable, CaseIterable {
-    case welcome, picker, setup, done
-
-    var title: String {
-        switch self {
-        case .welcome: return "Welcome"
-        case .picker: return "Choose Features"
-        case .setup: return "Set Up"
-        case .done: return "Done"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .welcome: return "What this app does"
-        case .picker: return "Pick what you want"
-        case .setup: return "Per-feature config"
-        case .done: return "Start using it"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .welcome: return "sparkles"
-        case .picker: return "square.grid.2x2"
-        case .setup: return "gearshape"
-        case .done: return "checkmark"
-        }
-    }
-
-    static func from(_ state: OnboardingState) -> OnboardingSidebarStep {
+    /// Maps legacy install flows onto the current model.
+    private static func normalized(_ state: OnboardingState) -> OnboardingState {
         switch state {
-        case .notStarted, .welcome: return .welcome
-        case .featurePicker: return .picker
-        case .featureSetup: return .setup
-        case .done, .completed: return .done
+        case .featurePicker:
+            return .welcome
+        case .notStarted:
+            return .welcome
+        default:
+            return state
         }
     }
 }
 
 // MARK: - Shared wizard chrome (used by onboarding step views)
+
+enum SetupSidebarRowStyle {
+    case standard
+    case compactStep
+}
 
 struct SetupStepDescriptor<ID: Hashable>: Identifiable {
     let id: ID
@@ -307,6 +533,10 @@ struct SetupStepDescriptor<ID: Hashable>: Identifiable {
     let subtitle: String
     let symbol: String
     let isCompleted: Bool
+    var showsDividerAfter = false
+    var rowStyle: SetupSidebarRowStyle = .standard
+    var stepNumber: Int?
+    var isNavigable = false
 }
 
 struct SetupWizardShell<StepID: Hashable, Content: View>: View {
@@ -314,7 +544,9 @@ struct SetupWizardShell<StepID: Hashable, Content: View>: View {
     let subtitle: String
     let steps: [SetupStepDescriptor<StepID>]
     let currentStep: StepID
+    var onSelectStep: ((StepID) -> Void)?
     let canGoBack: Bool
+    var backTitle: String = "Back"
     let canSkip: Bool
     let primaryTitle: String
     let canAdvance: Bool
@@ -332,9 +564,10 @@ struct SetupWizardShell<StepID: Hashable, Content: View>: View {
             VStack(spacing: 0) {
                 ScrollView {
                     content
-                        .frame(maxWidth: 460, alignment: .topLeading)
-                        .padding(.horizontal, 34)
-                        .padding(.vertical, 30)
+                        .frame(maxWidth: 540, alignment: .topLeading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 26)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Rectangle()
@@ -347,7 +580,7 @@ struct SetupWizardShell<StepID: Hashable, Content: View>: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 18, weight: .semibold))
@@ -356,25 +589,44 @@ struct SetupWizardShell<StepID: Hashable, Content: View>: View {
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(steps) { descriptor in
-                    SetupProgressRow(
-                        descriptor: descriptor,
-                        isCurrent: descriptor.id == currentStep
-                    )
+            ScrollView {
+                VStack(alignment: .leading, spacing: descriptorSpacing) {
+                    ForEach(steps) { descriptor in
+                        SetupProgressRow(
+                            descriptor: descriptor,
+                            isCurrent: descriptor.id == currentStep,
+                            onSelect: descriptor.isNavigable ? { onSelectStep?(descriptor.id) } : nil
+                        )
+                        if descriptor.showsDividerAfter {
+                            sidebarSectionDivider
+                        }
+                    }
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 0)
         }
-        .frame(width: 220, alignment: .topLeading)
-        .padding(22)
+        .frame(width: 248, alignment: .topLeading)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 22)
         .background(MAYNTheme.panel)
+    }
+
+    private var descriptorSpacing: CGFloat {
+        steps.contains(where: { $0.rowStyle == .compactStep }) ? 2 : 4
+    }
+
+    private var sidebarSectionDivider: some View {
+        Rectangle()
+            .fill(MAYNTheme.divider)
+            .frame(height: 1)
+            .padding(.vertical, 6)
+            .padding(.leading, 4)
     }
 
     private var actionBar: some View {
         HStack(spacing: 10) {
-            MAYNButton("Back", action: back)
+            MAYNButton(backTitle, action: back)
                 .disabled(!canGoBack)
             if canSkip {
                 MAYNButton("Skip for now", action: skip)
@@ -393,32 +645,129 @@ struct SetupWizardShell<StepID: Hashable, Content: View>: View {
 private struct SetupProgressRow<StepID: Hashable>: View {
     let descriptor: SetupStepDescriptor<StepID>
     let isCurrent: Bool
+    var onSelect: (() -> Void)?
+    @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: descriptor.isCompleted ? "checkmark.circle.fill" : descriptor.symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 24, height: 24)
-                .background(
-                    Circle()
-                        .fill(isCurrent ? Color.primary.opacity(0.12) : Color.primary.opacity(0.06))
-                )
-                .overlay(Circle().stroke(isCurrent ? MAYNTheme.strongBorder : MAYNTheme.subtleBorder, lineWidth: 1))
+        Group {
+            if let onSelect {
+                Button(action: onSelect) {
+                    rowContent
+                }
+                .buttonStyle(.plain)
+            } else {
+                rowContent
+            }
+        }
+        .onHover { isHovering = $0 }
+    }
 
+    @ViewBuilder
+    private var rowContent: some View {
+        switch descriptor.rowStyle {
+        case .standard:
+            standardRow
+        case .compactStep:
+            compactStepRow
+        }
+    }
+
+    private var standardRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            stepBadge(diameter: 26, fontSize: 11, showsSymbol: true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(descriptor.title)
                     .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? .primary : .secondary)
-                Text(descriptor.subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(labelColor)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !descriptor.subtitle.isEmpty {
+                    Text(descriptor.subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(isCurrent ? MAYNTheme.selected : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .rowChrome(isCurrent: isCurrent, isHovering: isHovering && onSelect != nil, cornerRadius: 8)
+    }
+
+    private var compactStepRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            stepBadge(diameter: 20, fontSize: 10, showsSymbol: false)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(descriptor.title)
+                    .font(.system(size: 12, weight: isCurrent ? .semibold : .regular))
+                    .foregroundStyle(labelColor)
+                    .lineLimit(1)
+                if isCurrent, !descriptor.subtitle.isEmpty {
+                    Text(descriptor.subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 18)
+        .padding(.trailing, 8)
+        .padding(.vertical, 5)
+        .rowChrome(isCurrent: isCurrent, isHovering: isHovering && onSelect != nil, cornerRadius: 6)
+    }
+
+    private var labelColor: Color {
+        if isCurrent {
+            return .primary
+        }
+        if descriptor.isCompleted {
+            return .secondary
+        }
+        if onSelect != nil {
+            return .primary
+        }
+        return .secondary
+    }
+
+    private func stepBadge(diameter: CGFloat, fontSize: CGFloat, showsSymbol: Bool) -> some View {
+        ZStack {
+            Circle()
+                .fill(isCurrent ? Color.primary.opacity(0.12) : Color.primary.opacity(0.06))
+            Circle()
+                .stroke(isCurrent ? MAYNTheme.strongBorder : MAYNTheme.subtleBorder, lineWidth: 1)
+            if descriptor.isCompleted {
+                Image(systemName: "checkmark")
+                    .font(.system(size: fontSize, weight: .bold))
+                    .foregroundStyle(MAYNTheme.success)
+            } else if let stepNumber = descriptor.stepNumber, !showsSymbol {
+                Text("\(stepNumber)")
+                    .font(.system(size: fontSize, weight: .semibold))
+                    .foregroundStyle(isCurrent ? .primary : .secondary)
+            } else {
+                Image(systemName: descriptor.symbol)
+                    .font(.system(size: fontSize, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+        }
+        .frame(width: diameter, height: diameter)
+    }
+}
+
+private extension View {
+    func rowChrome(isCurrent: Bool, isHovering: Bool, cornerRadius: CGFloat) -> some View {
+        background(
+            isCurrent ? MAYNTheme.selected : (isHovering ? MAYNTheme.hover : Color.clear),
+            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        )
+        .overlay {
+            if isCurrent {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+            }
+        }
     }
 }
 

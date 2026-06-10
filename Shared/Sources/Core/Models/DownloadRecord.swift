@@ -22,6 +22,11 @@ public struct DownloadRecord: Codable, Equatable, Sendable {
     public var channelName: String?
     public var durationSeconds: Int?
     public var thumbnailURL: String?
+    public var collectionID: String?
+    public var collectionIndex: Int?
+    public var collectionTitle: String?
+    public var collectionKind: DownloadCollectionKind?
+    public var pageURL: String?
 
     public init(url: String, title: String, destinationPath: String, state: DownloadState) {
         id = RecordID.generate()
@@ -38,6 +43,11 @@ public struct DownloadRecord: Codable, Equatable, Sendable {
         channelName = nil
         durationSeconds = nil
         thumbnailURL = nil
+        collectionID = nil
+        collectionIndex = nil
+        collectionTitle = nil
+        collectionKind = nil
+        pageURL = nil
         let now = Date()
         created = now
         modified = now

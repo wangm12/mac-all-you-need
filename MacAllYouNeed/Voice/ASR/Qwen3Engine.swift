@@ -25,11 +25,6 @@ actor Qwen3Engine: VoiceTranscriptionEngine {
     }
     private var managers: [VoiceASRModelID: Any] = [:]
 
-    /// Maximum audio seconds per chunk. Qwen3-ASR's KV cache is 512 tokens;
-    /// ~30s of audio already uses ~420 tokens for the audio prompt, leaving
-    /// little room for output. Using 25s gives a safe margin.
-    private let maxChunkSeconds: Double = 25.0
-
     func transcribe(
         samples: [Float],
         sampleRate: Double,
@@ -43,38 +38,49 @@ actor Qwen3Engine: VoiceTranscriptionEngine {
         let manager = try await qwenManager(for: modelID)
 
         let text: String
-        let chunkSize = Int(maxChunkSeconds * Double(Qwen3AsrConfig.sampleRate))
+        let chunkSize = VoiceLongFormASRPlanning.maxSegmentSamples
+        let maxNewTokens = VoiceLongFormASRPlanning.maxNewTokensPerPass
 
         if qwenSamples.count <= chunkSize {
-            // Short recording: transcribe in one pass.
             text = try await manager.transcribe(
                 audioSamples: qwenSamples,
                 language: languageHint,
-                maxNewTokens: 448
+                maxNewTokens: maxNewTokens
             )
         } else {
-            // Long recording: split into ≤25s chunks, transcribe each, concatenate.
-            // 448 maxNewTokens = 512 cache - ~64 prompt template tokens, maximising
-            // output per chunk while staying within the KV cache budget.
             var parts: [String] = []
             var offset = 0
+            let stride = VoiceLongFormASRPlanning.batchStrideSamples
             while offset < qwenSamples.count {
                 let end = min(offset + chunkSize, qwenSamples.count)
                 let chunk = Array(qwenSamples[offset..<end])
                 let part = try await manager.transcribe(
                     audioSamples: chunk,
                     language: languageHint,
-                    maxNewTokens: 448
+                    maxNewTokens: maxNewTokens
                 )
                 if !part.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     parts.append(part)
                 }
-                offset = end
+                if end >= qwenSamples.count { break }
+                offset += stride
             }
-            text = parts.joined(separator: " ")
+            text = VoiceSequentialTranscriptMerge.mergeSequential(parts)
         }
 
         return VoiceTranscriptionResult(text: text, language: .mixed, modelIdentifier: modelID.rawValue)
+    }
+
+    @available(macOS 15, *)
+    func makeLiveSession(options: VoiceTranscriptionOptions) async throws -> any VoiceLiveTranscriptionSession {
+        let settings = VoiceASRSettingsStore.load()
+        let modelID = settings.resolvedModelID(preferredModelIdentifier: options.preferredModelIdentifier)
+        let manager = try await qwenManager(for: modelID)
+        return Qwen3LongFormLiveSession(
+            manager: manager,
+            modelID: modelID,
+            languageHint: settings.languageHint.qwen3Language
+        )
     }
 
     @available(macOS 15, *)
@@ -141,5 +147,126 @@ actor Qwen3Engine: VoiceTranscriptionEngine {
         } catch {
             log.error("ASR warmup failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+}
+
+@available(macOS 15, *)
+private actor Qwen3LongFormLiveSession: VoiceLiveTranscriptionSession {
+    private let manager: Qwen3AsrManager
+    private let modelID: VoiceASRModelID
+    private let languageHint: Qwen3AsrConfig.Language?
+    private var pendingSamples: [Float] = []
+    private var committedParts: [String] = []
+    private var cancelled = false
+
+    init(
+        manager: Qwen3AsrManager,
+        modelID: VoiceASRModelID,
+        languageHint: Qwen3AsrConfig.Language?
+    ) {
+        self.manager = manager
+        self.modelID = modelID
+        self.languageHint = languageHint
+    }
+
+    func enqueueAudio(samples: [Float], sampleRate: Double) async throws {
+        guard !cancelled else { return }
+        let resampled = AudioCaptureService.resample(samples, from: sampleRate, to: 16000)
+        guard !resampled.isEmpty else { return }
+        pendingSamples.append(contentsOf: resampled)
+        try await commitSegmentsIfNeeded()
+    }
+
+    func finish() async throws -> VoiceTranscriptionResult {
+        try await finish(context: nil)
+    }
+
+    func finish(context: VoiceLiveFinishContext?) async throws -> VoiceTranscriptionResult {
+        guard !cancelled else { throw VoiceLiveTranscriptionError.cancelled }
+        try await commitSegmentsIfNeeded()
+
+        let tailText = try await resolveTailText(context: context)
+        if !tailText.isEmpty {
+            committedParts.append(tailText)
+        }
+        pendingSamples.removeAll(keepingCapacity: false)
+
+        let text = VoiceSequentialTranscriptMerge.mergeSequential(committedParts)
+        return VoiceTranscriptionResult(
+            text: text,
+            language: .mixed,
+            modelIdentifier: modelID.rawValue
+        )
+    }
+
+    private func resolveTailText(context: VoiceLiveFinishContext?) async throws -> String {
+        guard !pendingSamples.isEmpty || context != nil else { return "" }
+
+        let pendingTailText: String
+        if pendingSamples.isEmpty {
+            pendingTailText = ""
+        } else {
+            pendingTailText = try await transcribe(samples: pendingSamples)
+        }
+
+        guard let context, !context.samples.isEmpty else {
+            return pendingTailText
+        }
+
+        let plan = VoiceLongFormASRPlanning.tailTranscriptionPlan(
+            totalCapturedCount: context.samples.count,
+            capturedSampleRate: context.sampleRate,
+            committedPartCount: committedParts.count,
+            pendingCount: pendingSamples.count
+        )
+
+        guard plan.useWidenedTail, plan.tailSampleCount > 0 else {
+            return pendingTailText
+        }
+
+        let widenedSource = Array(context.samples.suffix(plan.tailSampleCount))
+        let widenedResampled = AudioCaptureService.resample(
+            widenedSource,
+            from: context.sampleRate,
+            to: Double(VoiceLongFormASRPlanning.sampleRate)
+        )
+        guard !widenedResampled.isEmpty else { return pendingTailText }
+
+        let widenedTailText = try await transcribe(samples: widenedResampled)
+        let committedText = VoiceSequentialTranscriptMerge.mergeSequential(committedParts)
+        if VoiceLongFormTailMergePolicy.shouldUseWidenedTailMerge(
+            pendingTailText: pendingTailText,
+            widenedTailText: widenedTailText,
+            committedTextBeforeTail: committedText
+        ) {
+            return widenedTailText
+        }
+        return pendingTailText
+    }
+
+    func cancel() async {
+        cancelled = true
+        pendingSamples.removeAll(keepingCapacity: false)
+        committedParts.removeAll(keepingCapacity: false)
+    }
+
+    private func commitSegmentsIfNeeded() async throws {
+        while let commitCount = VoiceLongFormASRPlanning.samplesToCommit(pendingCount: pendingSamples.count) {
+            let chunk = Array(pendingSamples.prefix(commitCount))
+            let part = try await transcribe(samples: chunk)
+            if !part.isEmpty {
+                committedParts.append(part)
+            }
+            pendingSamples.removeFirst(commitCount)
+        }
+    }
+
+    private func transcribe(samples: [Float]) async throws -> String {
+        let part = try await manager.transcribe(
+            audioSamples: samples,
+            language: languageHint,
+            maxNewTokens: VoiceLongFormASRPlanning.maxNewTokensPerPass
+        )
+        return part.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

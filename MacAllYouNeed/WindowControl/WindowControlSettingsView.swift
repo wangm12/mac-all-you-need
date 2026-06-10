@@ -8,6 +8,7 @@ enum WindowControlSettingsScope {
     case layoutsRadial
     case layoutsSnap
     case layoutsApps
+    case layoutsRules
     case grabGesture
     case grabApps
     case advanced
@@ -52,6 +53,8 @@ struct WindowControlSettingsView: View {
                 edgeSnapSection
             case .layoutsApps:
                 ignoredAppsSection
+            case .layoutsRules:
+                windowRulesSection
             case .grabGesture:
                 grabAnywhereSection
             case .grabApps:
@@ -89,6 +92,40 @@ struct WindowControlSettingsView: View {
             ) {
                 WindowGestureModifierPicker(selection: modifierBinding(\.edgeSnapModifier), defaultModifier: WindowControlSettings.default.edgeSnapModifier)
             }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Snap Assist zones",
+                subtitle: "Show center and half-zone hints while dragging with a modifier."
+            ) {
+                Toggle("", isOn: boolBinding(\.snapAssistShowZones)).labelsHidden()
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Active window border",
+                subtitle: "Highlight the frontmost window with an accent border."
+            ) {
+                Toggle("", isOn: boolBinding(\.activeWindowBorderEnabled)).labelsHidden()
+            }
+            if settings.activeWindowBorderEnabled {
+                MAYNDivider()
+                MAYNSettingsRow(title: "Inner border", subtitle: "Use an inset border instead of an outer stroke.") {
+                    Toggle("", isOn: boolBinding(\.activeWindowBorderInner)).labelsHidden()
+                }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Disable Sequoia tiling hotkeys",
+                subtitle: "Avoid conflicts with macOS built-in window tiling shortcuts."
+            ) {
+                Toggle("", isOn: boolBinding(\.disableSequoiaTilingHotkeys)).labelsHidden()
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Animate window moves",
+                subtitle: "Use smoother AX moves for keyboard shortcuts (slightly slower)."
+            ) {
+                Toggle("", isOn: boolBinding(\.animateWindowMoves)).labelsHidden()
+            }
         }
     }
 
@@ -98,10 +135,72 @@ struct WindowControlSettingsView: View {
             subtitle: "Hold a modifier and drag a window from any visible area."
         ) {
             MAYNSettingsRow(
+                title: "Enable Window Grab",
+                subtitle: "Allow dragging windows from visible content areas."
+            ) {
+                Toggle("", isOn: boolBinding(\.dragAnywhereEnabled)).labelsHidden()
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
                 title: "Window Grab modifier",
                 subtitle: "Modifier combo required to drag from anywhere."
             ) {
                 WindowGestureModifierPicker(selection: modifierBinding(\.dragModifier), defaultModifier: WindowControlSettings.default.dragModifier)
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Double-click title bar",
+                subtitle: "Toggle maximize/restore when double-clicking the title bar area."
+            ) {
+                Toggle("", isOn: boolBinding(\.doubleClickEnabled)).labelsHidden()
+            }
+            if settings.doubleClickEnabled {
+                MAYNDivider()
+                MAYNSettingsRow(title: "Double-click modifier", subtitle: "Require this modifier while double-clicking.") {
+                    WindowGestureModifierPicker(
+                        selection: modifierBinding(\.doubleClickModifier),
+                        defaultModifier: WindowControlSettings.default.doubleClickModifier
+                    )
+                }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Modifier + scroll resize",
+                subtitle: "Resize the frontmost window with scroll wheel while holding the grab modifier."
+            ) {
+                Toggle("", isOn: boolBinding(\.scrollResizeEnabled)).labelsHidden()
+            }
+        }
+    }
+
+    private var windowRulesSection: some View {
+        MAYNSection(
+            title: "Window Rules",
+            subtitle: "Match apps or window titles to ignore snapping or force floating behavior."
+        ) {
+            ForEach($settings.windowRules) { $rule in
+                MAYNSettingsRow(
+                    title: rule.bundleID ?? rule.titlePattern ?? "Rule",
+                    subtitle: rule.action.title
+                ) {
+                    Button(role: .destructive) {
+                        settings.windowRules.removeAll { $0.id == rule.id }
+                        WindowControlSettingsStore.save(settings)
+                        controller.applyWindowControlSettings(settings)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.plain)
+                }
+                MAYNDivider()
+            }
+            MAYNButton("Add ignore rule for frontmost app") {
+                guard let bundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return }
+                var next = settings
+                next.windowRules.append(WindowRule(bundleID: bundle, action: .ignore))
+                settings = next
+                WindowControlSettingsStore.save(next)
+                controller.applyWindowControlSettings(next)
             }
         }
     }
@@ -157,6 +256,13 @@ struct WindowControlSettingsView: View {
                     }
                 }
             }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Repeat half across displays",
+                subtitle: "Press the same half shortcut again to move the window to the next display."
+            ) {
+                Toggle("", isOn: boolBinding(\.repeatHalfAcrossDisplays)).labelsHidden()
+            }
         }
     }
 
@@ -197,6 +303,27 @@ struct WindowControlSettingsView: View {
                     text: WindowControlDiagnosticsPresentation.lastActionText(controller.windowControl.lastAction),
                     kind: .neutral
                 )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Title bar Y offset",
+                subtitle: "Fine-tune title-bar hit testing for double-click maximize."
+            ) {
+                MAYNNumericStepper(
+                    text: "YOffset",
+                    value: Binding(
+                        get: { Int(settings.titleBarYOffset.rounded()) },
+                        set: { value in updateSettings { $0.titleBarYOffset = Double(value) } }
+                    ),
+                    range: -20...20,
+                    step: 1,
+                    presets: [-8, 0, 8],
+                    suffix: "px"
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Debug logging", subtitle: "Log window-control events to the console.") {
+                Toggle("", isOn: boolBinding(\.debugLoggingEnabled)).labelsHidden()
             }
             MAYNDivider()
             MAYNSettingsRow(
@@ -398,7 +525,9 @@ struct WindowControlSettingsView: View {
         .windowCenter,
         .windowRestore,
         .windowNextDisplay,
-        .windowPreviousDisplay
+        .windowPreviousDisplay,
+        .windowNextSpace,
+        .windowPreviousSpace
     ]
 }
 

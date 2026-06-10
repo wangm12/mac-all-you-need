@@ -22,6 +22,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     case windowRestore
     case windowNextDisplay
     case windowPreviousDisplay
+    case windowNextSpace
+    case windowPreviousSpace
     case radialMenu
 
     var id: String { rawValue }
@@ -62,6 +64,10 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
             return "Window Layouts: Next display"
         case .windowPreviousDisplay:
             return "Window Layouts: Previous display"
+        case .windowNextSpace:
+            return "Window Layouts: Next space"
+        case .windowPreviousSpace:
+            return "Window Layouts: Previous space"
         case .radialMenu:
             return "Radial Menu"
         }
@@ -90,7 +96,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .windowRestore:
             return [HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_R), modifiers: [.control, .option])]
         case .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
-             .windowAlmostMaximize, .windowNextDisplay, .windowPreviousDisplay:
+             .windowAlmostMaximize, .windowNextDisplay, .windowPreviousDisplay,
+             .windowNextSpace, .windowPreviousSpace:
             return []
         case .radialMenu:
             return []
@@ -108,7 +115,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
-             .windowNextDisplay, .windowPreviousDisplay, .radialMenu:
+             .windowNextDisplay, .windowPreviousDisplay,
+             .windowNextSpace, .windowPreviousSpace, .radialMenu:
             return true
         }
     }
@@ -120,7 +128,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
-             .windowNextDisplay, .windowPreviousDisplay, .radialMenu:
+             .windowNextDisplay, .windowPreviousDisplay,
+             .windowNextSpace, .windowPreviousSpace, .radialMenu:
             return false
         }
     }

@@ -8,6 +8,12 @@ import UI
 /// (see `MiniVoiceHUDView`).
 @MainActor
 final class MiniVoiceThinkingProgressBridge: ObservableObject {
+    private enum ProgressPolicy {
+        static let bootSweepMax = 0.32
+        static let bootStepCount = 10
+        static let bootStepNanos: UInt64 = 40_000_000
+        static let completionSnapThreshold = 0.995
+    }
     /// Combined wipe amount 0...1 for the black fill (`max(boot, stream)`).
     @Published private(set) var displayWipe: Double = 0
 
@@ -29,11 +35,10 @@ final class MiniVoiceThinkingProgressBridge: ObservableObject {
         cancelBootAndResetDisplay()
         guard !reduceMotion else { return }
         bootTask = Task { @MainActor in
-            let steps = 10
-            for i in 1 ... steps {
-                try? await Task.sleep(nanoseconds: 40_000_000)
+            for i in 1 ... ProgressPolicy.bootStepCount {
+                try? await Task.sleep(nanoseconds: ProgressPolicy.bootStepNanos)
                 guard !Task.isCancelled else { return }
-                bootProgress = 0.32 * Double(i) / Double(steps)
+                bootProgress = ProgressPolicy.bootSweepMax * Double(i) / Double(ProgressPolicy.bootStepCount)
                 recombine()
             }
         }
@@ -51,7 +56,10 @@ final class MiniVoiceThinkingProgressBridge: ObservableObject {
     }
 
     private func recombine() {
-        let next = min(1, max(bootProgress, streamProgress))
+        var next = min(1, max(bootProgress, streamProgress))
+        if next >= ProgressPolicy.completionSnapThreshold {
+            next = 1
+        }
         if abs(next - displayWipe) > 1e-12 {
             displayWipe = next
         }
@@ -63,9 +71,11 @@ final class MiniVoiceHUD {
     /// Post-commit transcription: cloud/local ASR, then optional LLM cleanup. The
     /// HUD always reads **Transcribing**; cleanup adds the gray-track + black wipe.
     enum TranscribingSubphase: Equatable {
+        case finalizing
         case asr
         /// `progress` is 0...1 on first `show`; live wipe uses `MiniVoiceThinkingProgressBridge`.
         case cleanup(progress: Double)
+        case pasting
     }
 
     enum State: Equatable {
@@ -184,7 +194,8 @@ final class MiniVoiceHUD {
             fmh.wantsLayer = true
             if let layer = fmh.layer {
                 NSAnimationContext.runAnimationGroup({ context in
-                    context.duration = 0.12
+                    context.duration = MAYNMotionBridge.effectiveDuration(.press)
+                    context.timingFunction = MAYNMotionBridge.timingFunction(.press)
                     layer.setAffineTransform(CGAffineTransform(scaleX: 0.88, y: 0.88))
                 }, completionHandler: { [weak self] in
                     layer.setAffineTransform(CGAffineTransform.identity)
@@ -258,7 +269,57 @@ enum MiniVoiceHUDPalette {
 }
 
 struct MiniVoiceHUDPill: Equatable {
-    enum Leading {
+    let state: MiniVoiceHUD.State
+    private let contentModel: VoicePillContentModel
+
+    typealias Leading = VoicePillContentModel.Leading
+
+    init(state: MiniVoiceHUD.State) {
+        self.state = state
+        contentModel = VoicePillContentModel(state: state)
+    }
+
+    var label: String {
+        contentModel.label
+    }
+
+    var labelTransitionSlot: String {
+        contentModel.labelTransitionSlot
+    }
+
+    var leading: Leading {
+        contentModel.leading
+    }
+
+    var actionAvailability: VoicePillActionAvailability {
+        contentModel.actionAvailability
+    }
+
+    /// True when the user can stop the in-flight task. The right slot shows the
+    /// stop button only for these states.
+    var isStoppable: Bool {
+        actionAvailability == .stop
+    }
+
+    /// True when the right slot shows an Undo affordance instead of Stop.
+    var isUndoable: Bool {
+        actionAvailability == .undo
+    }
+
+    var isTerminal: Bool {
+        actionAvailability == .dismissTerminal
+    }
+}
+
+enum VoicePillActionAvailability: Equatable {
+    case none
+    case stop
+    case undo
+    case dismissTerminal
+}
+
+struct VoicePillContentModel: Equatable {
+    enum Leading: Equatable {
         case waveformBars
         case aiSparkle
         case bouncingDots
@@ -268,63 +329,55 @@ struct MiniVoiceHUDPill: Equatable {
         case none
     }
 
-    let state: MiniVoiceHUD.State
+    let label: String
+    let labelTransitionSlot: String
+    let leading: Leading
+    let actionAvailability: VoicePillActionAvailability
 
     init(state: MiniVoiceHUD.State) {
-        self.state = state
-    }
-
-    var label: String {
         switch state.normalizedForDisplay {
-        case .idlePreview: ""
-        case .recording: "Listening"
-        case .transcribing: "Transcribing"
-        case .cancelled: "Cancelled"
-        case .noSpeech: "No speech"
-        case .error: "Failed"
-        }
-    }
-
-    var labelTransitionSlot: String {
-        switch state.normalizedForDisplay {
-        case .idlePreview: "idlePreview"
-        case .recording: "recording"
-        case .transcribing: "transcribing"
-        case .cancelled: "cancelled"
-        case .noSpeech: "noSpeech"
-        case .error: "error"
-        }
-    }
-
-    var leading: Leading {
-        switch state.normalizedForDisplay {
-        case .idlePreview: .none
-        case .recording: .waveformBars
-        case .transcribing: .aiSparkle
-        case .cancelled: .xInCircle
-        case .noSpeech, .error: .warningTriangle
-        }
-    }
-
-    /// True when the user can stop the in-flight task. The right slot shows the
-    /// stop button only for these states.
-    var isStoppable: Bool {
-        switch state.normalizedForDisplay {
-        case .recording, .transcribing: true
-        default: false
-        }
-    }
-
-    /// True when the right slot shows an Undo affordance instead of Stop.
-    var isUndoable: Bool {
-        if case .cancelled = state.normalizedForDisplay { return true }
-        return false
-    }
-
-    var isTerminal: Bool {
-        switch state.normalizedForDisplay {
-        case .noSpeech, .error: true
-        default: false
+        case .idlePreview:
+            label = ""
+            labelTransitionSlot = "idlePreview"
+            leading = .none
+            actionAvailability = .none
+        case .recording:
+            label = "Listening"
+            labelTransitionSlot = "recording"
+            leading = .waveformBars
+            actionAvailability = .stop
+        case let .transcribing(subphase):
+            switch subphase {
+            case .finalizing:
+                label = "Transcribing"
+                labelTransitionSlot = "finalizing"
+            case .asr:
+                label = "Transcribing"
+                labelTransitionSlot = "transcribing"
+            case .cleanup:
+                label = "Transcribing"
+                labelTransitionSlot = "cleaning"
+            case .pasting:
+                label = "Transcribing"
+                labelTransitionSlot = "pasting"
+            }
+            leading = .aiSparkle
+            actionAvailability = .stop
+        case .cancelled:
+            label = "Cancelled"
+            labelTransitionSlot = "cancelled"
+            leading = .xInCircle
+            actionAvailability = .undo
+        case .noSpeech:
+            label = "No speech"
+            labelTransitionSlot = "noSpeech"
+            leading = .warningTriangle
+            actionAvailability = .dismissTerminal
+        case .error:
+            label = "Failed"
+            labelTransitionSlot = "error"
+            leading = .warningTriangle
+            actionAvailability = .dismissTerminal
         }
     }
 }
@@ -353,9 +406,11 @@ struct MiniVoiceHUDView: View {
     @State private var isHovering = false
 
     private var hudAsymmetricTransition: AnyTransition {
-        .asymmetric(
-            insertion: .opacity.combined(with: .offset(y: -4)),
-            removal: .opacity.combined(with: .offset(y: 4))
+        let entryOffset = MAYNMotionBridge.translation(-4, reduceMotion: reduceMotion)
+        let exitOffset = MAYNMotionBridge.translation(4, reduceMotion: reduceMotion)
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: entryOffset)),
+            removal: .opacity.combined(with: .offset(y: exitOffset))
         )
     }
 
@@ -401,11 +456,11 @@ struct MiniVoiceHUDView: View {
                     .position(x: MiniVoiceHUDLayout.pillWidth / 2,
                               y: MiniVoiceHUDLayout.pillHeight / 2)
 
-                if pill.isStoppable {
+                if pill.actionAvailability == .stop {
                     StopButton(action: onPrimary ?? onCancel)
                         .position(x: MiniVoiceHUDLayout.rightSlotCenter,
                                   y: MiniVoiceHUDLayout.pillHeight / 2)
-                } else if pill.isUndoable, let onPrimary {
+                } else if pill.actionAvailability == .undo, let onPrimary {
                     UndoButton(action: onPrimary)
                         .position(x: MiniVoiceHUDLayout.rightSlotCenter,
                                   y: MiniVoiceHUDLayout.pillHeight / 2)
@@ -468,12 +523,15 @@ struct MiniVoiceHUDView: View {
         // Undoable (cancelled): tapping the body dismisses; the right Undo
         // button reruns the transcription.
         // Terminal: tapping the body dismisses.
-        if pill.isStoppable {
+        switch pill.actionAvailability {
+        case .stop:
             onCancel?()
-        } else if pill.isUndoable {
+        case .undo:
             onCancel?()
-        } else if pill.isTerminal {
+        case .dismissTerminal:
             onPrimary?()
+        case .none:
+            break
         }
     }
 
@@ -716,14 +774,14 @@ private struct StopButton: View {
         }
         .buttonStyle(.plain)
         .disabled(action == nil)
-        .accessibilityLabel("Stop and transcribe")
+        .accessibilityLabel("Cancel dictation")
         .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity) {
             // No-op; press tracking lives in onPressingChanged below.
         } onPressingChanged: { pressing in
             if reduceMotion {
                 isPressed = pressing
             } else {
-                withAnimation(MAYNMotion.animation(.press, reduceMotion: false)) {
+                withAnimation(MAYNMotion.animation(.press, reduceMotion: reduceMotion)) {
                     isPressed = pressing
                 }
             }
@@ -754,7 +812,7 @@ private struct UndoButton: View {
             if reduceMotion {
                 isPressed = pressing
             } else {
-                withAnimation(MAYNMotion.animation(.press, reduceMotion: false)) {
+                withAnimation(MAYNMotion.animation(.press, reduceMotion: reduceMotion)) {
                     isPressed = pressing
                 }
             }

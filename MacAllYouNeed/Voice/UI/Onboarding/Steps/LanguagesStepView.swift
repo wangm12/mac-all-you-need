@@ -26,9 +26,6 @@ struct VoiceLanguagesStepView: View {
                     .disabled(autoDetectEverything)
                     .opacity(autoDetectEverything ? 0.55 : 1)
             }
-            HStack {
-                MAYNButton("Apply languages", role: .primary) { save() }
-            }
             if let statusMessage {
                 Text(statusMessage)
                     .font(.caption)
@@ -47,6 +44,7 @@ struct VoiceLanguagesStepView: View {
             } else {
                 selected.remove(language)
             }
+            save()
         }
     }
 
@@ -59,6 +57,6 @@ struct VoiceLanguagesStepView: View {
         var asrSettings = VoiceASRSettingsStore.load()
         asrSettings.languageHint = selection.asrLanguageHint
         VoiceASRSettingsStore.save(asrSettings)
-        statusMessage = "Language preference saved as \(VoiceLanguageModePresentation.title(for: selection.asrLanguageHint))."
+        statusMessage = "Saved: \(VoiceLanguageModePresentation.title(for: selection.asrLanguageHint))."
     }
 }

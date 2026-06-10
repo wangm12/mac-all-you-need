@@ -600,6 +600,7 @@ final class DockPreviewCoordinator {
         windowRefreshTask?.cancel()
         windowRefreshTask = nil
         dockAutoHide.restoreIfNeeded()
+        DockPreviewTooltipOverlay.shared.dismiss()
         panel.dismiss(animated: animated)
         liveCapture.scheduleStopAfterKeepAlive(hub: hubSettings)
         visibleThumbnailCache.evictAll()
@@ -982,6 +983,15 @@ final class DockPreviewCoordinator {
             embeddedContent: panelController.state.embeddedContent
         )
         let placementKey = currentDockItemToken ?? 0
+        if settings.overlayDockTooltip,
+           presentation.dockEdge == .bottom,
+           anchor != .zero
+        {
+            let screen = DockPreviewDockCoordinates.screen(containingAXPoint: anchor.origin)
+            DockPreviewTooltipOverlay.shared.show(iconRect: anchor, screen: screen)
+        } else {
+            DockPreviewTooltipOverlay.shared.dismiss()
+        }
         panelController.present(
             presentation: presentation,
             placementKey: placementKey,

@@ -188,6 +188,45 @@ final class VoiceCoordinatorPipelineCallSequenceTests: XCTestCase {
         _ = await processTask.value
     }
 
+    func testPasteFailure_persistsFailedTranscriptWithAudio() async throws {
+        let asrResult = VoiceTranscriptionResult(
+            text: "hello world",
+            language: .english,
+            modelIdentifier: "stub-asr"
+        )
+        let engine = StubASREngine(result: asrResult, log: callLog)
+        let captured = makeCaptured(sampleCount: 1600)
+        let coordinator = VoiceCoordinator(
+            transcripts: transcriptStore,
+            trainingExampleStore: trainingStore,
+            engine: engine,
+            cleanupPipelineFactory: { _ in VoiceCleanupPipeline() },
+            paster: { _, _ in
+                CursorPaster.Result(
+                    accessibilityTrusted: true,
+                    deliveryPath: .clipboardOnly,
+                    failureReason: .targetNotWritable
+                )
+            },
+            snapshotFocused: { nil },
+            learningStarter: { _, _, _, _, _ in },
+            cleanupObserver: { _ in }
+        )
+
+        await coordinator.processCapturedAudio(
+            captured: captured,
+            presetASRResult: nil,
+            presetAppBundleID: "com.apple.TextEdit"
+        )
+
+        let saved = try transcriptStore.listRecent(limit: 10)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(saved.first?.status, .failed)
+        XCTAssertEqual(saved.first?.failedStage, .paste)
+        XCTAssertEqual(saved.first?.failureReason, "paste_targetNotWritable")
+        XCTAssertNotNil(saved.first?.audioPath)
+    }
+
     // MARK: - Helpers
 
     private func makeCaptured(sampleCount: Int) -> CapturedAudio {
@@ -210,9 +249,13 @@ final class VoiceCoordinatorPipelineCallSequenceTests: XCTestCase {
                 // Local-only cleanup keeps tests offline and deterministic.
                 VoiceCleanupPipeline()
             },
-            paster: { text in
+            paster: { text, _ in
                 log.record("paste(\(text))")
-                return CursorPaster.Result(accessibilityTrusted: true, didPostPasteEvent: true)
+                return CursorPaster.Result(
+                    accessibilityTrusted: true,
+                    deliveryPath: .preferredAX,
+                    failureReason: nil
+                )
             },
             snapshotFocused: {
                 log.record("snapshotFocused")

@@ -180,6 +180,29 @@ VAD 分段转写仍值得做（对本地 Qwen3 路径有益），但不再是 bl
 
 ---
 
+## Live ASR Combination UAT（2026-06-08）
+
+### 长录音（本地 Qwen3）
+
+- [ ] 40s 中文连续口述：全文无丢头、25s 边界无明显重复
+- [ ] 90s 中文连续口述：每 25s 读不同数字，检查接缝
+- [ ] 3min 中文连续口述：Esc cancel + Undo 回放正常
+- [ ] Reduce Motion 开启时 HUD 无异常
+
+### Groq code-switching 手动实测
+
+| 脚本 | Provider | Latency | 质量 | 误翻译 |
+|------|----------|---------|------|--------|
+| 纯中文 | Groq Turbo | | | |
+| 纯英文 | Groq Turbo | | | |
+| 句内 zh/en 切换 | Groq Turbo | | | |
+| 技术术语混合 | Groq Turbo | | | |
+| 数字 + 单位混合 | Groq Turbo | | | |
+
+记录字段：`recordingMs`, `liveFinishMs`, `batchASRMs`, `cleanupMs`, `pasteMs`（见 `voice.pipeline metrics` OSLog）。
+
+---
+
 ## 参考资料
 - [Groq Whisper API 文档](https://console.groq.com/docs/speech-to-text)
 - [Groq Rate Limits](https://console.groq.com/docs/rate-limits)

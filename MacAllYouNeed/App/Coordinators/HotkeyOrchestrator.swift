@@ -54,7 +54,8 @@ final class HotkeyOrchestrator {
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
-             .windowNextDisplay, .windowPreviousDisplay:
+             .windowNextDisplay, .windowPreviousDisplay,
+             .windowNextSpace, .windowPreviousSpace:
             if let mapped = action.windowAction {
                 onWindowAction(mapped)
             }
@@ -113,6 +114,8 @@ extension HotkeyAction {
         case .windowRestore: return .restore
         case .windowNextDisplay: return .nextDisplay
         case .windowPreviousDisplay: return .previousDisplay
+        case .windowNextSpace: return .nextSpace
+        case .windowPreviousSpace: return .previousSpace
         case .clipboard, .browseFolder, .finderHistory, .radialMenu: return nil
         }
     }

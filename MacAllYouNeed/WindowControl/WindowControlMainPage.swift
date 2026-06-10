@@ -41,6 +41,8 @@ struct WindowLayoutsMainPage: View {
         case .radial: .layoutsRadial
         case .snap: .layoutsSnap
         case .apps: .layoutsApps
+        case .rules: .layoutsRules
+        case .diagnostics: .advanced
         }
     }
 

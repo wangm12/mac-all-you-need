@@ -414,7 +414,7 @@ extension AppController {
 
     func downloadVoiceAudio(transcript: VoiceTranscript, to url: URL) throws {
         guard let path = transcript.audioPath else {
-            throw VoiceRetryError.noAudio
+            throw VoiceRetryError.audioMissing
         }
         let wav = try voiceTrainingExampleStore.loadEncryptedAudio(path: path)
         try wav.write(to: url, options: .atomic)
@@ -450,7 +450,11 @@ extension AppController {
                     appBundleID: transcript.appBundleID,
                     language: transcript.language,
                     modelIdentifier: transcript.modelIdentifier,
-                    audioPath: transcript.audioPath
+                    audioPath: transcript.audioPath,
+                    status: transcript.status,
+                    failedStage: transcript.failedStage,
+                    failureReason: transcript.failureReason,
+                    retrySourceTranscriptID: transcript.retrySourceTranscriptID
                 ),
                 existingID: id
             )

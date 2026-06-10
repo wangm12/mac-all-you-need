@@ -15,6 +15,7 @@ public enum PackPipelineError: Error, Equatable, Sendable {
     case extractionFailed(reason: String)
     case destinationExists(URL)
     case cancelled
+    case devBundledBinariesMissing
 }
 
 extension PackPipelineError: LocalizedError {
@@ -48,6 +49,8 @@ extension PackPipelineError: LocalizedError {
             return "A pack is already installed at \"\(url.lastPathComponent)\". Uninstall it first."
         case .cancelled:
             return "The installation was cancelled."
+        case .devBundledBinariesMissing:
+            return "Video Downloader binaries are not bundled in this build. Run `make bootstrap`, rebuild the app, then try again."
         }
     }
 }

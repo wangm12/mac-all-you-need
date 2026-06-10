@@ -1,6 +1,6 @@
 import Foundation
 
-public struct VideoMetadata: Sendable {
+public struct VideoMetadata: Sendable, Equatable {
     public let title: String
     public let channelName: String
     public let durationSeconds: Int

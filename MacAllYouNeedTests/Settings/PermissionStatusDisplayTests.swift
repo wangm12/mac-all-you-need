@@ -89,10 +89,19 @@ final class PermissionStatusDisplayTests: XCTestCase {
         )
     }
 
-    func testMicrophoneDoesNotUseFloatingDragInstructionPanel() {
+    func testMicrophoneUsesFloatingDragInstructionPanel() {
         let instruction = PermissionInstructionTarget.microphone.instruction(appName: "Mac All You Need")
 
-        XCTAssertFalse(PermissionFloatingInstructionPresentation.shouldFloat(instruction))
+        XCTAssertTrue(PermissionFloatingInstructionPresentation.shouldFloat(instruction))
+    }
+
+    func testScreenRecordingInstructionSupportsDraggingAppIntoSystemSettings() {
+        let instruction = PermissionInstructionTarget.screenRecording.instruction(appName: "Mac All You Need")
+
+        XCTAssertEqual(instruction.systemSettingsAnchor, "Privacy_ScreenCapture")
+        XCTAssertTrue(instruction.supportsAppDrag)
+        XCTAssertTrue(instruction.primaryText.contains("Drag Mac All You Need"))
+        XCTAssertTrue(PermissionFloatingInstructionPresentation.shouldFloat(instruction))
     }
 
     func testFloatingInstructionFrameAnchorsBelowSourceWindow() {
@@ -142,12 +151,12 @@ final class PermissionStatusDisplayTests: XCTestCase {
         XCTAssertEqual(frame.maxY, sourceWindowFrame.minY - 12, accuracy: 0.5)
     }
 
-    func testMicrophoneInstructionDoesNotUseAppDrag() {
+    func testMicrophoneInstructionSupportsAppDrag() {
         let instruction = PermissionInstructionTarget.microphone.instruction(appName: "Mac All You Need")
 
         XCTAssertEqual(instruction.systemSettingsAnchor, "Privacy_Microphone")
-        XCTAssertFalse(instruction.supportsAppDrag)
-        XCTAssertTrue(instruction.primaryText.contains("Allow microphone access"))
+        XCTAssertTrue(instruction.supportsAppDrag)
+        XCTAssertTrue(instruction.primaryText.contains("Drag Mac All You Need"))
     }
 
     func testNotificationInstructionHasSettingsAction() {
@@ -166,7 +175,7 @@ final class PermissionStatusDisplayTests: XCTestCase {
                 fullDiskAccessStatus: .optional,
                 notificationsStatus: .optional
             ),
-            .fullDiskAccess
+            .screenRecording
         )
     }
 

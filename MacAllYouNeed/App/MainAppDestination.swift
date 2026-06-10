@@ -1,3 +1,4 @@
+import FeatureCore
 import Foundation
 
 enum MainAppDestination: String, CaseIterable, Identifiable {
@@ -108,17 +109,23 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
 
 enum MainStartupSurface: Equatable {
     case appOnboarding
-    case voiceOnboarding
+    case featureOnboarding(FeatureID)
     case mainWindow
 }
 
 enum MainStartupSurfaceRouter {
     static func surface(
         appOnboardingCompleted: Bool,
-        voiceOnboardingCompleted: Bool
+        registryOrder: [FeatureID],
+        featureEnabled: @escaping (FeatureID) -> Bool
     ) -> MainStartupSurface {
         guard appOnboardingCompleted else { return .appOnboarding }
-        guard voiceOnboardingCompleted else { return .voiceOnboarding }
+        if let pending = FeatureOnboardingProgressStore.firstPending(
+            in: registryOrder,
+            enabled: featureEnabled
+        ) {
+            return .featureOnboarding(pending)
+        }
         return .mainWindow
     }
 }

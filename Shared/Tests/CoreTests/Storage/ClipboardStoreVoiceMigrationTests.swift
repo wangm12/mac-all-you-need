@@ -32,6 +32,13 @@ final class ClipboardStoreVoiceMigrationTests: XCTestCase {
                 .compactMap { $0["name"] as String? }
             XCTAssertTrue(indexes.contains("idx_clipboard_records_capture_origin"))
 
+            let transcriptColumns = try Row.fetchAll(conn, sql: "PRAGMA table_info(voice_transcripts)")
+                .compactMap { $0["name"] as String? }
+            XCTAssertTrue(transcriptColumns.contains("status"))
+            XCTAssertTrue(transcriptColumns.contains("failed_stage"))
+            XCTAssertTrue(transcriptColumns.contains("failure_reason"))
+            XCTAssertTrue(transcriptColumns.contains("retry_source_transcript_id"))
+
             let sampleIndexes = try Row.fetchAll(conn, sql: "PRAGMA index_list(voice_personalization_samples)")
                 .compactMap { $0["name"] as String? }
             XCTAssertTrue(sampleIndexes.contains("idx_personalization_samples_ctx_obs"))

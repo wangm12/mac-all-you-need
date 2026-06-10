@@ -34,6 +34,8 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("radial"), .radial)
         XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("snap"), .snap)
         XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("apps"), .apps)
+        XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("rules"), .rules)
+        XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("diagnostics"), .diagnostics)
     }
 
     func testRadialMenuSettingsPresentationSectionsWhenEnabled() {
@@ -200,7 +202,7 @@ final class FunctionTabsTests: XCTestCase {
     }
 
     func testDownloadsSettingsPresentationIncludesRecoveryFilenameCookieAndAssetRows() {
-        XCTAssertEqual(DownloadsSettingsPresentation.interruptedRecoveryTitle, "Retry interrupted downloads on launch")
+        XCTAssertEqual(DownloadsSettingsPresentation.interruptedRecoveryTitle, "Resume interrupted downloads on launch")
         XCTAssertEqual(DownloadsSettingsPresentation.interruptedRecoveryStatusText, "Automatic")
         XCTAssertEqual(DownloadsSettingsPresentation.filenameExampleActionTitle, "Copy")
         XCTAssertEqual(DownloadsSettingsPresentation.cookieProfileTitle, "Cookie profiles")
@@ -358,21 +360,29 @@ final class FunctionTabsTests: XCTestCase {
 
         XCTAssertEqual(tiles.map(\.destination), [
             .clipboard,
+            .snippets,
             .voice,
+            .voiceReminders,
             .downloads,
             .folderPreview,
-            .snippets,
+            .finderHistory,
+            .aiFileOrganizer,
             .windowLayouts,
-            .grabAnywhere
+            .grabAnywhere,
+            .dockPreviews
         ])
         XCTAssertEqual(tiles.map(\.title), [
             "Clipboard",
+            "Snippets",
             "Voice",
+            "Voice Reminders",
             "Downloads",
             "Folder Preview",
-            "Snippets",
+            "Finder Folder History",
+            "AI File Organizer",
             "Window Layouts",
-            "Window Grab"
+            "Window Grab",
+            "Dock Hover Previews"
         ])
         XCTAssertEqual(tiles.first?.detail, "Capture, search, pin, and paste clipboard history.")
         XCTAssertEqual(tiles.first?.metric, "30")
@@ -386,12 +396,16 @@ final class FunctionTabsTests: XCTestCase {
 
         XCTAssertEqual(tiles.map(\.detail), [
             "Capture, search, pin, and paste clipboard history.",
+            "Expand reusable text from this Mac.",
             "Dictate into any app with local speech recognition.",
+            "Speak a task and save it directly to Apple Reminders.",
             "Download media and manage saved files.",
             "Preview Finder folders and archives.",
-            "Expand reusable text from this Mac.",
+            "Jump back to recently visited Finder folders via hotkey.",
+            "Rename and re-file messy folders using on-device content extraction.",
             "Arrange, snap, and restore windows.",
-            "Move windows by holding a modifier and dragging."
+            "Move windows by holding a modifier and dragging.",
+            "See window thumbnails when hovering an app's Dock icon."
         ])
         XCTAssertFalse(tiles.map(\.detail).contains("1 queue item"))
     }
@@ -402,7 +416,7 @@ final class FunctionTabsTests: XCTestCase {
             downloadsQueueCount: 0
         )
 
-        XCTAssertEqual(tiles.map(\.metric), ["30", nil, "0", nil, nil, nil, nil])
+        XCTAssertEqual(tiles.map(\.metric), ["30", nil, nil, nil, "0", nil, nil, nil, nil, nil, nil])
     }
 
     func testDashboardWindowLayoutTileSurfacesOnlyActionableStatus() {
@@ -526,9 +540,13 @@ final class FunctionTabsTests: XCTestCase {
 
         XCTAssertEqual(tiles.map(\.shortcutDisplay), [
             "⇧⌘V",
+            nil,
             "⌃⌥Space",
             nil,
+            nil,
             "Space",
+            nil,
+            nil,
             nil,
             nil,
             nil
@@ -583,7 +601,8 @@ final class FunctionTabsTests: XCTestCase {
         ])
         XCTAssertEqual(HotkeysSettingsPresentation.groups.first?.actions, [
             .clipboard,
-            .browseFolder
+            .browseFolder,
+            .finderHistory
         ])
         XCTAssertTrue(HotkeysSettingsPresentation.groups[1].actions.contains(.windowLeftHalf))
         XCTAssertTrue(HotkeysSettingsPresentation.groups[1].actions.contains(.windowRestore))
@@ -683,7 +702,7 @@ final class FunctionTabsTests: XCTestCase {
     }
 
     func testDashboardToolCardsUseFixedUnifiedHeight() {
-        XCTAssertEqual(DashboardRenderingPresentation.toolCardHeight, 156)
+        XCTAssertEqual(DashboardRenderingPresentation.toolCardHeight, 170)
     }
 
     func testMainWindowRootTypeErasesDetailViews() {

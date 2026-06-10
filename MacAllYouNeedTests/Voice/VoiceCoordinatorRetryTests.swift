@@ -48,7 +48,7 @@ final class VoiceCoordinatorRetryTests: XCTestCase {
         XCTAssertNotNil(listed.first(where: { $0.id == original.id }))
     }
 
-    func testRetry_throws_noAudio_when_audioPath_nil() async throws {
+    func testRetry_throws_audioMissing_when_audioPath_nil() async throws {
         let noAudioTranscript = try transcriptStore.save(VoiceTranscriptDraft(
             startedAt: Date(), endedAt: Date(),
             rawText: "hi", cleanedText: "hi",
@@ -61,9 +61,9 @@ final class VoiceCoordinatorRetryTests: XCTestCase {
 
         do {
             _ = try await coordinator.retryTranscript(id: noAudioTranscript.id)
-            XCTFail("Expected VoiceRetryError.noAudio")
+            XCTFail("Expected VoiceRetryError.audioMissing")
         } catch let error as VoiceRetryError {
-            XCTAssertEqual(error, .noAudio)
+            XCTAssertEqual(error, .audioMissing)
         }
     }
 

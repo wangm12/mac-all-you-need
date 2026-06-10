@@ -2,8 +2,8 @@ import Core
 import FeatureCore
 import Foundation
 
-/// Persists the user's picker choices and per-feature completion progress so a crash
-/// or quit mid-onboarding resumes at the next pending feature.
+/// Persists the user's picker choices and per-feature setup progress across quits.
+/// Continue from the feature picker restarts setup from the first selected feature.
 @MainActor
 final class OnboardingSelectionStore {
     private struct Payload: Codable {
@@ -21,7 +21,9 @@ final class OnboardingSelectionStore {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.key),
            let payload = try? JSONDecoder().decode(Payload.self, from: data) {
-            self.selectedIDs = payload.selected.compactMap(FeatureID.init(rawValue:))
+            var selected = payload.selected.compactMap(FeatureID.init(rawValue:))
+            selected.removeAll { $0 == .clipboardSmartText }
+            self.selectedIDs = selected
             self.completedIDs = Set(payload.completed.compactMap(FeatureID.init(rawValue:)))
         } else {
             self.selectedIDs = []
@@ -30,8 +32,8 @@ final class OnboardingSelectionStore {
     }
 
     func setSelection(_ ids: [FeatureID]) {
-        selectedIDs = ids
-        completedIDs.formIntersection(Set(ids))
+        selectedIDs = ids.filter { $0 != .clipboardSmartText }
+        completedIDs.formIntersection(Set(selectedIDs))
         persist()
     }
 
@@ -40,10 +42,21 @@ final class OnboardingSelectionStore {
         persist()
     }
 
-    /// Returns the next un-completed feature in registry order. Nil when all are done.
-    func nextPendingID(in registryOrder: [FeatureID]) -> FeatureID? {
+    func resetCompletedProgress() {
+        completedIDs = []
+        persist()
+    }
+
+    /// First selected feature in `order`, regardless of setup progress.
+    func firstSelectedID(in order: [FeatureID]) -> FeatureID? {
         let selected = Set(selectedIDs)
-        for id in registryOrder where selected.contains(id) && !completedIDs.contains(id) {
+        return order.first { selected.contains($0) }
+    }
+
+    /// Returns the next un-completed feature in `order`. Nil when all are done.
+    func nextPendingID(in order: [FeatureID]) -> FeatureID? {
+        let selected = Set(selectedIDs)
+        for id in order where selected.contains(id) && !completedIDs.contains(id) {
             return id
         }
         return nil

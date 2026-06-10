@@ -3,18 +3,14 @@ import XCTest
 
 /// Frozen registry test: verifies step order and sequential transitions.
 final class VoiceOnboardingStepRegistryTests: XCTestCase {
-    // MARK: — Step order
-
-    func testStepCountIsNine() {
-        XCTAssertEqual(VoiceOnboardingStep.orderedCases.count, 9)
+    func testStepCountIsSeven() {
+        XCTAssertEqual(VoiceOnboardingStep.orderedCases.count, 7)
     }
 
     func testFrozenStepTypeNames() {
         let names = VoiceOnboardingStep.orderedCases.map(\.rawValue)
         XCTAssertEqual(names, [
             "welcome",
-            "microphone",
-            "accessibility",
             "asr",
             "llm",
             "hotkey",
@@ -23,8 +19,6 @@ final class VoiceOnboardingStepRegistryTests: XCTestCase {
             "done"
         ])
     }
-
-    // MARK: — Sequential transitions
 
     func testEachStepNextIsSuccessor() {
         let ordered = VoiceOnboardingStep.orderedCases

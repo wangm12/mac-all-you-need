@@ -12,6 +12,8 @@ import UserNotifications
 /// to AppKit/AVFoundation/UN APIs and the `x-apple.systempreferences:` URL.
 @MainActor
 enum PermissionGateProbe {
+    private(set) static var cachedNotificationGranted = false
+
     static func isGranted(_ permission: Permission) -> Bool {
         switch permission {
         case .accessibility:
@@ -23,14 +25,18 @@ enum PermissionGateProbe {
         case .microphone:
             return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         case .notifications:
-            // UNNotificationCenter exposes async-only authorization status.
-            // Treat as not-granted on cold-launch; presenting code calls requestAuthorization.
-            return false
+            return cachedNotificationGranted
         case .screenRecording:
             return CGPreflightScreenCaptureAccess()
         case .reminders:
             return EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
         }
+    }
+
+    static func refreshNotificationStatus() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        cachedNotificationGranted = settings.authorizationStatus == .authorized
+            || settings.authorizationStatus == .provisional
     }
 
     static func openSettings(for permission: Permission) {

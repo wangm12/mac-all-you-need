@@ -70,6 +70,11 @@ struct DockSwitcherSettings: Equatable {
     var passArrowsThrough: Bool
     var fullscreenAppBlacklist: [String]
     var compactThreshold: Int
+    var previewAtOriginalPosition: Bool
+    var stickyWindowSwitching: Bool
+    var switcherLayoutStyle: DockSwitcherLayoutStyle
+    var cursorAutoCenterOnFocus: Bool
+    var excludesAutoCenterBundleIDs: [String]
 
     static let `default` = DockSwitcherSettings(
         shortcutKeyCode: 48,
@@ -119,7 +124,12 @@ struct DockSwitcherSettings: Equatable {
         enableVimMotions: false,
         passArrowsThrough: false,
         fullscreenAppBlacklist: [],
-        compactThreshold: 0
+        compactThreshold: 0,
+        previewAtOriginalPosition: false,
+        stickyWindowSwitching: false,
+        switcherLayoutStyle: .horizontalGrid,
+        cursorAutoCenterOnFocus: false,
+        excludesAutoCenterBundleIDs: []
     )
 }
 
@@ -176,6 +186,11 @@ extension DockSwitcherSettings: Codable {
         passArrowsThrough = d(.passArrowsThrough, s.passArrowsThrough)
         fullscreenAppBlacklist = d(.fullscreenAppBlacklist, s.fullscreenAppBlacklist)
         compactThreshold = d(.compactThreshold, s.compactThreshold)
+        previewAtOriginalPosition = d(.previewAtOriginalPosition, s.previewAtOriginalPosition)
+        stickyWindowSwitching = d(.stickyWindowSwitching, s.stickyWindowSwitching)
+        switcherLayoutStyle = d(.switcherLayoutStyle, s.switcherLayoutStyle)
+        cursorAutoCenterOnFocus = d(.cursorAutoCenterOnFocus, s.cursorAutoCenterOnFocus)
+        excludesAutoCenterBundleIDs = d(.excludesAutoCenterBundleIDs, s.excludesAutoCenterBundleIDs)
     }
 }
 

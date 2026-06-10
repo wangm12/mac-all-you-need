@@ -11,7 +11,8 @@ extension HotkeyAction {
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
-             .windowNextDisplay, .windowPreviousDisplay, .radialMenu:
+             .windowNextDisplay, .windowPreviousDisplay,
+             .windowNextSpace, .windowPreviousSpace, .radialMenu:
             return .windowLayouts
         }
     }

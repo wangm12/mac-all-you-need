@@ -31,6 +31,7 @@ struct VoicePopoverView: View {
                                 transcript: transcript,
                                 surface: .commandCenter,
                                 isSelected: selectedTranscriptIDs.contains(transcript.id),
+                                isRetrying: false,
                                 onSelect: { selectTranscript(transcript) },
                                 onCopy: { copyTranscripts(ids: [transcript.id]) },
                                 onRetry: { retryTranscript(transcript) },
@@ -130,8 +131,28 @@ struct VoicePopoverView: View {
             do {
                 _ = try await controller.retryVoiceTranscript(id: transcript.id)
                 reloadTranscripts()
+                CopyHUD.show("Retry succeeded", symbol: "checkmark.circle.fill")
             } catch {
-                CopyHUD.show("Retry failed", symbol: "exclamationmark.triangle.fill")
+                let message: String
+                if let retryError = error as? VoiceRetryError {
+                    switch retryError {
+                    case .transcriptNotFound:
+                        message = "Retry failed: transcript not found"
+                    case .audioMissing:
+                        message = "Retry failed: recording is missing"
+                    case .audioDecryptFailed:
+                        message = "Retry failed: audio couldn't be read"
+                    case .audioDecodeFailed:
+                        message = "Retry failed: audio format is invalid"
+                    case .asrFailed:
+                        message = "Retry failed: recognition failed"
+                    case .cleanupFailed:
+                        message = "Retry failed: cleanup failed"
+                    }
+                } else {
+                    message = "Retry failed"
+                }
+                CopyHUD.show(message, symbol: "exclamationmark.triangle.fill")
             }
         }
     }

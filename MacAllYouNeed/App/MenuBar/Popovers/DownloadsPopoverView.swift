@@ -20,6 +20,9 @@ struct DownloadsPopoverView: View {
                 onDownload: submitDownloadURL
             )
         }
+        .background {
+            DownloadPickerHost(vm: controller.downloaderVM)
+        }
     }
 
     private func presentDownloadURLSheet(prefill: String?) {

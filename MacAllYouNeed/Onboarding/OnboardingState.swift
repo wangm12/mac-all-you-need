@@ -2,17 +2,16 @@ import Core
 import FeatureCore
 import Foundation
 
-/// Persisted onboarding cursor.
+/// Persisted app-install onboarding cursor.
 ///
-/// Phase 09 redesign: the legacy fixed-permission steps are gone. Instead the wizard
-/// runs Welcome → Feature Picker → per-feature setup loop → Done. Per-feature setup
-/// is a single state (`.featureSetup(FeatureID)`) that internally iterates download →
-/// permissions → config — that inner state is owned by `FeatureSetupCoordinator` and
-/// is not persisted (restart resumes at the feature, re-running its sub-steps).
+/// Choose features → per-feature setup → unified permissions → Done → completed.
+/// Per-feature intro/setup runs later via `StandaloneFeatureOnboardingView` when
+/// the user enables a feature from the Dashboard (`.featureSetup` is legacy only).
 enum OnboardingState: Equatable {
     case notStarted
     case welcome
     case featurePicker
+    case unifiedPermissions
     case featureSetup(FeatureID)
     case done
     case completed
@@ -41,6 +40,7 @@ enum OnboardingState: Equatable {
         case .notStarted: return "notStarted"
         case .welcome: return "welcome"
         case .featurePicker: return "featurePicker"
+        case .unifiedPermissions: return "unifiedPermissions"
         case .featureSetup(let id): return "featureSetup:\(id.rawValue)"
         case .done: return "done"
         case .completed: return "completed"
@@ -52,6 +52,7 @@ enum OnboardingState: Equatable {
         case "notStarted": self = .notStarted
         case "welcome": self = .welcome
         case "featurePicker": self = .featurePicker
+        case "unifiedPermissions": self = .unifiedPermissions
         case "done": self = .done
         case "completed": self = .completed
         default:

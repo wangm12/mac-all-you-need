@@ -22,8 +22,13 @@ struct VoicePipelineContext {
     /// Generation counter snapshot — coordinator uses this between phases to
     /// detect that a newer operation has superseded this one.
     let generation: Int
-    /// Wall-clock start of the operation. Used for cleanup latency budget.
+    /// Source transcript ID when this run is a history retry.
+    let retrySourceTranscriptID: String?
+    /// Wall-clock start of the operation. Used for total timing metrics.
     let operationStartedAt: Date
+    /// When cleanup latency budget should start. Defaults to operation start; ASRPhase
+    /// sets this after batch ASR so LLM cleanup is not penalized by inference time.
+    var cleanupBudgetStartedAt: Date
 
     // MARK: Outputs (filled in by each phase as they run)
 
@@ -36,22 +41,35 @@ struct VoicePipelineContext {
     /// AX snapshot captured immediately before paste so the learning monitor
     /// can track the target field across paste latency.
     var axSnapshot: AXTargetSnapshot?
+    /// Live ASR finalize duration in milliseconds when live finish runs.
+    var liveFinalizeMs: Int?
     /// Filled by PastePhase.
     var pasteResult: CursorPaster.Result?
+    /// Cleanup duration in milliseconds.
+    var cleanupMs: Int?
+    /// Paste duration in milliseconds.
+    var pasteMs: Int?
     /// New transcript row produced by PastePhase after saving.
     var savedTranscript: VoiceTranscript?
+    /// Pipeline stage that failed for this run.
+    var failedStage: VoiceTranscriptFailedStage?
+    /// Standardized machine-readable failure reason.
+    var failureReason: String?
 
     init(
         captured: CapturedAudio,
         presetASRResult: VoiceTranscriptionResult?,
         appBundleID: String?,
         generation: Int,
+        retrySourceTranscriptID: String? = nil,
         operationStartedAt: Date
     ) {
         self.captured = captured
         self.presetASRResult = presetASRResult
         self.appBundleID = appBundleID
         self.generation = generation
+        self.retrySourceTranscriptID = retrySourceTranscriptID
         self.operationStartedAt = operationStartedAt
+        self.cleanupBudgetStartedAt = operationStartedAt
     }
 }

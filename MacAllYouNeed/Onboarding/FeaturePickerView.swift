@@ -1,37 +1,75 @@
 import FeatureCore
 import SwiftUI
 
+enum FeaturePickerPresets {
+    static let essentials: [FeatureID] = [.clipboard]
+    static let productivity: [FeatureID] = [.clipboard, .voice, .windowLayouts]
+    static let all: [FeatureID] = OnboardingFeaturePickerOrdering.featureIDs
+
+    static func apply(_ preset: [FeatureID], to selectedIDs: inout [FeatureID]) {
+        selectedIDs = preset
+    }
+}
+
 struct FeaturePickerView: View {
     let registry: FeatureRegistry
     @Binding var selectedIDs: [FeatureID]
-    let onContinue: () -> Void
-    let onSkip: () -> Void
+
+    private var pickerDescriptors: [FeatureDescriptor] {
+        OnboardingFeaturePickerOrdering.descriptors(in: registry)
+    }
 
     private let columns: [GridItem] = [
-        GridItem(.flexible(), spacing: 16),
-        GridItem(.flexible(), spacing: 16),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
     ]
 
     var body: some View {
-        SetupTaskPage(
-            symbol: "square.grid.2x2",
-            title: "Choose your features",
-            subtitle: "Pick what you want now. Everything is opt-in — you can install or remove features any time from Settings → Features."
-        ) {
-            VStack(alignment: .leading, spacing: 16) {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(registry.descriptors, id: \.id) { descriptor in
-                        FeaturePickerCard(
-                            descriptor: descriptor,
-                            isSelected: binding(for: descriptor.id)
-                        )
-                    }
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Choose your features")
+                    .font(.system(size: 22, weight: .semibold))
+                Text("Tap to select. Setup guides run on the next steps.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                MAYNButton("Essentials") {
+                    FeaturePickerPresets.apply(FeaturePickerPresets.essentials, to: &selectedIDs)
                 }
-                Text("\(selectedIDs.count) selected")
+                MAYNButton("Productivity") {
+                    FeaturePickerPresets.apply(FeaturePickerPresets.productivity, to: &selectedIDs)
+                }
+                MAYNButton("Select all") {
+                    FeaturePickerPresets.apply(FeaturePickerPresets.all, to: &selectedIDs)
+                }
+                MAYNButton("Clear all") {
+                    selectedIDs = []
+                }
+                Spacer(minLength: 0)
+                Text(selectionSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                ForEach(pickerDescriptors, id: \.id) { descriptor in
+                    FeaturePickerCard(
+                        descriptor: descriptor,
+                        isSelected: binding(for: descriptor.id)
+                    )
+                }
+            }
         }
+    }
+
+    private var selectionSummary: String {
+        if selectedIDs.isEmpty {
+            return "None selected — you can enable later from the Dashboard"
+        }
+        return "\(selectedIDs.count) selected"
     }
 
     private func binding(for id: FeatureID) -> Binding<Bool> {

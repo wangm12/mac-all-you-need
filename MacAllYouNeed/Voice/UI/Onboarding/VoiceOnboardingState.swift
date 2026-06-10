@@ -3,8 +3,6 @@ import Foundation
 
 enum VoiceOnboardingStep: String, CaseIterable, Codable, Equatable, Identifiable {
     case welcome
-    case microphone
-    case accessibility
     case asr
     case llm
     case hotkey
@@ -14,8 +12,6 @@ enum VoiceOnboardingStep: String, CaseIterable, Codable, Equatable, Identifiable
 
     static let orderedCases: [VoiceOnboardingStep] = [
         .welcome,
-        .microphone,
-        .accessibility,
         .asr,
         .llm,
         .hotkey,
@@ -32,10 +28,6 @@ enum VoiceOnboardingStep: String, CaseIterable, Codable, Equatable, Identifiable
         switch self {
         case .welcome:
             "Welcome"
-        case .microphone:
-            "Microphone"
-        case .accessibility:
-            "Accessibility"
         case .asr:
             "Recognition engine"
         case .llm:
@@ -55,7 +47,7 @@ enum VoiceOnboardingStep: String, CaseIterable, Codable, Equatable, Identifiable
         switch self {
         case .welcome, .done:
             false
-        case .microphone, .accessibility, .asr, .llm, .hotkey, .languages, .tryIt:
+        case .asr, .llm, .hotkey, .languages, .tryIt:
             true
         }
     }
@@ -168,7 +160,11 @@ enum VoiceOnboardingProgressStore {
             return VoiceOnboardingProgress(currentStep: .done, isCompleted: true)
         }
         let rawStep = defaults.string(forKey: currentStepKey)
-        let step = rawStep.flatMap(VoiceOnboardingStep.init(rawValue:)) ?? .welcome
+        let step: VoiceOnboardingStep = {
+            guard let raw = rawStep else { return .welcome }
+            if raw == "microphone" || raw == "accessibility" { return .asr }
+            return VoiceOnboardingStep(rawValue: raw) ?? .welcome
+        }()
         return VoiceOnboardingProgress(currentStep: step, isCompleted: false)
     }
 

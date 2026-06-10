@@ -1,4 +1,6 @@
 import ApplicationServices
+import AppKit
+import FeatureCore
 import SwiftUI
 
 struct VoiceAccessibilityStepView: View {
@@ -14,27 +16,25 @@ struct VoiceAccessibilityStepView: View {
             subtitle: "Accessibility lets Mac All You Need paste dictated text into Cursor, Notes, browsers, and other apps."
         ) {
             VStack(alignment: .leading, spacing: 12) {
-                let instruction = PermissionInstructionTarget.accessibility.instruction(appName: "Mac All You Need")
+                let inline = PermissionGrantPresenter.inlineInstruction(for: .accessibility)
                 PermissionCard(
                     title: "Accessibility",
                     reason: "Required so voice output can be inserted into the currently focused app.",
                     state: granted ? .granted : .needed,
-                    actionTitle: "Open System Settings"
+                    actionTitle: "Grant"
                 ) {
-                    showsInstruction = true
-                    _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
-                    openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                    grantAccessibility()
                 }
                 if showsInstruction && !granted {
                     InstructionStrip(
-                        text: instruction.primaryText,
+                        text: inline.primaryText,
                         appName: "Mac All You Need",
-                        symbol: instruction.symbol,
-                        secondaryText: instruction.secondaryText,
-                        dragAppURL: Bundle.main.bundleURL,
+                        symbol: inline.symbol,
+                        secondaryText: inline.secondaryText,
+                        dragAppURL: inline.dragAppURL,
                         actionTitle: "Open Settings"
                     ) {
-                        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                        PermissionGateProbe.openSettings(for: .accessibility)
                     }
                 }
                 if granted {
@@ -46,15 +46,35 @@ struct VoiceAccessibilityStepView: View {
                 }
             }
         }
+        .onDisappear {
+            PermissionGrantPresenter.dismissFloatingPanel()
+        }
         .onReceive(timer) { _ in
             let nowGranted = AXIsProcessTrusted()
             if nowGranted, !granted {
                 granted = true
                 showsInstruction = false
+                PermissionGrantPresenter.dismissFloatingPanel()
                 autoAdvance()
             } else {
                 granted = nowGranted
             }
+        }
+    }
+
+    private func grantAccessibility() {
+        showsInstruction = true
+        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        if AXIsProcessTrusted() {
+            granted = true
+            showsInstruction = false
+            return
+        }
+        PermissionGrantPresenter.presentGrant(
+            for: .accessibility,
+            sourceWindow: NSApp.keyWindow
+        ) {
+            PermissionGateProbe.openSettings(for: .accessibility)
         }
     }
 }

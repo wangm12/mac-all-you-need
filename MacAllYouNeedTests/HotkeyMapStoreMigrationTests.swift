@@ -251,7 +251,7 @@ final class HotkeyMapStoreMigrationTests: XCTestCase {
     }
 
     func testVoiceShortcutValidationAllowsUniqueShortcut() {
-        let descriptor = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_R), modifiers: [.control, .option])
+        let descriptor = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_Y), modifiers: [.control, .option])
 
         let issue = HotkeyValidation.issue(
             forVoiceShortcut: descriptor,

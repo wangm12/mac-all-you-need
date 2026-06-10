@@ -12,7 +12,9 @@ final class DownloaderViewModel {
     var liveProgress: [String: DownloadProgress] = [:]
     var liveStatus: [String: String] = [:]
     var cookieWarning: String?
-    // Selection state — lives here so NSEvent monitors can capture `vm` (a reference type)
+    var presentedPicker: DownloadPickerPresentation?
+    var pendingURLs: [PendingDownloadURL] = []
+    var interruptedRecoveryCount = 0
     var selectedIDs: Set<String> = []
     var anchorID: String? = nil
 
@@ -52,11 +54,22 @@ final class DownloaderViewModel {
                 }
             }
         }
+        notifications.onInterruptedRecovery = { [weak self] count in
+            self?.interruptedRecoveryCount = count
+        }
         notifications.onDestinationPath = { [weak self] id, path in
             self?.liveDestination[id] = path
         }
         notifications.onCookieWarning = { [weak self] in
             self?.cookieWarning = "Some browser profiles could not be imported. Downloads requiring login may fail."
+        }
+        NotificationCenter.default.addObserver(
+            forName: .downloadRouteRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let url = note.userInfo?["url"] as? String else { return }
+            Task { @MainActor in await self?.routeURL(url) }
         }
         Task { await self.refresh() }
     }
@@ -113,10 +126,38 @@ final class DownloaderViewModel {
     func dismissCookieWarning() { cookieWarning = nil }
 
     static func clipboardVideoURL() -> String? {
-        guard let text = NSPasteboard.general.string(forType: .string),
-              let url = URLDetector.videoBearingURL(in: text)
-        else { return nil }
-        return url.absoluteString
+        let pasteboard = NSPasteboard.general
+
+        if let text = pasteboard.string(forType: .string) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let url = downloadableURL(in: trimmed) {
+                return url
+            }
+        }
+
+        // Browser "Copy Link" often writes a URL object without a plain-string type.
+        if let url = pasteboard.readObjects(forClasses: [NSURL.self], options: nil)?.first as? URL {
+            return downloadableURL(in: url.absoluteString)
+        }
+
+        return nil
+    }
+
+    private static func downloadableURL(in text: String) -> String? {
+        URLDetector.firstDownloadableURL(in: text)
+    }
+
+    private static func normalizedDownloadInput(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        let urls = URLDetector.allDownloadableURLs(in: trimmed)
+        if urls.count > 1 {
+            return urls.joined(separator: "\n")
+        }
+        if let first = urls.first {
+            return first
+        }
+        return trimmed
     }
 
     func enqueueClipboardURL() async {
@@ -124,7 +165,131 @@ final class DownloaderViewModel {
             CopyHUD.show("No video URL", symbol: "exclamationmark.triangle.fill")
             return
         }
-        await add(url: url)
+        await routeURL(url)
+    }
+
+    func routeURL(_ rawInput: String) async {
+        let trimmed = Self.normalizedDownloadInput(rawInput)
+        guard !trimmed.isEmpty else { return }
+
+        if presentedPicker != nil {
+            pendingURLs.append(PendingDownloadURL(url: trimmed))
+            return
+        }
+
+        guard let route = DownloadURLClassifier.route(for: trimmed) else {
+            CopyHUD.show("Invalid URL", symbol: "exclamationmark.triangle.fill")
+            return
+        }
+
+        switch route {
+        case let .multiURL(urls):
+            guard let first = urls.first else { return }
+            pendingURLs.append(contentsOf: urls.dropFirst().map { PendingDownloadURL(url: $0) })
+            await routeURL(first)
+        case let .douyinProfile(url):
+            presentedPicker = .douyinProfile(url: url)
+        case let .collection(url):
+            presentedPicker = .collection(url: url)
+        case let .single(url):
+            guard URL(string: url)?.scheme != nil else {
+                CopyHUD.show("Invalid URL", symbol: "exclamationmark.triangle.fill")
+                return
+            }
+            if shouldAutoDownloadWithoutFormatSheet {
+                let quality = AppGroupSettings.defaults.integer(forKey: "downloadDefaultVideoQuality")
+                let preset = DownloadFormatPreset.fromDefaultQualitySetting(quality == 0 ? 1080 : quality)
+                await coordinator.enqueue(url: url, title: nil, formatArgs: preset.ytdlpArgs())
+                await refresh()
+                CopyHUD.show("Added to Downloads", symbol: "arrow.down.circle.fill")
+            } else {
+                await presentFormatSheet(for: url)
+            }
+        }
+    }
+
+    func dismissPicker() {
+        presentedPicker = nil
+        advancePendingURLQueue()
+    }
+
+    func advancePendingURLQueue() {
+        guard presentedPicker == nil, !pendingURLs.isEmpty else { return }
+        let next = pendingURLs.removeFirst()
+        Task { await routeURL(next.url) }
+    }
+
+    func enqueueBulk(
+        entries: [BulkEnqueueEntry],
+        collectionTitle: String,
+        kind: DownloadCollectionKind,
+        formatArgs: [String]
+    ) async throws {
+        try await coordinator.enqueueBulk(
+            entries: entries,
+            collectionTitle: collectionTitle,
+            kind: kind,
+            formatArgs: formatArgs
+        )
+        await refresh()
+        let message = entries.count == 1 ? "Added to Downloads" : "Added \(entries.count) to queue"
+        CopyHUD.show(message, symbol: "arrow.down.circle.fill")
+    }
+
+    func enqueueFromFormatSheet(url: String, preset: DownloadFormatPreset) async {
+        await coordinator.enqueue(url: url, title: nil, formatArgs: preset.ytdlpArgs())
+        presentedPicker = nil
+        await refresh()
+        CopyHUD.show("Added to Downloads", symbol: "arrow.down.circle.fill")
+        advancePendingURLQueue()
+    }
+
+    private var shouldAutoDownloadWithoutFormatSheet: Bool {
+        AppGroupSettings.defaults.bool(forKey: "downloadAutoEnqueueSingleURL")
+    }
+
+    private func presentFormatSheet(for url: String) async {
+        let (cookieArgsList, cookieHadErrors) = await MainActor.run { coordinatorCookieArgs() }
+        if cookieHadErrors { cookieWarning = "Some browser profiles could not be imported." }
+        let cookieFileURL = cookieFileURL(from: cookieArgsList)
+        guard let ytdlpPath = try? coordinator.binaries.ytdlpPath(),
+              let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath, cookieFile: cookieFileURL)
+        else {
+            let quality = AppGroupSettings.defaults.integer(forKey: "downloadDefaultVideoQuality")
+            let preset = DownloadFormatPreset.fromDefaultQualitySetting(quality == 0 ? 1080 : quality)
+            await coordinator.enqueue(url: url, title: nil, formatArgs: preset.ytdlpArgs())
+            await refresh()
+            CopyHUD.show("Added to Downloads", symbol: "arrow.down.circle.fill")
+            return
+        }
+        presentedPicker = .format(url: url, metadata: meta)
+    }
+
+    private func coordinatorCookieArgs() -> ([String], Bool) {
+        // Reuse coordinator cookie path via a lightweight duplicate of cookie import
+        let cookieFile = AppGroup.containerURL()
+            .appendingPathComponent("cookies", isDirectory: true)
+            .appendingPathComponent("downloader-cookies.txt")
+        do {
+            try FileManager.default.createDirectory(
+                at: cookieFile.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let result = try CookieImporter.combinedCookiesFile(at: cookieFile)
+            return (["--cookies", cookieFile.path], result.hadErrors)
+        } catch {
+            return ([], true)
+        }
+    }
+
+    private func cookieFileURL(from cookieArgsList: [String]) -> URL? {
+        guard let idx = cookieArgsList.firstIndex(of: "--cookies"),
+              cookieArgsList.indices.contains(idx + 1) else { return nil }
+        return URL(fileURLWithPath: cookieArgsList[idx + 1])
+    }
+
+    func add(url: String) async {
+        await routeURL(url)
     }
 
     func refresh() async {
@@ -132,15 +297,30 @@ final class DownloaderViewModel {
         rows = ids.compactMap { try? coordinator.store.fetch(id: $0) }
     }
 
-    func add(url: String) async {
-        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, URL(string: trimmed)?.scheme != nil else {
-            CopyHUD.show("Invalid URL", symbol: "exclamationmark.triangle.fill")
-            return
-        }
-        await coordinator.enqueue(url: trimmed, title: nil)
+    func pauseCollection(id: String) async {
+        await coordinator.pauseCollection(id: id)
         await refresh()
-        CopyHUD.show("Added to Downloads", symbol: "arrow.down.circle.fill")
+    }
+
+    func resumeCollection(id: String) async {
+        await coordinator.resumeCollection(id: id)
+        await refresh()
+        CopyHUD.show("Resumed collection", symbol: "play.circle.fill")
+    }
+
+    func deleteCollection(id: String, deleteFiles: Bool) async {
+        await coordinator.deleteCollection(id: id, deleteFiles: deleteFiles)
+        await refresh()
+        CopyHUD.show(deleteFiles ? "Deleted collection and files" : "Removed collection", symbol: "trash.fill")
+    }
+
+    func resumeInterruptedDownloads() async {
+        let paused = rows.filter { $0.state == .paused }
+        for record in paused {
+            await coordinator.resumeDownload(id: record.id)
+        }
+        interruptedRecoveryCount = 0
+        await refresh()
     }
 
     func retry(record: DownloadRecord) async {
@@ -227,6 +407,7 @@ final class DownloaderNotificationObservers {
     var onStateChanged: ((String, String?) -> Void)?
     var onDestinationPath: ((String, String) -> Void)?
     var onCookieWarning: (() -> Void)?
+    var onInterruptedRecovery: ((Int) -> Void)?
 
     private var tokens: [NSObjectProtocol] = []
 
@@ -265,6 +446,10 @@ final class DownloaderNotificationObservers {
         }
         observe(.cookieWarning) { [weak self] _ in
             self?.onCookieWarning?()
+        }
+        observe(.downloadInterruptedRecovery) { [weak self] note in
+            let count = note.userInfo?["count"] as? Int ?? 0
+            self?.onInterruptedRecovery?(count)
         }
     }
 

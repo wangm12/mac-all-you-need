@@ -56,7 +56,7 @@ struct CleanupPhase {
         )
         observer?(cleanupRequest)
 
-        let elapsedBeforeCleanup = Date().timeIntervalSince(ctx.operationStartedAt)
+        let elapsedBeforeCleanup = Date().timeIntervalSince(ctx.cleanupBudgetStartedAt)
         let pipeline = makePipeline(elapsedBeforeCleanup)
         log.info("LLM cleanup start — text length: \(asrResult.text.count, privacy: .public) chars")
         let cleanupStart = Date()

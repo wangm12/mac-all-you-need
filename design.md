@@ -315,7 +315,7 @@ This is the map. When working on any surface, conform to this structure.
 
 ### 7.2 Main window
 - File: `MacAllYouNeed/App/MainWindowRoot.swift`
-- `NavigationSplitView` with a vertical sidebar (Dashboard / Clipboard / Voice / Downloads / Folder Preview / Snippets / Window Layouts / Window Grab / Settings) and a detail pane.
+- `NavigationSplitView` with a vertical sidebar (Dashboard / Clipboard / Voice / Downloads / Folder Preview / Snippets / Window Layouts / Window Grab / Dock / Settings) and a detail pane.
 - Disabled feature destinations remain visible in the sidebar, but are dimmed, show the slash indicator, ignore hover, and are non-clickable.
 - Dashboard uses `FeatureToolCard` for Clipboard, Voice, Downloads, Folder Preview, Snippets, Window Layouts, and Window Grab. Cards show lifecycle status/actions; do not add non-actionable "Ready" pills.
 - Each tool page in the detail pane uses `FunctionPageShell` + `FunctionPageScrollContent`.

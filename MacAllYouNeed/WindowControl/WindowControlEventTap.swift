@@ -143,9 +143,11 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
 
         let includeRadialKeys = runtime.settings.radialMenuEnabled
         let includeLayoutHotkeys = layoutHotkeysEnabled
+        let includeScrollResize = runtime.settings.scrollResizeEnabled && runtime.layoutsRuntimeEnabled
         let mask = eventMask(
             includeRadialKeys: includeRadialKeys,
-            includeLayoutHotkeys: includeLayoutHotkeys
+            includeLayoutHotkeys: includeLayoutHotkeys,
+            includeScrollResize: includeScrollResize
         )
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
         let controller = CGEventTapController(
@@ -205,6 +207,24 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
 
         if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticEventMarker {
             return Unmanaged.passUnretained(event)
+        }
+
+        if type == .scrollWheel,
+           runtime.layoutsRuntimeEnabled,
+           runtime.axTrusted,
+           runtime.coordinatorActive,
+           !runtime.recordingHotkey,
+           !radialActive,
+           gestureMode == .none {
+            let deltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+            let shiftHeld = event.flags.contains(.maskShift)
+            if WindowScrollResizeController.handleScroll(
+                deltaY: Int(deltaY),
+                shiftHeld: shiftHeld,
+                settings: runtime.settings
+            ) {
+                return nil
+            }
         }
 
         if type == .keyDown,
@@ -451,22 +471,32 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             return
         }
 
-        guard let zone = snapIntent.update(at: location, visibleFrame: screen.visibleFrame),
-              let action = zone.action,
-              let frame = WindowGeometryCalculator().rect(
-                  for: action,
-                  visibleFrame: screen.visibleFrame
-              )
-        else {
-            activeSnapAction = nil
-            hideSnapOverlayIfNeeded()
+        if let zone = snapIntent.update(at: location, visibleFrame: screen.visibleFrame),
+           let action = zone.action,
+           let frame = WindowGeometryCalculator().rect(
+               for: action,
+               visibleFrame: screen.visibleFrame
+           )
+        {
+            activeSnapAction = action
+            snapOverlayVisible = true
+            let overlayFrame = appKitOverlayFrame(for: frame, screenID: screen.id)
+            Task { @MainActor [showSnapOverlay] in showSnapOverlay(overlayFrame) }
             return
         }
 
-        activeSnapAction = action
-        snapOverlayVisible = true
-        let overlayFrame = appKitOverlayFrame(for: frame, screenID: screen.id)
-        Task { @MainActor [showSnapOverlay] in showSnapOverlay(overlayFrame) }
+        if runtime.settings.snapAssistShowZones,
+           let assistZone = SnapAssistZoneController.zone(at: location),
+           let overlayFrame = SnapAssistZoneController.previewFrame(for: assistZone, at: location)
+        {
+            activeSnapAction = SnapAssistZoneController.windowAction(for: assistZone)
+            snapOverlayVisible = true
+            Task { @MainActor [showSnapOverlay] in showSnapOverlay(overlayFrame) }
+            return
+        }
+
+        activeSnapAction = nil
+        hideSnapOverlayIfNeeded()
     }
 
     private func appKitOverlayFrame(for cgFrame: CGRect, screenID: UInt32) -> CGRect {

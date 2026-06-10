@@ -43,7 +43,7 @@ public struct WindowGeometryCalculator: Sendable {
                 return nil
             }
             return centeredRect(size: currentSize, in: visibleFrame)
-        case .restore, .nextDisplay, .previousDisplay:
+        case .restore, .nextDisplay, .previousDisplay, .nextSpace, .previousSpace:
             return nil
         }
     }

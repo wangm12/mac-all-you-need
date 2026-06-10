@@ -12,27 +12,36 @@ struct VoiceWelcomeStepView: View {
     private let timer = Timer.publish(every: 2.1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        SetupTaskPage(
-            symbol: "mic.badge.plus",
-            title: phrases[phraseIndex],
-            subtitle: "Press a shortcut, speak naturally, and paste polished text into any Mac app."
-        ) {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Local ASR keeps audio on this Mac by default.", systemImage: "lock")
-                Label("Mixed Chinese and English dictation is supported.", systemImage: "globe")
-                Label("Cleanup can be local or provider-based, depending on your settings.", systemImage: "text.bubble")
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(phrases[phraseIndex])
+                    .font(.system(size: 24, weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .id(phraseIndex)
+                    .transition(.opacity)
+                Text("Press a shortcut, speak naturally, and paste polished text into any Mac app.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
-            )
-            .id(phraseIndex)
-            .transition(.opacity)
+
+            VStack(spacing: 8) {
+                VoiceWelcomeHighlightRow(
+                    symbol: "lock",
+                    title: "Local ASR",
+                    detail: "Audio stays on this Mac by default."
+                )
+                VoiceWelcomeHighlightRow(
+                    symbol: "globe",
+                    title: "Mixed languages",
+                    detail: "Chinese and English dictation in one session."
+                )
+                VoiceWelcomeHighlightRow(
+                    symbol: "text.bubble",
+                    title: "Optional cleanup",
+                    detail: "Polish transcripts locally or with a provider."
+                )
+            }
         }
         .onReceive(timer) { _ in
             if reduceMotion {
@@ -43,5 +52,37 @@ struct VoiceWelcomeStepView: View {
                 }
             }
         }
+    }
+}
+
+private struct VoiceWelcomeHighlightRow: View {
+    let symbol: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 28, height: 28)
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
+                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+        )
     }
 }

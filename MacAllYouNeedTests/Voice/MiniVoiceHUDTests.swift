@@ -33,6 +33,7 @@ final class MiniVoiceHUDTests: XCTestCase {
 
         XCTAssertEqual(pill.label, "Listening")
         XCTAssertEqual(pill.leading, .waveformBars)
+        XCTAssertEqual(pill.actionAvailability, .stop)
         XCTAssertTrue(pill.isStoppable)
         XCTAssertFalse(pill.isTerminal)
     }
@@ -42,6 +43,7 @@ final class MiniVoiceHUDTests: XCTestCase {
 
         XCTAssertEqual(pill.label, "Transcribing")
         XCTAssertEqual(pill.leading, .aiSparkle)
+        XCTAssertEqual(pill.actionAvailability, .stop)
         XCTAssertTrue(pill.isStoppable)
         XCTAssertFalse(pill.isTerminal)
     }
@@ -66,6 +68,7 @@ final class MiniVoiceHUDTests: XCTestCase {
 
         XCTAssertEqual(pill.label, "No speech")
         XCTAssertEqual(pill.leading, .warningTriangle)
+        XCTAssertEqual(pill.actionAvailability, .dismissTerminal)
         XCTAssertFalse(pill.isStoppable)
         XCTAssertTrue(pill.isTerminal)
     }
@@ -75,6 +78,7 @@ final class MiniVoiceHUDTests: XCTestCase {
 
         XCTAssertEqual(pill.label, "Failed")
         XCTAssertEqual(pill.leading, .warningTriangle)
+        XCTAssertEqual(pill.actionAvailability, .dismissTerminal)
         XCTAssertFalse(pill.isStoppable)
         XCTAssertTrue(pill.isTerminal)
     }
@@ -98,9 +102,29 @@ final class MiniVoiceHUDTests: XCTestCase {
 
         XCTAssertEqual(pill.label, "Cancelled")
         XCTAssertEqual(pill.leading, .xInCircle)
+        XCTAssertEqual(pill.actionAvailability, .undo)
         XCTAssertFalse(pill.isStoppable)
         XCTAssertFalse(pill.isTerminal)
         XCTAssertTrue(pill.isUndoable)
+    }
+
+    func testPreviewAndRuntimeUseSameContentModel() {
+        let runtime = MiniVoiceHUDPill(state: .transcribing(.cleanup(progress: 0.1)))
+        let preview = VoicePillContentModel(state: .transcribing(.cleanup(progress: 0.9)))
+        XCTAssertEqual(runtime.label, preview.label)
+        XCTAssertEqual(runtime.leading, preview.leading)
+        XCTAssertEqual(runtime.actionAvailability, preview.actionAvailability)
+    }
+
+    @MainActor
+    func testThinkingProgressIsMonotonicAndSnapsAtCompletion() {
+        let bridge = MiniVoiceThinkingProgressBridge()
+        bridge.applyStreamProgress(0.2)
+        XCTAssertEqual(bridge.displayWipe, 0.2, accuracy: 0.0001)
+        bridge.applyStreamProgress(0.15)
+        XCTAssertEqual(bridge.displayWipe, 0.2, accuracy: 0.0001)
+        bridge.applyStreamProgress(0.996)
+        XCTAssertEqual(bridge.displayWipe, 1.0, accuracy: 0.0001)
     }
 
     func testCancelledStateSharesUniversalPillSize() {

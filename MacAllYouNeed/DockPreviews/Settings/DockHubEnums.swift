@@ -55,6 +55,20 @@ enum DockSwitcherMouseFollowsFocus: String, Codable, CaseIterable, Identifiable 
     }
 }
 
+enum DockSwitcherLayoutStyle: String, Codable, CaseIterable, Identifiable {
+    case horizontalGrid
+    case verticalList
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .horizontalGrid: "Horizontal grid"
+        case .verticalList: "Vertical list (with search)"
+        }
+    }
+}
+
 enum DockSwitcherScrollDirection: String, Codable, CaseIterable, Identifiable {
     case horizontal
     case vertical

@@ -522,7 +522,13 @@ enum MainVoiceTranscriptHistoryPresentation {
         }
 
         let raw = transcript.rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return raw.isEmpty ? "Empty transcript" : transcript.rawText
+        if !raw.isEmpty {
+            return transcript.rawText
+        }
+        if transcript.status == .failed {
+            return "Failed: \(transcript.failureReason ?? "unknown")"
+        }
+        return "Empty transcript"
     }
 
     static func selection(

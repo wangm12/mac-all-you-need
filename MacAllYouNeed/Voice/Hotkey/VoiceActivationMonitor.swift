@@ -10,6 +10,8 @@ final class VoiceActivationMonitor {
     private var settings: VoiceActivationSettings?
     private var isDown = false
     private var staleTask: Task<Void, Never>?
+    private var lastTogglePressAt: Date?
+    private let toggleDebounceSeconds: TimeInterval = 0.15
 
     var onPress: (() -> Void)?
     var onRelease: (() -> Void)?
@@ -21,7 +23,11 @@ final class VoiceActivationMonitor {
         switch settings.mode {
         case .toggle:
             let hotkey = GlobalHotkey(descriptor: settings.shortcut) { [weak self] in
-                Task { @MainActor in self?.onPress?() }
+                Task { @MainActor in
+                    guard let self else { return }
+                    guard self.shouldAcceptTogglePress() else { return }
+                    self.onPress?()
+                }
             }
             try hotkey.register()
             globalHotkey = hotkey
@@ -47,6 +53,7 @@ final class VoiceActivationMonitor {
 
         staleTask?.cancel()
         staleTask = nil
+        lastTogglePressAt = nil
         releaseIfNeeded()
     }
 
@@ -89,5 +96,15 @@ final class VoiceActivationMonitor {
             guard !Task.isCancelled else { return }
             releaseIfNeeded()
         }
+    }
+
+    private func shouldAcceptTogglePress(now: Date = Date()) -> Bool {
+        if let last = lastTogglePressAt,
+           now.timeIntervalSince(last) < toggleDebounceSeconds
+        {
+            return false
+        }
+        lastTogglePressAt = now
+        return true
     }
 }

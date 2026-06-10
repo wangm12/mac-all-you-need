@@ -38,6 +38,8 @@ targets:
       - path: MacAllYouNeed
       - path: Resources/Migration
         type: folder
+      - path: Resources/Onboarding
+        type: folder
     info:
       path: MacAllYouNeed/Info.plist
       properties:

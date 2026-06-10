@@ -16,9 +16,10 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
             try conn.execute(sql: """
                 INSERT INTO voice_transcripts (
                     id, started_at, ended_at, duration_ms, raw_text, cleaned_text,
-                    app_bundle_id, language, model_identifier, audio_path
+                    app_bundle_id, language, model_identifier, audio_path,
+                    status, failed_stage, failure_reason, retry_source_transcript_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 id,
                 Self.millis(draft.startedAt),
@@ -29,7 +30,11 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
                 draft.appBundleID,
                 draft.language.rawValue,
                 draft.modelIdentifier,
-                draft.audioPath
+                draft.audioPath,
+                draft.status.rawValue,
+                draft.failedStage?.rawValue,
+                draft.failureReason,
+                draft.retrySourceTranscriptID
             ])
         }
         return VoiceTranscript(
@@ -42,7 +47,11 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
             appBundleID: draft.appBundleID,
             language: draft.language,
             modelIdentifier: draft.modelIdentifier,
-            audioPath: draft.audioPath
+            audioPath: draft.audioPath,
+            status: draft.status,
+            failedStage: draft.failedStage,
+            failureReason: draft.failureReason,
+            retrySourceTranscriptID: draft.retrySourceTranscriptID
         )
     }
 
@@ -50,7 +59,8 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
         try db.queue.read { conn in
             try Row.fetchOne(conn, sql: """
                 SELECT id, started_at, ended_at, duration_ms, raw_text, cleaned_text,
-                       app_bundle_id, language, model_identifier, audio_path
+                       app_bundle_id, language, model_identifier, audio_path,
+                       status, failed_stage, failure_reason, retry_source_transcript_id
                 FROM voice_transcripts WHERE id = ?
             """, arguments: [id]).map(Self.transcript(from:))
         }
@@ -61,7 +71,8 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
         return try db.queue.read { conn in
             try Row.fetchAll(conn, sql: """
                 SELECT id, started_at, ended_at, duration_ms, raw_text, cleaned_text,
-                       app_bundle_id, language, model_identifier, audio_path
+                       app_bundle_id, language, model_identifier, audio_path,
+                       status, failed_stage, failure_reason, retry_source_transcript_id
                 FROM voice_transcripts
                 ORDER BY ended_at DESC
                 LIMIT ?
@@ -86,7 +97,8 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
         return try db.queue.write { conn in
             let rows = try Row.fetchAll(conn, sql: """
                 SELECT id, started_at, ended_at, duration_ms, raw_text, cleaned_text,
-                       app_bundle_id, language, model_identifier, audio_path
+                       app_bundle_id, language, model_identifier, audio_path,
+                       status, failed_stage, failure_reason, retry_source_transcript_id
                 FROM voice_transcripts
                 WHERE ended_at < ?
             """, arguments: [cutoff])
@@ -109,7 +121,11 @@ public final class VoiceTranscriptStore: @unchecked Sendable {
             appBundleID: row["app_bundle_id"],
             language: VoiceLanguage(rawValue: row["language"]) ?? .unknown,
             modelIdentifier: row["model_identifier"],
-            audioPath: row["audio_path"]
+            audioPath: row["audio_path"],
+            status: VoiceTranscriptStatus(rawValue: row["status"]) ?? .success,
+            failedStage: (row["failed_stage"] as String?).flatMap(VoiceTranscriptFailedStage.init(rawValue:)),
+            failureReason: row["failure_reason"],
+            retrySourceTranscriptID: row["retry_source_transcript_id"]
         )
     }
 

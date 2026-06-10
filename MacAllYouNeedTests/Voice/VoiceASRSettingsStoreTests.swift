@@ -165,7 +165,7 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
 
         let loaded = VoiceASRSettingsStore.load(from: defaults)
 
-        XCTAssertEqual(loaded.modelID, .qwen3ASR06BF32)
+        XCTAssertEqual(loaded.modelID, .qwen3ASR06BInt8)
         XCTAssertEqual(loaded.languageHint, .chinese)
     }
 
@@ -175,7 +175,7 @@ final class VoiceASRSettingsStoreTests: XCTestCase {
 
         let loaded = VoiceASRSettingsStore.load(from: defaults)
 
-        XCTAssertEqual(loaded.modelID, .qwen3ASR06BF32)
+        XCTAssertEqual(loaded.modelID, .qwen3ASR06BInt8)
         XCTAssertEqual(loaded.languageHint, .english)
     }
 

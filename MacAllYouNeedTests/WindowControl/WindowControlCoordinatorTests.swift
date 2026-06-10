@@ -11,7 +11,7 @@ final class WindowControlCoordinatorTests: XCTestCase {
 
         coordinator.start()
 
-        XCTAssertEqual(coordinator.state, .off)
+        XCTAssertEqual(coordinator.state, .needsAccessibility)
         XCTAssertEqual(tap.startCount, 0)
 
         var enabled = WindowControlSettings.default
@@ -226,7 +226,7 @@ final class WindowControlCoordinatorTests: XCTestCase {
         coordinator.refreshAccessibilityTrust(true)
         coordinator.refreshAccessibilityTrust(false)
 
-        XCTAssertEqual(refreshCount, 2)
+        XCTAssertEqual(refreshCount, 3)
     }
 
     func testUnavailablePerformerDoesNotExecuteAction() {

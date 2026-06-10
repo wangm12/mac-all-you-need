@@ -8,14 +8,15 @@ struct VoiceASRStepView: View {
             Text("Choose recognition engine")
                 .font(.title)
                 .bold()
-            Text("Use local recognition by default, or configure exact cloud engines if your workflow needs provider-specific transcription.")
+            Text("Use the recommended engine to start quickly. You can choose an exact provider and model later in Voice Settings.")
                 .foregroundStyle(.secondary)
 
             VoiceRecognitionSetupGuide(
                 controller: controller,
                 footerText: "",
                 showsHeaderCopy: false,
-                showsLanguageRow: true
+                showsLanguageRow: true,
+                showsExactSelectionRow: false
             )
 
             Spacer()

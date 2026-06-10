@@ -212,6 +212,10 @@ final class DockKeybindController {
 
         if sessionActive {
             activateSelection()
+            if hubSettings.switcher.stickyWindowSwitching {
+                cycleSelection(delta: 1)
+                return
+            }
             stopSession()
         } else if pendingSession {
             shouldSelectImmediately = true
@@ -296,6 +300,9 @@ final class DockKeybindController {
         panelController?.state.searchQuery = ""
         panelController?.showSwitcher(entries: collected, selectedIndex: startIndex)
         applyPendingTabCycles()
+        if let panelController {
+            updateOriginalPositionOverlay(panelController: panelController)
+        }
     }
 
     private func applyPendingTabCycles() {
@@ -316,6 +323,7 @@ final class DockKeybindController {
     }
 
     private func stopSession() {
+        DockSwitcherOriginalPositionOverlay.shared.dismiss()
         sessionActive = false
         tapSessionActive = false
         pendingSession = false
@@ -337,6 +345,25 @@ final class DockKeybindController {
         panelController.state.selectNext(delta: delta)
         selectedIndex = panelController.state.selectedIndex
         panelController.updateSwitcherSelection(selectedIndex: selectedIndex)
+        updateOriginalPositionOverlay(panelController: panelController)
+    }
+
+    private func updateOriginalPositionOverlay(panelController: DockPreviewPanelController) {
+        guard hubSettings.switcher.previewAtOriginalPosition else {
+            DockSwitcherOriginalPositionOverlay.shared.dismiss()
+            return
+        }
+        let windows = panelController.state.windows
+        let index = panelController.state.selectedIndex
+        guard windows.indices.contains(index) else {
+            DockSwitcherOriginalPositionOverlay.shared.dismiss()
+            return
+        }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        DockSwitcherOriginalPositionOverlay.shared.update(
+            frame: windows[index].frame,
+            reduceMotion: reduceMotion
+        )
     }
 
     private func activateSelection() {
@@ -351,10 +378,19 @@ final class DockKeybindController {
     }
 
     private func raiseWindow(_ entry: DockPreviewWindowEntry) {
-        DockSwitcherUtilities.warpMouseToWindowCenter(
-            entry: entry,
-            mode: hubSettings.switcher.mouseFollowsFocus
-        )
+        if hubSettings.switcher.cursorAutoCenterOnFocus {
+            let bundle = entry.pid != 0
+                ? NSRunningApplication(processIdentifier: entry.pid)?.bundleIdentifier
+                : nil
+            if !hubSettings.switcher.excludesAutoCenterBundleIDs.contains(where: { bundle?.caseInsensitiveCompare($0) == .orderedSame }) {
+                DockSwitcherUtilities.warpMouseToWindowCenter(entry: entry, mode: .always)
+            }
+        } else {
+            DockSwitcherUtilities.warpMouseToWindowCenter(
+                entry: entry,
+                mode: hubSettings.switcher.mouseFollowsFocus
+            )
+        }
         Task {
             await DockPreviewRaiseService(enumerator: SystemWindowEnumerator())
                 .raise(entry: entry, settings: hubSettings.previews)

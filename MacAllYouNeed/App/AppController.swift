@@ -592,26 +592,57 @@ final class AppController {
     }
 
     private func startAutoDownloadPromptLoop() {
-        // Auto-detect video URLs: when a new item appears at the top of the
-        // clipboard history and it contains a recognisable video URL, show the
-        // AutoDownloadHUD so the user can enqueue it with a single tap.
+        // When a downloadable URL lands on the pasteboard (single video, playlist,
+        // or Douyin share-card prose), surface AutoDownloadHUD for one-tap enqueue.
         Task { @MainActor [weak self] in
-            // Let the reader do one initial poll before establishing the baseline
-            // so we don't prompt for whatever was already on the clipboard at launch.
+            // Baseline after launch so we don't prompt for pre-existing clipboard content.
             try? await Task.sleep(for: .seconds(2))
             guard let self else { return }
             var lastTopID = clipboardReader.items.first?.id.rawValue
+            var lastPasteboardChangeCount = NSPasteboard.general.changeCount
+
             while true {
-                try? await Task.sleep(for: .milliseconds(800))
+                try? await Task.sleep(for: .milliseconds(400))
+                guard featureStatePublisher.state(for: .downloader).activationState == .enabled else { continue }
+
+                let pasteboard = NSPasteboard.general
+                let changeCount = pasteboard.changeCount
+                if changeCount != lastPasteboardChangeCount {
+                    lastPasteboardChangeCount = changeCount
+                    if let url = Self.downloadableURLFromPasteboard(pasteboard) {
+                        AutoDownloadHUD.prompt(for: url)
+                        continue
+                    }
+                }
+
                 let items = clipboardReader.items
                 let first = items.first
                 guard let first, first.id.rawValue != lastTopID else { continue }
                 lastTopID = first.id.rawValue
-                if let url = URLDetector.videoBearingURL(in: first.preview) {
+                if let url = Self.downloadableURL(from: first.preview) {
                     AutoDownloadHUD.prompt(for: url)
                 }
             }
         }
+    }
+
+    private static func downloadableURLFromPasteboard(_ pasteboard: NSPasteboard) -> URL? {
+        if let text = pasteboard.string(forType: .string),
+           let url = downloadableURL(from: text)
+        {
+            return url
+        }
+        if let objectURL = pasteboard.readObjects(forClasses: [NSURL.self], options: nil)?.first as? URL,
+           let url = downloadableURL(from: objectURL.absoluteString)
+        {
+            return url
+        }
+        return nil
+    }
+
+    private static func downloadableURL(from text: String) -> URL? {
+        guard let urlString = URLDetector.firstDownloadableURL(in: text) else { return nil }
+        return URL(string: urlString)
     }
 
     private static func makeSnippetExpander(store: SnippetStore) -> SnippetExpander {

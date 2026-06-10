@@ -80,9 +80,13 @@ final class VoiceCoordinatorReminderIntentTests: XCTestCase {
             historySettings: { .init() },
             reminderSettings: reminderSettings,
             cleanupPipelineFactory: { _ in VoiceCleanupPipeline() },
-            paster: { t in
+            paster: { t, _ in
                 paste.record(t)
-                return CursorPaster.Result(accessibilityTrusted: true, didPostPasteEvent: true)
+                return CursorPaster.Result(
+                    accessibilityTrusted: true,
+                    deliveryPath: .preferredAX,
+                    failureReason: nil
+                )
             },
             snapshotFocused: { nil },
             learningStarter: { _, _, _, _, _ in },

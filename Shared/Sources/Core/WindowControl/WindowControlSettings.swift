@@ -25,9 +25,16 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
     /// When true, pressing the same half shortcut again moves the window to the adjacent display
     /// (Rectangle-style). Defaults to false for predictable dual-monitor behavior.
     public var repeatHalfAcrossDisplays: Bool
+    public var snapAssistShowZones: Bool
+    public var activeWindowBorderEnabled: Bool
+    public var activeWindowBorderInner: Bool
+    public var animateWindowMoves: Bool
+    public var disableSequoiaTilingHotkeys: Bool
+    public var scrollResizeEnabled: Bool
+    public var windowRules: [WindowRule]
 
     public init(
-        enabled: Bool = true,
+        enabled: Bool = false,
         dragAnywhereEnabled: Bool = true,
         dragModifier: WindowGestureModifier = .option,
         edgeSnapEnabled: Bool = true,
@@ -47,7 +54,14 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialTriggerTapCount: Int = 1,
         radialTargetHighlightEnabled: Bool = true,
         radialTargetHighlightColor: RadialHighlightColor = .focusRingDefault,
-        repeatHalfAcrossDisplays: Bool = false
+        repeatHalfAcrossDisplays: Bool = false,
+        snapAssistShowZones: Bool = false,
+        activeWindowBorderEnabled: Bool = false,
+        activeWindowBorderInner: Bool = true,
+        animateWindowMoves: Bool = false,
+        disableSequoiaTilingHotkeys: Bool = true,
+        scrollResizeEnabled: Bool = false,
+        windowRules: [WindowRule] = []
     ) {
         self.enabled = enabled
         self.dragAnywhereEnabled = dragAnywhereEnabled
@@ -70,6 +84,13 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         self.radialTargetHighlightEnabled = radialTargetHighlightEnabled
         self.radialTargetHighlightColor = radialTargetHighlightColor
         self.repeatHalfAcrossDisplays = repeatHalfAcrossDisplays
+        self.snapAssistShowZones = snapAssistShowZones
+        self.activeWindowBorderEnabled = activeWindowBorderEnabled
+        self.activeWindowBorderInner = activeWindowBorderInner
+        self.animateWindowMoves = animateWindowMoves
+        self.disableSequoiaTilingHotkeys = disableSequoiaTilingHotkeys
+        self.scrollResizeEnabled = scrollResizeEnabled
+        self.windowRules = windowRules
     }
 
     // Custom decoder so legacy payloads without the radial keys decode with
@@ -98,6 +119,13 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialTargetHighlightColor = try container.decodeIfPresent(RadialHighlightColor.self, forKey: .radialTargetHighlightColor)
             ?? .focusRingDefault
         repeatHalfAcrossDisplays = try container.decodeIfPresent(Bool.self, forKey: .repeatHalfAcrossDisplays) ?? false
+        snapAssistShowZones = try container.decodeIfPresent(Bool.self, forKey: .snapAssistShowZones) ?? false
+        activeWindowBorderEnabled = try container.decodeIfPresent(Bool.self, forKey: .activeWindowBorderEnabled) ?? false
+        activeWindowBorderInner = try container.decodeIfPresent(Bool.self, forKey: .activeWindowBorderInner) ?? true
+        animateWindowMoves = try container.decodeIfPresent(Bool.self, forKey: .animateWindowMoves) ?? false
+        disableSequoiaTilingHotkeys = try container.decodeIfPresent(Bool.self, forKey: .disableSequoiaTilingHotkeys) ?? true
+        scrollResizeEnabled = try container.decodeIfPresent(Bool.self, forKey: .scrollResizeEnabled) ?? false
+        windowRules = try container.decodeIfPresent([WindowRule].self, forKey: .windowRules) ?? []
     }
 
     public static let `default` = WindowControlSettings()

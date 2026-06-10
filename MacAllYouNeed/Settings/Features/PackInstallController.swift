@@ -67,12 +67,39 @@ public final class PackInstallController {
             throw InstallError.packNotInManifest(featureID)
         }
 
+        let liveBaseDir = AppGroup.containerURL().appendingPathComponent("Features/\(featureID.rawValue)")
+
+        if BundledPackSeeder.isAlreadyInstalled(entry: entry, liveBaseDir: liveBaseDir) {
+            try await manager.markAssetState(.present(version: entry.version), for: featureID)
+            try? await manager.transition(.enable, for: featureID)
+            return
+        }
+
+        if entry.isDevPlaceholder {
+            try await manager.markAssetState(.downloading(progress: 0.5), for: featureID)
+            let bundleURL = Bundle.main.resourceURL ?? URL(fileURLWithPath: "/")
+            if let report = try BundledPackSeeder.seedIfPossible(
+                featureID: featureID,
+                entry: entry,
+                bundleResourcesURL: bundleURL,
+                liveBaseDir: liveBaseDir
+            ) {
+                try await manager.markAssetState(.present(version: report.installedVersion), for: featureID)
+                try? await manager.transition(.enable, for: featureID)
+                return
+            }
+            try await manager.markAssetState(
+                .downloadFailed(reason: PackPipelineError.devBundledBinariesMissing.localizedDescription),
+                for: featureID
+            )
+            throw PackPipelineError.devBundledBinariesMissing
+        }
+
         try await manager.markAssetState(.downloading(progress: 0.0), for: featureID)
 
         let stagingDir = AppGroup.containerURL().appendingPathComponent("Staging")
         try? FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
         let zipURL = stagingDir.appendingPathComponent("\(featureID.rawValue)-\(entry.version).partial.zip")
-        let liveBaseDir = AppGroup.containerURL().appendingPathComponent("Features/\(featureID.rawValue)")
 
         do {
             let managerRef = manager

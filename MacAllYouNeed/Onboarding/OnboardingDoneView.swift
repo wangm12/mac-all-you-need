@@ -1,63 +1,78 @@
+import Core
 import FeatureCore
 import SwiftUI
 
 struct OnboardingDoneView: View {
-    let registry: FeatureRegistry
-    let installedIDs: [FeatureID]
-    let skippedIDs: [FeatureID]
+    let enabledIDs: [FeatureID]
+    var deferredPermissions: Set<Permission> = []
     let onDone: () -> Void
+    @AppStorage("launchAtLogin", store: AppGroupSettings.defaults) private var launchAtLogin = true
 
     var body: some View {
         SetupTaskPage(
             symbol: "checkmark",
             title: "You're all set",
-            subtitle: "Mac All You Need is ready. You can install or remove features any time from Settings → Features."
+            subtitle: "Selected features are being turned on. Open the Dashboard any time to manage them."
         ) {
             VStack(alignment: .leading, spacing: 16) {
-                if installedIDs.isEmpty && !skippedIDs.isEmpty {
-                    StatusPill(text: "No features were enabled", kind: .neutral)
-                    Text("Open Settings → Features when you're ready to enable something.")
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .toggleStyle(.switch)
+                    .onChange(of: launchAtLogin) { _, on in
+                        LoginItemController.setLaunchAtLogin(on)
+                    }
+
+                if enabledIDs.isEmpty {
+                    StatusPill(text: "No features enabled yet", kind: .neutral)
+                    Text("Open the Dashboard any time to turn features on.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                } else {
+                    EnabledFeatureList(ids: enabledIDs)
                 }
-                if !installedIDs.isEmpty {
-                    SectionList(
-                        title: "Enabled",
-                        ids: installedIDs,
-                        registry: registry,
-                        symbol: "checkmark.circle.fill"
-                    )
-                }
-                if !skippedIDs.isEmpty {
-                    SectionList(
-                        title: "Skipped",
-                        ids: skippedIDs,
-                        registry: registry,
-                        symbol: "circle"
-                    )
+
+                if !deferredPermissions.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Permissions to finish later")
+                            .font(.headline)
+                        ForEach(Array(deferredPermissions).sorted(by: { PermissionGateProbe.displayName(for: $0) < PermissionGateProbe.displayName(for: $1) }), id: \.self) { permission in
+                            HStack {
+                                Image(systemName: "exclamationmark.circle")
+                                Text(PermissionGateProbe.displayName(for: permission))
+                                Spacer()
+                                MAYNButton("Settings") {
+                                    PermissionGateProbe.openSettings(for: permission)
+                                }
+                            }
+                            .font(.callout)
+                        }
+                    }
                 }
             }
         }
     }
+}
 
-    private struct SectionList: View {
-        let title: String
-        let ids: [FeatureID]
-        let registry: FeatureRegistry
-        let symbol: String
+private struct EnabledFeatureList: View {
+    let ids: [FeatureID]
 
-        var body: some View {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title).font(.headline)
-                ForEach(ids, id: \.self) { id in
-                    if let descriptor = registry.descriptor(for: id) {
-                        HStack {
-                            Image(systemName: symbol).frame(width: 18)
-                            Text(descriptor.displayName)
-                            Spacer()
-                        }
-                        .padding(.vertical, 2)
+    private var displayIDs: [FeatureID] {
+        OnboardingFeaturePickerOrdering.featureIDs.filter { ids.contains($0) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Enabling")
+                .font(.headline)
+            ForEach(displayIDs, id: \.self) { id in
+                if let tile = DashboardToolTilePresentation.primaryTile(for: id) {
+                    HStack(spacing: 10) {
+                        Image(systemName: tile.symbolName)
+                            .frame(width: 18)
+                        Text(tile.title)
+                        Spacer()
                     }
+                    .font(.callout)
+                    .padding(.vertical, 2)
                 }
             }
         }

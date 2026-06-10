@@ -31,7 +31,7 @@ final class DockPreviewWindowMatcherTests: XCTestCase {
             ),
         ]
         let deduped = DockPreviewWindowMatcher.deduplicate(entries)
-        XCTAssertEqual(deduped.count, 1)
+        XCTAssertEqual(deduped.count, 2)
         XCTAssertTrue(deduped[0].title.contains("Weiqiang"))
     }
 

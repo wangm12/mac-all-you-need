@@ -4,6 +4,7 @@ import Foundation
 enum VoiceTranscriptHistoryMetadata {
     static func line(for transcript: VoiceTranscript, now: Date = Date()) -> String {
         let parts = [
+            statusLabel(transcript),
             clockTime(transcript.endedAt, now: now),
             languageLabel(transcript.language),
             modelLabel(transcript.modelIdentifier),
@@ -58,6 +59,20 @@ enum VoiceTranscriptHistoryMetadata {
         let minutes = Int(seconds / 60)
         let remainder = Int(seconds.truncatingRemainder(dividingBy: 60))
         return "\(minutes)m \(remainder)s"
+    }
+
+    static func statusLabel(_ transcript: VoiceTranscript) -> String {
+        switch transcript.status {
+        case .success:
+            return "Success"
+        case .retriedFrom:
+            return "Retried"
+        case .failed:
+            if let stage = transcript.failedStage {
+                return "Failed (\(stage.rawValue))"
+            }
+            return "Failed"
+        }
     }
 
     private static let timeFormatter: DateFormatter = {

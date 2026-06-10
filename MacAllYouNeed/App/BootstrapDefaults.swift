@@ -22,7 +22,7 @@ enum BootstrapDefaults {
                 ? .present(version: "legacy") // Phase 06 replaces "legacy" with real pack version
                 : .notRequired
             try await manager.setState(
-                .init(assetState: asset, activationState: .enabled),
+                .init(assetState: asset, activationState: .disabled),
                 for: descriptor.id
             )
         }

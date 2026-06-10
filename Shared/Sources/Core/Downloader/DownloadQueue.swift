@@ -95,7 +95,24 @@ public actor DownloadQueue {
 
     public func enqueue(_ job: DownloadJob) {
         queued.append(job)
+        sortQueuedJobs()
         Task { await self.tryStart() }
+    }
+
+    private func sortQueuedJobs() {
+        queued.sort { lhs, rhs in
+            if let leftCollection = lhs.collectionID, let rightCollection = rhs.collectionID,
+               leftCollection == rightCollection
+            {
+                let leftIndex = lhs.collectionIndex ?? Int.max
+                let rightIndex = rhs.collectionIndex ?? Int.max
+                if leftIndex != rightIndex { return leftIndex < rightIndex }
+            }
+            if lhs.enqueuedAt != rhs.enqueuedAt {
+                return lhs.enqueuedAt < rhs.enqueuedAt
+            }
+            return lhs.recordID.rawValue < rhs.recordID.rawValue
+        }
     }
 
     /// Async/await overload. Suspends until the job finishes (success) or fails

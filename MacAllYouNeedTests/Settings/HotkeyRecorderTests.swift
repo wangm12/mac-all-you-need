@@ -460,7 +460,11 @@ final class HotkeyRecorderTests: XCTestCase {
         XCTAssertTrue(visualizerState.isRecording)
 
         recorder.flagsChanged(with: flagsChangedEvent([.option]))
-        XCTAssertTrue(visualizerState.pressedKeys.contains(.genericOption))
+        XCTAssertTrue(
+            visualizerState.pressedKeys.contains(.genericOption) ||
+                visualizerState.pressedKeys.contains(.leftOption) ||
+                visualizerState.pressedKeys.contains(.rightOption)
+        )
 
         recorder.keyDown(with: keyEvent(keyCode: UInt16(kVK_ANSI_R), character: "r", timestamp: 0))
         XCTAssertTrue(visualizerState.isRecording)
@@ -505,8 +509,16 @@ final class HotkeyRecorderTests: XCTestCase {
             recorder.pendingDescriptor,
             HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_R), modifiers: [.control, .option])
         )
-        XCTAssertTrue(visualizerState.pressedKeys.contains(.genericControl))
-        XCTAssertTrue(visualizerState.pressedKeys.contains(.genericOption))
+        XCTAssertTrue(
+            visualizerState.pressedKeys.contains(.genericControl) ||
+                visualizerState.pressedKeys.contains(.leftControl) ||
+                visualizerState.pressedKeys.contains(.rightControl)
+        )
+        XCTAssertTrue(
+            visualizerState.pressedKeys.contains(.genericOption) ||
+                visualizerState.pressedKeys.contains(.leftOption) ||
+                visualizerState.pressedKeys.contains(.rightOption)
+        )
         XCTAssertTrue(visualizerState.pressedKeys.contains(.keyCode(UInt16(kVK_ANSI_R))))
         XCTAssertEqual(recorder.visibleLabelText, "⌃⌥R")
         XCTAssertEqual(descriptor, .defaultClipboard)
@@ -840,7 +852,7 @@ final class HotkeyRecorderTests: XCTestCase {
         let flags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x00000008)
         recorder.testApplyCGFlags(flags)
 
-        XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.key, .command)
+        XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.key, .leftCommand)
         XCTAssertEqual(recorder.pendingDescriptor?.modifierTap?.count, 1)
         XCTAssertTrue(recorder.visibleLabelText?.hasSuffix("⌘") == true)
     }

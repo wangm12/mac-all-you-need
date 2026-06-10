@@ -121,8 +121,14 @@ final class DownloadCoordinator {
         let tokenURL = AppGroup.containerURL().appendingPathComponent("dispatch.token")
         let token = (try? DispatchToken.rotate(at: tokenURL)) ?? UUID().uuidString
         do {
-            let server = try DispatchServer(port: 18765, token: token) { [weak self] req in
-                await self?.enqueue(url: req.url, title: req.title)
+            let server = try DispatchServer(port: 18765, token: token) { req in
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: .downloadRouteRequested,
+                        object: nil,
+                        userInfo: ["url": req.url]
+                    )
+                }
             }
             try await server.start()
             dispatch = server
@@ -135,15 +141,7 @@ final class DownloadCoordinator {
     func reenqueue(record: DownloadRecord) async {
         do {
             try store.updateState(id: record.id, to: .queued)
-            let dest = URL(fileURLWithPath: record.destinationPath)
-            let (cookies, cookieHadErrors) = cookieArgs()
-            postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
-            let job = try DownloadJob(
-                recordID: record.id, url: record.url, destination: dest,
-                ytdlp: binaries.ytdlpPath(), ffmpeg: binaries.ffmpegPath(),
-                extraArgs: cookies
-            )
-            await queue.enqueue(job)
+            try await startJob(for: record)
         } catch {
             log.error("reenqueue failed: \(error.localizedDescription)")
         }
@@ -172,38 +170,136 @@ final class DownloadCoordinator {
     func resumeDownload(id: RecordID) async {
         do {
             let record = try store.fetch(id: id)
-            let dest = URL(fileURLWithPath: record.destinationPath)
             try store.updateState(id: id, to: .queued)
-            let (cookies, cookieHadErrors) = cookieArgs()
-            postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
-            let job = try DownloadJob(
-                recordID: record.id, url: record.url, destination: dest,
-                ytdlp: binaries.ytdlpPath(), ffmpeg: binaries.ffmpegPath(),
-                extraArgs: cookies // --continue already in DownloadJob base args
-            )
-            await queue.enqueue(job)
+            try await startJob(for: record)
             Self.postStateChanged(id: id, state: .running)
         } catch {
             log.error("resumeDownload failed: \(error.localizedDescription)")
         }
     }
 
-    func enqueue(url: String, title: String?) async {
-        do {
-            let dest = try makeDestinationURL(for: url)
-            var record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
+    func listCollectionEntries(url: String) async throws -> PlaylistListResult {
+        let (cookieArgsList, _) = cookieArgs()
+        let cookieFileURL: URL? = cookieFileURL(from: cookieArgsList)
+        guard let ytdlpPath = try? binaries.ytdlpPath() else {
+            throw PlaylistListError.ytdlpFailed(code: -1, message: "yt-dlp not available")
+        }
+        return try await PlaylistEntryLister.list(url: url, ytdlp: ytdlpPath, cookieFile: cookieFileURL)
+    }
+
+    func enqueueBulk(
+        entries: [BulkEnqueueEntry],
+        collectionTitle: String,
+        kind: DownloadCollectionKind,
+        formatArgs: [String] = []
+    ) async throws {
+        guard !entries.isEmpty else { return }
+        guard entries.count <= PlaylistEntryLister.maxBulkItems else {
+            throw PlaylistListError.tooManyItems(count: entries.count)
+        }
+
+        let collectionID = UUID().uuidString
+        let useSubfolder = AppGroupSettings.defaults.object(forKey: "downloadCollectionSubfolder") as? Bool ?? true
+        let dest = try DownloadDestinationBuilder.destinationURL(
+            collectionTitle: collectionTitle,
+            useCollectionSubfolder: useSubfolder
+        )
+
+        var records: [DownloadRecord] = []
+        for (index, entry) in entries.enumerated() {
+            let pageURL = entry.pageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !pageURL.isEmpty else { continue }
+            var record = DownloadRecord(
+                url: pageURL,
+                title: entry.title,
+                destinationPath: dest.path,
+                state: .queued
+            )
+            record.pageURL = pageURL
+            record.collectionID = collectionID
+            record.collectionIndex = entry.playlistIndex ?? (index + 1)
+            record.collectionTitle = collectionTitle
+            record.collectionKind = kind
+            record.videoTitle = entry.title
+            record.channelName = entry.channel.isEmpty ? nil : entry.channel
+            record.durationSeconds = entry.durationSeconds
+            record.thumbnailURL = entry.thumbnailURL
             record = DownloadMetadataFallback.applyingFallbacks(to: record, destinationPath: nil)
-            try store.insert(record)
-            // Fire-and-forget: fetch metadata first, then start the download.
-            // The record is visible in the list immediately with a "Fetching info…" phase.
+            records.append(record)
+        }
+
+        guard !records.isEmpty else { return }
+        _ = try store.insertBulk(records)
+        Self.postBulkStateChanged(count: records.count)
+
+        let sleepSeconds = DownloadBatchRateLimiter.effectiveSleepSeconds(kind: kind, count: records.count)
+        for (index, record) in records.enumerated() {
+            let stagger = Double(index) * sleepSeconds
             let task = Task { [weak self] in
                 guard let self else { return }
-                await self.fetchMetadataThenStart(record: record, url: url, dest: dest)
+                if stagger > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(stagger * 1_000_000_000))
+                }
+                await self.fetchMetadataThenStart(
+                    record: record,
+                    url: record.url,
+                    dest: dest,
+                    formatArgs: formatArgs
+                )
+            }
+            metadataFetchTasks[record.id] = task
+        }
+    }
+
+    func enqueue(url: String, title: String?, formatArgs: [String] = []) async {
+        do {
+            let dest = try makeDestinationURL(for: nil)
+            var record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
+            record.pageURL = url
+            record = DownloadMetadataFallback.applyingFallbacks(to: record, destinationPath: nil)
+            try store.insert(record)
+            let task = Task { [weak self] in
+                guard let self else { return }
+                await self.fetchMetadataThenStart(record: record, url: url, dest: dest, formatArgs: formatArgs)
             }
             metadataFetchTasks[record.id] = task
         } catch {
             log.error("enqueue failed: \(error.localizedDescription)")
         }
+    }
+
+    func pauseCollection(id: String) async {
+        guard let records = try? store.records(inCollection: id) else { return }
+        for record in records where [.running, .queued].contains(record.state) {
+            await pauseDownload(id: record.id)
+        }
+    }
+
+    func resumeCollection(id: String) async {
+        guard let records = try? store.records(inCollection: id) else { return }
+        for record in records where record.state == .paused || record.state == .failed {
+            await reenqueue(record: record)
+        }
+    }
+
+    func deleteCollection(id: String, deleteFiles: Bool) async {
+        guard let records = try? store.records(inCollection: id) else { return }
+        for record in records {
+            if deleteFiles {
+                await deleteDownloadWithFiles(record: record)
+            } else {
+                await deleteDownload(id: record.id)
+            }
+        }
+    }
+
+    private func deleteDownloadWithFiles(record: DownloadRecord) async {
+        let path = record.destinationPath
+        await deleteDownload(id: record.id)
+        guard !path.isEmpty else { return }
+        try? FileManager.default.removeItem(atPath: path)
+        try? FileManager.default.removeItem(atPath: path + ".part")
+        try? FileManager.default.removeItem(atPath: path + ".ytdl")
     }
 
     private func applyDestinationMetadataFallback(id: RecordID, destinationPath: String) {
@@ -228,29 +324,26 @@ final class DownloadCoordinator {
         return record.state == .queued
     }
 
-    private func fetchMetadataThenStart(record: DownloadRecord, url: String, dest: URL) async {
+    private func fetchMetadataThenStart(
+        record: DownloadRecord,
+        url: String,
+        dest: URL,
+        formatArgs: [String] = []
+    ) async {
         defer { metadataFetchTasks.removeValue(forKey: record.id) }
         guard !Task.isCancelled else { return }
 
-        // Signal that we're fetching info before the download starts
         NotificationCenter.default.post(
             name: .downloadPhase, object: nil,
             userInfo: ["id": record.id.rawValue, "phase": "Fetching info…"]
         )
 
-        // Prepare cookies (also writes the cookie file so metadata fetch can use it)
         let (cookieArgsList, cookieHadErrors) = cookieArgs()
         postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
+        let cookieFileURL = cookieFileURL(from: cookieArgsList)
 
-        // Extract cookie file path from the cookie args (["--cookies", "/path/..."]) if present
-        let cookieFileURL: URL? = {
-            guard let idx = cookieArgsList.firstIndex(of: "--cookies"),
-                  cookieArgsList.indices.contains(idx + 1) else { return nil }
-            return URL(fileURLWithPath: cookieArgsList[idx + 1])
-        }()
-
-        // Fetch title, channel, duration, thumbnail — before starting the download
-        if let ytdlpPath = try? binaries.ytdlpPath(),
+        if record.videoTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+           let ytdlpPath = try? binaries.ytdlpPath(),
            let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath, cookieFile: cookieFileURL)
         {
             var updated = record
@@ -265,16 +358,9 @@ final class DownloadCoordinator {
 
         guard !Task.isCancelled, shouldStillEnqueue(recordID: record.id) else { return }
 
-        // Now start the actual download
         do {
-            let ytdlp = try binaries.ytdlpPath()
-            let ffmpeg = try binaries.ffmpegPath()
-            let job = DownloadJob(
-                recordID: record.id, url: url, destination: dest,
-                ytdlp: ytdlp, ffmpeg: ffmpeg,
-                extraArgs: cookieArgsList
-            )
-            await queue.enqueue(job)
+            let latest = try store.fetch(id: record.id)
+            try await startJob(for: latest, formatArgs: formatArgs)
         } catch {
             log.error("enqueue start failed: \(error.localizedDescription)")
             try? store.updateState(id: record.id, to: .failed)
@@ -282,34 +368,70 @@ final class DownloadCoordinator {
         }
     }
 
-    private func makeDestinationURL(for url: String) throws -> URL {
-        let configured = AppGroupSettings.defaults.string(forKey: "downloadDirectory") ?? ""
-        let outputDir: URL = {
-            if !configured.isEmpty {
-                return URL(fileURLWithPath: configured)
-            }
-            let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                ?? URL(fileURLWithPath: "/tmp")
-            return downloads.appendingPathComponent("MacAllYouNeed", isDirectory: true)
-        }()
-        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        let template = AppGroupSettings.defaults.string(forKey: "downloadOutputTemplate")
-            ?? "%(title)s - %(uploader)s.%(ext)s"
-        return URL(fileURLWithPath: outputDir.path + "/" + template)
+    private func startJob(for record: DownloadRecord, formatArgs: [String] = []) async throws {
+        let dest = URL(fileURLWithPath: record.destinationPath)
+        let (cookies, cookieHadErrors) = cookieArgs()
+        postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
+        var extraArgs = cookies + formatArgs
+        if record.url.contains("douyin.com") {
+            extraArgs += ["--referer", "https://www.douyin.com/"]
+        }
+        if let kind = record.collectionKind, let collectionID = record.collectionID, !collectionID.isEmpty {
+            let batchCount = (try? store.records(inCollection: collectionID).count) ?? 1
+            extraArgs += DownloadBatchRateLimiter.gentleSleepRequestsArgs(kind: kind, batchCount: batchCount)
+        }
+        let job = try DownloadJob(
+            recordID: record.id,
+            url: record.url,
+            destination: dest,
+            ytdlp: binaries.ytdlpPath(),
+            ffmpeg: binaries.ffmpegPath(),
+            extraArgs: extraArgs,
+            collectionID: record.collectionID,
+            collectionIndex: record.collectionIndex,
+            enqueuedAt: record.created
+        )
+        await queue.enqueue(job)
+    }
+
+    private func cookieFileURL(from cookieArgsList: [String]) -> URL? {
+        guard let idx = cookieArgsList.firstIndex(of: "--cookies"),
+              cookieArgsList.indices.contains(idx + 1) else { return nil }
+        return URL(fileURLWithPath: cookieArgsList[idx + 1])
+    }
+
+    private static func postBulkStateChanged(count: Int) {
+        NotificationCenter.default.post(
+            name: .downloadStateChanged,
+            object: nil,
+            userInfo: ["id": "", "state": "queued", "bulkAdded": count]
+        )
+    }
+
+    private func makeDestinationURL(for collectionTitle: String?) throws -> URL {
+        let useSubfolder = AppGroupSettings.defaults.object(forKey: "downloadCollectionSubfolder") as? Bool ?? true
+        return try DownloadDestinationBuilder.destinationURL(
+            collectionTitle: collectionTitle,
+            useCollectionSubfolder: useSubfolder && collectionTitle != nil
+        )
     }
 
     func prepareInterruptedDownloadsForRetry() async {
         do {
-            let ids = try store.list(state: .running) + store.list(state: .queued) + store.list(state: .paused)
+            let ids = try store.list(state: .running) + store.list(state: .queued)
             for id in ids {
-                try? store.updateState(id: id, to: .failed)
+                try? store.updateState(id: id, to: .paused)
             }
-            // Single batch notification instead of N individual ones
             if !ids.isEmpty {
+                NotificationCenter.default.post(
+                    name: .downloadInterruptedRecovery,
+                    object: nil,
+                    userInfo: ["count": ids.count]
+                )
                 NotificationCenter.default.post(
                     name: .downloadStateChanged,
                     object: nil,
-                    userInfo: ["id": "", "state": "failed"]
+                    userInfo: ["id": "", "state": "paused"]
                 )
             }
         } catch {
@@ -325,6 +447,14 @@ public extension Notification.Name {
     static let downloadDestinationPath = Notification.Name("downloadDestinationPath")
     static let cookieWarning = Notification.Name("cookieWarning")
     static let downloaderUpdateRequested = Notification.Name("downloaderUpdateRequested")
+    static let downloadInterruptedRecovery = Notification.Name("downloadInterruptedRecovery")
+    static let downloadRouteRequested = Notification.Name("downloadRouteRequested")
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
 }
 
 /// Mark the record as failed, persisting the yt-dlp error message when one is

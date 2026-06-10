@@ -74,6 +74,13 @@ struct Migrator {
 
         // Skip onboarding for upgraders only after migration is durably marked.
         OnboardingState.completed.save()
+        for descriptor in registry.descriptors {
+            let activation = outcomes[descriptor.id]?.resultingState.activationState
+            let prior = usage[descriptor.id] ?? .none
+            if activation != .enabled || prior != .none {
+                FeatureOnboardingProgressStore.markCompleted(descriptor.id, defaults: defaults)
+            }
+        }
         return MigrationReport(didRun: true, outcomes: outcomes)
     }
 

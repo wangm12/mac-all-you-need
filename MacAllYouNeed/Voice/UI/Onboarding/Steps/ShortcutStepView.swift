@@ -170,17 +170,45 @@ struct VoiceActivationModePicker: View {
 }
 
 struct VoiceHUDPreview: View {
+    @StateObject private var thinkingProgress = MiniVoiceThinkingProgressBridge()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var state: MiniVoiceHUD.State = .recording(level: 0.45)
+    @State private var phaseIndex = 0
+    private let phaseTimer = Timer.publish(every: 0.9, on: .main, in: .common).autoconnect()
+
+    private var sequence: [MiniVoiceHUD.State] {
+        [
+            .recording(level: 0.45),
+            .transcribing(.finalizing),
+            .transcribing(.asr),
+            .transcribing(.cleanup(progress: 0.35)),
+            .transcribing(.cleanup(progress: 0.72)),
+            .transcribing(.pasting),
+            .cancelled
+        ]
+    }
+
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "mic.fill")
-                .foregroundStyle(.primary)
-            Text("Listening")
-                .font(.headline)
-            ProgressView(value: 0.55)
-                .frame(width: 140)
+        VStack(alignment: .leading, spacing: 8) {
+            MiniVoiceHUDView(
+                state: state,
+                thinkingProgress: thinkingProgress,
+                onCancel: nil,
+                onPrimary: nil
+            )
+            Text("Preview mirrors the live voice invoke pill states.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .onAppear {
+            thinkingProgress.beginThinkingSession(reduceMotion: reduceMotion)
+            phaseIndex = 0
+            state = sequence[phaseIndex]
+        }
+        .onReceive(phaseTimer) { _ in
+            guard !sequence.isEmpty else { return }
+            phaseIndex = (phaseIndex + 1) % sequence.count
+            state = sequence[phaseIndex]
+        }
     }
 }

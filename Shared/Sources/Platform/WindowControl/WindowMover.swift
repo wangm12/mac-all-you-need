@@ -1,5 +1,6 @@
 import Core
 import CoreGraphics
+import Foundation
 
 public protocol WindowMovableElement: AnyObject {
     var frame: CGRect { get }
@@ -50,6 +51,8 @@ public final class WindowMover {
     /// When false (default), pressing the same half shortcut again keeps the window on the
     /// current display instead of jumping to the adjacent monitor (Rectangle-style).
     public var repeatHalfAcrossDisplays: Bool = false
+    /// When true, window moves interpolate over a short stepped AX animation.
+    public var animateMoves: Bool = false
 
     public init(
         screenDetector: any WindowScreenDetecting = LiveWindowScreenDetector(),
@@ -161,7 +164,9 @@ public final class WindowMover {
         // effect actually takes hold. Short-circuiting via && caused us to skip
         // the position write whenever the first size write returned false, which
         // is the root cause of "Chrome / Slack / Office land at the wrong size."
-        if element.isResizable {
+        if animateMoves {
+            applyAnimatedMove(element: element, from: originalFrame, to: proposedFrame)
+        } else if element.isResizable {
             _ = element.setSize(proposedFrame.size)
             _ = element.setPosition(proposedFrame.origin)
             _ = element.setSize(proposedFrame.size)
@@ -295,7 +300,8 @@ public final class WindowMover {
         case .bottomHalf:
             return nearestScreenBelow(currentScreen)
         case .topLeft, .topRight, .bottomLeft, .bottomRight,
-             .maximize, .almostMaximize, .center, .restore, .nextDisplay, .previousDisplay:
+             .maximize, .almostMaximize, .center, .restore, .nextDisplay, .previousDisplay,
+             .nextSpace, .previousSpace:
             return nil
         }
     }
@@ -355,6 +361,35 @@ public extension WindowMover {
 }
 
 private extension WindowMover {
+    func applyAnimatedMove(
+        element: any WindowMovableElement,
+        from originalFrame: CGRect,
+        to proposedFrame: CGRect
+    ) {
+        let steps = 6
+        let stepDuration = 0.02
+        for step in 1...steps {
+            let progress = CGFloat(step) / CGFloat(steps)
+            let interpolated = CGRect(
+                x: originalFrame.origin.x + (proposedFrame.origin.x - originalFrame.origin.x) * progress,
+                y: originalFrame.origin.y + (proposedFrame.origin.y - originalFrame.origin.y) * progress,
+                width: originalFrame.width + (proposedFrame.width - originalFrame.width) * progress,
+                height: originalFrame.height + (proposedFrame.height - originalFrame.height) * progress
+            )
+            if element.isResizable {
+                _ = element.setSize(interpolated.size)
+            }
+            _ = element.setPosition(interpolated.origin)
+            if step < steps {
+                Thread.sleep(forTimeInterval: stepDuration)
+            }
+        }
+        if element.isResizable {
+            _ = element.setSize(proposedFrame.size)
+        }
+        _ = element.setPosition(proposedFrame.origin)
+    }
+
     func approximatelyEqual(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
         abs(lhs.width - rhs.width) < 0.5 && abs(lhs.height - rhs.height) < 0.5
     }

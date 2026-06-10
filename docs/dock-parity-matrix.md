@@ -2,6 +2,10 @@
 
 Behavioral spec only — no GPL source in MAYN.
 
+**Tangrid column:** Tangrid-specific dock/switcher gaps (overlay tooltip, vertical list,
+preview-at-original-position, sticky switching, cursor auto-center) are tracked in
+[`tangrid-parity-matrix.md`](./tangrid-parity-matrix.md) Phase A rows T03–T11.
+
 ## Status legend
 
 - `done` — implemented and wired
@@ -28,6 +32,10 @@ Behavioral spec only — no GPL source in MAYN.
 | S01 | Switcher | Global hotkey session + shared panel | `DockKeybindController` | done |
 | S02 | Switcher | Search + cycle selection | `DockPreviewSearchBar` + `DockPreviewSearchWindow` | done |
 | S03 | Switcher | Edge-scroll while hovering panel | `DockPreviewHoverContainer` | done |
+| S04 | Switcher | Vertical searchable list layout | `DockSwitcherVerticalListView` | done |
+| S05 | Switcher | Preview at original window position | `DockSwitcherOriginalPositionOverlay` | done |
+| S06 | Switcher | Sticky window switching | `DockSwitcherSettings.stickyWindowSwitching` | done |
+| P10 | Previews | Overlay Dock tooltip (hide native labels) | `DockPreviewTooltipOverlay` | done |
 | C01 | Cmd+Tab | Enhance while Cmd held | `DockCmdTabController` + shared panel | done |
 | L01 | Dock lock | Multi-monitor zones | `DockLockingController` | done |
 | I01 | Indicator | Active app underline | `DockActiveIndicatorController` | done |
@@ -73,4 +81,4 @@ Behavioral spec only — no GPL source in MAYN.
 - Menu-bar-only shell, standalone settings search catalog
 - AppleScript / CLI command surface for dock hub
 - DockDoor donation/updater UX parity
-- Cmd+Tab first-run overlay hints (deferred)
+- Tangrid BSP Auto Flow tiling (see `tangrid-parity-matrix.md` Phase C spike)

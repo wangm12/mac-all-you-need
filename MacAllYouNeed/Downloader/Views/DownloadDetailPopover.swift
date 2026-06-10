@@ -38,25 +38,22 @@ struct DownloadAddURLSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Add download URL")
                     .font(.title3.weight(.semibold))
-                Text("Paste a video or audio URL. Metadata is fetched before the download starts.")
+                Text("Paste one or more video URLs. Playlists, channels, and creator profiles open a picker first.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            MAYNTextField(
-                placeholder: "https://www.youtube.com/watch?v=...",
-                text: $urlString,
-                width: MAYNControlMetrics.wideTextFieldWidth,
-                autofocus: true
-            )
-
-            HStack(spacing: 8) {
-                StatusPill(text: "Ready", kind: .neutral)
-                Text("Metadata will appear immediately after enqueue.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            TextEditor(text: $urlString)
+                .font(.body)
+                .frame(width: MAYNControlMetrics.wideTextFieldWidth, height: 120)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius))
+                .overlay(
+                    RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius)
+                        .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                )
 
             HStack {
                 Spacer()
@@ -69,7 +66,7 @@ struct DownloadAddURLSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 430)
+        .frame(width: 480)
         .background(MAYNTheme.window)
     }
 }

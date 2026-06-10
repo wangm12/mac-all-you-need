@@ -66,11 +66,20 @@ struct DownloadsDestinationView: View {
                 onDownload: submitAddURL
             )
         }
+        .background {
+            DownloadPickerHost(vm: controller.downloaderVM)
+        }
         .onChange(of: concurrency) { _, n in
             Task { await controller.downloader.queue.setMaxConcurrent(n) }
         }
         .onAppear {
             hotkeyMap = HotkeyMapStore.load()
+            refreshDetectedClipboardURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshDetectedClipboardURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pasteboardChanged)) { _ in
             refreshDetectedClipboardURL()
         }
         .onReceive(NotificationCenter.default.publisher(for: .addDownloadRequested)) { _ in
@@ -255,4 +264,8 @@ private struct DownloadClipboardURLDetectedBanner: View {
                 .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
         )
     }
+}
+
+private extension Notification.Name {
+    static let pasteboardChanged = Notification.Name("NSPasteboardChangedNotification")
 }

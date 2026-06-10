@@ -7,6 +7,7 @@ enum DownloadFilenameTemplatePreset: String, CaseIterable, Identifiable {
     case titleAndChannel
     case titleAndID
     case dateAndTitle
+    case playlistCollection
     case custom
 
     var id: String { rawValue }
@@ -21,6 +22,8 @@ enum DownloadFilenameTemplatePreset: String, CaseIterable, Identifiable {
             "Title + video ID"
         case .dateAndTitle:
             "Date + title"
+        case .playlistCollection:
+            "Playlist / channel batch"
         case .custom:
             "Custom pattern"
         }
@@ -36,6 +39,8 @@ enum DownloadFilenameTemplatePreset: String, CaseIterable, Identifiable {
             "Best for avoiding duplicate filenames."
         case .dateAndTitle:
             "Good for playlists and chronological archives."
+        case .playlistCollection:
+            "Organizes bulk downloads with uploader and playlist tokens."
         case .custom:
             "Write your own pattern with tokens."
         }
@@ -51,6 +56,8 @@ enum DownloadFilenameTemplatePreset: String, CaseIterable, Identifiable {
             "%(title)s [%(id)s].%(ext)s"
         case .dateAndTitle:
             "%(upload_date)s - %(title)s.%(ext)s"
+        case .playlistCollection:
+            "%(uploader)s/%(playlist)s/%(title)s [%(id)s].%(ext)s"
         case .custom:
             nil
         }
@@ -79,6 +86,7 @@ enum DownloadFilenameTemplatePreset: String, CaseIterable, Identifiable {
         return trimmed
             .replacingOccurrences(of: "%(title)s", with: "My Video")
             .replacingOccurrences(of: "%(uploader)s", with: "Creator")
+            .replacingOccurrences(of: "%(playlist)s", with: "Summer Mix")
             .replacingOccurrences(of: "%(id)s", with: "abc123")
             .replacingOccurrences(of: "%(upload_date)s", with: "20260512")
             .replacingOccurrences(of: "%(ext)s", with: "mp4")
@@ -86,8 +94,8 @@ enum DownloadFilenameTemplatePreset: String, CaseIterable, Identifiable {
 }
 
 enum DownloadsSettingsPresentation {
-    static let interruptedRecoveryTitle = "Retry interrupted downloads on launch"
-    static let interruptedRecoverySubtitle = "Move interrupted items to Failed so they can be retried explicitly."
+    static let interruptedRecoveryTitle = "Resume interrupted downloads on launch"
+    static let interruptedRecoverySubtitle = "Interrupted downloads are paused on launch so you can resume them explicitly."
     static let interruptedRecoveryStatusText = "Automatic"
     static let filenameExampleActionTitle = "Copy"
     static let cookieProfileTitle = "Cookie profiles"
@@ -148,7 +156,55 @@ private struct DownloadQueueSettingsSection: View {
 }
 
 private struct DownloadDownloaderSettingsSection: View {
+    @AppStorage("downloadDefaultVideoQuality", store: AppGroupSettings.defaults) private var defaultQuality = 1080
+    @AppStorage("downloadCollectionSubfolder", store: AppGroupSettings.defaults) private var collectionSubfolder = true
+    @AppStorage("downloadAutoEnqueueSingleURL", store: AppGroupSettings.defaults) private var autoEnqueueSingleURL = false
+    @AppStorage("downloadBatchSleepSeconds", store: AppGroupSettings.defaults) private var batchSleepSeconds = 0.0
+
     var body: some View {
+        MAYNSection(title: "Bulk downloads") {
+            MAYNSettingsRow(
+                title: "Default video quality",
+                subtitle: "Used when adding playlists or channels from the collection picker."
+            ) {
+                MAYNDropdown(
+                    selection: $defaultQuality,
+                    options: [144, 240, 360, 720, 1080],
+                    title: { "\($0)p" },
+                    width: 88
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Collection subfolders",
+                subtitle: "Save playlist and profile batches into a folder named after the collection."
+            ) {
+                Toggle("", isOn: $collectionSubfolder)
+                    .labelsHidden()
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Batch start delay",
+                subtitle: "Seconds between starting each item in a bulk enqueue. Douyin profiles ≥50 items use 0.25s automatically when this is 0."
+            ) {
+                MAYNDropdown(
+                    selection: $batchSleepSeconds,
+                    options: [0.0, 0.25, 0.5, 1.0],
+                    title: { value in
+                        value == 0 ? "Auto" : String(format: "%.2gs", value)
+                    },
+                    width: 88
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Skip format picker for single URLs",
+                subtitle: "Enqueue single video URLs immediately using the default quality above."
+            ) {
+                Toggle("", isOn: $autoEnqueueSingleURL)
+                    .labelsHidden()
+            }
+        }
         MAYNSection(title: "Downloader") {
             MAYNSettingsRow(
                 title: DownloadsSettingsPresentation.cookieProfileTitle,

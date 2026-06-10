@@ -1,16 +1,38 @@
 import Core
+import FeatureCore
 
 extension AppController {
     func showStartupSurface() {
-        let surface = MainStartupSurfaceRouter.surface(
+        Task { @MainActor in
+            let surface = await resolvedStartupSurface()
+            presentStartupSurface(surface)
+        }
+    }
+
+    @MainActor
+    private func resolvedStartupSurface() async -> MainStartupSurface {
+        let registryOrder = await runtime.registry.descriptors.map(\.id)
+        var enabledIDs = Set<FeatureID>()
+        for id in registryOrder {
+            let state = await runtime.manager.state(for: id)
+            if state.activationState == .enabled {
+                enabledIDs.insert(id)
+            }
+        }
+        return MainStartupSurfaceRouter.surface(
             appOnboardingCompleted: onboarding == .completed,
-            voiceOnboardingCompleted: VoiceOnboardingProgressStore.load().isCompleted
+            registryOrder: registryOrder,
+            featureEnabled: { enabledIDs.contains($0) }
         )
+    }
+
+    @MainActor
+    private func presentStartupSurface(_ surface: MainStartupSurface) {
         switch surface {
         case .appOnboarding:
             onboardingWindow.show()
-        case .voiceOnboarding:
-            voiceOnboardingWindow.show()
+        case .featureOnboarding(let id):
+            showFeatureOnboarding(id)
         case .mainWindow:
             showMainWindow()
         }
@@ -29,14 +51,13 @@ extension AppController {
     }
 
     func showMainWindowIfReady() {
-        let surface = MainStartupSurfaceRouter.surface(
-            appOnboardingCompleted: onboarding == .completed,
-            voiceOnboardingCompleted: VoiceOnboardingProgressStore.load().isCompleted
-        )
-        if surface == .mainWindow {
-            showMainWindow()
-        } else {
-            showStartupSurface()
+        Task { @MainActor in
+            let surface = await resolvedStartupSurface()
+            if surface == .mainWindow {
+                showMainWindow()
+            } else {
+                presentStartupSurface(surface)
+            }
         }
     }
 
@@ -52,6 +73,12 @@ extension AppController {
     }
 
     func resetOnboarding() {
+        DeferredPermissionsStore.reset()
+        Task { @MainActor in
+            let order = await runtime.registry.descriptors.map(\.id)
+            FeatureOnboardingProgressStore.resetAll(registryOrder: order)
+        }
+        VoiceOnboardingProgressStore.reset()
         setOnboarding(.notStarted)
     }
 
@@ -59,10 +86,22 @@ extension AppController {
         showStartupSurface()
     }
 
-    func showVoiceOnboardingIfNeeded() {
+    func showFeatureOnboarding(_ id: FeatureID) {
+        if id == .voice {
+            voiceOnboardingWindow.show()
+        } else {
+            onboardingWindow.showStandaloneWizard(for: id)
+        }
+    }
+
+    func showFeatureOnboardingIfNeeded(for id: FeatureID) {
         guard onboarding == .completed else { return }
-        guard !VoiceOnboardingProgressStore.load().isCompleted else { return }
-        voiceOnboardingWindow.show()
+        guard !FeatureOnboardingProgressStore.isCompleted(id) else { return }
+        Task { @MainActor in
+            let state = await runtime.manager.state(for: id)
+            guard state.activationState == .enabled else { return }
+            showFeatureOnboarding(id)
+        }
     }
 
     func showVoiceOnboarding() {

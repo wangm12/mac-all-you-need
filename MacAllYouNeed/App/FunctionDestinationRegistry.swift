@@ -3,6 +3,7 @@ import Core
 import FeatureCore
 import Foundation
 import Platform
+import SwiftUI
 
 enum WindowControlPagePresentation {
     static let showsCombinedTabbedPage = false
@@ -104,6 +105,19 @@ enum DashboardToolTilePresentation {
                 featureID: .clipboard
             ),
             DashboardToolTileItem(
+                destination: .snippets,
+                title: "Snippets",
+                metric: nil,
+                detail: "Expand reusable text from this Mac.",
+                symbolName: "text.quote",
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil,
+                // Snippets surfaces the Clipboard feature; there is no separate SnippetsFeatureID.
+                featureID: .clipboard,
+                proxiesFeatureID: .clipboard
+            ),
+            DashboardToolTileItem(
                 destination: .voice,
                 title: "Voice",
                 metric: nil,
@@ -113,6 +127,17 @@ enum DashboardToolTilePresentation {
                 statusText: nil,
                 statusKind: nil,
                 featureID: .voice
+            ),
+            DashboardToolTileItem(
+                destination: .voiceReminders,
+                title: "Voice Reminders",
+                metric: nil,
+                detail: "Speak a task and save it directly to Apple Reminders.",
+                symbolName: "checklist",
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil,
+                featureID: .voiceReminders
             ),
             DashboardToolTileItem(
                 destination: .downloads,
@@ -137,17 +162,26 @@ enum DashboardToolTilePresentation {
                 featureID: .folderPreview
             ),
             DashboardToolTileItem(
-                destination: .snippets,
-                title: "Snippets",
+                destination: .finderHistory,
+                title: "Finder Folder History",
                 metric: nil,
-                detail: "Expand reusable text from this Mac.",
-                symbolName: "text.quote",
+                detail: "Jump back to recently visited Finder folders via hotkey.",
+                symbolName: "clock.badge.checkmark",
                 shortcutDisplay: nil,
                 statusText: nil,
                 statusKind: nil,
-                // Snippets surfaces the Clipboard feature; there is no separate SnippetsFeatureID.
-                featureID: .clipboard,
-                proxiesFeatureID: .clipboard
+                featureID: .folderHistory
+            ),
+            DashboardToolTileItem(
+                destination: .aiFileOrganizer,
+                title: "AI File Organizer",
+                metric: nil,
+                detail: "Rename and re-file messy folders using on-device content extraction.",
+                symbolName: "sparkles.rectangle.stack",
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil,
+                featureID: .aiFileOrganizer
             ),
             DashboardToolTileItem(
                 destination: .windowLayouts,
@@ -172,39 +206,6 @@ enum DashboardToolTilePresentation {
                 featureID: .windowGrab
             ),
             DashboardToolTileItem(
-                destination: .voice,
-                title: "Voice Reminders",
-                metric: nil,
-                detail: "Speak a task and save it directly to Apple Reminders.",
-                symbolName: "checklist",
-                shortcutDisplay: nil,
-                statusText: nil,
-                statusKind: nil,
-                featureID: .voiceReminders
-            ),
-            DashboardToolTileItem(
-                destination: .finderHistory,
-                title: "Finder Folder History",
-                metric: nil,
-                detail: "Jump back to recently visited Finder folders via hotkey.",
-                symbolName: "clock.badge.checkmark",
-                shortcutDisplay: nil,
-                statusText: nil,
-                statusKind: nil,
-                featureID: .folderHistory
-            ),
-            DashboardToolTileItem(
-                destination: .aiFileOrganizer,
-                title: "AI File Organizer",
-                metric: nil,
-                detail: "Rename and re-file messy folders using on-device content extraction.",
-                symbolName: "sparkles.rectangle.stack",
-                shortcutDisplay: nil,
-                statusText: nil,
-                statusKind: nil,
-                featureID: .aiFileOrganizer
-            ),
-            DashboardToolTileItem(
                 destination: .dockPreviews,
                 title: "Dock Hover Previews",
                 metric: nil,
@@ -216,6 +217,39 @@ enum DashboardToolTilePresentation {
                 featureID: .dockPreviews
             )
         ]
+    }
+
+    /// Primary dashboard tile for a feature (excludes proxy tiles such as Snippets → Clipboard).
+    static func primaryTile(for featureID: FeatureID) -> DashboardToolTileItem? {
+        dashboardTiles(clipboardCount: 0, downloadsQueueCount: 0)
+            .first { $0.featureID == featureID && $0.proxiesFeatureID == nil }
+    }
+
+    static func accent(for destination: MainAppDestination) -> Color {
+        switch destination {
+        case .clipboard:
+            Color(red: 0.10, green: 0.42, blue: 0.92)
+        case .voice:
+            Color(red: 0.64, green: 0.22, blue: 0.88)
+        case .downloads:
+            Color(red: 0.02, green: 0.58, blue: 0.42)
+        case .folderPreview:
+            Color(red: 0.86, green: 0.46, blue: 0.12)
+        case .snippets:
+            Color(red: 0.82, green: 0.18, blue: 0.36)
+        case .windowLayouts:
+            Color(red: 0.20, green: 0.48, blue: 0.72)
+        case .grabAnywhere:
+            Color(red: 0.24, green: 0.46, blue: 0.36)
+        case .dockPreviews:
+            Color(red: 0.10, green: 0.42, blue: 0.92)
+        case .finderHistory:
+            Color(red: 0.86, green: 0.46, blue: 0.12)
+        case .aiFileOrganizer:
+            Color(red: 0.02, green: 0.58, blue: 0.42)
+        case .dashboard, .settings, .voiceReminders:
+            .secondary
+        }
     }
 
     private static func windowLayoutsStatusText(settings: WindowControlSettings, axTrusted: Bool) -> String? {

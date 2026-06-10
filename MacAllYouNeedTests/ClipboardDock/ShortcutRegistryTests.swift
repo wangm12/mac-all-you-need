@@ -65,7 +65,7 @@ final class ShortcutRegistryTests: XCTestCase {
         let registry = ShortcutRegistry()
         let escapeForDismiss = HotkeyDescriptor(keyCode: 53, modifiers: [])
 
-        XCTAssertNoThrow(try registry.validate(escapeForDismiss, for: .dismiss))
+        XCTAssertThrowsError(try registry.validate(escapeForDismiss, for: .dismiss))
     }
 
     func testMigratesLegacyShortcutBindingPayload() {

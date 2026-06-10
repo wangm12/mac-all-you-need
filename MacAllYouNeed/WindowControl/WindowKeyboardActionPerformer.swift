@@ -19,6 +19,11 @@ final class WindowKeyboardActionPerformer: WindowControlActionPerforming {
         set { mover.repeatHalfAcrossDisplays = newValue }
     }
 
+    var animateMoves: Bool {
+        get { mover.animateMoves }
+        set { mover.animateMoves = newValue }
+    }
+
     init(mover: WindowMover = WindowMover()) {
         self.mover = mover
     }

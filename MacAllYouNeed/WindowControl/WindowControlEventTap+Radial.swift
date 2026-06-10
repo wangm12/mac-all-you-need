@@ -20,7 +20,11 @@ extension WindowControlEventTap {
     /// Builds the CGEvent mask. Radial keys (`flagsChanged` + `mouseMoved`) are
     /// only included when the radial menu is enabled, so the tap does not see
     /// pointer/modifier traffic it would otherwise ignore.
-    func eventMask(includeRadialKeys: Bool, includeLayoutHotkeys: Bool) -> CGEventMask {
+    func eventMask(
+        includeRadialKeys: Bool,
+        includeLayoutHotkeys: Bool,
+        includeScrollResize: Bool = false
+    ) -> CGEventMask {
         let mouseMask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
             | CGEventMask(1 << CGEventType.leftMouseDragged.rawValue)
             | CGEventMask(1 << CGEventType.leftMouseUp.rawValue)
@@ -36,6 +40,9 @@ extension WindowControlEventTap {
         }
         if includeLayoutHotkeys || includeRadialKeys {
             mask |= CGEventMask(1 << CGEventType.keyDown.rawValue)
+        }
+        if includeScrollResize {
+            mask |= CGEventMask(1 << CGEventType.scrollWheel.rawValue)
         }
         return mask
     }

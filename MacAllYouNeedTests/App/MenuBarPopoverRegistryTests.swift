@@ -12,6 +12,8 @@ final class MenuBarPopoverRegistryTests: XCTestCase {
             .downloads,
             .layouts,
             .snippets,
+            .reminders,
+            .folders,
         ]
         XCTAssertEqual(AppMenuBarContent.Tab.allCases, expected,
             "Tab order or membership changed — update split files and this test.")

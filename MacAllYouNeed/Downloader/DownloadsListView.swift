@@ -11,6 +11,10 @@ struct DownloadsListView: View {
     var onAddURL: (() -> Void)?
     @FocusState private var listFocused: Bool
     @State private var keyMonitor: NSEventMonitorHandle? = nil
+    @State private var expandedGroups: Set<String> = []
+    @State private var showAllInGroup: Set<String> = []
+    @State private var deleteGroup: DownloadCollectionGrouping.Group?
+    private let visibleItemCap = 5
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,6 +23,10 @@ struct DownloadsListView: View {
                 MAYNDivider()
                 if let warning = vm.cookieWarning {
                     cookieWarningBanner(warning)
+                    MAYNDivider()
+                }
+                if vm.interruptedRecoveryCount > 0, filter != .completed {
+                    interruptedBanner
                     MAYNDivider()
                 }
                 if DownloadsQueuePresentation.showsFailedBanner(rows: vm.rows, filter: filter) {
@@ -36,23 +44,32 @@ struct DownloadsListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(visibleRows, id: \.id) { record in
-                            DownloadJobRow(
-                                model: DownloadJobRowModel(
-                                    record: record,
-                                    progress: vm.liveProgress[record.id.rawValue],
-                                    statusText: vm.liveStatus[record.id.rawValue]
-                                ),
-                                isSelected: vm.selectedIDs.contains(record.id.rawValue),
-                                isCompact: surface == .commandCenter,
-                                onTap: { handleTap(id: record.id.rawValue) },
-                                onPrimaryAction: { performPrimaryAction(for: record) },
-                                onDelete: { Task { await vm.delete(ids: [record.id]) } }
-                            )
+                        ForEach(listItems) { item in
+                            switch item {
+                            case let .group(group):
+                                groupSection(group)
+                            case let .single(record):
+                                row(for: record, indent: false)
+                            }
                         }
                     }
                 }
             }
+        }
+        .sheet(item: $deleteGroup) { group in
+            DownloadCollectionDeleteSheet(
+                title: group.title,
+                itemCount: group.totalCount,
+                onCancel: { deleteGroup = nil },
+                onRemoveListOnly: {
+                    deleteGroup = nil
+                    Task { await vm.deleteCollection(id: group.id, deleteFiles: false) }
+                },
+                onRemoveWithFiles: {
+                    deleteGroup = nil
+                    Task { await vm.deleteCollection(id: group.id, deleteFiles: true) }
+                }
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(surface == .main ? Color.clear : MAYNTheme.window)
@@ -62,6 +79,14 @@ struct DownloadsListView: View {
         .onAppear {
             listFocused = true
             installKeyMonitor()
+            if expandedGroups.isEmpty {
+                if surface == .main {
+                    expandedGroups = Set(listItems.compactMap { item in
+                        if case let .group(group) = item { return group.id }
+                        return nil
+                    })
+                }
+            }
         }
         .onDisappear {
             keyMonitor = nil
@@ -73,6 +98,104 @@ struct DownloadsListView: View {
 
     private var visibleRows: [DownloadRecord] {
         DownloadsQueuePresentation.visibleRows(vm.rows, filter: filter)
+    }
+
+    private var listItems: [DownloadCollectionGrouping.ListItem] {
+        DownloadCollectionGrouping.items(from: visibleRows)
+    }
+
+    @ViewBuilder
+    private func groupSection(_ group: DownloadCollectionGrouping.Group) -> some View {
+        let expanded = expandedGroups.contains(group.id)
+        let progress = DownloadCollectionGrouping.aggregateProgress(
+            records: group.records,
+            liveProgress: vm.liveProgress
+        )
+        let speed = DownloadCollectionGrouping.aggregateSpeedBytes(
+            records: group.records,
+            liveProgress: vm.liveProgress
+        )
+        let speedText = speed > 0
+            ? "\(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/s"
+            : nil
+        let running = group.records.filter { $0.state == .running }
+        let etaText: String? = {
+            guard running.count == 1,
+                  let eta = vm.liveProgress[running[0].id.rawValue]?.etaSeconds,
+                  eta > 0 else { return nil }
+            return "ETA \(eta / 60):\(String(format: "%02d", eta % 60))"
+        }()
+        let hasActive = group.records.contains { $0.state == .running || $0.state == .queued }
+        let resumable = group.records.contains { $0.state == .paused || $0.state == .failed }
+
+        DownloadCollectionGroupHeader(
+            group: group,
+            progress: progress,
+            speedText: speedText,
+            etaText: etaText,
+            isExpanded: expanded,
+            showsPauseAll: hasActive,
+            showsResumeAll: !hasActive && resumable,
+            onToggleExpanded: {
+                if expanded { expandedGroups.remove(group.id) } else { expandedGroups.insert(group.id) }
+            },
+            onPauseAll: { Task { await vm.pauseCollection(id: group.id) } },
+            onResumeAll: { Task { await vm.resumeCollection(id: group.id) } },
+            onDelete: { deleteGroup = group }
+        )
+
+        if expanded {
+            let showAll = showAllInGroup.contains(group.id)
+            let visibleChildren = showAll ? group.records : Array(group.records.prefix(visibleItemCap))
+            ForEach(visibleChildren, id: \.id) { record in
+                row(for: record, indent: true)
+            }
+            if !showAll, group.records.count > visibleItemCap {
+                Button("Show \(group.records.count - visibleItemCap) more") {
+                    showAllInGroup.insert(group.id)
+                }
+                .font(.caption.weight(.medium))
+                .padding(.leading, 32)
+                .padding(.vertical, 8)
+            }
+        }
+    }
+
+    private func row(for record: DownloadRecord, indent: Bool) -> some View {
+        DownloadJobRow(
+            model: DownloadJobRowModel(
+                record: record,
+                progress: vm.liveProgress[record.id.rawValue],
+                statusText: vm.liveStatus[record.id.rawValue]
+            ),
+            isSelected: vm.selectedIDs.contains(record.id.rawValue),
+            isCompact: surface == .commandCenter,
+            onTap: { handleTap(id: record.id.rawValue) },
+            onPrimaryAction: { performPrimaryAction(for: record) },
+            onDelete: { Task { await vm.delete(ids: [record.id]) } }
+        )
+        .padding(.leading, indent ? 16 : 0)
+    }
+
+    private var interruptedBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "pause.circle.fill")
+                .foregroundStyle(MAYNTheme.warning)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(vm.interruptedRecoveryCount) downloads were interrupted")
+                    .font(.callout.weight(.semibold))
+                Text("Resume all to continue from partial files.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            MAYNButton("Resume all") {
+                Task { await vm.resumeInterruptedDownloads() }
+            }
+        }
+        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
+        .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
+        .background(MAYNTheme.warning.opacity(0.08))
     }
 
     // MARK: - Header

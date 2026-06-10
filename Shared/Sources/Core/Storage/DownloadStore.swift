@@ -30,6 +30,46 @@ public final class DownloadStore {
     ]
 
     @discardableResult
+    public func insertBulk(_ records: [DownloadRecord]) throws -> [RecordID] {
+        guard !records.isEmpty else { return [] }
+        guard records.count <= PlaylistEntryLister.maxBulkItems else {
+            throw PlaylistListError.tooManyItems(count: records.count)
+        }
+
+        var ids: [RecordID] = []
+        let baseCreated = Date()
+        try db.queue.write { conn in
+            for (offset, var record) in records.enumerated() {
+                record.created = baseCreated.addingTimeInterval(Double(offset) * 0.001)
+                record.modified = record.created
+                let payload = try JSONEncoder().encode(record)
+                let env = try Cipher.seal(payload, with: key)
+                try conn.execute(sql: """
+                    INSERT INTO downloads (id, state, created, modified, device_id, lamport, envelope) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    record.id.rawValue, record.state.rawValue,
+                    Int(record.created.timeIntervalSince1970 * 1000),
+                    Int(record.modified.timeIntervalSince1970 * 1000),
+                    record.deviceID?.rawValue,
+                    Int(record.lamport),
+                    env.combined
+                ])
+                ids.append(record.id)
+            }
+        }
+        return ids
+    }
+
+    public func fetchAll() throws -> [DownloadRecord] {
+        let ids = try list()
+        return try ids.compactMap { try? fetch(id: $0) }
+    }
+
+    public func records(inCollection collectionID: String) throws -> [DownloadRecord] {
+        try fetchAll().filter { $0.collectionID == collectionID }
+    }
+
+    @discardableResult
     public func insert(_ record: DownloadRecord) throws -> RecordID {
         let payload = try JSONEncoder().encode(record)
         let env = try Cipher.seal(payload, with: key)

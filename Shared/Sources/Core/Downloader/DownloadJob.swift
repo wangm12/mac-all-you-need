@@ -4,23 +4,38 @@ public final class DownloadJob {
     public let recordID: RecordID
     public let url: String
     public let destination: URL
+    public let collectionID: String?
+    public let collectionIndex: Int?
+    public let enqueuedAt: Date
     public let process: Process
     public let pipe: Pipe
 
     public init(
-        recordID: RecordID, url: String, destination: URL,
-        ytdlp: URL, ffmpeg: URL, extraArgs: [String]
+        recordID: RecordID,
+        url: String,
+        destination: URL,
+        ytdlp: URL,
+        ffmpeg: URL,
+        extraArgs: [String] = [],
+        collectionID: String? = nil,
+        collectionIndex: Int? = nil,
+        enqueuedAt: Date = Date()
     ) {
         self.recordID = recordID
         self.url = url
         self.destination = destination
+        self.collectionID = collectionID
+        self.collectionIndex = collectionIndex
+        self.enqueuedAt = enqueuedAt
         let p = Process()
         p.executableURL = ytdlp
+        let tempDir = DownloadDestinationBuilder.ytdlpTempDirectory()
         var args: [String] = [
             "--newline", "--progress", "--no-colors", "--continue",
-            "--no-check-certificate", // PyInstaller bundled Python can't find macOS system CA
-            "--concurrent-fragments", "4", // parallel HLS/DASH fragment downloads
+            "--no-check-certificate",
+            "--concurrent-fragments", "4",
             "--ffmpeg-location", ffmpeg.path,
+            "--paths", "temp:\(tempDir.path)",
             "-o", destination.path
         ]
         // Provide Node.js runtime for yt-dlp 2026+ JavaScript extraction

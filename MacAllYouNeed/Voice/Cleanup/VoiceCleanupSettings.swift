@@ -38,7 +38,7 @@ enum VoiceCleanupProviderKind: String, CaseIterable, Codable, Equatable, Identif
         case .openAICompatible:
             "gpt-5-nano"
         case .groq:
-            "llama-3.1-8b-instant"
+            "openai/gpt-oss-20b"
         case .gemini:
             "gemini-2.5-flash"
         case .ollama:

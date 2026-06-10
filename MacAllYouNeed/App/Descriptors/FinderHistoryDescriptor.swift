@@ -20,7 +20,7 @@ enum FinderHistoryDescriptor {
             )),
             activator: FinderHistoryFeatureActivator(),
             settingsTabFactory: { AnyView(FolderHistoryPageView()) },
-            onboardingSetupFactory: { AnyView(FolderHistoryOnboardingSetupView()) },
+            onboardingSetupFactory: nil,
             menuBarItemFactory: {
                 AnyView(FolderHistoryMenuBarMount())
             }

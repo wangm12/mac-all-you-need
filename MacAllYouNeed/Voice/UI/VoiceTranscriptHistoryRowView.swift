@@ -13,6 +13,7 @@ struct VoiceTranscriptHistoryRowView: View {
     let transcript: VoiceTranscript
     let surface: Surface
     let isSelected: Bool
+    let isRetrying: Bool
     let onSelect: () -> Void
     let onCopy: () -> Void
     let onRetry: () -> Void
@@ -59,6 +60,7 @@ struct VoiceTranscriptHistoryRowView: View {
             case .main:
                 VoiceTranscriptRowMenu(
                     hasAudio: hasAudio,
+                    retryEnabled: !isRetrying,
                     onRetry: onRetry,
                     onDownload: onDownload,
                     onDelete: onDelete
@@ -73,10 +75,10 @@ struct VoiceTranscriptHistoryRowView: View {
                     accessibilityLabel: "Retry transcription",
                     action: onRetry
                 )
-                .disabled(!hasAudio)
+                .disabled(!hasAudio || isRetrying)
                 .help(
                     hasAudio
-                        ? "Retry transcription"
+                        ? (isRetrying ? "Retrying..." : "Retry transcription")
                         : "Audio recording wasn't saved for this transcript"
                 )
             }

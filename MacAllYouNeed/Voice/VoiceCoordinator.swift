@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Core
 import Foundation
 import Observation
@@ -31,17 +32,38 @@ final class VoiceCoordinator {
     private let activation = VoiceActivationMonitor()
     let log = Logger(subsystem: "com.macallyouneed.voice", category: "coordinator")
     private var levelTask: Task<Void, Never>?
+    private var liveFeedTask: Task<Void, Never>?
+    private let liveFeed = VoiceLiveAudioFeed()
+    private var liveSession: (any VoiceLiveTranscriptionSession)?
+    private var liveSessionGeneration = 0
+    private struct PendingPipelineMetrics {
+        let recordingMs: Int
+        let liveFinishMs: Int
+        let liveUsed: Bool
+    }
+    private struct VoiceStageTimeouts {
+        static let liveFinalizeSeconds: TimeInterval = 0.8
+        static let cleanupSeconds: TimeInterval = 12.0
+        static let pasteSeconds: TimeInterval = 2.0
+    }
+
+    private var pendingPipelineMetrics: PendingPipelineMetrics?
+    private var isStoppingRecording = false
     private var monitorTask: Task<Void, Never>?
+    private var errorDismissTask: Task<Void, Never>?
     private var cleanupSettings: VoiceCleanupSettings
     private var operationGeneration = 0
     private var activationMonitoringSuspended = false
+    private var inputSourceChangedDuringRun = false
+    private var inputSourceAtRecordingStart: String?
+    private var inputSourceObserver: NSObjectProtocol?
 
     /// Test seams. Production callers go through the public `init` which sets
     /// these to live defaults (`CursorPaster.paste`, real AX reader, real
     /// cleanup factory, real learning monitor, no-op observer). Tests use the
     /// internal init below to swap them out.
     private let cleanupPipelineFactoryOverride: ((TimeInterval) -> VoiceCleanupPipeline)?
-    private let pasterOverride: ((String) async -> CursorPaster.Result)?
+    private let pasterOverride: ((String, AXTargetSnapshot?) async -> CursorPaster.Result)?
     private let snapshotFocusedOverride: (() -> AXTargetSnapshot?)?
     private let learningStarterOverride: ((String, String?, String?, Bool, AXTargetSnapshot?) -> Void)?
     private let cleanupObserver: ((VoiceCleanupRequest) -> Void)?
@@ -126,7 +148,7 @@ final class VoiceCoordinator {
         historySettings: @escaping () -> VoiceHistorySettings = { .init() },
         reminderSettings: @escaping () -> ReminderSettings = { ReminderSettings.default },
         cleanupPipelineFactory: ((TimeInterval) -> VoiceCleanupPipeline)?,
-        paster: ((String) async -> CursorPaster.Result)?,
+        paster: ((String, AXTargetSnapshot?) async -> CursorPaster.Result)?,
         snapshotFocused: (() -> AXTargetSnapshot?)?,
         learningStarter: ((String, String?, String?, Bool, AXTargetSnapshot?) -> Void)?,
         cleanupObserver: ((VoiceCleanupRequest) -> Void)?
@@ -169,6 +191,7 @@ final class VoiceCoordinator {
             Task.detached { await qwen.warmup() }
         }
         escKeyMonitor.install()
+        installInputSourceObserverIfNeeded()
     }
 
     func applyActivationSettings(_ settings: VoiceActivationSettings) throws {
@@ -219,13 +242,18 @@ final class VoiceCoordinator {
 
     func stop() {
         operationGeneration += 1
+        cancelErrorDismissTask()
         activationMonitoringSuspended = false
         activation.stop()
         levelTask?.cancel()
         levelTask = nil
+        liveFeedTask?.cancel()
+        liveFeedTask = nil
+        Task { await cancelLiveASR() }
         monitorTask?.cancel()
         monitorTask = nil
         _ = audio.stop()
+        uninstallInputSourceObserver()
         hud.dismiss()
     }
 
@@ -245,6 +273,13 @@ final class VoiceCoordinator {
             return
         }
         lastTranscript = nil
+        inputSourceAtRecordingStart = currentInputSourceName()
+        inputSourceChangedDuringRun = false
+        Task {
+            if let local = engine as? VoiceLocalASREngine {
+                await local.warmup()
+            }
+        }
         guard await audio.requestPermission() else {
             log.error("startRecording: microphone permission denied")
             fail("Microphone permission denied")
@@ -257,6 +292,7 @@ final class VoiceCoordinator {
             log.info("recording started — generation: \(self.operationGeneration, privacy: .public)")
             hud.show(.recording(level: 0), onCancel: makeCancelAction(), onPrimary: makeCancelAction())
             startLevelUpdates()
+            await beginLiveASR(generation: operationGeneration)
         } catch {
             log.error("audio start failed: \(error.localizedDescription, privacy: .public)")
             fail(error.localizedDescription)
@@ -265,17 +301,52 @@ final class VoiceCoordinator {
 
     func stopRecordingAndPaste() async {
         guard state == .recording else { return }
+        guard !isStoppingRecording else { return }
+        isStoppingRecording = true
+        defer { isStoppingRecording = false }
+        showTranscribingPhase(.finalizing)
         levelTask?.cancel()
         levelTask = nil
+        liveFeedTask?.cancel()
+        liveFeedTask = nil
+
+        let liveGeneration = liveSessionGeneration
+        if let snapshot = audio.liveFeedSnapshot(),
+           let session = liveSession,
+           liveGeneration == liveSessionGeneration
+        {
+            try? await liveFeed.drain(snapshot: snapshot, into: session)
+        }
 
         guard let captured = audio.stop(), captured.samples.count > 800 else {
+            await cancelLiveASR()
             log.error("stopRecordingAndPaste: insufficient audio captured (need >800 samples)")
             fail("No usable audio captured")
             return
         }
 
-        log.info("stopRecordingAndPaste — samples: \(captured.samples.count, privacy: .public) sampleRate: \(captured.sampleRate, privacy: .public) peak: \(captured.peakLevel, privacy: .public)")
-        await processCapturedAudio(captured: captured, presetASRResult: nil, presetAppBundleID: nil)
+        let liveFinishStartedAt = Date()
+        let presetASRResult = (await withTimeout(seconds: VoiceStageTimeouts.liveFinalizeSeconds) {
+            await self.finishLiveASRIfEligible(
+            captured: captured,
+            generation: liveGeneration
+        )
+        }) ?? nil
+        if presetASRResult == nil {
+            log.info("live ASR finalize timed out or empty — continuing with batch ASR")
+        }
+        pendingPipelineMetrics = PendingPipelineMetrics(
+            recordingMs: Int(captured.endedAt.timeIntervalSince(captured.startedAt) * 1000),
+            liveFinishMs: Int(Date().timeIntervalSince(liveFinishStartedAt) * 1000),
+            liveUsed: presetASRResult != nil
+        )
+
+        log.info("stopRecordingAndPaste — samples: \(captured.samples.count, privacy: .public) sampleRate: \(captured.sampleRate, privacy: .public) peak: \(captured.peakLevel, privacy: .public) liveASR: \(presetASRResult != nil, privacy: .public)")
+        await processCapturedAudio(
+            captured: captured,
+            presetASRResult: presetASRResult,
+            presetAppBundleID: nil
+        )
     }
 
     /// Drives the ASR → cleanup → paste → save → learning pipeline against
@@ -286,20 +357,16 @@ final class VoiceCoordinator {
     func processCapturedAudio(
         captured: CapturedAudio,
         presetASRResult: VoiceTranscriptionResult?,
-        presetAppBundleID: String?
+        presetAppBundleID: String?,
+        retrySourceTranscriptID: String? = nil
     ) async {
         operationGeneration += 1
         let generation = operationGeneration
         let appBundleID = presetAppBundleID ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         state = .transcribing
+        isStoppingRecording = false
         undoBookkeeping.setInflight(captured: captured, appBundleID: appBundleID, asrResult: presetASRResult)
-        hud.show(
-            presetASRResult == nil
-                ? .transcribing(.asr)
-                : .transcribing(.cleanup(progress: 0)),
-            onCancel: makeCancelAction(),
-            onPrimary: makeCancelAction()
-        )
+        showTranscribingPhase(presetASRResult == nil ? .asr : .cleanup(progress: 0))
         log.info("ASR start — app: \(appBundleID ?? "nil", privacy: .public) presetASR: \(presetASRResult != nil, privacy: .public)")
 
         var ctx = VoicePipelineContext(
@@ -307,8 +374,10 @@ final class VoiceCoordinator {
             presetASRResult: presetASRResult,
             appBundleID: appBundleID,
             generation: generation,
+            retrySourceTranscriptID: retrySourceTranscriptID,
             operationStartedAt: Date()
         )
+        ctx.liveFinalizeMs = pendingPipelineMetrics?.liveFinishMs
 
         do {
             // Phase 1 — ASR.
@@ -324,20 +393,98 @@ final class VoiceCoordinator {
             maybePromoteToReminderIntent(rawText: ctx.asrResult?.text)
 
             // Phase 2 — Cleanup.
-            hud.show(
-                .transcribing(.cleanup(progress: 0)),
-                onCancel: makeCancelAction(),
-                onPrimary: makeCancelAction()
-            )
-            await makeCleanupPhase(bundleID: appBundleID, generation: generation).run(&ctx)
+            showTranscribingPhase(.cleanup(progress: 0))
+            let cleanupStartedAt = Date()
+            let cleanupCompleted = await withTimeout(seconds: VoiceStageTimeouts.cleanupSeconds) {
+                await self.makeCleanupPhase(bundleID: appBundleID, generation: generation).run(&ctx)
+                return true
+            } ?? false
+            let cleanupMs = Int(Date().timeIntervalSince(cleanupStartedAt) * 1000)
+            ctx.cleanupMs = cleanupMs
             guard checkpoint(generation) else { return }
-            guard let cleanupResult = ctx.cleanupResult, !cleanupResult.cleanedText.isEmpty else {
-                log.error("processCapturedAudio: cleaned text was empty")
+            if !cleanupCompleted {
+                log.error("processCapturedAudio: cleanup timed out, falling back to raw ASR text")
+                let fallbackText = (ctx.asrResult?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !fallbackText.isEmpty else {
+                    undoBookkeeping.clearInflight()
+                    await failPipeline(
+                        message: "ASR returned empty transcript",
+                        stage: .cleanup,
+                        reason: "cleanup_timeout_empty_fallback",
+                        ctx: ctx
+                    )
+                    return
+                }
+                let fallbackResult = VoiceCleanupResult(
+                    rawText: fallbackText,
+                    cleanedText: fallbackText,
+                    usedLLM: false,
+                    providerIdentifier: nil,
+                    fallbackReason: .deadlineExceeded,
+                    asrMs: ctx.asrMs,
+                    cleanupMs: cleanupMs,
+                    totalMs: Int(Date().timeIntervalSince(ctx.operationStartedAt) * 1000),
+                    deadlineExceeded: true
+                )
+                ctx.cleanupResult = fallbackResult
+                lastTranscript = fallbackResult
+            }
+            guard let cleanupResult = ctx.cleanupResult else {
+                log.error("processCapturedAudio: cleanup result missing")
                 undoBookkeeping.clearInflight()
-                fail("Transcript was empty")
+                await failPipeline(
+                    message: "Transcript was empty",
+                    stage: .cleanup,
+                    reason: "cleanup_result_missing",
+                    ctx: ctx
+                )
                 return
             }
-            lastTranscript = cleanupResult
+            if cleanupResult.cleanedText.isEmpty {
+                let fallbackText = cleanupResult.rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !fallbackText.isEmpty else {
+                    let capturedDuration = ctx.captured.endedAt.timeIntervalSince(ctx.captured.startedAt)
+                    let hasSpeechSignal = capturedDuration >= 1.0 && ctx.captured.peakLevel >= 0.02
+                    if hasSpeechSignal {
+                        log.error(
+                            "processCapturedAudio: ASR empty despite speech signal — duration: \(capturedDuration, privacy: .public)s peak: \(ctx.captured.peakLevel, privacy: .public)"
+                        )
+                        undoBookkeeping.clearInflight()
+                        await failPipeline(
+                            message: "ASR returned empty transcript",
+                            stage: .asr,
+                            reason: "asr_empty_with_speech_signal",
+                            ctx: ctx
+                        )
+                        return
+                    }
+                    log.error("processCapturedAudio: cleaned text was empty")
+                    undoBookkeeping.clearInflight()
+                    await failPipeline(
+                        message: "Transcript was empty",
+                        stage: .cleanup,
+                        reason: "cleanup_empty_and_raw_empty",
+                        ctx: ctx
+                    )
+                    return
+                }
+                log.warning("processCapturedAudio: cleanup empty; using raw ASR transcript fallback")
+                let fallbackResult = VoiceCleanupResult(
+                    rawText: cleanupResult.rawText,
+                    cleanedText: fallbackText,
+                    usedLLM: false,
+                    providerIdentifier: cleanupResult.providerIdentifier,
+                    fallbackReason: .emptyResponse,
+                    asrMs: cleanupResult.asrMs,
+                    cleanupMs: cleanupResult.cleanupMs,
+                    totalMs: cleanupResult.totalMs,
+                    deadlineExceeded: cleanupResult.deadlineExceeded
+                )
+                ctx.cleanupResult = fallbackResult
+                lastTranscript = fallbackResult
+            } else {
+                lastTranscript = cleanupResult
+            }
 
             // Plan 03 — reminder terminal phase replaces paste for the reminder
             // intent (never injects into the focused app). See the extension.
@@ -350,20 +497,65 @@ final class VoiceCoordinator {
 
             // Phase 3 — Paste (also saves transcript + training example).
             state = .pasting
-            try await makePastePhase().run(&ctx)
+            showTranscribingPhase(.pasting)
+            let pasteStartedAt = Date()
+            let pasteCompleted = try await withThrowingTimeout(seconds: VoiceStageTimeouts.pasteSeconds) {
+                try await self.makePastePhase().run(&ctx)
+                return true
+            } ?? false
+            let pasteMs = Int(Date().timeIntervalSince(pasteStartedAt) * 1000)
+            ctx.pasteMs = pasteMs
+            guard pasteCompleted else {
+                undoBookkeeping.clearInflight()
+                await failPipeline(
+                    message: "Paste timed out",
+                    stage: .paste,
+                    reason: "paste_timeout",
+                    ctx: ctx
+                )
+                return
+            }
+            if let pasteResult = ctx.pasteResult, !pasteResult.insertedIntoActiveInput {
+                undoBookkeeping.clearInflight()
+                fail(pasteFailureMessage(for: pasteResult))
+                return
+            }
 
             // Phase 4 — Learning monitor (fire-and-forget).
             makeLearningPhase().run(ctx)
 
             guard isCurrentOperation(generation) else { return }
+            logPipelineMetrics(
+                ctx: ctx,
+                cleanupMs: cleanupMs,
+                pasteMs: pasteMs
+            )
             state = .idle
             undoBookkeeping.clearInflight()
+            inputSourceChangedDuringRun = false
+            inputSourceAtRecordingStart = nil
             hud.dismiss()
         } catch {
             guard isCurrentOperation(generation) else { return }
             undoBookkeeping.clearInflight()
             activeIntent = .dictation
-            fail(error.localizedDescription)
+            inputSourceChangedDuringRun = false
+            inputSourceAtRecordingStart = nil
+            let stage: VoiceTranscriptFailedStage
+            switch state {
+            case .pasting:
+                stage = .paste
+            case .transcribing:
+                stage = .cleanup
+            default:
+                stage = .unknown
+            }
+            await failPipeline(
+                message: error.localizedDescription,
+                stage: stage,
+                reason: "pipeline_exception",
+                ctx: ctx
+            )
         }
     }
 
@@ -404,15 +596,21 @@ final class VoiceCoordinator {
 
     private func makePastePhase() -> PastePhase {
         PastePhase(
-            saveTranscript: { [weak self] id, captured, result, text, bundleID, audioPath in
+            saveTranscript: { [weak self] id, captured, result, text, bundleID, audioPath, status, failedStage, failureReason, retrySourceTranscriptID in
                 guard let self else { throw NSError(domain: "VoiceCoordinator", code: -1) }
                 return try self.saveTranscript(
                     transcriptID: id, captured: captured, result: result,
-                    cleanedText: text, appBundleID: bundleID, audioPath: audioPath
+                    cleanedText: text,
+                    appBundleID: bundleID,
+                    audioPath: audioPath,
+                    status: status,
+                    failedStage: failedStage,
+                    failureReason: failureReason,
+                    retrySourceTranscriptID: retrySourceTranscriptID
                 )
             },
-            persistAudio: { [weak self] captured, id in
-                self?.persistAudio(captured: captured, transcriptID: id)
+            persistAudio: { [weak self] captured, id, forceSave in
+                self?.persistAudio(captured: captured, transcriptID: id, forceSave: forceSave)
             },
             saveTrainingExample: { [weak self] captured, result, text, id, bundleID, audioPath in
                 self?.saveTrainingExample(
@@ -420,7 +618,7 @@ final class VoiceCoordinator {
                     transcriptID: id, appBundleID: bundleID, audioPath: audioPath
                 )
             },
-            paste: pasterOverride ?? { text in await CursorPaster.paste(text) },
+            paste: pasterOverride ?? { text, snapshot in await CursorPaster.paste(text, preferredTarget: snapshot) },
             snapshotFocused: snapshotFocusedOverride ?? { AXFocusedTextReader.snapshotFocused() },
             log: log
         )
@@ -488,6 +686,9 @@ final class VoiceCoordinator {
         activeIntent = .dictation
         levelTask?.cancel()
         levelTask = nil
+        liveFeedTask?.cancel()
+        liveFeedTask = nil
+        Task { await self.cancelLiveASR() }
         monitorTask?.cancel()
         monitorTask = nil
         // During .recording the mic is still open; stop() returns the audio we
@@ -535,7 +736,11 @@ final class VoiceCoordinator {
         result: VoiceTranscriptionResult,
         cleanedText: String,
         appBundleID: String?,
-        audioPath: String?
+        audioPath: String?,
+        status: VoiceTranscriptStatus = .success,
+        failedStage: VoiceTranscriptFailedStage? = nil,
+        failureReason: String? = nil,
+        retrySourceTranscriptID: String? = nil
     ) throws -> VoiceTranscript {
         try transcripts.save(VoiceTranscriptDraft(
             startedAt: captured.startedAt,
@@ -545,7 +750,11 @@ final class VoiceCoordinator {
             appBundleID: appBundleID,
             language: result.language,
             modelIdentifier: result.modelIdentifier,
-            audioPath: audioPath
+            audioPath: audioPath,
+            status: status,
+            failedStage: failedStage,
+            failureReason: failureReason,
+            retrySourceTranscriptID: retrySourceTranscriptID
         ), existingID: transcriptID)
     }
 
@@ -732,9 +941,10 @@ final class VoiceCoordinator {
 
     /// Internal for testing — call before building VoiceTranscriptDraft so audioPath is set on save.
     @discardableResult
-    func persistAudio(captured: CapturedAudio, transcriptID: String) -> String? {
+    func persistAudio(captured: CapturedAudio, transcriptID: String, forceSave: Bool = false) -> String? {
         let shouldSave = personalizationSettings().saveTrainingExamplesEnabled
             || historySettings().saveAudio
+            || forceSave
         guard shouldSave, let trainingExampleStore else { return nil }
 
         let sampleRate = max(1, Int(captured.sampleRate.rounded()))
@@ -787,7 +997,19 @@ final class VoiceCoordinator {
 
     private func handleActivationPress() async {
         if state == .recording {
+            // Immediate visual acknowledgement on hotkey press so users do not
+            // re-press while stop/finish work is still spinning.
+            showTranscribingPhase(.finalizing)
             await stopRecordingAndPaste()
+        } else if case .error = state {
+            // Hotkey should recover immediately from terminal error pills
+            // instead of waiting for the 2s auto-dismiss timeout.
+            performDismiss()
+            activeIntent = .dictation
+            await startRecording()
+        } else if state == .transcribing || state == .pasting {
+            // Ignore toggle presses while the pipeline is running.
+            return
         } else {
             // The dictation hotkey always dictates — never inherits a stale
             // reminder intent from a previously cancelled reminder run.
@@ -801,6 +1023,117 @@ final class VoiceCoordinator {
         await stopRecordingAndPaste()
     }
 
+    private func beginLiveASR(generation: Int) async {
+        guard let liveEngine = engine as? VoiceLiveTranscriptionEngine else { return }
+        do {
+            let session = try await liveEngine.makeLiveSession(options: .default)
+            liveSession = session
+            liveSessionGeneration = generation
+            await liveFeed.reset()
+            liveFeedTask = Task { [weak self] in
+                guard let self else { return }
+                while !Task.isCancelled {
+                    guard self.operationGeneration == generation, self.state == .recording else { return }
+                    guard let snapshot = self.audio.liveFeedSnapshot() else {
+                        try? await Task.sleep(nanoseconds: 50_000_000)
+                        continue
+                    }
+                    do {
+                        try await self.liveFeed.drain(snapshot: snapshot, into: session)
+                    } catch {
+                        self.log.warning("live ASR feed stopped: \(error.localizedDescription, privacy: .public)")
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+            }
+            log.info("live ASR session started — generation: \(generation, privacy: .public)")
+        } catch {
+            log.warning("live ASR session unavailable: \(error.localizedDescription, privacy: .public)")
+            liveSession = nil
+        }
+    }
+
+    private func finishLiveASRIfEligible(
+        captured: CapturedAudio,
+        generation: Int
+    ) async -> VoiceTranscriptionResult? {
+        guard generation == liveSessionGeneration,
+              let session = liveSession
+        else {
+            await cancelLiveASR()
+            return nil
+        }
+
+        do {
+            let finishContext = VoiceLiveFinishContext(
+                samples: captured.samples,
+                sampleRate: captured.sampleRate
+            )
+            let result = try await session.finish(context: finishContext)
+            guard generation == liveSessionGeneration else { return nil }
+            liveSession = nil
+            let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                log.info("live ASR finish empty — using batch fallback")
+                await cancelLiveASR()
+                return nil
+            }
+            let reconciled = VoiceTranscriptionResult(
+                text: trimmed,
+                language: result.language,
+                modelIdentifier: result.modelIdentifier
+            )
+            if engine is VoiceLocalASREngine,
+               VoiceLiveASRQualityCheck.looksSuspicious(result: reconciled, captured: captured)
+            {
+                log.info("live ASR reconcile — batch fallback, reason: lowCharsPerSec")
+                await cancelLiveASR()
+                return nil
+            }
+            log.info("live ASR finish — chars: \(trimmed.count, privacy: .public)")
+            return reconciled
+        } catch {
+            log.warning("live ASR finish failed — batch fallback: \(error.localizedDescription, privacy: .public)")
+            await cancelLiveASR()
+            return nil
+        }
+    }
+
+    private func cancelLiveASR() async {
+        liveFeedTask?.cancel()
+        liveFeedTask = nil
+        if let session = liveSession {
+            await session.cancel()
+        }
+        liveSession = nil
+        await liveFeed.reset()
+    }
+
+    private func logPipelineMetrics(
+        ctx: VoicePipelineContext,
+        cleanupMs: Int,
+        pasteMs: Int
+    ) {
+        let metrics = pendingPipelineMetrics
+        pendingPipelineMetrics = nil
+        let batchASRMs = ctx.asrMs.map(String.init) ?? "skipped"
+        let chars = ctx.cleanupResult?.cleanedText.count ?? ctx.asrResult?.text.count ?? 0
+        log.info(
+            """
+            voice.pipeline metrics recordingMs=\(metrics?.recordingMs ?? 0, privacy: .public) \
+            liveFinishMs=\(metrics?.liveFinishMs ?? 0, privacy: .public) \
+            liveUsed=\(metrics?.liveUsed == true, privacy: .public) \
+            batchASRMs=\(batchASRMs, privacy: .public) \
+            cleanupMs=\(ctx.cleanupMs ?? cleanupMs, privacy: .public) \
+            pasteMs=\(ctx.pasteMs ?? pasteMs, privacy: .public) \
+            stageLiveFinalizeMs=\(ctx.liveFinalizeMs ?? 0, privacy: .public) \
+            chars=\(chars, privacy: .public) \
+            peak=\(ctx.captured.peakLevel, privacy: .public)
+            """
+        )
+    }
+
     private func startLevelUpdates() {
         levelTask?.cancel()
         levelTask = Task { @MainActor in
@@ -812,18 +1145,66 @@ final class VoiceCoordinator {
     }
 
     private func fail(_ message: String) {
+        cancelErrorDismissTask()
         levelTask?.cancel()
         levelTask = nil
         _ = audio.stop()
         log.error("Voice failed: \(message, privacy: .public)")
         state = .error(message)
         hud.show(.error(message), onPrimary: makeDismissAction())
-        Task { @MainActor in
+        errorDismissTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
-            if case .error = state {
-                state = .idle
-                hud.dismiss()
+            guard let self else { return }
+            if case .error = self.state {
+                self.state = .idle
+                self.hud.dismiss()
             }
+            self.errorDismissTask = nil
+        }
+    }
+
+    private func failPipeline(
+        message: String,
+        stage: VoiceTranscriptFailedStage,
+        reason: String,
+        ctx: VoicePipelineContext
+    ) async {
+        persistFailedTranscript(ctx: ctx, stage: stage, reason: reason)
+        fail(message)
+    }
+
+    private func persistFailedTranscript(
+        ctx: VoicePipelineContext,
+        stage: VoiceTranscriptFailedStage,
+        reason: String
+    ) {
+        let transcriptID = UUID().uuidString
+        let audioPath = persistAudio(captured: ctx.captured, transcriptID: transcriptID, forceSave: true)
+        let asrResult = ctx.asrResult ?? VoiceTranscriptionResult(
+            text: "",
+            language: .unknown,
+            modelIdentifier: "unknown"
+        )
+        let cleaned = ctx.cleanupResult?.cleanedText ?? ""
+        do {
+            let saved = try saveTranscript(
+                transcriptID: transcriptID,
+                captured: ctx.captured,
+                result: asrResult,
+                cleanedText: cleaned,
+                appBundleID: ctx.appBundleID,
+                audioPath: audioPath,
+                status: .failed,
+                failedStage: stage,
+                failureReason: reason,
+                retrySourceTranscriptID: ctx.retrySourceTranscriptID
+            )
+            NotificationCenter.default.post(name: .voiceTranscriptAppended, object: saved.id)
+            log.error(
+                "voice_session_failed_saved id=\(saved.id, privacy: .public) stage=\(stage.rawValue, privacy: .public) reason=\(reason, privacy: .public) audioSaved=\(audioPath != nil, privacy: .public)"
+            )
+        } catch {
+            log.error("voice_session_failed_saved failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -844,6 +1225,95 @@ final class VoiceCoordinator {
         { [weak self] in Task { @MainActor in self?.cancelCurrentOperation() } }
     }
 
+    private func showTranscribingPhase(_ phase: MiniVoiceHUD.TranscribingSubphase) {
+        log.info("voice.stage — \(String(describing: phase), privacy: .public)")
+        hud.show(.transcribing(phase), onCancel: makeCancelAction(), onPrimary: makeCancelAction())
+    }
+
+    private func installInputSourceObserverIfNeeded() {
+        guard inputSourceObserver == nil else { return }
+        inputSourceObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.HIToolbox.selectedKeyboardInputSourceChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleInputSourceChanged()
+            }
+        }
+    }
+
+    private func uninstallInputSourceObserver() {
+        guard let inputSourceObserver else { return }
+        DistributedNotificationCenter.default().removeObserver(inputSourceObserver)
+        self.inputSourceObserver = nil
+    }
+
+    private func handleInputSourceChanged() {
+        guard state == .recording || state == .transcribing || state == .pasting else { return }
+        let current = currentInputSourceName()
+        guard let start = inputSourceAtRecordingStart,
+              let current,
+              current != start
+        else { return }
+        guard !inputSourceChangedDuringRun else { return }
+        inputSourceChangedDuringRun = true
+        log.warning("input source changed during dictation — from: \(start, privacy: .public) to: \(current, privacy: .public)")
+    }
+
+    private func currentInputSourceName() -> String? {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return nil }
+        let property = TISGetInputSourceProperty(source, kTISPropertyLocalizedName)
+        return property as? String
+    }
+
+    private func pasteFailureMessage(for result: CursorPaster.Result) -> String {
+        switch result.failureReason {
+        case .accessibilityPermissionMissing:
+            return "Couldn’t paste into active field. Accessibility permission is missing."
+        case .targetNotWritable:
+            return "Couldn’t paste into active field. Target does not accept direct input."
+        case .focusUnavailable:
+            return "Couldn’t paste into active field. No focused input was found."
+        case .commandVUnavailable:
+            return "Couldn’t paste automatically. Text was copied to clipboard."
+        case nil:
+            return "Couldn’t paste automatically. Text was copied to clipboard."
+        }
+    }
+
+    private func withTimeout<T>(
+        seconds: TimeInterval,
+        operation: @escaping () async -> T
+    ) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await operation() }
+            group.addTask {
+                try? await Task.sleep(for: .milliseconds(Int64(seconds * 1000)))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private func withThrowingTimeout<T>(
+        seconds: TimeInterval,
+        operation: @escaping () async throws -> T
+    ) async throws -> T? {
+        try await withThrowingTaskGroup(of: T?.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try? await Task.sleep(for: .milliseconds(Int64(seconds * 1000)))
+                return nil
+            }
+            let first = try await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
     private func makeDismissAction() -> () -> Void {
         { [weak self] in
             Task { @MainActor in
@@ -854,8 +1324,14 @@ final class VoiceCoordinator {
 
     private func performDismiss() {
         operationGeneration += 1
+        cancelErrorDismissTask()
         state = .idle
         hud.dismiss()
+    }
+
+    private func cancelErrorDismissTask() {
+        errorDismissTask?.cancel()
+        errorDismissTask = nil
     }
 
     private func makeUndoAction() -> () -> Void {
@@ -910,43 +1386,57 @@ extension Notification.Name {
 
 enum VoiceRetryError: Error, Equatable {
     case transcriptNotFound
-    case noAudio
-    case audioReadFailed
+    case audioMissing
+    case audioDecryptFailed
     case audioDecodeFailed
+    case asrFailed
+    case cleanupFailed
 }
 
 extension VoiceCoordinator {
     func retryTranscript(id: String) async throws -> VoiceTranscript {
+        log.info("voice_retry_started source=\(id, privacy: .public)")
         let retryStartedAt = Date()
         guard let original = try transcripts.fetch(id: id) else {
+            log.error("voice_retry_failed source=\(id, privacy: .public) stage=lookup reason=transcript_not_found")
             throw VoiceRetryError.transcriptNotFound
         }
         guard let audioPath = original.audioPath else {
-            throw VoiceRetryError.noAudio
+            log.error("voice_retry_failed source=\(id, privacy: .public) stage=lookup reason=audio_missing")
+            throw VoiceRetryError.audioMissing
         }
         guard let trainingExampleStore else {
-            throw VoiceRetryError.audioReadFailed
+            log.error("voice_retry_failed source=\(id, privacy: .public) stage=lookup reason=training_store_missing")
+            throw VoiceRetryError.audioDecryptFailed
         }
 
         let wavData: Data
         do {
             wavData = try trainingExampleStore.loadEncryptedAudio(path: audioPath)
         } catch {
-            throw VoiceRetryError.audioReadFailed
+            log.error("voice_retry_failed source=\(id, privacy: .public) stage=audio reason=decrypt_failed")
+            throw VoiceRetryError.audioDecryptFailed
         }
         let decoded: VoiceAudioCodec.DecodedAudio
         do {
             decoded = try VoiceAudioCodec.decodeWAV(wavData)
         } catch {
+            log.error("voice_retry_failed source=\(id, privacy: .public) stage=audio reason=decode_failed")
             throw VoiceRetryError.audioDecodeFailed
         }
 
         let asrStartedAt = Date()
-        let asrResult = try await engine.transcribe(
-            samples: decoded.samples,
-            sampleRate: Double(decoded.sampleRate),
-            options: .default
-        )
+        let asrResult: VoiceTranscriptionResult
+        do {
+            asrResult = try await engine.transcribe(
+                samples: decoded.samples,
+                sampleRate: Double(decoded.sampleRate),
+                options: .default
+            )
+        } catch {
+            log.error("voice_retry_failed source=\(id, privacy: .public) stage=asr reason=\(error.localizedDescription, privacy: .public)")
+            throw VoiceRetryError.asrFailed
+        }
         let asrMs = Int(Date().timeIntervalSince(asrStartedAt) * 1000)
         let dictionaryEntries = (try? dictionary?.list()) ?? []
         let (appCtx, globalCtx) = loadContexts(bundleID: original.appBundleID)
@@ -970,6 +1460,10 @@ extension VoiceCoordinator {
             totalMs: Int(Date().timeIntervalSince(retryStartedAt) * 1000)
         )
         let cleanedText = cleanedResult.cleanedText
+        guard !cleanedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            log.error("voice_retry_failed source=\(id, privacy: .public) stage=cleanup reason=empty")
+            throw VoiceRetryError.cleanupFailed
+        }
 
         let saved = try transcripts.save(
             VoiceTranscriptDraft(
@@ -980,9 +1474,14 @@ extension VoiceCoordinator {
                 appBundleID: original.appBundleID,
                 language: asrResult.language,
                 modelIdentifier: asrResult.modelIdentifier,
-                audioPath: audioPath
+                audioPath: audioPath,
+                status: .retriedFrom,
+                failedStage: nil,
+                failureReason: nil,
+                retrySourceTranscriptID: original.id
             )
         )
+        log.info("voice_retry_succeeded source=\(id, privacy: .public) new=\(saved.id, privacy: .public)")
         NotificationCenter.default.post(name: .voiceTranscriptAppended, object: saved.id)
         return saved
     }

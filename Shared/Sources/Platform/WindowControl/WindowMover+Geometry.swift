@@ -29,7 +29,8 @@ extension WindowAction {
         case .bottomHalf:
             .topHalf
         case .topLeft, .topRight, .bottomLeft, .bottomRight,
-             .maximize, .almostMaximize, .center, .restore, .nextDisplay, .previousDisplay:
+             .maximize, .almostMaximize, .center, .restore,
+             .nextDisplay, .previousDisplay, .nextSpace, .previousSpace:
             nil
         }
     }

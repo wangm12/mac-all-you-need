@@ -63,12 +63,16 @@ final class MainAppDestinationTests: XCTestCase {
         XCTAssertEqual(MainAppDestination.primarySidebarDestinations, [
             .dashboard,
             .clipboard,
-            .voice,
-            .downloads,
-            .folderPreview,
             .snippets,
+            .voice,
+            .voiceReminders,
+            .downloads,
+            .aiFileOrganizer,
+            .folderPreview,
+            .finderHistory,
             .windowLayouts,
-            .grabAnywhere
+            .grabAnywhere,
+            .dockPreviews
         ])
         XCTAssertFalse(MainAppDestination.primarySidebarDestinations.contains(.settings))
     }

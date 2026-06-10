@@ -146,6 +146,14 @@ final class AudioCaptureService {
         log.info("audio engine started")
     }
 
+    /// Non-destructive read of accumulated samples for background live ASR feeding.
+    func liveFeedSnapshot() -> (samples: [Float], sampleRate: Double)? {
+        guard let engine else { return nil }
+        let sampleRate = engine.inputNode.outputFormat(forBus: 0).sampleRate
+        let snapshot = accumulator.snapshot()
+        return (snapshot.samples, sampleRate)
+    }
+
     func stop() -> CapturedAudio? {
         guard let engine, let startedAt else {
             // Called defensively (e.g. from fail()) after already stopped — no-op.

@@ -7,7 +7,8 @@ struct VoiceTryItStepView: View {
     let markSucceeded: () -> Void
     @State private var text = ""
     @State private var statusMessage = "Click inside the editor, then use the shortcut or buttons to dictate."
-    @State private var canConfirm = false
+    @State private var shouldShowMicPermissionCTA = OnboardingPermissionCTAVisibility.shouldShowMicrophoneCTA()
+    private let permissionPoll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -23,9 +24,8 @@ struct VoiceTryItStepView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
                 )
-            HStack {
+            HStack(spacing: 10) {
                 MAYNButton("Start recording", role: .primary) {
-                    canConfirm = false
                     Task { await controller.voiceCoordinator.startRecording() }
                 }
                 .disabled(controller.voiceCoordinator.state != .idle)
@@ -33,22 +33,24 @@ struct VoiceTryItStepView: View {
                     Task {
                         await controller.voiceCoordinator.stopRecordingAndPaste()
                         if controller.voiceCoordinator.lastTranscript != nil {
-                            canConfirm = true
-                            statusMessage = "Transcript completed. Confirm it worked to continue."
+                            statusMessage = "Transcript inserted. Continue is now enabled."
+                            markSucceeded()
                         } else {
                             statusMessage = "No transcript was produced. Try again or check microphone/model status."
                         }
                     }
                 }
                 .disabled(controller.voiceCoordinator.state != .recording)
+            }
+            HStack(spacing: 10) {
                 MAYNButton("Open Notes") {
                     NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Notes.app"))
                 }
-                MAYNButton("It works!", role: .primary) {
-                    markSucceeded()
-                    statusMessage = "Confirmed. You can continue."
+                if shouldShowMicPermissionCTA {
+                    MAYNButton("Mic permissions") {
+                        openMicrophoneSettings()
+                    }
                 }
-                .disabled(!canConfirm)
             }
             if let transcript = controller.voiceCoordinator.lastTranscript {
                 VStack(alignment: .leading, spacing: 8) {
@@ -71,15 +73,28 @@ struct VoiceTryItStepView: View {
             Text(statusMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Text("Continue unlocks automatically after a successful transcript insert. You can also use Skip for now.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Spacer()
         }
         .onChange(of: controller.voiceCoordinator.lastTranscript) { _, transcript in
-            guard transcript != nil else {
-                canConfirm = false
-                return
-            }
-            canConfirm = true
-            statusMessage = "Transcript completed. Confirm it worked to continue."
+            guard transcript != nil else { return }
+            statusMessage = "Transcript inserted. Continue is now enabled."
+            markSucceeded()
         }
+        .onAppear {
+            shouldShowMicPermissionCTA = OnboardingPermissionCTAVisibility.shouldShowMicrophoneCTA()
+        }
+        .onReceive(permissionPoll) { _ in
+            shouldShowMicPermissionCTA = OnboardingPermissionCTAVisibility.shouldShowMicrophoneCTA()
+        }
+    }
+
+    private func openMicrophoneSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 }

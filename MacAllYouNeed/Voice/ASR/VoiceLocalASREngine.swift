@@ -22,7 +22,7 @@ enum VoiceLocalASREngineError: LocalizedError {
     }
 }
 
-actor VoiceLocalASREngine: VoiceTranscriptionEngine {
+actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
     private let qwen = Qwen3Engine()
     private let parakeet = ParakeetEngine()
 
@@ -63,6 +63,22 @@ actor VoiceLocalASREngine: VoiceTranscriptionEngine {
             }
         default:
             localASRLog.info("Local ASR warmup skipped — unsupported model: \(modelID.rawValue, privacy: .public)")
+        }
+    }
+
+    func makeLiveSession(options: VoiceTranscriptionOptions) async throws -> any VoiceLiveTranscriptionSession {
+        let settings = VoiceASRSettingsStore.load()
+        let modelID = settings.resolvedModelID(preferredModelIdentifier: options.preferredModelIdentifier)
+        switch modelID.runtime {
+        case .qwenCoreML:
+            guard #available(macOS 15, *) else {
+                throw Qwen3EngineError.unsupportedOS
+            }
+            return try await qwen.makeLiveSession(options: options)
+        case .parakeetCoreML:
+            throw VoiceLiveTranscriptionError.unsupportedEngine
+        default:
+            throw VoiceLiveTranscriptionError.unsupportedEngine
         }
     }
 }

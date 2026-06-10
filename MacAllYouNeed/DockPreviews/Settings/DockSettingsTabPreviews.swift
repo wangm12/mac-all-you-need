@@ -181,6 +181,8 @@ struct DockSettingsTabPreviews: View {
         MAYNSection(title: "Placement") {
             settings.toggleRow("Anchor to Dock icon", "Position the panel beside the hovered icon.", \.previews.anchorToDockIcon)
             MAYNDivider()
+            settings.toggleRow("Overlay Dock tooltip", "Hide the native Dock label while a preview is open.", \.previews.overlayDockTooltip)
+            MAYNDivider()
             MAYNSettingsRow(title: "Buffer from Dock", subtitle: "Pixel offset from the Dock edge (negative moves closer).") {
                 MAYNNumericStepper(text: "Buffer", value: settings.int(\.previews.bufferFromDock), range: -100...100, step: 5, presets: [-40, -20, 0, 20], suffix: "px")
             }
