@@ -24,19 +24,22 @@ struct DownloadPickerSheetChrome<Content: View, Toolbar: View, Footer: View>: Vi
                 .padding(.vertical, 12)
                 .background(MAYNTheme.elevated)
         }
-        .frame(width: 720, height: 640)
+        .frame(width: 740, height: 660)
         .background(MAYNTheme.window)
         .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
     }
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.callout.weight(.semibold))
-                Text(sourceURL)
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Choose what to add from this source.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text(sourceURL)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.tertiary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -62,6 +65,8 @@ struct DownloadPickerStatusBanner: View {
 
     var body: some View {
         HStack {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
             Text(text)
                 .font(.callout)
                 .foregroundStyle(.primary)
@@ -81,17 +86,22 @@ struct DownloadPickerErrorBanner: View {
     let message: String
 
     var body: some View {
-        Text(message)
-            .font(.callout)
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius)
-                    .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
-            )
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(MAYNTheme.warning)
+                .padding(.top, 1)
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius)
+                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+        )
     }
 }
 

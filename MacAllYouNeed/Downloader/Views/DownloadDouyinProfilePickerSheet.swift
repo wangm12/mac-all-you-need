@@ -4,24 +4,165 @@ import SwiftUI
 import WebKit
 
 @MainActor
-final class DouyinProfileBrowserRecovery: NSObject, WKNavigationDelegate {
+final class DouyinProfileBrowserRecovery: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private var webView: WKWebView?
     private var continuation: CheckedContinuation<[DouyinProfilePostRow], Error>?
     private var pollingTask: Task<Void, Never>?
 
-    func load(profileURL: String) async throws -> [DouyinProfilePostRow] {
-        try await withCheckedThrowingContinuation { continuation in
+    // API interception state — accumulated across all intercepted responses
+    private var capturedRows: [DouyinProfilePostRow] = []
+    private var capturedIds: Set<String> = []
+    private var apiHasMore = true
+
+    // Intercepts fetch() and XHR calls to /aweme/v1/web/aweme/post/ and posts
+    // each raw JSON response body back to Swift via the "douyinApiCapture" handler.
+    private static let apiInterceptScript = """
+    (function() {
+      const TARGET = '/aweme/v1/web/aweme/post/';
+      const handler = window.webkit?.messageHandlers?.douyinApiCapture;
+      if (!handler) return;
+
+      const origFetch = window.fetch;
+      window.fetch = async function(...args) {
+        const res = await origFetch.apply(this, args);
+        try {
+          const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url ?? '');
+          if (url.includes(TARGET)) {
+            res.clone().text().then(t => handler.postMessage(t)).catch(() => {});
+          }
+        } catch(_) {}
+        return res;
+      };
+
+      const origOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(m, url, ...r) {
+        this._dy = url && url.includes(TARGET);
+        return origOpen.apply(this, [m, url, ...r]);
+      };
+      const origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function(...a) {
+        if (this._dy) {
+          this.addEventListener('load', () => {
+            try { handler.postMessage(this.responseText); } catch(_) {}
+          });
+        }
+        return origSend.apply(this, a);
+      };
+    })();
+    """
+
+    func load(profileURL: String, cookieFile: URL?) async throws -> [DouyinProfilePostRow] {
+        capturedRows = []
+        capturedIds = []
+        apiHasMore = true
+
+        return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
+
             let config = WKWebViewConfiguration()
+            config.userContentController.add(self, name: "douyinApiCapture")
+            config.userContentController.addUserScript(WKUserScript(
+                source: Self.apiInterceptScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            ))
+
             let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 960, height: 720), configuration: config)
             view.navigationDelegate = self
             webView = view
+
             guard let url = URL(string: profileURL) else {
                 continuation.resume(throwing: PlaylistListError.noEntries)
                 return
             }
-            view.load(URLRequest(url: url))
-            startPolling(profileURL: profileURL, webView: view, timeoutSeconds: 45)
+
+            // Inject Douyin cookies from our synced cookie file before loading,
+            // so the WKWebView authenticates instead of hitting the anti-bot shell.
+            let httpCookies = Self.httpCookies(from: cookieFile)
+            if httpCookies.isEmpty {
+                view.load(URLRequest(url: url))
+                startPolling(profileURL: profileURL, webView: view, timeoutSeconds: 60)
+            } else {
+                let store = view.configuration.websiteDataStore.httpCookieStore
+                Task { @MainActor in
+                    for cookie in httpCookies {
+                        await store.setCookie(cookie)
+                    }
+                    view.load(URLRequest(url: url))
+                    self.startPolling(profileURL: profileURL, webView: view, timeoutSeconds: 60)
+                }
+            }
+        }
+    }
+
+    // Parses a Netscape cookie file and returns HTTPCookie objects for Douyin domains.
+    private static func httpCookies(from cookieFile: URL?) -> [HTTPCookie] {
+        guard let cookieFile,
+              let text = try? String(contentsOf: cookieFile, encoding: .utf8)
+        else { return [] }
+
+        var cookies: [HTTPCookie] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            let raw = String(line)
+            guard !raw.hasPrefix("#") else { continue }
+            let parts = raw.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 7 else { continue }
+            let domain = parts[0]
+            guard domain.contains("douyin") || domain.contains("iesdouyin")
+                || domain.contains("bytedance") || domain.contains("toutiao")
+                || domain.contains("snssdk") || domain.contains("amemv")
+            else { continue }
+            let name  = parts[5]
+            let value = parts[6].trimmingCharacters(in: .newlines)
+            var props: [HTTPCookiePropertyKey: Any] = [
+                .domain: domain,
+                .path: parts[2].isEmpty ? "/" : parts[2],
+                .name: name,
+                .value: value,
+                .secure: parts[3].uppercased() == "TRUE" ? "TRUE" : "FALSE",
+            ]
+            if let expiry = Double(parts[4]), expiry > 0 {
+                props[.expires] = Date(timeIntervalSince1970: expiry)
+            }
+            if let cookie = HTTPCookie(properties: props) {
+                cookies.append(cookie)
+            }
+        }
+        return cookies
+    }
+
+    // Called on main thread by WebKit when JS posts a captured API response.
+    nonisolated func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == "douyinApiCapture" else { return }
+        let body = message.body
+        Task { @MainActor [weak self] in self?.handleCapturedResponse(body) }
+    }
+
+    private func handleCapturedResponse(_ body: Any) {
+        guard let text = body as? String,
+              let data = text.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return }
+
+        let payload = (root["data"] as? [String: Any]) ?? root
+        let awemeList = payload["aweme_list"] as? [[String: Any]]
+            ?? root["aweme_list"] as? [[String: Any]] ?? []
+
+        let hasMoreRaw = payload["has_more"] ?? root["has_more"]
+        let hasMore = (hasMoreRaw as? Bool) == true
+            || String(describing: hasMoreRaw ?? "").lowercased() == "true"
+            || String(describing: hasMoreRaw ?? "") == "1"
+        if !hasMore { apiHasMore = false }
+
+        let profileURL = webView?.url?.absoluteString ?? ""
+        for item in awemeList {
+            guard let row = DouyinProfileLister.rowFromAwemeItem(item, profileURL: profileURL),
+                  capturedIds.insert(row.awemeId).inserted
+            else { continue }
+            capturedRows.append(row)
         }
     }
 
@@ -30,6 +171,7 @@ final class DouyinProfileBrowserRecovery: NSObject, WKNavigationDelegate {
         self.continuation = nil
         pollingTask?.cancel()
         pollingTask = nil
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "douyinApiCapture")
         webView = nil
         if rows.isEmpty {
             continuation.resume(throwing: PlaylistListError.noEntries)
@@ -38,33 +180,47 @@ final class DouyinProfileBrowserRecovery: NSObject, WKNavigationDelegate {
         }
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Do not finish immediately. Douyin profile pages populate posts asynchronously.
-        // Polling task started in `load` will keep scrolling + re-evaluating.
-    }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {}
 
     private func startPolling(profileURL: String, webView: WKWebView, timeoutSeconds: Int) {
         pollingTask?.cancel()
         pollingTask = Task { @MainActor in
             let started = Date()
+            var lastCount = 0
+            var stagnantRounds = 0
+
             while continuation != nil, Date().timeIntervalSince(started) < Double(timeoutSeconds) {
-                let html = await viewHTML(webView)
-                let rows = DouyinProfileLister.parsePosts(from: html, profileURL: profileURL)
-                if !rows.isEmpty {
-                    finish(with: rows)
+                // If the API reported no more pages and count stopped growing, we're done
+                if !apiHasMore, !capturedRows.isEmpty {
+                    stagnantRounds = capturedRows.count == lastCount ? stagnantRounds + 1 : 0
+                    if stagnantRounds >= 2 {
+                        finish(with: capturedRows)
+                        return
+                    }
+                } else if capturedRows.count > lastCount {
+                    stagnantRounds = 0
+                }
+                lastCount = capturedRows.count
+
+                if capturedRows.count >= DouyinProfileListResult.maxLoadAllItems {
+                    finish(with: capturedRows)
                     return
                 }
+
                 _ = try? await webView.callAsyncJavaScript(
                     "window.scrollTo(0, document.body.scrollHeight); return true;",
-                    arguments: [:],
-                    in: nil,
-                    contentWorld: .page
+                    arguments: [:], in: nil, contentWorld: .page
                 )
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
             }
-            if continuation != nil {
+
+            // Timeout: if API interception got nothing, fall back to HTML parsing
+            guard continuation != nil else { return }
+            if capturedRows.isEmpty {
                 let html = await viewHTML(webView)
                 finish(with: DouyinProfileLister.parsePosts(from: html, profileURL: profileURL))
+            } else {
+                finish(with: capturedRows)
             }
         }
     }
@@ -97,6 +253,8 @@ struct DownloadDouyinProfilePickerSheet: View {
     @State private var enrichingIDs = Set<String>()
     @State private var selected = Set<String>()
     @State private var normalizationNotice = ""
+
+    private struct DouyinLoadTimeout: Error {}
 
     private var headerTitle: String {
         let author = items.first?.author.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -164,14 +322,38 @@ struct DownloadDouyinProfilePickerSheet: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer()
+            } else if browserBusy && items.isEmpty {
+                Spacer()
+                ProgressView()
+                Text("Recovering posts from browser session…")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("Keep your logged-in browser window open while recovery runs.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Spacer()
             } else if items.isEmpty {
                 if !error.isEmpty {
                     DownloadPickerErrorBanner(message: error).padding(.horizontal, 20)
                 }
                 Spacer()
-                Text("No videos found.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 8) {
+                    Text("No videos found.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Text("Use Load in browser to recover posts from your signed-in Douyin session.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Text("Browser Auto cookies are recommended; Chrome Companion sync is optional.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    MAYNButton("Open Downloads settings") {
+                        NotificationCenter.default.post(name: .mainWindowSettingsRequested, object: "downloads")
+                    }
+                }
                 Spacer()
             } else {
                 if !error.isEmpty {
@@ -236,8 +418,20 @@ struct DownloadDouyinProfilePickerSheet: View {
         items = []
         selected.removeAll()
         do {
-            guard let ytdlp = try? vm.coordinator.binaries.ytdlpPath() else {
-                throw PlaylistListError.ytdlpFailed(code: -1, message: "yt-dlp not available")
+            let ytdlp: URL
+            do {
+                let resolved = try await withTimeout(seconds: 8) {
+                    await resolveYtDlpPath()
+                }
+                guard let resolved else {
+                    throw PlaylistListError.ytdlpFailed(code: -1, message: "yt-dlp not available")
+                }
+                ytdlp = resolved
+            } catch is DouyinLoadTimeout {
+                listWarning = "Timed out preparing direct listing. Trying browser-session recovery…"
+                await loadInBrowser()
+                loading = false
+                return
             }
             if let secUid = DouyinProfileLister.extractSecUid(from: profileURL) {
                 let canonical = "https://www.douyin.com/user/\(secUid)"
@@ -246,20 +440,39 @@ struct DownloadDouyinProfilePickerSheet: View {
                 }
             }
             let cookieFile = cookieFileURL()
-            let result = try await DouyinProfileLister.listFirstPage(
-                profileURL: profileURL,
-                ytdlp: ytdlp,
-                cookieFile: cookieFile
-            )
+            let listTask = Task.detached(priority: .userInitiated) {
+                try await DouyinProfileLister.listFirstPage(
+                    profileURL: profileURL,
+                    ytdlp: ytdlp,
+                    cookieFile: cookieFile
+                )
+            }
+            let result: DouyinProfileListResult
+            do {
+                result = try await withTimeout(seconds: 25) {
+                    try await listTask.value
+                }
+            } catch {
+                listTask.cancel()
+                throw error
+            }
             items = result.items
             nextCursor = result.cursor
             hasMore = result.hasMore
             listWarning = result.warnings.joined(separator: " ")
             await enrichMissingMetadata(limit: 12)
+            if !hasMore, items.count < 50 {
+                listWarning = "Direct listing returned a small batch. Trying browser-session recovery for more posts…"
+                await loadInBrowser()
+            }
+        } catch is DouyinLoadTimeout {
+            listWarning = "Loading posts timed out. Try Load in browser for session-based recovery."
         } catch {
             if case PlaylistListError.noEntries = error {
                 listWarning = "No list returned from direct fetch. Trying browser-session recovery…"
+                loading = false
                 await loadInBrowser()
+                return
             } else {
                 self.error = error.localizedDescription
             }
@@ -267,12 +480,32 @@ struct DownloadDouyinProfilePickerSheet: View {
         loading = false
     }
 
+    private func resolveYtDlpPath() async -> URL? {
+        await Task.detached(priority: .userInitiated) { [binaries = vm.coordinator.binaries] in
+            try? binaries.ytdlpPath()
+        }.value
+    }
+
+    private func withTimeout<T>(seconds: Double, operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                let delay = UInt64(max(0, seconds) * 1_000_000_000)
+                try await Task.sleep(nanoseconds: delay)
+                throw DouyinLoadTimeout()
+            }
+            let first = try await group.next()!
+            group.cancelAll()
+            return first
+        }
+    }
+
     private func loadInBrowser() async {
         browserBusy = true
         listWarning = "Opening browser with your session — this may take up to a minute."
         do {
             let recovery = DouyinProfileBrowserRecovery()
-            let rows = try await recovery.load(profileURL: profileURL)
+            let rows = try await recovery.load(profileURL: profileURL, cookieFile: cookieFileURL())
             var seen = Set(items.map(\.awemeId))
             for row in rows where seen.insert(row.awemeId).inserted {
                 items.append(row)
@@ -327,14 +560,28 @@ struct DownloadDouyinProfilePickerSheet: View {
         defer { loadAllBusy = false }
 
         if !(hasMore && nextCursor != nil) {
+            // For very small lists without API cursor, try browser-assisted loading:
+            // Douyin API may still truncate aggressively even when profile has many posts.
+            let likelyTruncated = !items.isEmpty && items.count < 50
+            if !likelyTruncated && !items.isEmpty {
+                loadAllNote = "List complete."
+                return
+            }
+
             var rounds = 0
             var previousCount = items.count
-            while rounds < 6, items.count < DouyinProfileListResult.maxLoadAllItems {
+            var stagnantRounds = 0
+            while rounds < 8, items.count < DouyinProfileListResult.maxLoadAllItems {
                 rounds += 1
                 loadAllNote = "Loading from browser round \(rounds)…"
                 await loadInBrowser()
                 await enrichMissingMetadata(limit: 20)
-                if items.count == previousCount { break }
+                if items.count == previousCount {
+                    stagnantRounds += 1
+                    if stagnantRounds >= 2 { break }
+                } else {
+                    stagnantRounds = 0
+                }
                 previousCount = items.count
             }
             loadAllNote = "Browser-assisted load complete."
@@ -442,9 +689,13 @@ struct DownloadDouyinProfilePickerSheet: View {
     }
 
     private func cookieFileURL() -> URL? {
-        let cookieFile = AppGroup.containerURL()
-            .appendingPathComponent("cookies/downloader-cookies.txt")
-        return FileManager.default.fileExists(atPath: cookieFile.path) ? cookieFile : nil
+        let base = AppGroup.containerURL().appendingPathComponent("cookies", isDirectory: true)
+        // Prefer extension-synced cookies (freshest); fall back to manually imported file
+        for name in ["downloader-extension-cookies.txt", "downloader-cookies.txt"] {
+            let url = base.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        return nil
     }
 }
 

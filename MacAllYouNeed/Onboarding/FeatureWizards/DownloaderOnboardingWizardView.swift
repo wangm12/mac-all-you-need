@@ -17,8 +17,8 @@ struct DownloaderOnboardingWizardView: View {
     var body: some View {
         FeatureOnboardingPage(
             bullets: [
-                "Paste a video link on the Downloads page or send it from the browser extension.",
-                "yt-dlp handles formats, fragments, and re-encoding with bundled ffmpeg."
+                "Paste a video link on the Downloads page or send it from the optional Chrome Companion.",
+                "Browser Auto cookies work by default. Only use Chrome Companion sync if you need exact Chrome session cookies."
             ],
             previewTitle: "Preview",
             previewSubtitle: "Queue and completed items live on the Downloads page.",
@@ -40,7 +40,7 @@ struct DownloaderOnboardingWizardView: View {
                 .disabled(isEnqueueing)
             }
         },
-        footnote: "Import Chrome or Safari cookies from Downloads settings when a site needs login."
+        footnote: "Downloads settings includes Browser Auto (recommended) and an optional guided Chrome Companion setup."
         )
     }
 

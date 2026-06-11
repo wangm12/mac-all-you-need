@@ -93,6 +93,17 @@ public final class BinaryManager {
     }
 
     public static func verifyArchitectures(at url: URL, required: Set<String>) throws {
+        if Thread.isMainThread {
+            let result: Result<Void, Error> = DispatchQueue.global(qos: .userInitiated).sync {
+                Result { try verifyArchitecturesImpl(at: url, required: required) }
+            }
+            return try result.get()
+        }
+
+        try verifyArchitecturesImpl(at: url, required: required)
+    }
+
+    private static func verifyArchitecturesImpl(at url: URL, required: Set<String>) throws {
         let p = Process()
         let pipe = Pipe()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/lipo")

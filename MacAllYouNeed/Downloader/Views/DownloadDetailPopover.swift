@@ -38,7 +38,7 @@ struct DownloadAddURLSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Add download URL")
                     .font(.title3.weight(.semibold))
-                Text("Paste one or more video URLs. Playlists, channels, and creator profiles open a picker first.")
+                Text("Paste one or more video URLs. Playlists, channels, and creator profiles open a picker first. Browser Auto cookies work by default; Chrome Companion sync is optional.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

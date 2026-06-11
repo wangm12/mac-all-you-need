@@ -294,6 +294,25 @@ final class AppController {
             Task { @MainActor in self?.folderHistory?.reloadHotkey() }
         }
 
+        NotificationCenter.default.addObserver(
+            forName: .downloadRouteRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let url = note.userInfo?["url"] as? String,
+                  let route = DownloadURLClassifier.route(for: url)
+            else { return }
+            switch route {
+            case .single:
+                break
+            case .collection, .douyinProfile, .multiURL:
+                Task { @MainActor in
+                    self.showMainWindow(destination: .downloads)
+                }
+            }
+        }
+
         // Window controllers must be built after all stored properties are
         // initialized because each takes `controller: self`.
         let main = MainWindowController(controller: self)
@@ -627,17 +646,11 @@ final class AppController {
     }
 
     private static func downloadableURLFromPasteboard(_ pasteboard: NSPasteboard) -> URL? {
-        if let text = pasteboard.string(forType: .string),
-           let url = downloadableURL(from: text)
-        {
-            return url
-        }
-        if let objectURL = pasteboard.readObjects(forClasses: [NSURL.self], options: nil)?.first as? URL,
-           let url = downloadableURL(from: objectURL.absoluteString)
-        {
-            return url
-        }
-        return nil
+        // Only read the string type. Browsers set a secondary public.url type containing
+        // the current page URL whenever you copy any text — readObjects(forClasses: [NSURL])
+        // would pick that up and falsely trigger the HUD on every copy made on a video page.
+        guard let text = pasteboard.string(forType: .string) else { return nil }
+        return downloadableURL(from: text)
     }
 
     private static func downloadableURL(from text: String) -> URL? {

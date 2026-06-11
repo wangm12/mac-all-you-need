@@ -1,0 +1,280 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  background: #1a1a1e !important;
+}
+
+body {
+  width: 380px;
+  max-height: 500px;
+  color: #e4e4e7;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  max-height: 500px;
+  background: #1a1a1e;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.last-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #fecaca;
+  background: #3f1f1f;
+  border-bottom: 1px solid #7f1d1d;
+}
+
+.last-error-message {
+  flex: 1;
+  min-width: 0;
+}
+
+.last-error-dismiss {
+  border: 1px solid #991b1b;
+  background: rgba(127, 29, 29, 0.2);
+  color: #fecaca;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.last-error-dismiss:hover {
+  background: rgba(127, 29, 29, 0.35);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #27272a;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.count {
+  background: #FFFFFF;
+  color: #1a1a1e;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.count:empty {
+  display: none;
+}
+
+.selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #27272a;
+  font-size: 12px;
+}
+
+.selection-link {
+  border: none;
+  background: transparent;
+  color: #d4d4d8;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.selection-link:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+.selection-sep {
+  color: #71717a;
+}
+
+.selected-count {
+  margin-left: auto;
+  color: #a1a1aa;
+}
+
+.list {
+  overflow-y: auto;
+  max-height: 360px;
+}
+
+.media-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #27272a;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.media-item:hover {
+  background: #27272a;
+}
+
+.media-item input[type='checkbox'] {
+  margin-top: 3px;
+  accent-color: #FFFFFF;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.media-info {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.media-download-one {
+  border: 1px solid #3f3f46;
+  background: #27272a;
+  color: #e4e4e7;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.media-download-one:hover {
+  border-color: #52525b;
+  background: #3f3f46;
+}
+
+.media-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e4e4e7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #71717a;
+}
+
+.media-domain {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-type {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.type-hls {
+  background: rgba(255, 255, 255, 0.12);
+  color: #A1A1AA;
+}
+
+.type-mp4 {
+  background: rgba(37, 99, 235, 0.2);
+  color: #60a5fa;
+}
+
+.type-webm {
+  background: rgba(5, 150, 105, 0.2);
+  color: #34d399;
+}
+
+.type-flv {
+  background: rgba(217, 119, 6, 0.2);
+  color: #fbbf24;
+}
+
+.media-size {
+  color: #71717a;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+  text-align: center;
+  color: #71717a;
+}
+
+.empty p:first-child {
+  font-size: 14px;
+  font-weight: 500;
+  color: #a1a1aa;
+}
+
+.empty .hint {
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.footer {
+  display: flex;
+  padding: 12px 16px;
+  border-top: 1px solid #27272a;
+}
+
+.download-btn {
+  width: 100%;
+  padding: 8px 16px;
+  background: #FFFFFF;
+  color: #1a1a1e;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.download-btn:hover {
+  background: #D4D4D8;
+}
+
+.download-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

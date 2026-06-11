@@ -1,6 +1,7 @@
 import Foundation
 
 public enum DownloadFormatPreset: String, Sendable, CaseIterable {
+    case videoBest
     case video1080
     case video720
     case video360
@@ -11,6 +12,7 @@ public enum DownloadFormatPreset: String, Sendable, CaseIterable {
 
     public var displayLabel: String {
         switch self {
+        case .videoBest: "Best available"
         case .video1080: "1080p (.mp4)"
         case .video720: "720p (.mp4)"
         case .video360: "360p (.mp4)"
@@ -30,6 +32,7 @@ public enum DownloadFormatPreset: String, Sendable, CaseIterable {
 
     public var qualityHeight: Int {
         switch self {
+        case .videoBest: Int.max
         case .video1080: 1080
         case .video720: 720
         case .video360: 360
@@ -50,8 +53,22 @@ public enum DownloadFormatPreset: String, Sendable, CaseIterable {
         }
     }
 
+    /// Create a preset for an arbitrary height from the video's available formats.
+    public static func forHeight(_ height: Int) -> DownloadFormatPreset {
+        switch height {
+        case ..<240: .video144
+        case 240 ..< 360: .video240
+        case 360 ..< 720: .video360
+        case 720 ..< 1080: .video720
+        case 1080: .video1080
+        default: .videoBest
+        }
+    }
+
     public func ytdlpArgs() -> [String] {
         switch self {
+        case .videoBest:
+            ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
         case .video1080, .video720, .video360, .video240, .video144:
             [
                 "-f", "bestvideo[height<=\(qualityHeight)]+bestaudio/best[height<=\(qualityHeight)]",

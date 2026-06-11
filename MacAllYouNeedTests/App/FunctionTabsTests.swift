@@ -196,7 +196,7 @@ final class FunctionTabsTests: XCTestCase {
         let emptyState = DownloadsEmptyStatePresentation.model(for: .activeQueue)
 
         XCTAssertEqual(emptyState.title, "No downloads queued")
-        XCTAssertEqual(emptyState.subtitle, "Add a URL, paste with ⌘V, or send a link from the browser extension.")
+        XCTAssertEqual(emptyState.subtitle, "Add a URL, paste with ⌘V, or send a link from the optional Chrome Companion.")
         XCTAssertEqual(emptyState.primaryActionTitle, "Add URL")
         XCTAssertEqual(emptyState.secondaryActionTitle, "Paste URL")
     }
@@ -206,6 +206,10 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(DownloadsSettingsPresentation.interruptedRecoveryStatusText, "Automatic")
         XCTAssertEqual(DownloadsSettingsPresentation.filenameExampleActionTitle, "Copy")
         XCTAssertEqual(DownloadsSettingsPresentation.cookieProfileTitle, "Cookie profiles")
+        XCTAssertEqual(
+            DownloadsSettingsPresentation.cookieProfileSubtitle,
+            "Use Browser Auto by default. Chrome Companion is optional for exact tab-session cookie sync."
+        )
         XCTAssertEqual(DownloadsSettingsPresentation.bundledAssetsTitle, "Bundled downloader assets")
         XCTAssertEqual(DownloadConcurrencyControlPresentation.range, 1...10)
         XCTAssertEqual(

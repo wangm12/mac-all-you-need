@@ -5,6 +5,7 @@ import SwiftUI
 
 struct DownloadsListView: View {
     @Bindable var vm: DownloaderViewModel
+    @AppStorage("downloadCookieMode", store: AppGroupSettings.defaults) private var cookieMode = "browser_auto"
     var filter: DownloadsListFilter = .all
     var surface: DownloadsListSurface = .main
     var onPasteURL: (() -> Void)?
@@ -21,18 +22,18 @@ struct DownloadsListView: View {
             if surface == .main {
                 listHeader
                 MAYNDivider()
-                if let warning = vm.cookieWarning {
-                    cookieWarningBanner(warning)
-                    MAYNDivider()
-                }
-                if vm.interruptedRecoveryCount > 0, filter != .completed {
-                    interruptedBanner
-                    MAYNDivider()
-                }
-                if DownloadsQueuePresentation.showsFailedBanner(rows: vm.rows, filter: filter) {
-                    failedBanner
-                    MAYNDivider()
-                }
+            }
+            if let warning = vm.cookieWarning {
+                cookieWarningBanner(warning)
+                MAYNDivider()
+            }
+            if vm.interruptedRecoveryCount > 0, filter != .completed {
+                interruptedBanner
+                MAYNDivider()
+            }
+            if DownloadsQueuePresentation.showsFailedBanner(rows: vm.rows, filter: filter) {
+                failedBanner
+                MAYNDivider()
             }
 
             if visibleRows.isEmpty {
@@ -54,6 +55,7 @@ struct DownloadsListView: View {
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .sheet(item: $deleteGroup) { group in
@@ -79,6 +81,7 @@ struct DownloadsListView: View {
         .onAppear {
             listFocused = true
             installKeyMonitor()
+            clearStaleExtensionCookieWarningIfNeeded()
             if expandedGroups.isEmpty {
                 if surface == .main {
                     expandedGroups = Set(listItems.compactMap { item in
@@ -87,6 +90,9 @@ struct DownloadsListView: View {
                     })
                 }
             }
+        }
+        .onChange(of: cookieMode) { _, _ in
+            clearStaleExtensionCookieWarningIfNeeded()
         }
         .onDisappear {
             keyMonitor = nil
@@ -128,37 +134,68 @@ struct DownloadsListView: View {
         let hasActive = group.records.contains { $0.state == .running || $0.state == .queued }
         let resumable = group.records.contains { $0.state == .paused || $0.state == .failed }
 
-        DownloadCollectionGroupHeader(
-            group: group,
-            progress: progress,
-            speedText: speedText,
-            etaText: etaText,
-            isExpanded: expanded,
-            showsPauseAll: hasActive,
-            showsResumeAll: !hasActive && resumable,
-            onToggleExpanded: {
-                if expanded { expandedGroups.remove(group.id) } else { expandedGroups.insert(group.id) }
-            },
-            onPauseAll: { Task { await vm.pauseCollection(id: group.id) } },
-            onResumeAll: { Task { await vm.resumeCollection(id: group.id) } },
-            onDelete: { deleteGroup = group }
-        )
+        VStack(spacing: 0) {
+            DownloadCollectionGroupHeader(
+                group: group,
+                progress: progress,
+                speedText: speedText,
+                etaText: etaText,
+                isExpanded: expanded,
+                showsPauseAll: hasActive,
+                showsResumeAll: !hasActive && resumable,
+                onToggleExpanded: {
+                    if expanded { expandedGroups.remove(group.id) } else { expandedGroups.insert(group.id) }
+                },
+                onPauseAll: { Task { await vm.pauseCollection(id: group.id) } },
+                onResumeAll: { Task { await vm.resumeCollection(id: group.id) } },
+                onDelete: { deleteGroup = group }
+            )
 
-        if expanded {
-            let showAll = showAllInGroup.contains(group.id)
-            let visibleChildren = showAll ? group.records : Array(group.records.prefix(visibleItemCap))
-            ForEach(visibleChildren, id: \.id) { record in
-                row(for: record, indent: true)
+            if expanded {
+                expandedGroupBody(group)
             }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
+                .fill(MAYNTheme.window.opacity(0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
+                .stroke(MAYNTheme.subtleBorder.opacity(0.9), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func expandedGroupBody(_ group: DownloadCollectionGrouping.Group) -> some View {
+        let showAll = showAllInGroup.contains(group.id)
+        let visibleChildren = showAll ? group.records : Array(group.records.prefix(visibleItemCap))
+
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(visibleChildren.enumerated()), id: \.element.id) { index, record in
+                row(for: record, indent: true)
+                    .padding(.leading, 14)
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(index == 0 ? Color.clear : MAYNTheme.divider)
+                            .frame(width: 1)
+                            .padding(.leading, 12)
+                            .padding(.vertical, 0)
+                    }
+            }
+
             if !showAll, group.records.count > visibleItemCap {
                 Button("Show \(group.records.count - visibleItemCap) more") {
                     showAllInGroup.insert(group.id)
                 }
                 .font(.caption.weight(.medium))
-                .padding(.leading, 32)
-                .padding(.vertical, 8)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 28)
+                .padding(.vertical, 10)
             }
         }
+        .padding(.vertical, 4)
+        .background(MAYNTheme.window.opacity(0.25))
+        .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
     }
 
     private func row(for record: DownloadRecord, indent: Bool) -> some View {
@@ -174,7 +211,8 @@ struct DownloadsListView: View {
             onPrimaryAction: { performPrimaryAction(for: record) },
             onDelete: { Task { await vm.delete(ids: [record.id]) } }
         )
-        .padding(.leading, indent ? 16 : 0)
+        .padding(.leading, indent ? 10 : 0)
+        .padding(.trailing, indent ? 6 : 0)
     }
 
     private var interruptedBanner: some View {
@@ -225,14 +263,20 @@ struct DownloadsListView: View {
     }
 
     private var failedBanner: some View {
-        HStack(alignment: .center, spacing: 10) {
+        let detailText: String = {
+            if surface == .commandCenter {
+                return "Failed rows show captured yt-dlp errors inline when available. Open Downloads in the main window for full row details."
+            }
+            return "Failed rows show captured yt-dlp errors inline when available. Hover a failed row for details."
+        }()
+        return HStack(alignment: .center, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.callout)
                 .foregroundStyle(MAYNTheme.danger)
             VStack(alignment: .leading, spacing: 2) {
                 Text("A download failed")
                     .font(.callout.weight(.semibold))
-                Text("Failed rows show captured yt-dlp errors inline when available. Hover a failed row for details.")
+                Text(detailText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -241,6 +285,11 @@ struct DownloadsListView: View {
             MAYNButton("Retry all") {
                 Task { await vm.retryFailed(in: visibleRows) }
             }
+            if cookieMode == "extension_only" {
+                MAYNButton("Sync Companion cookies") {
+                    _ = openInGoogleChrome("http://127.0.0.1:18765/cookie-sync-landing")
+                }
+            }
         }
         .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
         .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
@@ -248,15 +297,31 @@ struct DownloadsListView: View {
     }
 
     private func cookieWarningBanner(_ warning: String) -> some View {
-        HStack(spacing: 8) {
+        let extensionGuidance = warning.localizedCaseInsensitiveContains("extension")
+            || warning.localizedCaseInsensitiveContains("chrome companion")
+            || cookieMode == "extension_only"
+        return HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(MAYNTheme.warning)
             Text(warning)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
-            MAYNButton("Open Chrome", height: HotkeyChipPresentation.compactHeight) {
-                NSWorkspace.shared.open(URL(string: "https://www.youtube.com")!)
+            if extensionGuidance {
+                MAYNButton("Use Browser Auto", height: HotkeyChipPresentation.compactHeight) {
+                    cookieMode = "browser_auto"
+                    vm.dismissCookieWarning()
+                }
+                MAYNButton("Open Companion sync", height: HotkeyChipPresentation.compactHeight) {
+                    _ = openInGoogleChrome("http://127.0.0.1:18765/cookie-sync-landing")
+                }
+                MAYNButton("Install Companion", height: HotkeyChipPresentation.compactHeight) {
+                    _ = openInGoogleChrome("chrome://extensions")
+                }
+            } else {
+                MAYNButton("Open settings", height: HotkeyChipPresentation.compactHeight) {
+                    NotificationCenter.default.post(name: .mainWindowSettingsRequested, object: "downloads")
+                }
             }
             Button { vm.dismissCookieWarning() } label: {
                 Image(systemName: "xmark")
@@ -320,6 +385,33 @@ struct DownloadsListView: View {
 
     private func openFinderFolder(_ folderURL: URL) {
         NSWorkspace.shared.open(folderURL)
+    }
+
+    private func clearStaleExtensionCookieWarningIfNeeded() {
+        guard cookieMode == "browser_auto" else { return }
+        guard let warning = vm.cookieWarning else { return }
+        if warning.localizedCaseInsensitiveContains("chrome extension mode is selected")
+            || warning.localizedCaseInsensitiveContains("chrome companion mode is selected")
+        {
+            vm.dismissCookieWarning()
+        }
+    }
+
+    @discardableResult
+    private func openInGoogleChrome(_ rawURL: String) -> Bool {
+        guard !rawURL.isEmpty else { return false }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "Google Chrome", rawURL]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus == 0 { return true }
+        } catch {}
+        if let fallbackURL = URL(string: rawURL) {
+            return NSWorkspace.shared.open(fallbackURL)
+        }
+        return false
     }
 
     // MARK: - Key handling

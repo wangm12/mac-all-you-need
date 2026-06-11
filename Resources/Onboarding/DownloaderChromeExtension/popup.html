@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <div id="last-error" class="last-error" style="display:none" role="status">
+      <div id="last-error-message" class="last-error-message"></div>
+      <button id="dismiss-last-error" class="last-error-dismiss" type="button">Dismiss</button>
+    </div>
+    <div class="header">
+      <span id="header-title" class="title">Detected Media</span>
+      <span id="count" class="count"></span>
+    </div>
+    <div id="selection-bar" class="selection-bar" style="display:none">
+      <button id="select-all-btn" class="selection-link" type="button">Select all</button>
+      <span class="selection-sep">·</span>
+      <button id="deselect-all-btn" class="selection-link" type="button">Deselect all</button>
+      <span id="selected-count" class="selected-count"></span>
+    </div>
+    <div id="list" class="list"></div>
+    <div id="empty" class="empty" style="display:none">
+      <p>No media detected on this page</p>
+      <p class="hint">Play a video to detect streams</p>
+    </div>
+    <div id="footer" class="footer" style="display:none">
+      <button id="download-btn" class="download-btn">Download Selected</button>
+    </div>
+  </div>
+  <script src="wake-sync.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

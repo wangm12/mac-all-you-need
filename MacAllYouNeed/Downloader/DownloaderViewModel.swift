@@ -30,6 +30,7 @@ final class DownloaderViewModel {
 
     // Actual on-disk path for partial file cleanup on delete
     private var liveDestination: [String: String] = [:]
+    private var formatDispatchPayloads: [String: DispatchRoutePayload] = [:]
 
     // Phase 7 W1: per-component NC adapter folds the 5 raw observers into
     // a tiny typed surface. Lives below as a private inline type.
@@ -60,8 +61,8 @@ final class DownloaderViewModel {
         notifications.onDestinationPath = { [weak self] id, path in
             self?.liveDestination[id] = path
         }
-        notifications.onCookieWarning = { [weak self] in
-            self?.cookieWarning = "Some browser profiles could not be imported. Downloads requiring login may fail."
+        notifications.onCookieWarning = { [weak self] message in
+            self?.cookieWarning = message ?? "Some browser profiles could not be imported. Downloads requiring login may fail."
         }
         NotificationCenter.default.addObserver(
             forName: .downloadRouteRequested,
@@ -69,7 +70,13 @@ final class DownloaderViewModel {
             queue: .main
         ) { [weak self] note in
             guard let url = note.userInfo?["url"] as? String else { return }
-            Task { @MainActor in await self?.routeURL(url) }
+            let payload = DispatchRoutePayload(
+                mediaType: note.userInfo?["type"] as? String,
+                referer: note.userInfo?["referer"] as? String,
+                headers: note.userInfo?["headers"] as? [String: String],
+                title: note.userInfo?["title"] as? String
+            )
+            Task { @MainActor in await self?.routeURL(url, dispatch: payload) }
         }
         Task { await self.refresh() }
     }
@@ -168,7 +175,7 @@ final class DownloaderViewModel {
         await routeURL(url)
     }
 
-    func routeURL(_ rawInput: String) async {
+    private func routeURL(_ rawInput: String, dispatch: DispatchRoutePayload? = nil) async {
         let trimmed = Self.normalizedDownloadInput(rawInput)
         guard !trimmed.isEmpty else { return }
 
@@ -181,12 +188,17 @@ final class DownloaderViewModel {
             CopyHUD.show("Invalid URL", symbol: "exclamationmark.triangle.fill")
             return
         }
+        if shouldBlockForMissingExtensionCookies(route: route) {
+            cookieWarning = "Chrome Companion mode is selected but no synced cookies were found. Use Downloads > Settings > Chrome Companion, or switch back to Browser Auto."
+            CopyHUD.show("Sync Companion cookies first", symbol: "exclamationmark.triangle.fill")
+            return
+        }
 
         switch route {
         case let .multiURL(urls):
             guard let first = urls.first else { return }
             pendingURLs.append(contentsOf: urls.dropFirst().map { PendingDownloadURL(url: $0) })
-            await routeURL(first)
+            await routeURL(first, dispatch: dispatch)
         case let .douyinProfile(url):
             presentedPicker = .douyinProfile(url: url)
         case let .collection(url):
@@ -196,19 +208,62 @@ final class DownloaderViewModel {
                 CopyHUD.show("Invalid URL", symbol: "exclamationmark.triangle.fill")
                 return
             }
-            if shouldAutoDownloadWithoutFormatSheet {
+            if shouldAutoDownloadWithoutFormatSheet || dispatch != nil {
                 let quality = AppGroupSettings.defaults.integer(forKey: "downloadDefaultVideoQuality")
                 let preset = DownloadFormatPreset.fromDefaultQualitySetting(quality == 0 ? 1080 : quality)
-                await coordinator.enqueue(url: url, title: nil, formatArgs: preset.ytdlpArgs())
+                await coordinator.enqueue(
+                    url: url,
+                    title: dispatch?.title,
+                    formatArgs: preset.ytdlpArgs(),
+                    mediaType: dispatch?.mediaType,
+                    referer: dispatch?.referer,
+                    customHeaders: dispatch?.headers
+                )
                 await refresh()
                 CopyHUD.show("Added to Downloads", symbol: "arrow.down.circle.fill")
             } else {
-                await presentFormatSheet(for: url)
+                await presentFormatSheet(for: url, dispatch: dispatch)
             }
         }
     }
 
+    private func shouldBlockForMissingExtensionCookies(route: DownloadURLRoute) -> Bool {
+        let mode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
+        guard mode == "extension_only" else { return false }
+        guard !extensionCookiesAvailable() else { return false }
+        switch route {
+        case let .single(url), let .collection(url), let .douyinProfile(url):
+            return urlNeedsAuthCookies(url)
+        case let .multiURL(urls):
+            return urls.contains { urlNeedsAuthCookies($0) }
+        }
+    }
+
+    private func extensionCookiesAvailable() -> Bool {
+        let extensionCookieFile = AppGroup.containerURL()
+            .appendingPathComponent("cookies", isDirectory: true)
+            .appendingPathComponent("downloader-extension-cookies.txt")
+        return FileManager.default.fileExists(atPath: extensionCookieFile.path)
+    }
+
+    private func urlNeedsAuthCookies(_ rawURL: String) -> Bool {
+        guard let host = URL(string: rawURL)?.host?.lowercased() else { return false }
+        let authHosts = [
+            "douyin.com",
+            "youtube.com",
+            "youtu.be",
+            "instagram.com",
+            "x.com",
+            "twitter.com",
+            "tiktok.com"
+        ]
+        return authHosts.contains { host == $0 || host.hasSuffix(".\($0)") }
+    }
+
     func dismissPicker() {
+        if case let .format(url, _) = presentedPicker {
+            formatDispatchPayloads.removeValue(forKey: url)
+        }
         presentedPicker = nil
         advancePendingURLQueue()
     }
@@ -237,7 +292,15 @@ final class DownloaderViewModel {
     }
 
     func enqueueFromFormatSheet(url: String, preset: DownloadFormatPreset) async {
-        await coordinator.enqueue(url: url, title: nil, formatArgs: preset.ytdlpArgs())
+        let payload = formatDispatchPayloads.removeValue(forKey: url)
+        await coordinator.enqueue(
+            url: url,
+            title: payload?.title,
+            formatArgs: preset.ytdlpArgs(),
+            mediaType: payload?.mediaType,
+            referer: payload?.referer,
+            customHeaders: payload?.headers
+        )
         presentedPicker = nil
         await refresh()
         CopyHUD.show("Added to Downloads", symbol: "arrow.down.circle.fill")
@@ -248,21 +311,42 @@ final class DownloaderViewModel {
         AppGroupSettings.defaults.bool(forKey: "downloadAutoEnqueueSingleURL")
     }
 
-    private func presentFormatSheet(for url: String) async {
-        let (cookieArgsList, cookieHadErrors) = await MainActor.run { coordinatorCookieArgs() }
-        if cookieHadErrors { cookieWarning = "Some browser profiles could not be imported." }
-        let cookieFileURL = cookieFileURL(from: cookieArgsList)
-        guard let ytdlpPath = try? coordinator.binaries.ytdlpPath(),
-              let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath, cookieFile: cookieFileURL)
-        else {
-            let quality = AppGroupSettings.defaults.integer(forKey: "downloadDefaultVideoQuality")
-            let preset = DownloadFormatPreset.fromDefaultQualitySetting(quality == 0 ? 1080 : quality)
-            await coordinator.enqueue(url: url, title: nil, formatArgs: preset.ytdlpArgs())
-            await refresh()
-            CopyHUD.show("Added to Downloads", symbol: "arrow.down.circle.fill")
-            return
+    private func presentFormatSheet(for url: String, dispatch: DispatchRoutePayload?) async {
+        if let dispatch {
+            formatDispatchPayloads[url] = dispatch
         }
-        presentedPicker = .format(url: url, metadata: meta)
+        // Show the sheet immediately — picker is usable before any metadata arrives
+        presentedPicker = .format(url: url, metadata: nil)
+
+        // Stage 1: oEmbed (YouTube only, ~100ms) — title + thumbnail, no yt-dlp needed
+        if let quick = await MetadataFetcher.fetchOEmbed(url: url) {
+            if case .format(let u, _) = presentedPicker, u == url {
+                presentedPicker = .format(url: url, metadata: quick)
+            }
+        }
+
+        // Stage 2: yt-dlp --dump-json for duration + actual available format heights.
+        // Use already-synced cookie files directly — no Chrome DB import needed here.
+        guard let ytdlpPath = try? coordinator.binaries.ytdlpPath() else { return }
+        let full = await MetadataFetcher.fetch(
+            url: url,
+            ytdlp: ytdlpPath,
+            cookieFile: existingCookieFileURL()
+        )
+        guard case .format(let u, let current) = presentedPicker, u == url else { return }
+        let merged = full.map { current?.merging($0) ?? $0 } ?? current
+        presentedPicker = .format(url: url, metadata: merged)
+    }
+
+    // Returns whichever synced/imported cookie file already exists on disk —
+    // no Chrome DB import, safe to call from any context.
+    private func existingCookieFileURL() -> URL? {
+        let base = AppGroup.containerURL().appendingPathComponent("cookies", isDirectory: true)
+        for name in ["downloader-extension-cookies.txt", "downloader-cookies.txt"] {
+            let url = base.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        return nil
     }
 
     private func coordinatorCookieArgs() -> ([String], Bool) {
@@ -270,12 +354,35 @@ final class DownloaderViewModel {
         let cookieFile = AppGroup.containerURL()
             .appendingPathComponent("cookies", isDirectory: true)
             .appendingPathComponent("downloader-cookies.txt")
+        let extensionCookieFile = AppGroup.containerURL()
+            .appendingPathComponent("cookies", isDirectory: true)
+            .appendingPathComponent("downloader-extension-cookies.txt")
+        let cookieMode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
         do {
             try FileManager.default.createDirectory(
                 at: cookieFile.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let result = try CookieImporter.combinedCookiesFile(at: cookieFile)
+            if cookieMode == "extension_only" {
+                let exists = FileManager.default.fileExists(atPath: extensionCookieFile.path)
+                return (exists ? ["--cookies", extensionCookieFile.path] : [], !exists)
+            }
+            let browserProfile = AppGroupSettings.defaults.string(forKey: "downloadCookieBrowserProfile") ?? "chrome"
+            let preferredBrowser: BrowserProfile.Browser? = switch browserProfile {
+            case "chrome", "chromium": .chrome
+            case "edge": .edge
+            case "brave": .brave
+            case "safari": .safari
+            default: nil
+            }
+            let result = try CookieImporter.combinedCookiesFile(
+                at: cookieFile,
+                options: CookieImportOptions(
+                    preferredBrowser: preferredBrowser,
+                    includeSafari: preferredBrowser == nil || preferredBrowser == .safari,
+                    appendExistingCookieFile: extensionCookieFile
+                )
+            )
             return (["--cookies", cookieFile.path], result.hadErrors)
         } catch {
             return ([], true)
@@ -390,6 +497,13 @@ final class DownloaderViewModel {
     }
 }
 
+private struct DispatchRoutePayload {
+    let mediaType: String?
+    let referer: String?
+    let headers: [String: String]?
+    let title: String?
+}
+
 /// Per-component NC adapter for DownloaderViewModel (Phase 7 W1).
 /// Wraps the 5 raw NotificationCenter observers (`downloadProgress`,
 /// `downloadPhase`, `downloadStateChanged`, `downloadDestinationPath`,
@@ -406,7 +520,7 @@ final class DownloaderNotificationObservers {
     /// (matches the original observer's permissive handling).
     var onStateChanged: ((String, String?) -> Void)?
     var onDestinationPath: ((String, String) -> Void)?
-    var onCookieWarning: (() -> Void)?
+    var onCookieWarning: ((String?) -> Void)?
     var onInterruptedRecovery: ((Int) -> Void)?
 
     private var tokens: [NSObjectProtocol] = []
@@ -444,8 +558,8 @@ final class DownloaderNotificationObservers {
             else { return }
             self?.onDestinationPath?(id, path)
         }
-        observe(.cookieWarning) { [weak self] _ in
-            self?.onCookieWarning?()
+        observe(.cookieWarning) { [weak self] note in
+            self?.onCookieWarning?(note.userInfo?["message"] as? String)
         }
         observe(.downloadInterruptedRecovery) { [weak self] note in
             let count = note.userInfo?["count"] as? Int ?? 0

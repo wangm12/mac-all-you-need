@@ -94,6 +94,9 @@ public actor DownloadQueue {
     }
 
     public func enqueue(_ job: DownloadJob) {
+        // Keep only the latest pending job per record so resume retries do not
+        // pile up duplicate queue entries.
+        queued.removeAll { $0.recordID == job.recordID }
         queued.append(job)
         sortQueuedJobs()
         Task { await self.tryStart() }
@@ -168,8 +171,11 @@ public actor DownloadQueue {
     }
 
     private func tryStart() async {
-        while running.count < slots, let job = queued.first {
-            queued.removeFirst()
+        while running.count < slots {
+            guard let nextIndex = queued.firstIndex(where: { running[$0.recordID] == nil }) else {
+                break
+            }
+            let job = queued.remove(at: nextIndex)
             running[job.recordID] = job
             started(job.recordID)
             spawn(job: job)

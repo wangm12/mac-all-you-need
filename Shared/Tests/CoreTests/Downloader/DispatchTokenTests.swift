@@ -27,6 +27,7 @@ final class DispatchServerTests: XCTestCase {
         let received = expectation(description: "received")
         let server = try DispatchServer(port: 18999, token: "secret") { req in
             XCTAssertEqual(req.url, "https://x.com")
+            XCTAssertNil(req.mediaType)
             received.fulfill()
         }
         try await server.start()
@@ -52,5 +53,183 @@ final class DispatchServerTests: XCTestCase {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (_, resp) = try await URLSession.shared.data(for: req)
         XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 401)
+    }
+
+    func testDownloadEndpointAcceptsExtensionPayload() async throws {
+        let received = expectation(description: "received")
+        let server = try DispatchServer(port: 18997, token: "secret") { req in
+            XCTAssertEqual(req.url, "https://cdn.example.com/v.m3u8")
+            XCTAssertEqual(req.mediaType, "hls")
+            XCTAssertEqual(req.referer, "https://example.com/page")
+            XCTAssertEqual(req.headers?["Origin"], "https://example.com")
+            received.fulfill()
+        }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let body = Data(#"{"url":"https://cdn.example.com/v.m3u8","type":"hls","referer":"https://example.com/page","headers":{"Origin":"https://example.com"}}"#.utf8)
+        var req = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18997/download")))
+        req.httpMethod = "POST"
+        req.httpBody = body
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 200)
+        await fulfillment(of: [received], timeout: 3)
+    }
+
+    func testDownloadEndpointAcceptsURLsArray() async throws {
+        let received = expectation(description: "received array")
+        received.expectedFulfillmentCount = 2
+        var seen: [String] = []
+        let server = try DispatchServer(port: 18992, token: "secret") { req in
+            seen.append(req.url)
+            received.fulfill()
+        }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let body = Data(#"{"urls":["https://example.com/a","https://example.com/b"]}"#.utf8)
+        var req = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18992/download")))
+        req.httpMethod = "POST"
+        req.httpBody = body
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 200)
+        await fulfillment(of: [received], timeout: 3)
+        XCTAssertEqual(seen, ["https://example.com/a", "https://example.com/b"])
+    }
+
+    func testDownloadEndpointRejectsUnsupportedURLScheme() async throws {
+        let server = try DispatchServer(port: 18990, token: "secret") { _ in
+            XCTFail("should not call handler for unsupported URL")
+        }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let body = Data(#"{"url":"file:///tmp/video.mp4"}"#.utf8)
+        var req = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18990/download")))
+        req.httpMethod = "POST"
+        req.httpBody = body
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 400)
+    }
+
+    func testPingEndpoint() async throws {
+        let server = try DispatchServer(port: 18996, token: "secret") { _ in XCTFail("should not call") }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let (_, resp) = try await URLSession.shared.data(from: try XCTUnwrap(URL(string: "http://127.0.0.1:18996/ping")))
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 200)
+    }
+
+    func testCookieSyncPollDefaultsFalse() async throws {
+        let server = try DispatchServer(port: 18995, token: "secret") { _ in XCTFail("should not call") }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let (data, resp) = try await URLSession.shared.data(from: try XCTUnwrap(URL(string: "http://127.0.0.1:18995/cookie-sync-poll")))
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual(String(data: data, encoding: .utf8), #"{"pending":false}"#)
+    }
+
+    func testCookieSyncLandingReturnsHTML() async throws {
+        let server = try DispatchServer(port: 18994, token: "secret") { _ in XCTFail("should not call") }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let (data, resp) = try await URLSession.shared.data(from: try XCTUnwrap(URL(string: "http://127.0.0.1:18994/cookie-sync-landing")))
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 200)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        XCTAssertTrue(body.contains("Cookie sync requested"))
+    }
+
+    func testOptionsReturnsNoContent() async throws {
+        let server = try DispatchServer(port: 18993, token: "secret") { _ in XCTFail("should not call") }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        var req = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18993/download")))
+        req.httpMethod = "OPTIONS"
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 204)
+    }
+
+    func testCookieSyncPendingThenClearsAfterCookiesPost() async throws {
+        let server = try DispatchServer(port: 18991, token: "secret") { _ in XCTFail("should not call") }
+        await server.requestCookieSync()
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let pollURL = try XCTUnwrap(URL(string: "http://127.0.0.1:18991/cookie-sync-poll"))
+        let (beforeData, beforeResp) = try await URLSession.shared.data(from: pollURL)
+        XCTAssertEqual((beforeResp as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual(String(data: beforeData, encoding: .utf8), #"{"pending":true}"#)
+
+        let cookiePayload = """
+        [{
+          "name":"sid",
+          "value":"abc",
+          "domain":".example.com",
+          "path":"/",
+          "secure":true,
+          "httpOnly":false,
+          "expirationDate":1999999999
+        }]
+        """
+        var post = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18991/cookies")))
+        post.httpMethod = "POST"
+        post.httpBody = Data(cookiePayload.utf8)
+        post.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (postData, postResp) = try await URLSession.shared.data(for: post)
+        XCTAssertEqual((postResp as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertTrue((String(data: postData, encoding: .utf8) ?? "").contains(#""ok":true"#))
+        XCTAssertTrue((String(data: postData, encoding: .utf8) ?? "").contains(#""count":1"#))
+
+        let (afterData, afterResp) = try await URLSession.shared.data(from: pollURL)
+        XCTAssertEqual((afterResp as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual(String(data: afterData, encoding: .utf8), #"{"pending":false}"#)
+    }
+
+    func testCookiesEndpointWritesNetscapeCookieFile() async throws {
+        let server = try DispatchServer(port: 18989, token: "secret") { _ in XCTFail("should not call") }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let cookieFile = AppGroup.containerURL()
+            .appendingPathComponent("cookies", isDirectory: true)
+            .appendingPathComponent("downloader-extension-cookies.txt")
+        try? FileManager.default.removeItem(at: cookieFile)
+
+        let cookiePayload = """
+        [{
+          "name":"sid",
+          "value":"abc",
+          "domain":".example.com",
+          "path":"/",
+          "secure":true,
+          "httpOnly":false,
+          "expirationDate":1999999999
+        }]
+        """
+        var post = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18989/cookies")))
+        post.httpMethod = "POST"
+        post.httpBody = Data(cookiePayload.utf8)
+        post.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (_, postResp) = try await URLSession.shared.data(for: post)
+        XCTAssertEqual((postResp as? HTTPURLResponse)?.statusCode, 200)
+
+        let fileText = try String(contentsOf: cookieFile, encoding: .utf8)
+        let lines = fileText.split(separator: "\n")
+        XCTAssertFalse(lines.isEmpty)
+        XCTAssertEqual(String(lines[0]), "# Netscape HTTP Cookie File")
+        XCTAssertTrue(lines.dropFirst().contains { line in
+            let columns = line.split(separator: "\t")
+            return columns.count == 7
+                && columns[0] == ".example.com"
+                && columns[5] == "sid"
+                && columns[6] == "abc"
+        })
     }
 }

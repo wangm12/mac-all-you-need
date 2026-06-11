@@ -112,6 +112,7 @@ enum DouyinProfileLister {
               let maxCursor = decodeCursor(cursor)
         else { throw PlaylistListError.noEntries }
 
+        try await Task.sleep(nanoseconds: 300_000_000)
         let page = try await fetchSignedPage(secUid: secUid, maxCursor: maxCursor, cookieFile: cookieFile)
         return DouyinProfileListResult(
             items: page.rows,
@@ -223,7 +224,7 @@ enum DouyinProfileLister {
         return rows
     }
 
-    private static func rowFromAwemeItem(_ item: [String: Any], profileURL: String) -> DouyinProfilePostRow? {
+    static func rowFromAwemeItem(_ item: [String: Any], profileURL: String) -> DouyinProfilePostRow? {
         let idRaw = item["aweme_id"] ?? item["awemeId"]
         let awemeId = String(describing: idRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard awemeId.range(of: #"^\d{10,}$"#, options: .regularExpression) != nil else { return nil }
@@ -393,10 +394,10 @@ enum DouyinProfileLister {
             .init(name: "browser_language", value: "zh-CN"),
             .init(name: "browser_platform", value: "Win32"),
             .init(name: "browser_name", value: "Chrome"),
-            .init(name: "browser_version", value: "131.0.0.0"),
+            .init(name: "browser_version", value: "139.0.0.0"),
             .init(name: "browser_online", value: "true"),
             .init(name: "engine_name", value: "Blink"),
-            .init(name: "engine_version", value: "131.0.0.0"),
+            .init(name: "engine_version", value: "139.0.0.0"),
             .init(name: "os_name", value: "Windows"),
             .init(name: "os_version", value: "10"),
             .init(name: "cpu_core_num", value: "16"),
@@ -428,27 +429,63 @@ enum DouyinProfileLister {
     }
 
     private static func fetchSignedPage(secUid: String, maxCursor: String?, cookieFile: URL?) async throws -> SignedPage {
-        guard let requestURL = signedAwemePostURL(secUid: secUid, maxCursor: maxCursor, cookieFile: cookieFile)
-        else { throw PlaylistListError.noEntries }
+        let retryDelays: [TimeInterval] = [1, 2, 5]
+        var lastData = Data()
+        var lastRoot: [String: Any] = [:]
+        var awemeList: [[String: Any]] = []
 
-        var request = URLRequest(url: requestURL)
-        request.setValue(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            forHTTPHeaderField: "User-Agent"
-        )
-        request.setValue("https://www.douyin.com/user/\(secUid)", forHTTPHeaderField: "Referer")
-        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
-        request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
-        if let cookieHeader = cookieHeader(from: cookieFile), !cookieHeader.isEmpty {
-            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        for attempt in 0 ..< 3 {
+            guard let requestURL = signedAwemePostURL(secUid: secUid, maxCursor: maxCursor, cookieFile: cookieFile)
+            else { throw PlaylistListError.noEntries }
+
+            var request = URLRequest(url: requestURL)
+            request.setValue(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+                forHTTPHeaderField: "User-Agent"
+            )
+            request.setValue("https://www.douyin.com/?recommend=1", forHTTPHeaderField: "Referer")
+            request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+            request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+            if let cookieHeader = cookieHeader(from: cookieFile), !cookieHeader.isEmpty {
+                request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+            }
+
+            let data: Data
+            do {
+                (data, _) = try await URLSession.shared.data(for: request)
+            } catch {
+                if attempt < 2 {
+                    try await Task.sleep(nanoseconds: UInt64(retryDelays[attempt] * 1_000_000_000))
+                    continue
+                }
+                throw PlaylistListError.noEntries
+            }
+
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                if attempt < 2 {
+                    try await Task.sleep(nanoseconds: UInt64(retryDelays[attempt] * 1_000_000_000))
+                    continue
+                }
+                throw PlaylistListError.noEntries
+            }
+            let payload = (root["data"] as? [String: Any]) ?? root
+            let list = payload["aweme_list"] as? [[String: Any]] ?? root["aweme_list"] as? [[String: Any]] ?? []
+            let statusCode = (payload["status_code"] as? Int) ?? (root["status_code"] as? Int) ?? 0
+            let isAntiBotSignal = list.isEmpty && statusCode == 0 && !data.isEmpty
+
+            lastData = data
+            lastRoot = root
+            awemeList = list
+
+            if !isAntiBotSignal { break }
+            log.info("fetchSignedPage anti-bot signal attempt=\(attempt) secUid=\(secUid, privacy: .public)")
+            if attempt < 2 {
+                try await Task.sleep(nanoseconds: UInt64(retryDelays[attempt] * 1_000_000_000))
+            }
         }
 
-        let (data, _) = try await URLSession.shared.data(for: request)
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw PlaylistListError.noEntries
-        }
+        let root = lastRoot
         let payload = (root["data"] as? [String: Any]) ?? root
-        let awemeList = payload["aweme_list"] as? [[String: Any]] ?? root["aweme_list"] as? [[String: Any]] ?? []
 
         var seen = Set<String>()
         var rows: [DouyinProfilePostRow] = []
@@ -466,16 +503,15 @@ enum DouyinProfileLister {
         let hasMoreApi = (hasMoreRaw as? Bool) == true
             || String(describing: hasMoreRaw ?? "").lowercased() == "true"
             || String(describing: hasMoreRaw ?? "") == "1"
-        let pageLooksFull = awemeList.count >= 10
         let cursorAdvanced = !requested.isEmpty && !responseCursor.isEmpty && requested != responseCursor
         let firstPageMaybeMore = (requested == "0" || requested.isEmpty)
             && !hasMoreApi
-            && pageLooksFull
+            && awemeList.count >= 5
             && !responseCursor.isEmpty
             && responseCursor != "0"
-        let heuristicMore = !hasMoreApi && cursorAdvanced && pageLooksFull && responseCursor != "0"
-        let statusCode = (payload["status_code"] as? Int) ?? (root["status_code"] as? Int) ?? 0
-        let paginationRestricted = rows.isEmpty && statusCode == 0
+        let heuristicMore = !hasMoreApi && cursorAdvanced && responseCursor != "0"
+        let finalStatusCode = (payload["status_code"] as? Int) ?? (root["status_code"] as? Int) ?? 0
+        let paginationRestricted = rows.isEmpty && finalStatusCode == 0
         let hasMore = !paginationRestricted && (hasMoreApi || heuristicMore || firstPageMaybeMore)
         let nextCursor = hasMore && !responseCursor.isEmpty ? encodeCursor(responseCursor) : nil
 

@@ -4,7 +4,7 @@ import Foundation
 enum DownloadPickerPresentation: Equatable, Identifiable {
     case collection(url: String)
     case douyinProfile(url: String)
-    case format(url: String, metadata: VideoMetadata)
+    case format(url: String, metadata: VideoMetadata?)
 
     var id: String {
         switch self {

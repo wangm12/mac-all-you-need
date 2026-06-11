@@ -22,56 +22,77 @@ private enum DownloadFormatTab: String, CaseIterable, SegmentedTabDestination {
 
 struct DownloadFormatSheet: View {
     let sourceURL: String
-    let metadata: VideoMetadata
+    let metadata: VideoMetadata?
     let onClose: () -> Void
     let onDownload: (DownloadFormatPreset) -> Void
 
     @State private var selectedTab: DownloadFormatTab = .video
 
+    // Standard presets in priority order (after Best available)
+    private static let standardVideoPresets: [DownloadFormatPreset] = [
+        .video1080, .video720, .video360, .video240, .video144,
+    ]
+
     private var videoPresets: [DownloadFormatPreset] {
-        [.video1080, .video720, .video360, .video240, .video144]
+        var result: [DownloadFormatPreset] = [.videoBest]
+        let available = metadata?.availableHeights ?? []
+        if available.isEmpty {
+            // Metadata not loaded yet, or site doesn't expose heights — show standard list
+            result += Self.standardVideoPresets
+        } else {
+            // Only show presets whose height is actually available
+            for preset in Self.standardVideoPresets where available.contains(preset.qualityHeight) {
+                result.append(preset)
+            }
+        }
+        return result
     }
 
-    private var audioPresets: [DownloadFormatPreset] {
-        [.audio320, .audio128]
-    }
+    private var audioPresets: [DownloadFormatPreset] { [.audio320, .audio128] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 14) {
-                thumbnail
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(metadata.title)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(2)
-                    Text(metadata.channelName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if metadata.durationSeconds > 0 {
-                        Text(DownloadPickerDurationFormatting.format(metadata.durationSeconds))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(sourceURL)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(2)
-                }
+                thumbnailView
+                metadataView
             }
 
-            FunctionSegmentedTabStrip(
-                selection: selectedTab,
-                size: .control
-            ) { nextTab in
+            FunctionSegmentedTabStrip(selection: selectedTab, size: .control) { nextTab in
                 selectedTab = nextTab
             }
 
             VStack(spacing: 8) {
-                ForEach(currentPresets, id: \.rawValue) { preset in
-                    MAYNButton(preset.displayLabel, role: .secondary) {
-                        onDownload(preset)
+                let presets = selectedTab == .video ? videoPresets : audioPresets
+                ForEach(presets, id: \.rawValue) { preset in
+                    Button(action: { onDownload(preset) }) {
+                        HStack(spacing: 10) {
+                            Text(preset.displayLabel)
+                                .font(.callout.weight(.medium))
+                            Spacer(minLength: 12)
+                            Image(systemName: "arrow.down.circle")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius)
+                                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                // Spinner row while video metadata is still loading
+                if selectedTab == .video, metadata == nil {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Fetching available resolutions…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
                 }
             }
 
@@ -81,36 +102,71 @@ struct DownloadFormatSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 430)
+        .frame(width: 460)
         .background(MAYNTheme.window)
     }
 
-    private var currentPresets: [DownloadFormatPreset] {
-        selectedTab == .video ? videoPresets : audioPresets
-    }
-
     @ViewBuilder
-    private var thumbnail: some View {
+    private var thumbnailView: some View {
         Group {
-            if let url = URL(string: metadata.thumbnailURL), !metadata.thumbnailURL.isEmpty {
+            if let urlStr = metadata?.thumbnailURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
                 AsyncImage(url: url) { image in
                     image.resizable().aspectRatio(contentMode: .fill)
                 } placeholder: {
-                    placeholder
+                    thumbnailPlaceholder
                 }
             } else {
-                placeholder
+                thumbnailPlaceholder
             }
         }
-        .frame(width: 120, height: 68)
-        .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius))
+        .frame(width: 132, height: 74)
+        .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
+                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+        )
     }
 
-    private var placeholder: some View {
+    private var thumbnailPlaceholder: some View {
         ZStack {
             MAYNTheme.elevated
-            Image(systemName: "play.rectangle")
-                .foregroundStyle(.secondary)
+            if metadata == nil {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "play.rectangle").foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var metadataView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let metadata {
+                Text(metadata.title)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(2)
+                Text(metadata.channelName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if metadata.durationSeconds > 0 {
+                    Text(DownloadPickerDurationFormatting.format(metadata.durationSeconds))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                // Skeleton while loading
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(MAYNTheme.elevated)
+                    .frame(width: 220, height: 13)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(MAYNTheme.elevated)
+                    .frame(width: 100, height: 11)
+            }
+            Text(sourceURL)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 }

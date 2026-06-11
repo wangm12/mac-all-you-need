@@ -14,9 +14,8 @@ public final class DownloadJob {
         recordID: RecordID,
         url: String,
         destination: URL,
-        ytdlp: URL,
-        ffmpeg: URL,
-        extraArgs: [String] = [],
+        executable: URL,
+        arguments: [String],
         collectionID: String? = nil,
         collectionIndex: Int? = nil,
         enqueuedAt: Date = Date()
@@ -28,12 +27,34 @@ public final class DownloadJob {
         self.collectionIndex = collectionIndex
         self.enqueuedAt = enqueuedAt
         let p = Process()
-        p.executableURL = ytdlp
+        p.executableURL = executable
+        p.arguments = arguments
+        var env = ProcessInfo.processInfo.environment
+        env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+        env["REQUESTS_CA_BUNDLE"] = "/etc/ssl/cert.pem"
+        p.environment = env
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        process = p
+        self.pipe = pipe
+    }
+
+    public init(
+        recordID: RecordID,
+        url: String,
+        destination: URL,
+        ytdlp: URL,
+        ffmpeg: URL,
+        extraArgs: [String] = [],
+        collectionID: String? = nil,
+        collectionIndex: Int? = nil,
+        enqueuedAt: Date = Date()
+    ) {
         let tempDir = DownloadDestinationBuilder.ytdlpTempDirectory()
         var args: [String] = [
             "--newline", "--progress", "--no-colors", "--continue",
             "--no-check-certificate",
-            "--concurrent-fragments", "4",
             "--ffmpeg-location", ffmpeg.path,
             "--paths", "temp:\(tempDir.path)",
             "-o", destination.path
@@ -42,6 +63,14 @@ public final class DownloadJob {
         if let nodePath = Self.findNode() {
             args += ["--js-runtime", "node:\(nodePath)"]
         }
+        self.recordID = recordID
+        self.url = url
+        self.destination = destination
+        self.collectionID = collectionID
+        self.collectionIndex = collectionIndex
+        self.enqueuedAt = enqueuedAt
+        let p = Process()
+        p.executableURL = ytdlp
         p.arguments = args + extraArgs + [url]
         var env = ProcessInfo.processInfo.environment
         env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"

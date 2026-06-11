@@ -21,7 +21,7 @@ struct DownloadPickerEntryRow: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(.caption.weight(.medium))
+                        .font(.callout.weight(.medium))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -38,14 +38,14 @@ struct DownloadPickerEntryRow: View {
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
-                    .frame(maxWidth: 88, alignment: .trailing)
+                    .frame(maxWidth: 96, alignment: .trailing)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .background(background, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius)
-                    .stroke(border, lineWidth: 1)
+                    .stroke(border, lineWidth: isHovering || isSelected ? 1 : 0.5)
             )
         }
         .buttonStyle(.plain)

@@ -2,7 +2,7 @@ import Foundation
 
 public enum DownloadBatchRateLimiter {
     private static let douyinAutoBatchThreshold = 50
-    private static let douyinAutoSleepSeconds = 0.25
+    private static let douyinAutoSleepSeconds = 1.0
 
     /// User-configured delay between starting jobs in a bulk enqueue (seconds).
     public static func configuredSleepSeconds() -> Double {
@@ -20,13 +20,13 @@ public enum DownloadBatchRateLimiter {
         return 0
     }
 
-    /// Gentle yt-dlp request pacing for large playlist/profile batches.
+    /// Gentle yt-dlp request pacing for playlist batches.
+    /// Douyin sleep-requests are now injected directly by YtDlpArgumentBuilder for all Douyin URLs.
     public static func gentleSleepRequestsArgs(kind: DownloadCollectionKind, batchCount: Int) -> [String] {
-        guard batchCount >= 10 else { return [] }
         switch kind {
-        case .playlist, .douyinProfile:
-            return ["--sleep-requests", "0.5"]
-        case .multiURL:
+        case .playlist:
+            return batchCount >= 3 ? ["--sleep-requests", "0.5"] : []
+        case .douyinProfile, .multiURL:
             return []
         }
     }

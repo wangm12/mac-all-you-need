@@ -104,7 +104,6 @@ struct DownloadsDestinationView: View {
                 onPasteURL: enqueueClipboardURL,
                 onAddURL: { presentAddURLSheet(prefill: DownloaderViewModel.clipboardVideoURL()) }
             )
-                .frame(height: 420)
         }
     }
 
@@ -116,7 +115,6 @@ struct DownloadsDestinationView: View {
                 onPasteURL: enqueueClipboardURL,
                 onAddURL: { presentAddURLSheet(prefill: DownloaderViewModel.clipboardVideoURL()) }
             )
-                .frame(height: 420)
         }
     }
 

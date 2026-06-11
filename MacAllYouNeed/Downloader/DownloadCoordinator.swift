@@ -30,7 +30,9 @@ final class DownloadCoordinator {
     var dispatch: DispatchServer?
     private var destinationObserver: NSObjectProtocol?
     private var metadataFetchTasks: [RecordID: Task<Void, Never>] = [:]
+    private var periodicCookieSyncTask: Task<Void, Never>?
     private let log = Logging.logger(for: "downloader", category: "coordinator")
+    private let extensionCookieSyncIntervalNanos: UInt64 = 30 * 60 * 1_000_000_000
 
     init(binaries: any BinaryLocator) throws {
         let key = try KeyManager(keychain: SystemKeychain()).deviceKey()
@@ -87,6 +89,7 @@ final class DownloadCoordinator {
         if let destinationObserver {
             NotificationCenter.default.removeObserver(destinationObserver)
         }
+        periodicCookieSyncTask?.cancel()
     }
 
     private static func postStateChanged(id: RecordID, state: DownloadState) {
@@ -100,21 +103,58 @@ final class DownloadCoordinator {
         let cookieFile = AppGroup.containerURL()
             .appendingPathComponent("cookies", isDirectory: true)
             .appendingPathComponent("downloader-cookies.txt")
+        let extensionCookieFile = AppGroup.containerURL()
+            .appendingPathComponent("cookies", isDirectory: true)
+            .appendingPathComponent("downloader-extension-cookies.txt")
+        let cookieMode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
         do {
             try FileManager.default.createDirectory(
                 at: cookieFile.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let result = try CookieImporter.combinedCookiesFile(at: cookieFile)
+            if cookieMode == "extension_only" {
+                let exists = FileManager.default.fileExists(atPath: extensionCookieFile.path)
+                return (exists ? ["--cookies", extensionCookieFile.path] : [], !exists)
+            }
+            let browserPref = AppGroupSettings.defaults.string(forKey: "downloadCookieBrowserProfile") ?? "chrome"
+            let preferredBrowser = preferredBrowserProfile(for: browserPref)
+            let options = CookieImportOptions(
+                preferredBrowser: preferredBrowser,
+                includeSafari: preferredBrowser == nil || preferredBrowser == .safari,
+                appendExistingCookieFile: extensionCookieFile
+            )
+            let result = try CookieImporter.combinedCookiesFile(at: cookieFile, options: options)
             return (["--cookies", cookieFile.path], result.hadErrors)
         } catch {
             return ([], true)
         }
     }
 
+    private func preferredBrowserProfile(for raw: String) -> BrowserProfile.Browser? {
+        switch raw {
+        case "chrome", "chromium":
+            .chrome
+        case "edge":
+            .edge
+        case "brave":
+            .brave
+        case "safari":
+            .safari
+        default:
+            nil
+        }
+    }
+
     private func postCookieWarningIfNeeded(hadErrors: Bool) {
         guard hadErrors else { return }
-        NotificationCenter.default.post(name: .cookieWarning, object: nil)
+        let cookieMode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
+        let message: String
+        if cookieMode == "extension_only" {
+            message = "Chrome Companion mode is selected but synced cookies are missing. Install Companion and sync cookies in Downloads settings, or switch to Browser Auto."
+        } else {
+            message = "Some browser profiles could not be imported. Downloads requiring login may fail."
+        }
+        NotificationCenter.default.post(name: .cookieWarning, object: nil, userInfo: ["message": message])
     }
 
     func startDispatchServer() async {
@@ -122,19 +162,115 @@ final class DownloadCoordinator {
         let token = (try? DispatchToken.rotate(at: tokenURL)) ?? UUID().uuidString
         do {
             let server = try DispatchServer(port: 18765, token: token) { req in
-                await MainActor.run {
-                    NotificationCenter.default.post(
-                        name: .downloadRouteRequested,
-                        object: nil,
-                        userInfo: ["url": req.url]
-                    )
-                }
+                await self.handleDispatchRequest(req)
             }
             try await server.start()
             dispatch = server
+            startPeriodicExtensionCookieSync()
         } catch {
             log.warning("Could not start DispatchServer: \(error.localizedDescription)")
         }
+    }
+
+    private func startPeriodicExtensionCookieSync() {
+        periodicCookieSyncTask?.cancel()
+        periodicCookieSyncTask = Task { [weak self] in
+            guard let self else { return }
+            await self.requestExtensionCookieSyncIfNeeded()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: self.extensionCookieSyncIntervalNanos)
+                if Task.isCancelled { break }
+                await self.requestExtensionCookieSyncIfNeeded()
+            }
+        }
+    }
+
+    private func requestExtensionCookieSyncIfNeeded() async {
+        let mode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode")
+            ?? UserDefaults.standard.string(forKey: "downloadCookieMode")
+            ?? "browser_auto"
+        guard mode == "extension_only" else { return }
+        await dispatch?.requestCookieSync()
+    }
+
+    private func handleDispatchRequest(_ req: DispatchServer.Request) async {
+        guard let route = DownloadURLClassifier.route(for: req.url) else { return }
+        switch route {
+        case let .single(url):
+            if shouldBlockForMissingExtensionCookies(url: url) {
+                NotificationCenter.default.post(
+                    name: .cookieWarning,
+                    object: nil,
+                    userInfo: [
+                        "message": "Chrome Companion mode is selected but synced cookies are missing. Install Companion and sync cookies in Downloads settings, or switch to Browser Auto."
+                    ]
+                )
+                return
+            }
+            let quality = AppGroupSettings.defaults.integer(forKey: "downloadDefaultVideoQuality")
+            let preset = DownloadFormatPreset.fromDefaultQualitySetting(quality == 0 ? 1080 : quality)
+            await enqueue(
+                url: url,
+                title: req.title,
+                formatArgs: preset.ytdlpArgs(),
+                mediaType: req.mediaType,
+                referer: req.referer,
+                customHeaders: req.headers
+            )
+        case .collection, .douyinProfile, .multiURL:
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .downloadRouteRequested,
+                    object: nil,
+                    userInfo: [
+                        "url": req.url,
+                        "title": req.title as Any,
+                        "type": req.mediaType as Any,
+                        "referer": req.referer as Any,
+                        "headers": req.headers as Any
+                    ]
+                )
+            }
+        }
+    }
+
+    private func shouldBlockForMissingExtensionCookies(url: String) -> Bool {
+        let cookieMode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode")
+            ?? UserDefaults.standard.string(forKey: "downloadCookieMode")
+            ?? "browser_auto"
+        let extensionCookieFile = AppGroup.containerURL()
+            .appendingPathComponent("cookies", isDirectory: true)
+            .appendingPathComponent("downloader-extension-cookies.txt")
+        let hasExtensionCookieFile = FileManager.default.fileExists(atPath: extensionCookieFile.path)
+        return Self.dispatchShouldBlockForMissingExtensionCookies(
+            url: url,
+            cookieMode: cookieMode,
+            hasExtensionCookieFile: hasExtensionCookieFile
+        )
+    }
+
+    static func dispatchShouldBlockForMissingExtensionCookies(
+        url: String,
+        cookieMode: String,
+        hasExtensionCookieFile: Bool
+    ) -> Bool {
+        guard cookieMode == "extension_only" else { return false }
+        guard urlNeedsAuthCookies(url) else { return false }
+        return !hasExtensionCookieFile
+    }
+
+    private static func urlNeedsAuthCookies(_ rawURL: String) -> Bool {
+        guard let host = URL(string: rawURL)?.host?.lowercased() else { return false }
+        let authHosts = [
+            "douyin.com",
+            "youtube.com",
+            "youtu.be",
+            "instagram.com",
+            "x.com",
+            "twitter.com",
+            "tiktok.com"
+        ]
+        return authHosts.contains { host == $0 || host.hasSuffix(".\($0)") }
     }
 
     /// Re-enqueue an existing record without creating a new DB entry.
@@ -251,11 +387,21 @@ final class DownloadCoordinator {
         }
     }
 
-    func enqueue(url: String, title: String?, formatArgs: [String] = []) async {
+    func enqueue(
+        url: String,
+        title: String?,
+        formatArgs: [String] = [],
+        mediaType: String? = nil,
+        referer: String? = nil,
+        customHeaders: [String: String]? = nil
+    ) async {
         do {
             let dest = try makeDestinationURL(for: nil)
             var record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
             record.pageURL = url
+            record.mediaType = mediaType?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            record.referer = referer?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            record.customHeaders = (customHeaders?.isEmpty == false) ? customHeaders : nil
             record = DownloadMetadataFallback.applyingFallbacks(to: record, destinationPath: nil)
             try store.insert(record)
             let task = Task { [weak self] in
@@ -341,8 +487,11 @@ final class DownloadCoordinator {
         let (cookieArgsList, cookieHadErrors) = cookieArgs()
         postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
         let cookieFileURL = cookieFileURL(from: cookieArgsList)
+        let selectedEngine = DownloadEngineRouter.selectEngine(for: record)
+        let shouldFetchMetadata = selectedEngine != .ffmpegDirect
 
-        if record.videoTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+        if shouldFetchMetadata,
+           record.videoTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
            let ytdlpPath = try? binaries.ytdlpPath(),
            let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath, cookieFile: cookieFileURL)
         {
@@ -372,18 +521,59 @@ final class DownloadCoordinator {
         let dest = URL(fileURLWithPath: record.destinationPath)
         let (cookies, cookieHadErrors) = cookieArgs()
         postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
-        var extraArgs = cookies + formatArgs
-        if record.url.contains("douyin.com") {
-            extraArgs += ["--referer", "https://www.douyin.com/"]
-        }
+        let selectedEngine = DownloadEngineRouter.selectEngine(for: record)
+        NotificationCenter.default.post(
+            name: .downloadPhase,
+            object: nil,
+            userInfo: ["id": record.id.rawValue, "phase": "\(selectedEngine.rawValue)…"]
+        )
+        var batchArgs: [String] = []
         if let kind = record.collectionKind, let collectionID = record.collectionID, !collectionID.isEmpty {
             let batchCount = (try? store.records(inCollection: collectionID).count) ?? 1
-            extraArgs += DownloadBatchRateLimiter.gentleSleepRequestsArgs(kind: kind, batchCount: batchCount)
+            batchArgs = DownloadBatchRateLimiter.gentleSleepRequestsArgs(kind: kind, batchCount: batchCount)
         }
-        let job = try DownloadJob(
+        let job: DownloadJob
+        switch selectedEngine {
+        case .ytdlp:
+            job = try makeYtDlpJob(
+                record: record,
+                destination: dest,
+                cookies: cookies,
+                formatArgs: formatArgs,
+                batchArgs: batchArgs
+            )
+        case .douyinDirect:
+            job = try makeYtDlpJob(
+                record: record,
+                destination: dest,
+                cookies: cookies,
+                formatArgs: formatArgs,
+                batchArgs: batchArgs + ["--no-playlist"]
+            )
+        case .ffmpegDirect:
+            job = try makeFfmpegDirectJob(record: record, destination: dest)
+        }
+        await queue.enqueue(job)
+    }
+
+    private func makeYtDlpJob(
+        record: DownloadRecord,
+        destination: URL,
+        cookies: [String],
+        formatArgs: [String],
+        batchArgs: [String]
+    ) throws -> DownloadJob {
+        let extraArgs = YtDlpArgumentBuilder.build(
+            record: record,
+            cookies: cookies,
+            formatArgs: formatArgs,
+            batchArgs: batchArgs,
+            options: ytdlpArgumentOptions()
+        )
+        return try DownloadJob(
             recordID: record.id,
             url: record.url,
-            destination: dest,
+            destination: destination,
             ytdlp: binaries.ytdlpPath(),
             ffmpeg: binaries.ffmpegPath(),
             extraArgs: extraArgs,
@@ -391,7 +581,56 @@ final class DownloadCoordinator {
             collectionIndex: record.collectionIndex,
             enqueuedAt: record.created
         )
-        await queue.enqueue(job)
+    }
+
+    private func makeFfmpegDirectJob(record: DownloadRecord, destination: URL) throws -> DownloadJob {
+        var args = ["-y"]
+        if let referer = record.referer?.trimmingCharacters(in: .whitespacesAndNewlines), !referer.isEmpty {
+            args += ["-referer", referer]
+        }
+        if let headers = record.customHeaders, !headers.isEmpty {
+            let joined = headers
+                .keys
+                .sorted()
+                .compactMap { key -> String? in
+                    guard let value = headers[key] else { return nil }
+                    let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !k.isEmpty, !v.isEmpty else { return nil }
+                    return "\(k): \(v)\r\n"
+                }
+                .joined()
+            if !joined.isEmpty {
+                args += ["-headers", joined]
+            }
+        }
+        args += ["-i", record.url, "-c", "copy", "-movflags", "+faststart", destination.path]
+        return DownloadJob(
+            recordID: record.id,
+            url: record.url,
+            destination: destination,
+            executable: try binaries.ffmpegPath(),
+            arguments: args,
+            collectionID: record.collectionID,
+            collectionIndex: record.collectionIndex,
+            enqueuedAt: record.created
+        )
+    }
+
+    private func ytdlpArgumentOptions() -> YtDlpArgumentOptions {
+        let defaults = AppGroupSettings.defaults
+        let configuredFragments = defaults.integer(forKey: "downloadConcurrentFragments")
+        let concurrentFragments = configuredFragments > 0 ? configuredFragments : 4
+        let sleepInterval = max(0, defaults.double(forKey: "downloadSleepInterval"))
+        let rawSpeedMode = defaults.string(forKey: "downloadSpeedMode") ?? DownloadSpeedMode.balanced.rawValue
+        let speedMode = DownloadSpeedMode(rawValue: rawSpeedMode) ?? .balanced
+        let external = defaults.string(forKey: "downloadExternalDownloader")
+        return YtDlpArgumentOptions(
+            concurrentFragments: concurrentFragments,
+            sleepInterval: sleepInterval,
+            speedMode: speedMode,
+            externalDownloader: external
+        )
     }
 
     private func cookieFileURL(from cookieArgsList: [String]) -> URL? {

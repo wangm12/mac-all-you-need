@@ -582,6 +582,7 @@
 		CCA91FAD68C9CE50A173A548 /* OnboardingNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9CD9A4CCF10A791079BD25D /* OnboardingNavigationTests.swift */; };
 		CCAC8312F9FAC33A1B0CF292 /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91B9F9F6403ACC97A9E1E6D8 /* OnboardingWindowController.swift */; };
 		CD40A62ED46A9861889050C4 /* ClipboardDestinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF936AB17DE2D696916C1ED5 /* ClipboardDestinationView.swift */; };
+		CD9DCB116D3662065690E1CA /* DownloadCoordinatorCookieModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C9245C48BCE70F1F35CDAC7 /* DownloadCoordinatorCookieModeTests.swift */; };
 		CDB5DE6551B634BE6DEC92E7 /* VoiceSettingsSectionRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687DE59A1A2F72106F2D248 /* VoiceSettingsSectionRegistryTests.swift */; };
 		CE4606086C64A89C292406DB /* DockPreviewWindowMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7788F550C4D20A266BD78C3 /* DockPreviewWindowMatcherTests.swift */; };
 		CE5988BCECE0B86E99A9E68C /* HotkeyMapStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B945F20C749B8FE7E2336A32 /* HotkeyMapStore.swift */; };
@@ -1168,6 +1169,7 @@
 		8B926D25D2CAB48EE3CCDBDB /* ClipCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipCarousel.swift; sourceTree = "<group>"; };
 		8BF33EDAF274251B39BE962A /* DockPreviewWindowFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPreviewWindowFilter.swift; sourceTree = "<group>"; };
 		8C64DAA011BEBAAE3FBC12D7 /* RadialMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuController.swift; sourceTree = "<group>"; };
+		8C9245C48BCE70F1F35CDAC7 /* DownloadCoordinatorCookieModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadCoordinatorCookieModeTests.swift; sourceTree = "<group>"; };
 		8DEDBD8671DF386081B0E9FB /* DockOnboardingWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockOnboardingWizardView.swift; sourceTree = "<group>"; };
 		8E05BD0522ABD966405C4686 /* DockPreviewWindowlessCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPreviewWindowlessCard.swift; sourceTree = "<group>"; };
 		8E743E4E818285BBF59DA3DC /* DockPreviewTooltipGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPreviewTooltipGeometryTests.swift; sourceTree = "<group>"; };
@@ -2770,6 +2772,7 @@
 			isa = PBXGroup;
 			children = (
 				0CCA59073387DDF46C71B6CD /* DownloadCollectionGroupingTests.swift */,
+				8C9245C48BCE70F1F35CDAC7 /* DownloadCoordinatorCookieModeTests.swift */,
 				13ADF947A60FCC7D6635EF1E /* DownloadFilterBehaviorTests.swift */,
 				DBD47DDDF10CA07606E8A553 /* DownloadsListSelectionTests.swift */,
 			);
@@ -3538,6 +3541,7 @@
 				CE4606086C64A89C292406DB /* DockPreviewWindowMatcherTests.swift in Sources */,
 				A5CBE70165EC5A402D5A1DDD /* DockSearchInputControllerTests.swift in Sources */,
 				8EABDFDC93E78442295B4D4E /* DownloadCollectionGroupingTests.swift in Sources */,
+				CD9DCB116D3662065690E1CA /* DownloadCoordinatorCookieModeTests.swift in Sources */,
 				A47223794A120ECD0B3F5DBC /* DownloadFilterBehaviorTests.swift in Sources */,
 				82B2E08C2233FAE23CB9F96C /* DownloaderFeatureActivatorTests.swift in Sources */,
 				6AE9CBC385F78F18EAD0D915 /* DownloadsListSelectionTests.swift in Sources */,

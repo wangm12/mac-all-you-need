@@ -78,9 +78,18 @@ struct DownloadCollectionPickerSheet: View {
                         .padding(.horizontal, 20)
                 }
                 Spacer()
-                Text("No videos found.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 8) {
+                    Text("No videos found.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Text("If this playlist or channel is restricted, keep Browser Auto enabled and verify your cookie profile in Downloads settings.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    MAYNButton("Open Downloads settings") {
+                        NotificationCenter.default.post(name: .mainWindowSettingsRequested, object: "downloads")
+                    }
+                }
                 Spacer()
             } else {
                 if !error.isEmpty {

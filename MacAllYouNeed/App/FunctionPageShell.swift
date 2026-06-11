@@ -143,15 +143,19 @@ struct FunctionPageScrollContent<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
-                content
+        GeometryReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    content
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: proxy.size.height, alignment: .topLeading)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 26)
             }
-            .frame(maxWidth: 760, alignment: .leading)
-            .padding(.horizontal, 32)
-            .padding(.vertical, 26)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scrollIndicators(.never)
         }
-        .scrollIndicators(.never)
     }
 }
 
