@@ -17,8 +17,8 @@ struct DownloaderOnboardingWizardView: View {
     var body: some View {
         FeatureOnboardingPage(
             bullets: [
-                "Paste a video link on the Downloads page or send it from the optional Chrome Companion.",
-                "Browser Auto cookies work by default. Only use Chrome Companion sync if you need exact Chrome session cookies."
+                "Paste a video link on the Downloads page or send it from the optional Mac All You Need Companion.",
+                "Browser Auto cookies work by default. Only use Mac All You Need Companion sync if you need exact Chrome session cookies."
             ],
             previewTitle: "Preview",
             previewSubtitle: "Queue and completed items live on the Downloads page.",
@@ -40,7 +40,7 @@ struct DownloaderOnboardingWizardView: View {
                 .disabled(isEnqueueing)
             }
         },
-        footnote: "Downloads settings includes Browser Auto (recommended) and an optional guided Chrome Companion setup."
+        footnote: "Downloads settings includes Browser Auto (recommended) and an optional guided Mac All You Need Companion setup."
         )
     }
 

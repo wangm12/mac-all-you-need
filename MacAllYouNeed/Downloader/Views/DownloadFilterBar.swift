@@ -69,7 +69,7 @@ enum DownloadsEmptyStatePresentation {
         case .all, .activeQueue:
             DownloadsEmptyStateModel(
                 title: "No downloads queued",
-                subtitle: "Add a URL, paste with ⌘V, or send a link from the optional Chrome Companion.",
+                subtitle: "Add a URL, paste with ⌘V, or send a link from the optional Mac All You Need Companion.",
                 secondaryActionTitle: "Paste URL",
                 primaryActionTitle: "Add URL"
             )

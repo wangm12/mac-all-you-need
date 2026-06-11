@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "V-Download",
+  "name": "Mac All You Need Downloader",
   "version": "1.1.6",
-  "description": "Download videos and detect media streams on any website",
+  "description": "Detect media streams and send downloads to Mac All You Need",
   "permissions": [
     "cookies",
     "contextMenus",
@@ -105,7 +105,7 @@
       "16": "icons/icon16-gray.png",
       "48": "icons/icon48-gray.png"
     },
-    "default_title": "V-Download",
+      "default_title": "Mac All You Need Downloader",
     "default_popup": "popup.html"
   }
 }

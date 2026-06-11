@@ -1,13 +1,11 @@
 /**
- * Opens vdownload://wake in the same user-gesture turn as a click on the page (or in the
- * extension popup). Chrome then attributes the external protocol to that origin and can
- * offer "Always allow … to open links of this type", and it avoids a second wake from the
- * service worker (tabs.create) when the background passes surfacedWake: true.
+ * Marks a user gesture boundary so the extension can keep the same wake path semantics
+ * without any legacy protocol branding.
  */
 ;(function () {
   'use strict'
 
-  var WAKE = 'vdownload://wake'
+  var WAKE = 'http://127.0.0.1:18765/ping'
 
   function wakeFromUserGesture() {
     try {
@@ -23,5 +21,5 @@
     } catch (_) {}
   }
 
-  globalThis.__vdownloadWakeFromUserGesture = wakeFromUserGesture
+  globalThis.__maynWakeFromUserGesture = wakeFromUserGesture
 })()

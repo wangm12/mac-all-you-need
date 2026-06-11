@@ -1,9 +1,8 @@
 importScripts('cookie-sync-domains.js', 'media-patterns.js')
 const COOKIE_SYNC_DOMAINS = globalThis.COOKIE_SYNC_DOMAINS
-const { MEDIA_PATTERNS, MIN_VIDEO_SIZE, SIZE_EXEMPT_TYPES } = globalThis.VDownloadMediaPatterns
+const { MEDIA_PATTERNS, MIN_VIDEO_SIZE, SIZE_EXEMPT_TYPES } = globalThis.MAYNMediaPatterns
 
 const APP_URL = 'http://127.0.0.1:18765'
-const VDL_SERVER_URL = 'http://127.0.0.1:30010'
 const LAST_DOWNLOAD_ERROR_TTL_MS = 10 * 60 * 1000
 
 function truncateUrl(u, max = 72) {
@@ -11,10 +10,10 @@ function truncateUrl(u, max = 72) {
   return u.length <= max ? u : `${u.slice(0, max)}…`
 }
 
-/** Service worker console: chrome://extensions → V-Download → “service worker” → Inspect */
+/** Service worker console: chrome://extensions → Mac All You Need Downloader → “service worker” → Inspect */
 function logBg(stage, data) {
   const line = { stage, t: new Date().toISOString(), ...data }
-  console.info('[V-Download ext]', line)
+  console.info('[MAYN downloader ext]', line)
 }
 
 function setLastDownloadError(message) {
@@ -63,7 +62,6 @@ const ICON_ACTIVE = {
 
 const FRAME_BUCKET_MAX = 300
 
-/** After vdownload://wake cold-starts the app, POST /download when localhost server is up. */
 async function postDownloadsQueueWhenReady(requests, maxAttempts = 48, delayMs = 500) {
   const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
   logBg('post-queue-start', {
@@ -104,7 +102,7 @@ async function postDownloadsQueueWhenReady(requests, maxAttempts = 48, delayMs =
   }
   logBg('post-queue-timeout', { rid, maxAttempts, delayMs })
   setLastDownloadError(
-    'V-Download did not respond on localhost after several attempts. Open the desktop app and try again.'
+    'Mac All You Need did not respond on localhost after several attempts. Open the desktop app and try again.'
   )
   return false
 }
@@ -165,28 +163,10 @@ function getAllTabMedia(tabId) {
 
 // --- Action / tab event handlers ---
 
-/** Best-effort: same anchor trick as wake-sync.js so the page origin owns the external-protocol prompt. */
+/** Best-effort: keep the same gesture flow without any legacy external-protocol wake path. */
 function injectPageWakeGesture(tabId) {
   if (tabId == null) return Promise.resolve()
-  return chrome.scripting
-    .executeScript({
-      target: { tabId },
-      func: () => {
-        try {
-          const a = document.createElement('a')
-          a.href = 'vdownload://wake'
-          a.target = '_blank'
-          a.rel = 'noopener noreferrer'
-          const root = document.documentElement || document.body
-          if (!root) return
-          root.appendChild(a)
-          a.click()
-          root.removeChild(a)
-        } catch (_) {}
-      }
-    })
-    .then(() => {})
-    .catch(() => {})
+  return Promise.resolve(tabId)
 }
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -361,7 +341,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const ok = await syncCookies()
       sendResponse({
         ok,
-        error: ok ? undefined : 'App did not accept cookies (is V-Download running on this machine?)',
+        error: ok ? undefined : 'App did not accept cookies (is Mac All You Need running on this machine?)',
       })
       const tabId = sender.tab?.id
       const url = sender.tab?.url ?? ''
@@ -435,21 +415,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return
         }
       } catch {
-        // App not running — launch via protocol then POST all when ready (including first item)
-      }
-
-      if (!surfacedWake) {
-        launchWakeToFocusApp(tabId)
+        // App not running — fail cleanly; there is no legacy fallback path.
       }
       let posted = await postDownloadsQueueWhenReady(requests)
-      if (!posted && surfacedWake) {
-        logBg('download-media-fallback-bg-wake', { tabId })
-        launchWakeToFocusApp(tabId, { force: true })
-        posted = await postDownloadsQueueWhenReady(requests)
-      }
       if (!posted) {
         setLastDownloadError(
-          'Could not queue download: app unreachable after wake. Check that V-Download is running.'
+          'Could not queue download: app unreachable. Check that Mac All You Need is running.'
         )
       }
       sendResponse({ ok: posted })
@@ -557,20 +528,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       try {
         logBg('download-from-content-cold-wake', { tabId, surfacedWake })
-        if (!surfacedWake) {
-          launchWakeToFocusApp(tabId)
-        }
-        let ok = await postDownloadWhenAppReady(request)
-        if (!ok && surfacedWake) {
-          logBg('download-from-content-fallback-bg-wake', { tabId })
-          launchWakeToFocusApp(tabId, { force: true })
-          ok = await postDownloadWhenAppReady(request)
-        }
+        const ok = await postDownloadWhenAppReady(request)
         logBg('download-from-content-after-wake', { ok })
         if (ok) clearLastDownloadError()
         else {
           setLastDownloadError(
-            'Could not send this stream to V-Download. Confirm the app is running and try again.'
+            'Could not send this stream to Mac All You Need. Confirm the app is running and try again.'
           )
         }
         safeSend({ ok })
@@ -603,7 +566,6 @@ function getXStatusUrl(url) {
 }
 
 async function sendDownloadRequest(request, tabId, opts = {}) {
-  const { surfacedWake = false } = opts
   const payload = typeof request === 'object' && request !== null ? request : { url: String(request) }
   try {
     await syncCookies()
@@ -619,79 +581,23 @@ async function sendDownloadRequest(request, tabId, opts = {}) {
   } catch {
     /* app not running */
   }
-  if (!surfacedWake) {
-    launchWakeToFocusApp(tabId)
-  }
   let ok = await postDownloadWhenAppReady(payload)
-  if (!ok && surfacedWake) {
-    logBg('sendDownload-fallback-bg-wake', { tabId })
-    launchWakeToFocusApp(tabId, { force: true })
-    ok = await postDownloadWhenAppReady(payload)
-  }
   if (!ok) {
-    setLastDownloadError('Could not open or reach V-Download from the extension.')
+    setLastDownloadError('Could not reach Mac All You Need from the extension.')
   } else {
     clearLastDownloadError()
   }
   return ok
 }
 
-/** Wake desktop app without queuing a download (extension POSTs to localhost after boot). */
 function launchWakeToFocusApp(tabId, opts = {}) {
-  const { force = false } = opts
   const now = Date.now()
-  if (!force && now - lastWakeBgAt < WAKE_DEBOUNCE_MS) {
+  if (!opts.force && now - lastWakeBgAt < WAKE_DEBOUNCE_MS) {
     logBg('launch-wake-skipped-debounce', { tabId, msSince: now - lastWakeBgAt })
     return
   }
   lastWakeBgAt = now
-  logBg('launch-wake', { tabId, force })
-  const wakeUrl = 'vdownload://wake'
-  chrome.tabs.create({ url: wakeUrl, active: true }, (created) => {
-    if (chrome.runtime.lastError || !created?.id) {
-      logBg('launch-wake-fallback-inject', {
-        err: chrome.runtime.lastError?.message,
-        tabId
-      })
-      protocolLaunchInjectTab(wakeUrl, tabId)
-      return
-    }
-    logBg('launch-wake-tab-created', { newTabId: created.id })
-    const id = created.id
-    setTimeout(() => {
-      chrome.tabs.remove(id, () => void chrome.runtime.lastError)
-    }, 2000)
-  })
-}
-
-/** Legacy fallback: navigate an existing tab (fragile on some SPAs). */
-function protocolLaunchInjectTab(ytdlUrl, tabId) {
-  const execTabId = tabId || undefined
-  if (execTabId) {
-    chrome.scripting
-      .executeScript({
-        target: { tabId: execTabId },
-        func: (u) => {
-          window.location.href = u
-        },
-        args: [ytdlUrl]
-      })
-      .catch(() => {})
-  } else {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.id) {
-        chrome.scripting
-          .executeScript({
-            target: { tabId: tabs[0].id },
-            func: (u) => {
-              window.location.href = u
-            },
-            args: [ytdlUrl]
-          })
-          .catch(() => {})
-      }
-    })
-  }
+  logBg('launch-wake', { tabId, force: !!opts.force })
 }
 
 async function syncCookies() {
@@ -712,19 +618,8 @@ async function syncCookies() {
 
     const body = JSON.stringify(allCookies)
     const headers = { 'Content-Type': 'application/json' }
-
-    let appOk = false
-    const appFetch = fetch(`${APP_URL}/cookies`, { method: 'POST', headers, body })
-      .then((r) => {
-        appOk = r.ok
-        return r
-      })
-      .catch(() => {})
-
-    await Promise.allSettled([
-      appFetch,
-      fetch(`${VDL_SERVER_URL}/api/cookies`, { method: 'POST', headers, body }).catch(() => {}),
-    ])
+    const appRes = await fetch(`${APP_URL}/cookies`, { method: 'POST', headers, body })
+    const appOk = appRes.ok
 
     console.log(`Synced ${allCookies.length} cookies across ${COOKIE_SYNC_DOMAINS.length} domains`)
     return appOk

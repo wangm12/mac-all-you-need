@@ -6,7 +6,7 @@
 
   // ── Constants ─────────────────────────────────────────────────────────────
 
-  const PL = globalThis.VDownloadOverlayPlacement || null
+  const PL = globalThis.MAYNOverlayPlacement || null
 
   const BTN_ID = 'dy-dl-btn'
   const PANEL_ID = 'dy-dl-panel'
@@ -26,11 +26,11 @@
   let lastHref = location.href
   let lastLoggedAwemeId = null
 
-  // Page DevTools (douyin tab): filter "[V-Download douyin CS]"
-  // Extension worker: chrome://extensions → V-Download → service worker → Inspect — "[V-Download ext]"
+  // Page DevTools (douyin tab): filter "[MAYN douyin CS]"
+  // Extension worker: chrome://extensions → Mac All You Need Downloader → service worker → Inspect — "[MAYN ext]"
   function logCs(stage, extra) {
     const line = Object.assign({ stage, t: new Date().toISOString() }, extra || {})
-    console.info('[V-Download douyin CS]', line)
+    console.info('[MAYN douyin CS]', line)
   }
 
   function truncateUrlCs(u, max) {

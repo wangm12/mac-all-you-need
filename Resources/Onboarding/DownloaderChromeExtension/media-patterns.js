@@ -23,7 +23,7 @@
     return 'mp4'
   }
 
-  g.VDownloadMediaPatterns = {
+  g.MAYNMediaPatterns = {
     MEDIA_PATTERNS,
     MIN_VIDEO_SIZE,
     SIZE_EXEMPT_TYPES,

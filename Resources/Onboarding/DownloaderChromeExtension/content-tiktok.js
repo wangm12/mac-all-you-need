@@ -1,7 +1,7 @@
 ;(function () {
   'use strict'
 
-  const PL = globalThis.VDownloadOverlayPlacement || null
+  const PL = globalThis.MAYNOverlayPlacement || null
 
   const BTN_ID = 'tt-dl-btn'
   const PANEL_ID = 'tt-dl-panel'
@@ -51,7 +51,7 @@
     btn.id = BTN_ID
     btn.className = 'tt-dl-btn tt-dl-hidden'
     btn.setAttribute('aria-label', 'Download video')
-    btn.title = 'Download with V-Download'
+    btn.title = 'Download with Mac All You Need'
     btn.innerHTML = SVG_DOWNLOAD
 
     btn.addEventListener('click', (e) => {

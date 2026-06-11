@@ -7,7 +7,7 @@
     if (chrome.runtime.lastError) {
       if (el) {
         el.textContent =
-          'Could not reach the V-Download extension. Open this page in Chrome with the extension installed.'
+          'Could not reach the Mac All You Need extension. Open this page in Chrome with the extension installed.'
       }
       return
     }

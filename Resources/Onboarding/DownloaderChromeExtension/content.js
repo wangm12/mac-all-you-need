@@ -28,7 +28,7 @@
     const btn = document.createElement('button')
     btn.id = BUTTON_ID
     btn.className = 'ytdl-btn'
-    btn.title = 'Download with V-Download'
+    btn.title = 'Download with Mac All You Need'
     btn.innerHTML = SVG_DOWNLOAD
 
     btn.addEventListener('click', (e) => {
@@ -78,7 +78,7 @@
 
       const btn = document.createElement('button')
       btn.className = 'ytdl-shorts-btn'
-      btn.title = 'Download with V-Download'
+      btn.title = 'Download with Mac All You Need'
       btn.innerHTML = SVG_DOWNLOAD_SHORTS
 
       const label = document.createElement('span')
@@ -115,7 +115,7 @@
     const btn = document.createElement('button')
     btn.setAttribute(CARD_ATTR, '1')
     btn.className = 'ytdl-card-btn'
-    btn.title = 'Download with V-Download'
+    btn.title = 'Download with Mac All You Need'
     btn.innerHTML = SVG_DOWNLOAD_SM
 
     btn.addEventListener('click', (e) => {

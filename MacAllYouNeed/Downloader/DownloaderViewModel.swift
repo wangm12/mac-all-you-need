@@ -189,7 +189,7 @@ final class DownloaderViewModel {
             return
         }
         if shouldBlockForMissingExtensionCookies(route: route) {
-            cookieWarning = "Chrome Companion mode is selected but no synced cookies were found. Use Downloads > Settings > Chrome Companion, or switch back to Browser Auto."
+            cookieWarning = "Mac All You Need Companion mode is selected but no synced cookies were found. Use Downloads > Settings > Mac All You Need Companion, or switch back to Browser Auto."
             CopyHUD.show("Sync Companion cookies first", symbol: "exclamationmark.triangle.fill")
             return
         }

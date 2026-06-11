@@ -355,7 +355,7 @@
     }
   }
 
-  globalThis.VDownloadOverlayPlacement = {
+  globalThis.MAYNOverlayPlacement = {
     MIN_RECT_SIZE,
     EDGE_MARGIN,
     LEFT_EDGE_FLIP_THRESHOLD,

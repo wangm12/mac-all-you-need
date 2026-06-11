@@ -150,7 +150,7 @@ final class DownloadCoordinator {
         let cookieMode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
         let message: String
         if cookieMode == "extension_only" {
-            message = "Chrome Companion mode is selected but synced cookies are missing. Install Companion and sync cookies in Downloads settings, or switch to Browser Auto."
+            message = "Mac All You Need Companion mode is selected but synced cookies are missing. Install Companion and sync cookies in Downloads settings, or switch to Browser Auto."
         } else {
             message = "Some browser profiles could not be imported. Downloads requiring login may fail."
         }
@@ -202,7 +202,7 @@ final class DownloadCoordinator {
                     name: .cookieWarning,
                     object: nil,
                     userInfo: [
-                        "message": "Chrome Companion mode is selected but synced cookies are missing. Install Companion and sync cookies in Downloads settings, or switch to Browser Auto."
+                        "message": "Mac All You Need Companion mode is selected but synced cookies are missing. Install Companion and sync cookies in Downloads settings, or switch to Browser Auto."
                     ]
                 )
                 return

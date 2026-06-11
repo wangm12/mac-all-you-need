@@ -1,7 +1,7 @@
 ;(function () {
   'use strict'
 
-  const PL = globalThis.VDownloadOverlayPlacement || null
+  const PL = globalThis.MAYNOverlayPlacement || null
   const BTN_SIZE = PL ? PL.DEFAULT_BTN_SIZE : 32
   const BTN_INSET = PL ? PL.DEFAULT_INSET : 10
 
@@ -101,7 +101,7 @@
 
     const btn = document.createElement('button')
     btn.className = 'vdl-x-btn'
-    btn.title = 'Download with V-Download'
+    btn.title = 'Download with Mac All You Need'
     btn.innerHTML = SVG_DOWNLOAD
     btn.setAttribute(BTN_ATTR, 'action')
 
@@ -134,7 +134,7 @@
 
     const btn = document.createElement('button')
     btn.className = 'vdl-x-video-btn vdl-x-video-hidden'
-    btn.title = 'Download with V-Download'
+    btn.title = 'Download with Mac All You Need'
     btn.innerHTML = SVG_DOWNLOAD
     btn.setAttribute(BTN_ATTR, 'video')
 

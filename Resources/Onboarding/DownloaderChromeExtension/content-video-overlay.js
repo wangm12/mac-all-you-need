@@ -6,7 +6,7 @@
   const MIN_VIDEO_WIDTH = 100
   const MIN_VIDEO_HEIGHT = 100
   const BTN_ATTR = 'data-ytdl-overlay'
-  const LIST_MODE_KEY = 'vdownload_overlay_list_mode'
+  const LIST_MODE_KEY = 'mayn_overlay_list_mode'
 
   // Query params to keep when building dedup key (original URL always used for download)
   const QUERY_WHITELIST = new Set(['token', 'sig', 'signature', 'expires', 'expire', 'key', 'id'])
@@ -29,7 +29,7 @@
 
   // ── Placement (shared with site-specific content scripts) ───────────────
 
-  const PL = globalThis.VDownloadOverlayPlacement || null
+  const PL = globalThis.MAYNOverlayPlacement || null
 
   function isYouTubePage() {
     return PL ? PL.isYouTubePage() : /^https?:\/\/(www\.)?youtube\.com/.test(location.href)
@@ -112,7 +112,7 @@
   }
 
   function inferTypeFromUrl(url) {
-    const mp = typeof globalThis !== 'undefined' ? globalThis.VDownloadMediaPatterns : null
+    const mp = typeof globalThis !== 'undefined' ? globalThis.MAYNMediaPatterns : null
     if (mp && typeof mp.inferTypeFromUrl === 'function') return mp.inferTypeFromUrl(url)
     if (/\.m3u8(\?|#|$)/i.test(url)) return 'hls'
     if (/\.mp4(\?|#|$)/i.test(url)) return 'mp4'
@@ -640,7 +640,7 @@
 
     const btn = document.createElement('button')
     btn.className = 'ytdl-overlay-btn ytdl-hidden'
-    btn.title = 'Download with V-Download'
+    btn.title = 'Download with Mac All You Need'
     btn.innerHTML = SVG_DOWNLOAD
     btn.setAttribute(BTN_ATTR, '1')
     document.documentElement.appendChild(btn)

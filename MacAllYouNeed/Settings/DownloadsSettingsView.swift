@@ -99,7 +99,7 @@ private enum DownloadCookieMode: String, CaseIterable {
     var title: String {
         switch self {
         case .browserAuto: "Browser Auto"
-        case .extensionOnly: "Chrome Companion"
+        case .extensionOnly: "Mac All You Need Companion"
         }
     }
 }
@@ -487,7 +487,7 @@ private struct DownloadBrowserSection: View {
                 browserSettingsRow(
                     icon: "cookie",
                     title: "Cookie source",
-                    subtitle: "Use Automatic for most sites. Choose Chrome Companion for exact tab-session sync."
+                    subtitle: "Use Automatic for most sites. Choose Mac All You Need Companion for exact tab-session sync."
                 ) {
                     MAYNDropdown(
                         selection: $cookieMode,
@@ -575,7 +575,7 @@ private struct DownloadBrowserSection: View {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
-                        Text("Chrome Companion")
+                        Text("Mac All You Need Companion")
                             .font(.callout.weight(.semibold))
                         Button("Learn more") {
                             _ = openInBrowser("https://support.google.com/chrome")
@@ -638,7 +638,7 @@ private struct DownloadBrowserSection: View {
                     companionActionCard(
                         icon: "puzzlepiece.extension",
                         title: "Manage Extension",
-                        subtitle: "Open Chrome Web Store"
+                        subtitle: "Open the bundled extension folder"
                     ) { openExtensionsPage() }
                     Spacer(minLength: 0)
                     MAYNButton("Refresh Status") { refreshState() }

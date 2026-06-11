@@ -346,7 +346,7 @@ struct DownloadDouyinProfilePickerSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                    Text("Browser Auto cookies are recommended; Chrome Companion sync is optional.")
+                    Text("Browser Auto cookies are recommended; Mac All You Need Companion sync is optional.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
