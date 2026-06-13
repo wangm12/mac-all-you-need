@@ -103,36 +103,45 @@ struct MainWindowRoot: View {
     }
 
     private var detailView: AnyView {
-        switch MainAppDestination.storedSelection(selectedRaw) {
+        let destination = MainAppDestination.storedSelection(selectedRaw)
+
+        // Prefer descriptor-driven page factory when the destination maps to a feature
+        // with a registered mainPageViewFactory. Falls back to the explicit switch below.
+        if let featureID = MainSidebarDestinationPresentation.featureID(for: destination),
+           let factory = controller.runtime.registry.descriptor(for: featureID)?.mainPageViewFactory {
+            return factory()
+        }
+
+        switch destination {
         case .dashboard:
-            AnyView(DashboardDestinationView(
+            return AnyView(DashboardDestinationView(
                 controller: controller,
                 openDestination: openMainDestination
             ))
         case .clipboard:
-            AnyView(ClipboardDestinationView(controller: controller))
+            return AnyView(ClipboardDestinationView(controller: controller))
         case .voice:
-            AnyView(VoiceDestinationView(controller: controller))
+            return AnyView(VoiceDestinationView(controller: controller))
         case .voiceReminders:
-            AnyView(VoiceRemindersPage(controller: controller))
+            return AnyView(VoiceRemindersPage(controller: controller))
         case .downloads:
-            AnyView(DownloadsDestinationView(controller: controller))
+            return AnyView(DownloadsDestinationView(controller: controller))
         case .aiFileOrganizer:
-            AnyView(AIFileOrganizerPage(controller: controller))
+            return AnyView(AIFileOrganizerPage(controller: controller))
         case .folderPreview:
-            AnyView(FolderPreviewDestinationView(controller: controller))
+            return AnyView(FolderPreviewDestinationView(controller: controller))
         case .finderHistory:
-            AnyView(FolderHistoryPageView(controller: controller))
+            return AnyView(FolderHistoryPageView(controller: controller))
         case .snippets:
-            AnyView(SnippetsDestinationView(controller: controller))
+            return AnyView(SnippetsDestinationView(controller: controller))
         case .windowLayouts:
-            AnyView(WindowLayoutsDestinationView(controller: controller))
+            return AnyView(WindowLayoutsDestinationView(controller: controller))
         case .grabAnywhere:
-            AnyView(WindowGrabDestinationView(controller: controller))
+            return AnyView(WindowGrabDestinationView(controller: controller))
         case .dockPreviews:
-            AnyView(DockHoverPreviewsPage(controller: controller))
+            return AnyView(DockHoverPreviewsPage(controller: controller))
         case .settings:
-            AnyView(SettingsDestinationView(controller: controller))
+            return AnyView(SettingsDestinationView(controller: controller))
         }
     }
 

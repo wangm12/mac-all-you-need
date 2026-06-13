@@ -424,8 +424,12 @@ final class DockHoverObserver {
         AXUIElementCopyAttributeValue(item, kAXSizeAttribute as CFString, &size)
         var point = CGPoint.zero
         var cgSize = CGSize.zero
-        if let posValue = position { AXValueGetValue(posValue as! AXValue, .cgPoint, &point) }
-        if let sizeValue = size { AXValueGetValue(sizeValue as! AXValue, .cgSize, &cgSize) }
+        if let posValue = position, CFGetTypeID(posValue) == AXValueGetTypeID() {
+            AXValueGetValue(posValue as! AXValue, .cgPoint, &point)
+        }
+        if let sizeValue = size, CFGetTypeID(sizeValue) == AXValueGetTypeID() {
+            AXValueGetValue(sizeValue as! AXValue, .cgSize, &cgSize)
+        }
         return CGRect(origin: point, size: cgSize)
     }
 

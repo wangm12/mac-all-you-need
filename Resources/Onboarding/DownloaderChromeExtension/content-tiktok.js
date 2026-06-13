@@ -13,6 +13,7 @@
 
   let activePanel = null
   let rafId = null
+  let rafAllowed = false
   let lastHref = location.href
 
   function getPlayerRect() {
@@ -87,8 +88,12 @@
   }
 
   function startRaf() {
-    if (rafId) return
+    if (rafId || !rafAllowed) return
     const tick = () => {
+      if (!rafAllowed) {
+        rafId = null
+        return
+      }
       const btn = document.getElementById(BTN_ID)
       if (btn) {
         positionButton(btn)
@@ -275,15 +280,42 @@
     }
   }
 
+  let playerObserver = null
+
+  function attachPlayerObserver() {
+    if (playerObserver) return
+    const playerEl = document.querySelector('video') || document.querySelector('[class*="player"]')
+    if (!playerEl) return
+    playerObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        rafAllowed = entry.isIntersecting
+        if (rafAllowed) {
+          startRaf()
+        } else {
+          stopRaf()
+        }
+      }
+    }, { threshold: 0.1 })
+    playerObserver.observe(playerEl)
+  }
+
   function checkPlayer() {
     const btn = document.getElementById(BTN_ID)
     if (hasPlayer()) {
       const b = btn || ensureButton()
       positionButton(b)
-      startRaf()
-    } else if (btn) {
-      btn.classList.remove('tt-dl-visible')
-      btn.classList.add('tt-dl-hidden')
+      attachPlayerObserver()
+      if (rafAllowed) startRaf()
+    } else {
+      if (playerObserver) {
+        playerObserver.disconnect()
+        playerObserver = null
+      }
+      rafAllowed = false
+      if (btn) {
+        btn.classList.remove('tt-dl-visible')
+        btn.classList.add('tt-dl-hidden')
+      }
       stopRaf()
     }
   }
@@ -296,13 +328,27 @@
     if (location.href === lastHref) return
     lastHref = location.href
     closePanel()
+    if (playerObserver) {
+      playerObserver.disconnect()
+      playerObserver = null
+    }
     setTimeout(checkPlayer, 300)
     setTimeout(checkPlayer, 1000)
     setTimeout(checkPlayer, 2000)
   })
   navObserver.observe(document.documentElement, { subtree: false, childList: true })
 
-  setInterval(checkPlayer, 500)
+  const checkIntervalId = setInterval(checkPlayer, 500)
+
+  window.addEventListener('beforeunload', () => {
+    clearInterval(checkIntervalId)
+    stopRaf()
+    if (playerObserver) {
+      playerObserver.disconnect()
+      playerObserver = null
+    }
+  })
+
   setTimeout(checkPlayer, 300)
   setTimeout(checkPlayer, 1000)
   setTimeout(checkPlayer, 2500)

@@ -6,6 +6,36 @@ import Platform
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Shared local types
+
+private enum VoiceHistoryFilter: String, SegmentedTabDestination {
+    case all
+    case failed
+    case success
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .failed: return "Failed"
+        case .success: return "Success"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .all: return "line.3.horizontal.decrease.circle"
+        case .failed: return "exclamationmark.triangle"
+        case .success: return "checkmark.circle"
+        }
+    }
+}
+
+private struct VoiceTranscriptPageState {
+    let visible: [VoiceTranscript]
+    let pagination: MAYNListPaginationState
+    let filtered: [VoiceTranscript]
+}
+
 struct VoiceDestinationView: View {
     let controller: AppController
     @AppStorage(VoiceFunctionTab.storageKey, store: AppGroupSettings.defaults) private var selectedTabRaw = VoiceFunctionTab.dictate.rawValue
@@ -62,28 +92,6 @@ struct VoiceDestinationView: View {
     @State private var pickerFilter: VoiceEnginePickerFilter = .all
     @State private var pickerSearchText = ""
     private let microphoneRefreshTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
-
-    private enum VoiceHistoryFilter: String, SegmentedTabDestination {
-        case all
-        case failed
-        case success
-
-        var title: String {
-            switch self {
-            case .all: return "All"
-            case .failed: return "Failed"
-            case .success: return "Success"
-            }
-        }
-
-        var symbolName: String {
-            switch self {
-            case .all: return "line.3.horizontal.decrease.circle"
-            case .failed: return "exclamationmark.triangle"
-            case .success: return "checkmark.circle"
-            }
-        }
-    }
 
     init(controller: AppController) {
         self.controller = controller
@@ -159,17 +167,69 @@ struct VoiceDestinationView: View {
             switch VoiceFunctionTab.storedSelection(selectedTabRaw) {
             case .dictate:
                 FunctionPageScrollContent {
-                    voiceDictateSection
-                    voiceSetupSection
+                    VoiceDictateSection(
+                        voiceStateTitle: voiceStateTitle,
+                        voiceStatusText: voiceStatusText,
+                        voiceStatusKind: voiceStatusKind,
+                        onboardingProgress: onboardingProgress,
+                        onOpenSetup: {
+                            controller.showVoiceOnboarding()
+                            reload()
+                        },
+                        onRestartSetup: {
+                            controller.restartVoiceOnboarding()
+                            reload()
+                        }
+                    )
                 }
             case .models:
                 FunctionPageScrollContent {
-                    voiceRecognitionModelsSection
-                    voiceCleanupSection
+                    VoiceRecognitionModelsSection(
+                        asrProviderKind: asrProviderKind,
+                        selectedASRModelID: selectedASRModelID,
+                        cloudModelID: cloudModelID,
+                        languageHint: $languageHint,
+                        recognitionSectionSubtitle: recognitionSectionSubtitle,
+                        recognitionEngineRowSubtitle: recognitionEngineRowSubtitle,
+                        recognitionEngineSingleTag: recognitionEngineSingleTag,
+                        recognitionRecommendationTag: recognitionRecommendationTag,
+                        dictationLanguageSubtitle: dictationLanguageSubtitle,
+                        onOpenEnginePicker: { openVoiceEnginePicker() }
+                    )
+                    VoiceDestCleanupSection(
+                        cleanupEnabled: $cleanupEnabled,
+                        cleanupRowSubtitle: cleanupRowSubtitle,
+                        cleanupSavedSelectionLine: cleanupSavedSelectionLine,
+                        cleanupAccessibilitySummary: cleanupAccessibilitySummary,
+                        cleanupStatusMessage: cleanupStatusMessage,
+                        onOpenCleanupPicker: { openCleanupPicker() }
+                    )
                 }
             case .history:
                 FunctionPageScrollContent {
-                    voiceHistorySection
+                    VoiceHistorySection(
+                        transcripts: transcripts,
+                        transcriptPage: $transcriptPage,
+                        selectedTranscriptIDs: selectedTranscriptIDs,
+                        retryingTranscriptIDs: retryingTranscriptIDs,
+                        historyFilter: $historyFilter,
+                        historyToast: historyToast,
+                        voiceHistorySettings: $voiceHistorySettings,
+                        voiceTranscriptPageState: voiceTranscriptPageState,
+                        onSelect: { selectVoiceTranscript($0) },
+                        onCopy: { copyVoiceTranscripts(ids: [$0.id]) },
+                        onRetry: { retryTranscript($0) },
+                        onDownload: { downloadTranscript($0) },
+                        onDelete: { deleteTranscriptWithUndo($0) },
+                        onSaveHistorySettings: { controller.saveVoiceHistorySettings($0) },
+                        onUndoToast: {
+                            historyToast?.undo()
+                            toastClearTask?.cancel()
+                            historyToast = nil
+                            reload()
+                        },
+                        onKeyPress: { handleVoiceHistoryKeyPress($0) }
+                    )
                 }
             case .dictionary:
                 VoiceDictionaryPage(controller: controller, showsHeader: false)
@@ -179,9 +239,35 @@ struct VoiceDestinationView: View {
                 }
             case .settings:
                 FunctionPageScrollContent {
-                    voiceActivationSection
-                    voiceModelSummarySection
-                    voiceAudioSection
+                    VoiceActivationSection(
+                        mode: activationModeBinding.wrappedValue,
+                        onModeChange: { activationModeBinding.wrappedValue = $0 },
+                        shortcutBinding: activationShortcutBinding,
+                        shortcutIssue: shortcutIssue,
+                        candidateIssueMessage: { shortcutCandidateIssue($0)?.message },
+                        onResetShortcut: { applyActivationShortcut(VoiceActivationSettings.default.shortcut) },
+                        errorMessage: errorMessage
+                    )
+                    VoiceModelSummarySection(
+                        asrProviderKind: asrProviderKind,
+                        selectedASRModelID: selectedASRModelID,
+                        cloudModelID: cloudModelID,
+                        recognitionEngineRowSubtitle: recognitionEngineRowSubtitle,
+                        recognitionEngineSingleTag: recognitionEngineSingleTag,
+                        recognitionRecommendationTag: recognitionRecommendationTag,
+                        cleanupRowSubtitle: cleanupRowSubtitle,
+                        cleanupSavedSelectionLine: cleanupSavedSelectionLine,
+                        cleanupAccessibilitySummary: cleanupAccessibilitySummary,
+                        onNavigateToModels: { selectedTabRaw = VoiceFunctionTab.models.rawValue },
+                        onOpenCleanupPicker: { openCleanupPicker() }
+                    )
+                    VoiceAudioSection(
+                        preferredMicrophoneID: $preferredMicrophoneID,
+                        interactionSounds: $interactionSounds,
+                        muteWhenDictating: $muteWhenDictating,
+                        microphoneOptions: microphoneOptions,
+                        microphoneTitle: microphoneTitle
+                    )
                 }
             }
         }
@@ -215,261 +301,6 @@ struct VoiceDestinationView: View {
         }
         .sheet(isPresented: $isShowingCleanupPicker) {
             voiceCleanupPickerSheet
-        }
-    }
-
-    private var voiceDictateSection: some View {
-        MAYNSection(title: "Dictate") {
-            MAYNSettingsRow(
-                title: "State",
-                subtitle: voiceStateTitle
-            ) {
-                StatusPill(text: voiceStatusText, kind: voiceStatusKind)
-            }
-        }
-    }
-
-    private var voiceSetupSection: some View {
-        MAYNSection(title: "Setup") {
-            MAYNSettingsRow(
-                title: "Voice onboarding",
-                subtitle: "Checks microphone, Accessibility, ASR, cleanup, shortcut, languages, and a try-it pass."
-            ) {
-                StatusPill(
-                    text: onboardingProgress.isCompleted ? "Completed" : onboardingProgress.currentStep.title,
-                    kind: onboardingProgress.isCompleted ? .success : .progress
-                )
-            }
-            MAYNDivider()
-            MAYNSettingsRow(title: "Setup actions") {
-                HStack(spacing: 8) {
-                    MAYNButton(onboardingProgress.isCompleted ? "Open setup" : "Continue setup") {
-                        controller.showVoiceOnboarding()
-                        reload()
-                    }
-                    MAYNButton("Restart") {
-                        controller.restartVoiceOnboarding()
-                        reload()
-                    }
-                }
-            }
-        }
-    }
-
-    private var voiceRecognitionModelsSection: some View {
-        MAYNSection(
-            title: "Recognition",
-            subtitle: recognitionSectionSubtitle
-        ) {
-            MAYNSettingsRow(
-                title: "Recognition engine",
-                subtitle: recognitionEngineRowSubtitle,
-                belowSubtitle: {
-                    AnyView(
-                        HStack(spacing: 6) {
-                            StatusPill(text: recognitionEngineSingleTag, kind: .neutral)
-                            if let recommendation = recognitionRecommendationTag {
-                                StatusPill(text: recommendation, kind: .success)
-                            }
-                        }
-                    )
-                }
-            ) {
-                MAYNButton("Change...") {
-                    openVoiceEnginePicker()
-                }
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Dictation language",
-                subtitle: dictationLanguageSubtitle
-            ) {
-                MAYNDropdown(
-                    selection: $languageHint,
-                    options: Array(VoiceASRLanguageHint.allCases),
-                    title: VoiceLanguageModePresentation.title,
-                    width: MAYNControlMetrics.widePickerWidth
-                )
-            }
-        }
-    }
-
-    private var voiceHistorySection: some View {
-        let page = voiceTranscriptPageState
-        return VStack(spacing: 12) {
-            MAYNSection(title: "Recent transcripts") {
-                MAYNSettingsRow(title: "Filter") {
-                    FunctionSegmentedTabStrip(
-                        tabs: Array(VoiceHistoryFilter.allCases),
-                        selection: historyFilter,
-                        fillsAvailableWidth: false,
-                        size: .control
-                    ) { historyFilter = $0 }
-                }
-                MAYNDivider()
-                if page.filtered.isEmpty {
-                    MAYNSettingsRow(
-                        title: transcripts.isEmpty ? "No transcripts yet" : "No matching transcripts",
-                        subtitle: transcripts.isEmpty
-                            ? "Completed voice dictations appear here after transcription and paste."
-                            : "Try a different history filter."
-                    ) {
-                        EmptyView()
-                    }
-                } else {
-                    ForEach(Array(page.visible.enumerated()), id: \.element.id) { index, transcript in
-                        if index > 0 { MAYNDivider() }
-                        VoiceTranscriptHistoryRowView(
-                            transcript: transcript,
-                            surface: .main,
-                            isSelected: selectedTranscriptIDs.contains(transcript.id),
-                            isRetrying: retryingTranscriptIDs.contains(transcript.id),
-                            onSelect: { selectVoiceTranscript(transcript) },
-                            onCopy: { copyVoiceTranscripts(ids: [transcript.id]) },
-                            onRetry: { retryTranscript(transcript) },
-                            onDownload: { downloadTranscript(transcript) },
-                            onDelete: { deleteTranscriptWithUndo(transcript) }
-                        )
-                    }
-
-                    if page.pagination.totalPages > 1 {
-                        MAYNDivider()
-                        MAYNListPaginationFooter(
-                            state: page.pagination,
-                            visibleItemCount: page.visible.count,
-                            goToPage: { transcriptPage = $0 }
-                        )
-                    }
-                }
-            }
-
-            VoiceHistoryStorageHeader(settings: $voiceHistorySettings)
-                .onChange(of: voiceHistorySettings) { _, new in
-                    controller.saveVoiceHistorySettings(new)
-                }
-        }
-        .overlay(alignment: .bottom) {
-            if let toast = historyToast {
-                VoiceHistoryToastView(message: toast.message) {
-                    toast.undo()
-                    toastClearTask?.cancel()
-                    historyToast = nil
-                    reload()
-                }
-                .padding(.bottom, 12)
-                .transition(.opacity)
-            }
-        }
-        .focusable()
-        .focusEffectDisabled()
-        .onKeyPress { keyPress in
-            handleVoiceHistoryKeyPress(keyPress)
-        }
-    }
-
-    private struct VoiceTranscriptPageState {
-        let visible: [VoiceTranscript]
-        let pagination: MAYNListPaginationState
-        let filtered: [VoiceTranscript]
-    }
-
-    private static let voiceTranscriptPageSize = 15
-
-    private var voiceTranscriptPageState: VoiceTranscriptPageState {
-        let filtered: [VoiceTranscript]
-        switch historyFilter {
-        case .all:
-            filtered = transcripts
-        case .failed:
-            filtered = transcripts.filter { $0.status == .failed }
-        case .success:
-            filtered = transcripts.filter { $0.status != .failed }
-        }
-        let pagination = MAYNListPagination.make(
-            totalItems: filtered.count,
-            requestedPage: transcriptPage,
-            pageSize: Self.voiceTranscriptPageSize
-        )
-        let visible = MAYNListPagination.slice(filtered, pagination: pagination)
-        return VoiceTranscriptPageState(visible: visible, pagination: pagination, filtered: filtered)
-    }
-
-    private var voiceActivationSection: some View {
-        MAYNSection(title: "Activation") {
-            MAYNSettingsRow(
-                title: "Mode",
-                subtitle: "Toggle starts on first press and stops on second press. Hold records while the shortcut is held."
-            ) {
-                FunctionSegmentedTabStrip(
-                    tabs: Array(VoiceActivationMode.allCases),
-                    selection: activationModeBinding.wrappedValue,
-                    fillsAvailableWidth: false,
-                    size: .control
-                ) { mode in
-                    activationModeBinding.wrappedValue = mode
-                }
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Shortcut",
-                subtitle: "Global keyboard trigger for voice capture.",
-                minHeight: shortcutIssue == nil ? 46 : 72
-            ) {
-                HotkeyRecorderControl(
-                    descriptor: activationShortcutBinding,
-                    issueMessage: shortcutIssue?.message,
-                    candidateIssueMessage: { shortcutCandidateIssue($0)?.message },
-                    defaultDescriptor: VoiceActivationSettings.default.shortcut,
-                    recorderWidth: 160,
-                    recorderHeight: 26,
-                    errorWidth: 230,
-                    reset: { applyActivationShortcut(VoiceActivationSettings.default.shortcut) }
-                )
-            }
-
-            if let errorMessage {
-                MAYNDivider()
-                MAYNSettingsRow(title: "Voice error") {
-                    StatusPill(text: errorMessage, kind: .danger)
-                }
-            }
-        }
-    }
-
-    private var voiceModelSummarySection: some View {
-        MAYNSection(title: "Recognition") {
-            MAYNSettingsRow(
-                title: "Recognition engine",
-                subtitle: recognitionEngineRowSubtitle,
-                belowSubtitle: {
-                    AnyView(
-                        HStack(spacing: 6) {
-                            StatusPill(text: recognitionEngineSingleTag, kind: .neutral)
-                            if let recommendation = recognitionRecommendationTag {
-                                StatusPill(text: recommendation, kind: .success)
-                            }
-                        }
-                    )
-                }
-            ) {
-                MAYNButton("Choose recognition engine") {
-                    selectedTabRaw = VoiceFunctionTab.models.rawValue
-                }
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Cleanup model",
-                subtitle: cleanupRowSubtitle,
-                belowSubtitle: {
-                    AnyView(StatusPill(text: cleanupSavedSelectionLine, kind: .neutral))
-                }
-            ) {
-                MAYNButton("Change...") {
-                    openCleanupPicker()
-                }
-            }
-            .accessibilityLabel("Cleanup model")
-            .accessibilityValue(cleanupAccessibilitySummary)
         }
     }
 
@@ -592,292 +423,37 @@ struct VoiceDestinationView: View {
     private func voiceEngineDetailPane(for engineID: VoiceEngineID) -> some View {
         switch engineID {
         case let .local(modelID):
-            voiceLocalEngineDetailPane(for: modelID)
-        case let .cloud(modelID):
-            voiceCloudEngineDetailPane(for: modelID)
-        case let .experimental(descriptorID):
-            voiceExperimentalEngineDetailPane(for: descriptorID)
-        }
-    }
-
-    private func voiceLocalEngineDetailPane(for modelID: VoiceASRModelID) -> some View {
-        let isCurrent = currentEngineID == .local(modelID)
-        let installed = isDownloaded(modelID)
-        let isDownloading = downloadingModelID == modelID
-        let downloadFraction = modelDownloadFractions[modelID]
-        let statusText: String
-        let statusKind: StatusPill.Kind
-
-        if isDownloading {
-            statusText = "Downloading"
-            statusKind = .progress
-        } else if isCurrent {
-            statusText = "In use"
-            statusKind = .success
-        } else if installed {
-            statusText = "Installed"
-            statusKind = .neutral
-        } else {
-            statusText = "Not installed"
-            statusKind = .warning
-        }
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Local engine")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                StatusPill(text: statusText, kind: statusKind)
-            }
-
-            Text(modelID.title)
-                .font(.title3.weight(.semibold))
-            Text(modelID.subtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 6) {
-                StatusPill(text: modelID.diskLabel, kind: .neutral)
-                StatusPill(text: modelID.requiresOSLabel, kind: .neutral)
-                StatusPill(text: VoiceLanguageModePresentation.title(for: languageHint), kind: .neutral)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Details")
-                    .font(.callout.weight(.semibold))
-                Label(modelID.strengths, systemImage: "checkmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Label(modelID.tradeoffs, systemImage: "exclamationmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let downloadFraction, isDownloading {
-                ProgressView(value: downloadFraction)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if isDownloading {
-                Text("Install in progress. This engine becomes active when download and compile finish.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if installed {
-                if !isCurrent {
-                    MAYNButton("Use engine", role: .primary) {
-                        useModel(modelID)
-                    }
-                }
-            } else {
-                MAYNButton("Download and use", role: .primary) {
-                    downloadModel(modelID, selectWhenReady: true)
-                }
-            }
-
-            if installed, !isDownloading {
-                HStack(spacing: 8) {
-                    MAYNButton("Show file") {
-                        showModelInFinder(modelID)
-                    }
-                    MAYNButton("Delete...", role: .destructive) {
-                        deleteModel(modelID)
-                    }
-                }
-            }
-
-            if let status = modelDownloadStatus[modelID] {
-                Text(status)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func voiceCloudEngineDetailPane(for modelID: VoiceCloudASRModelID) -> some View {
-        let provider = modelID.providerKind
-        let hasKey = hasUsableCloudAPIKey(for: provider)
-        let isCurrent = currentEngineID == .cloud(modelID)
-        let isProviderTesting = isTestingCloud && cloudSetupProviderKind == provider
-        let statusText: String
-        let statusKind: StatusPill.Kind
-
-        if isProviderTesting {
-            statusText = "Testing"
-            statusKind = .progress
-        } else if isCurrent, hasKey {
-            statusText = "In use"
-            statusKind = .success
-        } else if hasKey {
-            statusText = "API key ready"
-            statusKind = .neutral
-        } else {
-            statusText = "API key required"
-            statusKind = .warning
-        }
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Cloud engine")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                StatusPill(text: statusText, kind: statusKind)
-            }
-
-            Text(modelID.title)
-                .font(.title3.weight(.semibold))
-            Text(modelID.subtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 6) {
-                StatusPill(text: provider.label, kind: .neutral)
-                StatusPill(text: hasKey ? "Key entered" : "Needs key", kind: hasKey ? .neutral : .warning)
-                StatusPill(text: VoiceLanguageModePresentation.title(for: cloudLanguageHint), kind: .neutral)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Details")
-                    .font(.callout.weight(.semibold))
-                Label("Requires network access.", systemImage: "network")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Label("Sends audio to \(provider.label) using your API key.", systemImage: "icloud")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Label("Respects the same language hint used by dictation.", systemImage: "globe")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            MAYNSecureField(
-                placeholder: provider.apiKeyPlaceholder,
-                text: cloudAPIKeyBinding(for: provider),
-                width: MAYNControlMetrics.wideTextFieldWidth
+            VoiceLocalEngineDetailPane(
+                modelID: modelID,
+                currentEngineID: currentEngineID,
+                downloadingModelID: downloadingModelID,
+                modelDownloadFractions: modelDownloadFractions,
+                modelDownloadStatus: modelDownloadStatus,
+                languageHint: languageHint,
+                onUseModel: { useModel($0) },
+                onDownloadModel: { downloadModel($0, selectWhenReady: true) },
+                onShowInFinder: { showModelInFinder($0) },
+                onDeleteModel: { deleteModel($0) }
             )
-
-            if hasKey {
-                MAYNButton("Use engine", role: .primary) {
-                    selectCloudModel(modelID)
-                }
-            } else {
-                MAYNButton("Configure API key", role: .primary) {
-                    selectCloudModel(modelID)
-                }
-            }
-
-            HStack(spacing: 8) {
-                MAYNButton(isProviderTesting ? "Testing..." : "Test connection") {
+        case let .cloud(modelID):
+            VoiceCloudEngineDetailPane(
+                modelID: modelID,
+                currentEngineID: currentEngineID,
+                cloudSetupProviderKind: cloudSetupProviderKind,
+                isTestingCloud: isTestingCloud,
+                cloudAPIKeys: cloudAPIKeys,
+                cloudStatusMessage: cloudStatusMessage,
+                cloudLanguageHint: cloudLanguageHint,
+                onAPIKeyChange: { providerKind, key in cloudAPIKeys[providerKind] = key },
+                onSelectModel: { selectCloudModel($0) },
+                onTestConnection: { provider, modelID in
                     cloudSetupProviderKind = provider
                     cloudModelID = modelID
                     testCloudConnection()
                 }
-                .disabled(isProviderTesting)
-            }
-
-            if cloudSetupProviderKind == provider, let cloudStatusMessage {
-                Text(cloudStatusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func voiceExperimentalEngineDetailPane(for descriptorID: String) -> some View {
-        let descriptor = VoiceEngineCatalogPresentation.experimentalDescriptor(for: descriptorID)
-        let title = descriptor?.title ?? "Experimental engine"
-        let subtitle = descriptor?.subtitle ?? "Planned recognizer. Not available in the current build."
-        let requirement = descriptor?.requiresOSLabel ?? "Unavailable"
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Experimental")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                StatusPill(text: "Unavailable", kind: .warning)
-            }
-
-            Text(title)
-                .font(.title3.weight(.semibold))
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 6) {
-                StatusPill(text: requirement, kind: .neutral)
-                StatusPill(text: "Advanced picker only", kind: .neutral)
-            }
-
-            Text("This engine remains visible for planning and migration checks, but it is not selectable for dictation in this release.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var voiceAudioSection: some View {
-        MAYNSection(title: "Audio") {
-            MAYNSettingsRow(
-                title: "Microphone",
-                subtitle: "Choose the preferred input device for voice capture. Auto follows macOS Sound settings."
-            ) {
-                MAYNDropdown(
-                    selection: $preferredMicrophoneID,
-                    options: microphoneOptions.map(\.id),
-                    title: microphoneTitle,
-                    width: MAYNControlMetrics.widePickerWidth
-                )
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Interaction sounds",
-                subtitle: "Reserved for voice start/stop feedback."
-            ) {
-                Toggle("", isOn: $interactionSounds)
-                    .labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Mute when dictating",
-                subtitle: "Preference only; automatic app audio ducking is not wired yet."
-            ) {
-                Toggle("", isOn: $muteWhenDictating)
-                    .labelsHidden()
-            }
-        }
-    }
-
-    private var voiceCleanupSection: some View {
-        MAYNSection(title: "Cleanup") {
-            MAYNSettingsRow(
-                title: "AI cleanup",
-                subtitle: "Send recognized text through the configured cleanup provider before paste."
-            ) {
-                Toggle("", isOn: $cleanupEnabled)
-                    .labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Cleanup model",
-                subtitle: cleanupRowSubtitle,
-                belowSubtitle: {
-                    AnyView(StatusPill(text: cleanupSavedSelectionLine, kind: .neutral))
-                }
-            ) {
-                MAYNButton("Change...") {
-                    openCleanupPicker()
-                }
-            }
-            .accessibilityLabel("Cleanup model")
-            .accessibilityValue(cleanupAccessibilitySummary)
-
-            if let cleanupStatusMessage {
-                MAYNDivider()
-                MAYNSettingsRow(title: "Cleanup status") {
-                    StatusPill(text: cleanupStatusMessage, kind: .neutral)
-                }
-            }
+            )
+        case let .experimental(descriptorID):
+            VoiceExperimentalEngineDetailPane(descriptorID: descriptorID)
         }
     }
 
@@ -918,6 +494,27 @@ struct VoiceDestinationView: View {
 
     private var voiceTranscriptIDs: [String] {
         voiceTranscriptPageState.filtered.map(\.id)
+    }
+
+    private static let voiceTranscriptPageSize = 15
+
+    private var voiceTranscriptPageState: VoiceTranscriptPageState {
+        let filtered: [VoiceTranscript]
+        switch historyFilter {
+        case .all:
+            filtered = transcripts
+        case .failed:
+            filtered = transcripts.filter { $0.status == .failed }
+        case .success:
+            filtered = transcripts.filter { $0.status != .failed }
+        }
+        let pagination = MAYNListPagination.make(
+            totalItems: filtered.count,
+            requestedPage: transcriptPage,
+            pageSize: Self.voiceTranscriptPageSize
+        )
+        let visible = MAYNListPagination.slice(filtered, pagination: pagination)
+        return VoiceTranscriptPageState(visible: visible, pagination: pagination, filtered: filtered)
     }
 
     private func selectVoiceTranscript(_ transcript: VoiceTranscript) {
@@ -1518,6 +1115,646 @@ struct VoiceDestinationView: View {
         VoiceASRModelSelectionState.canSelectCloudModel(apiKey: cloudAPIKeys[providerKind] ?? "")
     }
 }
+
+// MARK: - VoiceDictateSection
+
+private struct VoiceDictateSection: View {
+    let voiceStateTitle: String
+    let voiceStatusText: String
+    let voiceStatusKind: StatusPill.Kind
+    let onboardingProgress: VoiceOnboardingProgress
+    let onOpenSetup: () -> Void
+    let onRestartSetup: () -> Void
+
+    var body: some View {
+        MAYNSection(title: "Dictate") {
+            MAYNSettingsRow(
+                title: "State",
+                subtitle: voiceStateTitle
+            ) {
+                StatusPill(text: voiceStatusText, kind: voiceStatusKind)
+            }
+        }
+
+        MAYNSection(title: "Setup") {
+            MAYNSettingsRow(
+                title: "Voice onboarding",
+                subtitle: "Checks microphone, Accessibility, ASR, cleanup, shortcut, languages, and a try-it pass."
+            ) {
+                StatusPill(
+                    text: onboardingProgress.isCompleted ? "Completed" : onboardingProgress.currentStep.title,
+                    kind: onboardingProgress.isCompleted ? .success : .progress
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Setup actions") {
+                HStack(spacing: 8) {
+                    MAYNButton(onboardingProgress.isCompleted ? "Open setup" : "Continue setup") {
+                        onOpenSetup()
+                    }
+                    MAYNButton("Restart") {
+                        onRestartSetup()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - VoiceRecognitionModelsSection
+
+private struct VoiceRecognitionModelsSection: View {
+    let asrProviderKind: VoiceASRProviderKind
+    let selectedASRModelID: VoiceASRModelID
+    let cloudModelID: VoiceCloudASRModelID
+    @Binding var languageHint: VoiceASRLanguageHint
+    let recognitionSectionSubtitle: String
+    let recognitionEngineRowSubtitle: String
+    let recognitionEngineSingleTag: String
+    let recognitionRecommendationTag: String?
+    let dictationLanguageSubtitle: String
+    let onOpenEnginePicker: () -> Void
+
+    var body: some View {
+        MAYNSection(
+            title: "Recognition",
+            subtitle: recognitionSectionSubtitle
+        ) {
+            MAYNSettingsRow(
+                title: "Recognition engine",
+                subtitle: recognitionEngineRowSubtitle,
+                belowSubtitle: {
+                    AnyView(
+                        HStack(spacing: 6) {
+                            StatusPill(text: recognitionEngineSingleTag, kind: .neutral)
+                            if let recommendation = recognitionRecommendationTag {
+                                StatusPill(text: recommendation, kind: .success)
+                            }
+                        }
+                    )
+                }
+            ) {
+                MAYNButton("Change...") {
+                    onOpenEnginePicker()
+                }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Dictation language",
+                subtitle: dictationLanguageSubtitle
+            ) {
+                MAYNDropdown(
+                    selection: $languageHint,
+                    options: Array(VoiceASRLanguageHint.allCases),
+                    title: VoiceLanguageModePresentation.title,
+                    width: MAYNControlMetrics.widePickerWidth
+                )
+            }
+        }
+    }
+}
+
+// MARK: - VoiceDestCleanupSection
+
+private struct VoiceDestCleanupSection: View {
+    @Binding var cleanupEnabled: Bool
+    let cleanupRowSubtitle: String
+    let cleanupSavedSelectionLine: String
+    let cleanupAccessibilitySummary: String
+    let cleanupStatusMessage: String?
+    let onOpenCleanupPicker: () -> Void
+
+    var body: some View {
+        MAYNSection(title: "Cleanup") {
+            MAYNSettingsRow(
+                title: "AI cleanup",
+                subtitle: "Send recognized text through the configured cleanup provider before paste."
+            ) {
+                Toggle("", isOn: $cleanupEnabled)
+                    .labelsHidden()
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Cleanup model",
+                subtitle: cleanupRowSubtitle,
+                belowSubtitle: {
+                    AnyView(StatusPill(text: cleanupSavedSelectionLine, kind: .neutral))
+                }
+            ) {
+                MAYNButton("Change...") {
+                    onOpenCleanupPicker()
+                }
+            }
+            .accessibilityLabel("Cleanup model")
+            .accessibilityValue(cleanupAccessibilitySummary)
+
+            if let cleanupStatusMessage {
+                MAYNDivider()
+                MAYNSettingsRow(title: "Cleanup status") {
+                    StatusPill(text: cleanupStatusMessage, kind: .neutral)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - VoiceHistorySection
+
+private struct VoiceHistorySection: View {
+    let transcripts: [VoiceTranscript]
+    @Binding var transcriptPage: Int
+    let selectedTranscriptIDs: Set<String>
+    let retryingTranscriptIDs: Set<String>
+    @Binding var historyFilter: VoiceHistoryFilter
+    let historyToast: VoiceHistoryUndoToken?
+    @Binding var voiceHistorySettings: VoiceHistorySettings
+    let voiceTranscriptPageState: VoiceTranscriptPageState
+    let onSelect: (VoiceTranscript) -> Void
+    let onCopy: (VoiceTranscript) -> Void
+    let onRetry: (VoiceTranscript) -> Void
+    let onDownload: (VoiceTranscript) -> Void
+    let onDelete: (VoiceTranscript) -> Void
+    let onSaveHistorySettings: (VoiceHistorySettings) -> Void
+    let onUndoToast: () -> Void
+    let onKeyPress: (KeyPress) -> KeyPress.Result
+
+    var body: some View {
+        let page = voiceTranscriptPageState
+        VStack(spacing: 12) {
+            MAYNSection(title: "Recent transcripts") {
+                MAYNSettingsRow(title: "Filter") {
+                    FunctionSegmentedTabStrip(
+                        tabs: Array(VoiceHistoryFilter.allCases),
+                        selection: historyFilter,
+                        fillsAvailableWidth: false,
+                        size: .control
+                    ) { historyFilter = $0 }
+                }
+                MAYNDivider()
+                if page.filtered.isEmpty {
+                    MAYNSettingsRow(
+                        title: transcripts.isEmpty ? "No transcripts yet" : "No matching transcripts",
+                        subtitle: transcripts.isEmpty
+                            ? "Completed voice dictations appear here after transcription and paste."
+                            : "Try a different history filter."
+                    ) {
+                        EmptyView()
+                    }
+                } else {
+                    ForEach(Array(page.visible.enumerated()), id: \.element.id) { index, transcript in
+                        if index > 0 { MAYNDivider() }
+                        VoiceTranscriptHistoryRowView(
+                            transcript: transcript,
+                            surface: .main,
+                            isSelected: selectedTranscriptIDs.contains(transcript.id),
+                            isRetrying: retryingTranscriptIDs.contains(transcript.id),
+                            onSelect: { onSelect(transcript) },
+                            onCopy: { onCopy(transcript) },
+                            onRetry: { onRetry(transcript) },
+                            onDownload: { onDownload(transcript) },
+                            onDelete: { onDelete(transcript) }
+                        )
+                    }
+
+                    if page.pagination.totalPages > 1 {
+                        MAYNDivider()
+                        MAYNListPaginationFooter(
+                            state: page.pagination,
+                            visibleItemCount: page.visible.count,
+                            goToPage: { transcriptPage = $0 }
+                        )
+                    }
+                }
+            }
+
+            VoiceHistoryStorageHeader(settings: $voiceHistorySettings)
+                .onChange(of: voiceHistorySettings) { _, new in
+                    onSaveHistorySettings(new)
+                }
+        }
+        .overlay(alignment: .bottom) {
+            if let toast = historyToast {
+                VoiceHistoryToastView(message: toast.message) {
+                    onUndoToast()
+                }
+                .padding(.bottom, 12)
+                .transition(.opacity)
+            }
+        }
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress { keyPress in
+            onKeyPress(keyPress)
+        }
+    }
+}
+
+// MARK: - VoiceActivationSection
+
+private struct VoiceActivationSection: View {
+    let mode: VoiceActivationMode
+    let onModeChange: (VoiceActivationMode) -> Void
+    let shortcutBinding: Binding<Platform.HotkeyDescriptor>
+    let shortcutIssue: HotkeyValidationIssue?
+    let candidateIssueMessage: (Platform.HotkeyDescriptor) -> String?
+    let onResetShortcut: () -> Void
+    let errorMessage: String?
+
+    var body: some View {
+        MAYNSection(title: "Activation") {
+            MAYNSettingsRow(
+                title: "Mode",
+                subtitle: "Toggle starts on first press and stops on second press. Hold records while the shortcut is held."
+            ) {
+                FunctionSegmentedTabStrip(
+                    tabs: Array(VoiceActivationMode.allCases),
+                    selection: mode,
+                    fillsAvailableWidth: false,
+                    size: .control
+                ) { onModeChange($0) }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Shortcut",
+                subtitle: "Global keyboard trigger for voice capture.",
+                minHeight: shortcutIssue == nil ? 46 : 72
+            ) {
+                HotkeyRecorderControl(
+                    descriptor: shortcutBinding,
+                    issueMessage: shortcutIssue?.message,
+                    candidateIssueMessage: { candidateIssueMessage($0) },
+                    defaultDescriptor: VoiceActivationSettings.default.shortcut,
+                    recorderWidth: 160,
+                    recorderHeight: 26,
+                    errorWidth: 230,
+                    reset: { onResetShortcut() }
+                )
+            }
+
+            if let errorMessage {
+                MAYNDivider()
+                MAYNSettingsRow(title: "Voice error") {
+                    StatusPill(text: errorMessage, kind: .danger)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - VoiceModelSummarySection
+
+private struct VoiceModelSummarySection: View {
+    let asrProviderKind: VoiceASRProviderKind
+    let selectedASRModelID: VoiceASRModelID
+    let cloudModelID: VoiceCloudASRModelID
+    let recognitionEngineRowSubtitle: String
+    let recognitionEngineSingleTag: String
+    let recognitionRecommendationTag: String?
+    let cleanupRowSubtitle: String
+    let cleanupSavedSelectionLine: String
+    let cleanupAccessibilitySummary: String
+    let onNavigateToModels: () -> Void
+    let onOpenCleanupPicker: () -> Void
+
+    var body: some View {
+        MAYNSection(title: "Recognition") {
+            MAYNSettingsRow(
+                title: "Recognition engine",
+                subtitle: recognitionEngineRowSubtitle,
+                belowSubtitle: {
+                    AnyView(
+                        HStack(spacing: 6) {
+                            StatusPill(text: recognitionEngineSingleTag, kind: .neutral)
+                            if let recommendation = recognitionRecommendationTag {
+                                StatusPill(text: recommendation, kind: .success)
+                            }
+                        }
+                    )
+                }
+            ) {
+                MAYNButton("Choose recognition engine") {
+                    onNavigateToModels()
+                }
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Cleanup model",
+                subtitle: cleanupRowSubtitle,
+                belowSubtitle: {
+                    AnyView(StatusPill(text: cleanupSavedSelectionLine, kind: .neutral))
+                }
+            ) {
+                MAYNButton("Change...") {
+                    onOpenCleanupPicker()
+                }
+            }
+            .accessibilityLabel("Cleanup model")
+            .accessibilityValue(cleanupAccessibilitySummary)
+        }
+    }
+}
+
+// MARK: - VoiceAudioSection
+
+private struct VoiceAudioSection: View {
+    @Binding var preferredMicrophoneID: String
+    @Binding var interactionSounds: Bool
+    @Binding var muteWhenDictating: Bool
+    let microphoneOptions: [VoiceMicrophoneOptionDescriptor]
+    let microphoneTitle: (String) -> String
+
+    var body: some View {
+        MAYNSection(title: "Audio") {
+            MAYNSettingsRow(
+                title: "Microphone",
+                subtitle: "Choose the preferred input device for voice capture. Auto follows macOS Sound settings."
+            ) {
+                MAYNDropdown(
+                    selection: $preferredMicrophoneID,
+                    options: microphoneOptions.map(\.id),
+                    title: microphoneTitle,
+                    width: MAYNControlMetrics.widePickerWidth
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Interaction sounds",
+                subtitle: "Reserved for voice start/stop feedback."
+            ) {
+                Toggle("", isOn: $interactionSounds)
+                    .labelsHidden()
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Mute when dictating",
+                subtitle: "Preference only; automatic app audio ducking is not wired yet."
+            ) {
+                Toggle("", isOn: $muteWhenDictating)
+                    .labelsHidden()
+            }
+        }
+    }
+}
+
+// MARK: - VoiceLocalEngineDetailPane
+
+private struct VoiceLocalEngineDetailPane: View {
+    let modelID: VoiceASRModelID
+    let currentEngineID: VoiceEngineID
+    let downloadingModelID: VoiceASRModelID?
+    let modelDownloadFractions: [VoiceASRModelID: Double]
+    let modelDownloadStatus: [VoiceASRModelID: String]
+    let languageHint: VoiceASRLanguageHint
+    let onUseModel: (VoiceASRModelID) -> Void
+    let onDownloadModel: (VoiceASRModelID) -> Void
+    let onShowInFinder: (VoiceASRModelID) -> Void
+    let onDeleteModel: (VoiceASRModelID) -> Void
+
+    private var isCurrent: Bool { currentEngineID == .local(modelID) }
+    private var installed: Bool { VoiceModelManager.isLocalASRModelInstalled(modelID) }
+    private var isDownloading: Bool { downloadingModelID == modelID }
+    private var downloadFraction: Double? { modelDownloadFractions[modelID] }
+
+    private var statusText: String {
+        if isDownloading { return "Downloading" }
+        if isCurrent { return "In use" }
+        if installed { return "Installed" }
+        return "Not installed"
+    }
+
+    private var statusKind: StatusPill.Kind {
+        if isDownloading { return .progress }
+        if isCurrent { return .success }
+        if installed { return .neutral }
+        return .warning
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Local engine")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                StatusPill(text: statusText, kind: statusKind)
+            }
+
+            Text(modelID.title)
+                .font(.title3.weight(.semibold))
+            Text(modelID.subtitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                StatusPill(text: modelID.diskLabel, kind: .neutral)
+                StatusPill(text: modelID.requiresOSLabel, kind: .neutral)
+                StatusPill(text: VoiceLanguageModePresentation.title(for: languageHint), kind: .neutral)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Details")
+                    .font(.callout.weight(.semibold))
+                Label(modelID.strengths, systemImage: "checkmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Label(modelID.tradeoffs, systemImage: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let downloadFraction, isDownloading {
+                ProgressView(value: downloadFraction)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if isDownloading {
+                Text("Install in progress. This engine becomes active when download and compile finish.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if installed {
+                if !isCurrent {
+                    MAYNButton("Use engine", role: .primary) {
+                        onUseModel(modelID)
+                    }
+                }
+            } else {
+                MAYNButton("Download and use", role: .primary) {
+                    onDownloadModel(modelID)
+                }
+            }
+
+            if installed, !isDownloading {
+                HStack(spacing: 8) {
+                    MAYNButton("Show file") {
+                        onShowInFinder(modelID)
+                    }
+                    MAYNButton("Delete...", role: .destructive) {
+                        onDeleteModel(modelID)
+                    }
+                }
+            }
+
+            if let status = modelDownloadStatus[modelID] {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: - VoiceCloudEngineDetailPane
+
+private struct VoiceCloudEngineDetailPane: View {
+    let modelID: VoiceCloudASRModelID
+    let currentEngineID: VoiceEngineID
+    let cloudSetupProviderKind: VoiceASRProviderKind
+    let isTestingCloud: Bool
+    let cloudAPIKeys: [VoiceASRProviderKind: String]
+    let cloudStatusMessage: String?
+    let cloudLanguageHint: VoiceASRLanguageHint
+    let onAPIKeyChange: (VoiceASRProviderKind, String) -> Void
+    let onSelectModel: (VoiceCloudASRModelID) -> Void
+    let onTestConnection: (VoiceASRProviderKind, VoiceCloudASRModelID) -> Void
+
+    private var provider: VoiceASRProviderKind { modelID.providerKind }
+    private var hasKey: Bool {
+        VoiceASRModelSelectionState.canSelectCloudModel(apiKey: cloudAPIKeys[modelID.providerKind] ?? "")
+    }
+    private var isCurrent: Bool { currentEngineID == .cloud(modelID) }
+    private var isProviderTesting: Bool { isTestingCloud && cloudSetupProviderKind == modelID.providerKind }
+
+    private var statusText: String {
+        if isProviderTesting { return "Testing" }
+        if isCurrent, hasKey { return "In use" }
+        if hasKey { return "API key ready" }
+        return "API key required"
+    }
+
+    private var statusKind: StatusPill.Kind {
+        if isProviderTesting { return .progress }
+        if isCurrent, hasKey { return .success }
+        if hasKey { return .neutral }
+        return .warning
+    }
+
+    private var apiKeyBinding: Binding<String> {
+        Binding(
+            get: { cloudAPIKeys[provider] ?? "" },
+            set: { onAPIKeyChange(provider, $0) }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Cloud engine")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                StatusPill(text: statusText, kind: statusKind)
+            }
+
+            Text(modelID.title)
+                .font(.title3.weight(.semibold))
+            Text(modelID.subtitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                StatusPill(text: provider.label, kind: .neutral)
+                StatusPill(text: hasKey ? "Key entered" : "Needs key", kind: hasKey ? .neutral : .warning)
+                StatusPill(text: VoiceLanguageModePresentation.title(for: cloudLanguageHint), kind: .neutral)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Details")
+                    .font(.callout.weight(.semibold))
+                Label("Requires network access.", systemImage: "network")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Label("Sends audio to \(provider.label) using your API key.", systemImage: "icloud")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Label("Respects the same language hint used by dictation.", systemImage: "globe")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            MAYNSecureField(
+                placeholder: provider.apiKeyPlaceholder,
+                text: apiKeyBinding,
+                width: MAYNControlMetrics.wideTextFieldWidth
+            )
+
+            if hasKey {
+                MAYNButton("Use engine", role: .primary) {
+                    onSelectModel(modelID)
+                }
+            } else {
+                MAYNButton("Configure API key", role: .primary) {
+                    onSelectModel(modelID)
+                }
+            }
+
+            HStack(spacing: 8) {
+                MAYNButton(isProviderTesting ? "Testing..." : "Test connection") {
+                    onTestConnection(provider, modelID)
+                }
+                .disabled(isProviderTesting)
+            }
+
+            if cloudSetupProviderKind == provider, let cloudStatusMessage {
+                Text(cloudStatusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: - VoiceExperimentalEngineDetailPane
+
+private struct VoiceExperimentalEngineDetailPane: View {
+    let descriptorID: String
+
+    private var descriptor: VoiceModelDescriptor? {
+        VoiceEngineCatalogPresentation.experimentalDescriptor(for: descriptorID)
+    }
+
+    var body: some View {
+        let title = descriptor?.title ?? "Experimental engine"
+        let subtitle = descriptor?.subtitle ?? "Planned recognizer. Not available in the current build."
+        let requirement = descriptor?.requiresOSLabel ?? "Unavailable"
+
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Experimental")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                StatusPill(text: "Unavailable", kind: .warning)
+            }
+
+            Text(title)
+                .font(.title3.weight(.semibold))
+            Text(subtitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                StatusPill(text: requirement, kind: .neutral)
+                StatusPill(text: "Advanced picker only", kind: .neutral)
+            }
+
+            Text("This engine remains visible for planning and migration checks, but it is not selectable for dictation in this release.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - VoiceModelDownloadPresenter
 
 private enum VoiceModelDownloadPresenter {
     static func describe(_ progress: DownloadUtils.DownloadProgress) -> String {

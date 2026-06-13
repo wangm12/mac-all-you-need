@@ -68,10 +68,10 @@ struct DockPreviewHoverContainer: View {
         state.setIndex(to: hoveredIndex, shouldScroll: false)
     }
 
-    private var screen: NSScreen {
+    private var screen: NSScreen? {
         NSScreen.screens.first { $0.frame.contains(state.anchorRect.origin) }
             ?? NSScreen.main
-            ?? NSScreen.screens[0]
+            ?? NSScreen.screens.first
     }
 
     /// DockDoor: without Screen Recording, always use compact list (not broken grid cards).
@@ -147,13 +147,14 @@ struct DockPreviewHoverContainer: View {
     }
 
     var body: some View {
-        DockPreviewDismissalContainer(
-            dockItemElement: state.dismissalAnchorDockItem,
-            onMouseInPanel: onMouseInPanel,
-            onDismissRequest: onDismissRequest,
-            onDismissPreservePendingShow: onDismissPreservePendingShow,
-            shouldSkipFadeOut: { state.isWindowSwitcherActive || state.mode == .cmdTab }
-        ) {
+        if let screen {
+            DockPreviewDismissalContainer(
+                dockItemElement: state.dismissalAnchorDockItem,
+                onMouseInPanel: onMouseInPanel,
+                onDismissRequest: onDismissRequest,
+                onDismissPreservePendingShow: onDismissPreservePendingShow,
+                shouldSkipFadeOut: { state.isWindowSwitcherActive || state.mode == .cmdTab }
+            ) {
             DockPreviewBaseHoverContainer(
                 screen: screen,
                 backgroundOpacity: panelOpacity,
@@ -196,6 +197,9 @@ struct DockPreviewHoverContainer: View {
             onSwipeLeft: { handlePreviewSwipe(isTowardsDock: true) },
             onSwipeRight: { handlePreviewSwipe(isTowardsDock: false) }
         )
+        } else {
+            EmptyView()
+        }
     }
 
     private func handlePreviewSwipe(isUp: Bool = false, isTowardsDock: Bool = false) {

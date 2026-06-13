@@ -64,4 +64,56 @@ final class TextTransformsTests: XCTestCase {
     func testDedupeLines() {
         XCTAssertEqual(TextTransforms.apply(.dedupeLines, to: "a\nb\na\nc\nb"), "a\nb\nc")
     }
+
+    func testCamelToSnake() {
+        XCTAssertEqual(TextTransforms.apply(.camelToSnake, to: "camelCaseString"), "camel_case_string")
+        XCTAssertEqual(TextTransforms.apply(.camelToSnake, to: "myVariable"), "my_variable")
+        XCTAssertEqual(TextTransforms.apply(.camelToSnake, to: "alreadylower"), "alreadylower")
+        // Consecutive-caps (acronym) cases
+        XCTAssertEqual(TextTransforms.apply(.camelToSnake, to: "XMLParser"), "xml_parser")
+        XCTAssertEqual(TextTransforms.apply(.camelToSnake, to: "HTTPSConnection"), "https_connection")
+        XCTAssertEqual(TextTransforms.apply(.camelToSnake, to: "parseHTML"), "parse_html")
+    }
+
+    func testSnakeToCamel() {
+        XCTAssertEqual(TextTransforms.apply(.snakeToCamel, to: "camel_case_string"), "camelCaseString")
+        XCTAssertEqual(TextTransforms.apply(.snakeToCamel, to: "my_variable"), "myVariable")
+        XCTAssertEqual(TextTransforms.apply(.snakeToCamel, to: "nounderscore"), "nounderscore")
+    }
+
+    func testTimestampToDateSeconds() {
+        // 2024-01-15 00:00:00 UTC = 1705276800
+        let result = TextTransforms.apply(.timestampToDate, to: "1705276800")
+        XCTAssertNotNil(result)
+        XCTAssert(result?.contains("2024") == true)
+    }
+
+    func testTimestampToDateMilliseconds() {
+        // millis > 1_000_000_000_000 branch
+        let result = TextTransforms.apply(.timestampToDate, to: "1705276800000")
+        XCTAssertNotNil(result)
+        XCTAssert(result?.contains("2024") == true)
+    }
+
+    func testTimestampToDateInvalid() {
+        XCTAssertNil(TextTransforms.apply(.timestampToDate, to: "not-a-number"))
+    }
+
+    func testEscapeHTML() {
+        XCTAssertEqual(TextTransforms.apply(.escapeHTML, to: "<b>Hello & \"World\"</b>"), "&lt;b&gt;Hello &amp; &quot;World&quot;&lt;/b&gt;")
+    }
+
+    func testUnescapeHTML() {
+        XCTAssertEqual(TextTransforms.apply(.unescapeHTML, to: "&lt;b&gt;Hello &amp; &quot;World&quot;&lt;/b&gt;"), "<b>Hello & \"World\"</b>")
+    }
+
+    func testMd5Hash() {
+        // md5("hello") = 5d41402abc4b2a76b9719d911017c592
+        XCTAssertEqual(TextTransforms.apply(.md5Hash, to: "hello"), "5d41402abc4b2a76b9719d911017c592")
+    }
+
+    func testReverseText() {
+        XCTAssertEqual(TextTransforms.apply(.reverseText, to: "hello"), "olleh")
+        XCTAssertEqual(TextTransforms.apply(.reverseText, to: "abc"), "cba")
+    }
 }

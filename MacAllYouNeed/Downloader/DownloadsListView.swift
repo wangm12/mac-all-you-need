@@ -405,8 +405,7 @@ struct DownloadsListView: View {
         process.arguments = ["-a", "Google Chrome", rawURL]
         do {
             try process.run()
-            process.waitUntilExit()
-            if process.terminationStatus == 0 { return true }
+            return true
         } catch {}
         if let fallbackURL = URL(string: rawURL) {
             return NSWorkspace.shared.open(fallbackURL)

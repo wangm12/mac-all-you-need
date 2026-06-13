@@ -3,7 +3,7 @@ import Foundation
 
 /// Persisted settings for the AI File Organizer feature.
 struct AIFileOrganizerSettings: Codable, Equatable {
-    var provider: VoiceCleanupProviderKind
+    var provider: LLMProviderKind
     var model: String
     var baseURLString: String
     var timeoutSeconds: Int

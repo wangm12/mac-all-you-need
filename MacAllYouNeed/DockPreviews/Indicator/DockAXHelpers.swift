@@ -64,8 +64,12 @@ enum DockAXHelpers {
         AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef)
         var point = CGPoint.zero
         var size = CGSize.zero
-        if let posValue = positionRef { AXValueGetValue(posValue as! AXValue, .cgPoint, &point) }
-        if let sizeValue = sizeRef { AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) }
+        if let posValue = positionRef, CFGetTypeID(posValue) == AXValueGetTypeID() {
+            AXValueGetValue(posValue as! AXValue, .cgPoint, &point)
+        }
+        if let sizeValue = sizeRef, CFGetTypeID(sizeValue) == AXValueGetTypeID() {
+            AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        }
         return CGRect(origin: point, size: size)
     }
 
@@ -76,7 +80,8 @@ enum DockAXHelpers {
         let appElement = AXUIElementCreateApplication(pid)
         var focusedRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedRef) == .success,
-           let focusedRef {
+           let focusedRef,
+           CFGetTypeID(focusedRef) == AXUIElementGetTypeID() {
             let windowElement = focusedRef as! AXUIElement
             if let matched = matchAXWindow(windowElement, pid: pid, among: candidateSet) {
                 return matched

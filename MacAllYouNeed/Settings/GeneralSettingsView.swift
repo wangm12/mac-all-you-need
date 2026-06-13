@@ -1,5 +1,6 @@
 import AppKit
 import Core
+import Platform
 import SwiftUI
 
 enum AppAppearanceMode: String, CaseIterable, Identifiable, SegmentedTabDestination {
@@ -92,13 +93,63 @@ enum AppChromeVisibilitySettings {
     }
 }
 
+/// Three-step sensitivity for modifier double-tap detection.
+/// Raw values are `String` to satisfy `SegmentedTabDestination : RawRepresentable<String>`.
+/// The actual timing is stored as a `Double` under `ModifierTapTiming.multiTapWindowKey`.
+enum DoubleTapSpeed: String, CaseIterable, SegmentedTabDestination {
+    case fast
+    case normal
+    case slow
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fast:   "Fast"
+        case .normal: "Normal"
+        case .slow:   "Slow"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .fast:   "hare"
+        case .normal: "figure.walk"
+        case .slow:   "tortoise"
+        }
+    }
+
+    /// The double-tap window stored in `ModifierTapTiming.multiTapWindowKey`.
+    /// 0.0 = use system `NSEvent.doubleClickInterval` (Normal).
+    var windowValue: TimeInterval {
+        switch self {
+        case .fast:   0.22
+        case .normal: 0.0
+        case .slow:   0.45
+        }
+    }
+
+    static func from(stored: TimeInterval) -> DoubleTapSpeed {
+        switch stored {
+        case 0.22: .fast
+        case 0.45: .slow
+        default:   .normal
+        }
+    }
+
+    static var allCasesOrdered: [DoubleTapSpeed] { [.fast, .normal, .slow] }
+}
+
 struct GeneralSettingsView: View {
     let controller: AppController
+    // swiftlint:disable line_length
     @AppStorage("launchAtLogin", store: AppGroupSettings.defaults) private var launchAtLogin = true
     @AppStorage("hudDurationMs", store: AppGroupSettings.defaults) private var hudDurationMs = 2000
     @AppStorage(AppAppearanceMode.storageKey, store: AppGroupSettings.defaults) private var appearanceModeRaw = AppAppearanceMode.system.rawValue
     @AppStorage(AppChromeVisibilitySettings.dockIconVisibleKey, store: AppGroupSettings.defaults) private var showDockIcon = AppChromeVisibilitySettings.defaultDockIconVisible
     @AppStorage(AppChromeVisibilitySettings.menuBarIconVisibleKey, store: AppGroupSettings.defaults) private var showMenuBarIcon = AppChromeVisibilitySettings.defaultMenuBarIconVisible
+    @AppStorage(ModifierTapTiming.multiTapWindowKey, store: AppGroupSettings.defaults) private var multiTapWindowRaw = 0.0
+    // swiftlint:enable line_length
 
     private var appearanceMode: Binding<AppAppearanceMode> {
         Binding {
@@ -106,6 +157,15 @@ struct GeneralSettingsView: View {
         } set: { mode in
             appearanceModeRaw = mode.rawValue
             mode.apply()
+        }
+    }
+
+    private var doubleTapSpeed: Binding<DoubleTapSpeed> {
+        Binding {
+            DoubleTapSpeed.from(stored: multiTapWindowRaw)
+        } set: { speed in
+            multiTapWindowRaw = speed.windowValue
+            ModifierTapDispatcher.shared.multiTapWindow = ModifierTapTiming.multiTapWindow
         }
     }
 
@@ -145,6 +205,20 @@ struct GeneralSettingsView: View {
                         .toggleStyle(.checkbox)
                         .labelsHidden()
                         .disabled(!showMenuBarIcon)
+                }
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: "Double tap speed",
+                    subtitle: "How quickly you must double-tap a modifier key. Normal uses your system double-click speed."
+                ) {
+                    FunctionSegmentedTabStrip(
+                        tabs: DoubleTapSpeed.allCasesOrdered,
+                        selection: doubleTapSpeed.wrappedValue,
+                        fillsAvailableWidth: false,
+                        size: .control
+                    ) { speed in
+                        doubleTapSpeed.wrappedValue = speed
+                    }
                 }
             }
 

@@ -98,7 +98,7 @@ final class VoiceCoordinatorRetryTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeCoordinator(asrEngine: any VoiceTranscriptionEngine) -> VoiceCoordinator {
+    private func makeCoordinator(asrEngine: any ASRProviding) -> VoiceCoordinator {
         VoiceCoordinator(
             transcripts: transcriptStore,
             trainingExampleStore: trainingStore,
@@ -121,7 +121,7 @@ final class VoiceCoordinatorRetryTests: XCTestCase {
 }
 
 /// Stub ASR engine for testing.
-private final class StubASREngine: VoiceTranscriptionEngine {
+private final class StubASREngine: VoiceTranscriptionEngine, ASRProviding {
     let modelIdentifier: String = "stub"
     private let result: VoiceTranscriptionResult?
     private let stubError: Error?

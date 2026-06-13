@@ -310,8 +310,8 @@ final class DockWindowController {
     }
 
     private func triggerPaste(at idx: Int, modifiers: EventModifiers) {
-        guard model.items.indices.contains(idx) else { return }
-        let id = model.items[idx].id
+        guard model.displayItems.indices.contains(idx) else { return }
+        let id = model.displayItems[idx].id
 
         // Use the modifier state captured at click time (passed in by the
         // carousel's TapGesture), not the current NSEvent.modifierFlags. By
@@ -326,8 +326,8 @@ final class DockWindowController {
             let anchor = model.focusedIndex
             let lower = min(anchor, idx)
             let upper = max(anchor, idx)
-            for rangeIndex in lower...upper where model.items.indices.contains(rangeIndex) {
-                model.selection.insert(model.items[rangeIndex].id)
+            for rangeIndex in lower...upper where model.displayItems.indices.contains(rangeIndex) {
+                model.selection.insert(model.displayItems[rangeIndex].id)
             }
             model.focusedIndex = idx
             return
@@ -448,37 +448,37 @@ final class DockWindowController {
             }
 
             if registry.matches(event: event, .focusSearch) {
-                model.requestSearchFocus()
+                handleShortcutAction(.focusSearch)
                 return nil
             }
 
             if registry.matches(event: event, .quickLook) {
-                toggleSystemQuickLookForFocused()
+                handleShortcutAction(.quickLook)
                 return nil
             }
 
             if registry.matches(event: event, .toggleCheatsheet) {
-                model.showCheatsheet.toggle()
+                handleShortcutAction(.toggleCheatsheet)
                 return nil
             }
 
             if registry.matches(event: event, .suspendCapture) {
-                NotificationCenter.default.post(name: .pauseCaptureRequested, object: nil)
+                handleShortcutAction(.suspendCapture)
                 return nil
             }
 
             if registry.matches(event: event, .transformFocused) {
-                model.showTransformMenu = true
+                handleShortcutAction(.transformFocused)
                 return nil
             }
 
             if registry.matches(event: event, .extendSelectionRight) {
-                model.extendSelectionRight()
+                handleShortcutAction(.extendSelectionRight)
                 return nil
             }
 
             if registry.matches(event: event, .extendSelectionLeft) {
-                model.extendSelectionLeft()
+                handleShortcutAction(.extendSelectionLeft)
                 return nil
             }
 
@@ -486,67 +486,27 @@ final class DockWindowController {
                 // Mirror the bar's Delete button — `deleteEffectiveTargets`
                 // covers both multi-select and focused-only paths and runs
                 // locally (no XPC dependency).
-                Task { @MainActor in
-                    await self.model.deleteEffectiveTargets()
-                }
+                handleShortcutAction(.deleteFocused)
                 return nil
             }
 
             if registry.matches(event: event, .dismiss) {
-                if model.isQuickLooking {
-                    model.isQuickLooking = false
-                } else if ClipboardSystemQuickLookCoordinator.shared.isVisible {
-                    ClipboardSystemQuickLookCoordinator.shared.dismiss()
-                } else if model.showCheatsheet {
-                    model.showCheatsheet = false
-                } else if model.showTransformMenu {
-                    model.showTransformMenu = false
-                } else {
-                    hide()
-                }
+                handleShortcutAction(.dismiss)
                 return nil
             }
 
             if registry.matches(event: event, .togglePin) {
-                Task { @MainActor in
-                    guard self.model.items.indices.contains(self.model.focusedIndex) else { return }
-                    let id = self.model.items[self.model.focusedIndex].id
-                    await self.model.togglePin(itemID: id)
-                }
+                handleShortcutAction(.togglePin)
                 return nil
             }
 
             if registry.matches(event: event, .paste) {
-                if model.activeList == .snippets {
-                    Task { @MainActor in
-                        self.hide()
-                        try? await Task.sleep(nanoseconds: 80_000_000)
-                        await self.model.pasteFocusedSnippet(plainText: false)
-                    }
-                } else if !model.selection.isEmpty {
-                    Task { @MainActor in
-                        await self.model.pasteSelectionInOrder(delimiter: "\n", plainText: false)
-                    }
-                } else {
-                    triggerPaste(at: model.focusedIndex, modifiers: [])
-                }
+                handleShortcutAction(.paste)
                 return nil
             }
 
             if registry.matches(event: event, .pastePlain) {
-                if model.activeList == .snippets {
-                    Task { @MainActor in
-                        self.hide()
-                        try? await Task.sleep(nanoseconds: 80_000_000)
-                        await self.model.pasteFocusedSnippet(plainText: true)
-                    }
-                } else if !model.selection.isEmpty {
-                    Task { @MainActor in
-                        await self.model.pasteSelectionInOrder(delimiter: "\n", plainText: true)
-                    }
-                } else {
-                    triggerPaste(at: model.focusedIndex, modifiers: .option)
-                }
+                handleShortcutAction(.pastePlain)
                 return nil
             }
 
@@ -598,7 +558,7 @@ final class DockWindowController {
                (1 ... 9).contains(digit)
             {
                 let idx = digit - 1
-                if model.items.indices.contains(idx) {
+                if model.displayItems.indices.contains(idx) {
                     triggerPaste(at: idx, modifiers: [])
                 }
                 return nil
@@ -622,14 +582,7 @@ final class DockWindowController {
             // Copy Smart Text result (configurable shortcut, default Cmd+Shift+C).
             if SmartTextSettings.copyShortcutEnabled(),
                registry.matches(event: event, .copySmartText) {
-                guard model.items.indices.contains(model.focusedIndex) else { return event }
-                let item = model.items[model.focusedIndex]
-                guard let value = item.smartCopyValue else { return event }
-                let pb = NSPasteboard.general
-                pb.clearContents()
-                pb.setString(value, forType: .string)
-                pb.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
-                CopyHUD.show("Copied Smart Text")
+                handleShortcutAction(.copySmartText)
                 return nil
             }
 
@@ -769,6 +722,15 @@ final class DockWindowController {
             keyWindow: NSApp.keyWindow
         ) else { return }
 
+        handleShortcutAction(action)
+    }
+
+    // MARK: - Shared shortcut dispatch
+
+    /// Single source of truth for all ShortcutAction responses in the dock.
+    /// Called from both the local key monitor (after registry.matches) and
+    /// performDockShortcut (from DockModifierTapCoordinator).
+    private func handleShortcutAction(_ action: ShortcutAction) {
         switch action {
         case .focusSearch:
             model.requestSearchFocus()
@@ -802,8 +764,8 @@ final class DockWindowController {
             }
         case .togglePin:
             Task { @MainActor in
-                guard model.items.indices.contains(model.focusedIndex) else { return }
-                let id = model.items[model.focusedIndex].id
+                guard model.displayItems.indices.contains(model.focusedIndex) else { return }
+                let id = model.displayItems[model.focusedIndex].id
                 await model.togglePin(itemID: id)
             }
         case .paste:
@@ -836,9 +798,9 @@ final class DockWindowController {
             }
         case .copySmartText:
             guard SmartTextSettings.copyShortcutEnabled(),
-                  model.items.indices.contains(model.focusedIndex)
+                  model.displayItems.indices.contains(model.focusedIndex)
             else { return }
-            let item = model.items[model.focusedIndex]
+            let item = model.displayItems[model.focusedIndex]
             guard let value = item.smartCopyValue else { return }
             let pb = NSPasteboard.general
             pb.clearContents()
@@ -895,10 +857,10 @@ final class DockWindowController {
     /// Open the native macOS Quick Look panel for the focused card.
     @discardableResult
     func showSystemQuickLookForFocused() -> Bool {
-        guard model.items.indices.contains(model.focusedIndex),
+        guard model.displayItems.indices.contains(model.focusedIndex),
               let clip = model.clip
         else { return false }
-        let item = model.items[model.focusedIndex]
+        let item = model.displayItems[model.focusedIndex]
         guard let rid = Core.RecordID(rawValue: item.id),
               let body = try? clip.body(for: rid)
         else { return false }

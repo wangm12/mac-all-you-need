@@ -172,6 +172,13 @@ struct MultiSelectBar: View {
         case .urlDecode: return "URL Decode"
         case .sortLines: return "Sort Lines"
         case .dedupeLines: return "Dedupe Lines"
+        case .camelToSnake: return "camelCase → snake_case"
+        case .snakeToCamel: return "snake_case → camelCase"
+        case .timestampToDate: return "Timestamp → Date"
+        case .escapeHTML: return "Escape HTML"
+        case .unescapeHTML: return "Unescape HTML"
+        case .md5Hash: return "MD5 Hash"
+        case .reverseText: return "Reverse Text"
         }
     }
 }

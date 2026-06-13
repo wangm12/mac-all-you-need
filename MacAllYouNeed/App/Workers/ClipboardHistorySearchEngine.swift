@@ -59,7 +59,7 @@ enum ClipboardHistorySearchEngine {
 
         var metas = dedupSamePaste(raw, limit: request.limit)
         metas = applyTextFilters(metas, smart: smart, trimmed: trimmed, fuzzyEnabled: request.fuzzyEnabled)
-        return metas.map { xpcMeta(from: $0) }
+        return metas.map { xpcMeta(from: $0, clip: clip) }
     }
 
     static func loadMetas(
@@ -118,7 +118,7 @@ enum ClipboardHistorySearchEngine {
         defer { PerformanceSignpost.Clipboard.endHistoryLoad(signpost) }
         let recordIDs = ids.compactMap(RecordID.init(rawValue:))
         let metas = try clip.metas(for: recordIDs)
-        return metas.map { xpcMeta(from: $0) }
+        return metas.map { xpcMeta(from: $0, clip: clip) }
     }
 
     private static func structuredFilter(
@@ -187,17 +187,31 @@ enum ClipboardHistorySearchEngine {
         return 0
     }
 
-    /// List metadata without decrypting image bodies (lazy load in `ImageBlobLoader`).
-    static func xpcMeta(from meta: ClipboardItemMeta) -> ClipboardXPCMeta {
-        ClipboardXPCMeta(
+    /// Hydrates image width/height/blob id from the store when the preview is
+    /// an image placeholder — same contract as `ClipboardXPCService` and
+    /// `SearchFilterSubModel.xpcMeta(from:clip:)`. Thumbnail pixels still load
+    /// lazily in `ImageBlobLoader`.
+    static func xpcMeta(from meta: ClipboardItemMeta, clip: ClipboardStore) -> ClipboardXPCMeta {
+        var imgWidth = 0
+        var imgHeight = 0
+        var imgBlobID: String?
+        if meta.preview.hasPrefix("(image "),
+           let body = try? clip.body(for: meta.id),
+           case let .image(blobID, w, h) = body
+        {
+            imgWidth = w
+            imgHeight = h
+            imgBlobID = blobID
+        }
+        return ClipboardXPCMeta(
             id: meta.id.rawValue,
             modified: meta.modified,
             kind: meta.kind.rawValue,
             preview: meta.preview,
             sourceAppBundleID: meta.sourceAppBundleID,
-            imageWidth: 0,
-            imageHeight: 0,
-            imageBlobID: nil,
+            imageWidth: imgWidth,
+            imageHeight: imgHeight,
+            imageBlobID: imgBlobID,
             customLabel: meta.customLabel,
             detectedTypeJSON: meta.detectedTypeJSON,
             ocrText: meta.ocrText

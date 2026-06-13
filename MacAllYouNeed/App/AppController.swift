@@ -5,6 +5,7 @@ import CoreFoundation
 import CryptoKit
 import FeatureCore
 import Foundation
+import ImageIO
 import PackPipeline
 import Platform
 
@@ -54,6 +55,8 @@ final class AppController {
 
     let voiceCoordinator: VoiceCoordinator
     let voiceRetentionRunner: VoiceTranscriptRetentionRunner
+    let voiceSettings: VoiceSettingsService
+    private var enrichmentCoordinator: ClipboardEnrichmentCoordinator?
 
     // Plan 03: Voice → Reminders. EventKit service + dedicated reminder hotkey.
     // The service backs the coordinator's RemindersServiceWriter so spoken
@@ -115,6 +118,7 @@ final class AppController {
     private var appEventCancellable: AnyCancellable?
 
     private var activeHotkeyRecorderCount = 0
+    private var autoDownloadLoopTask: Task<Void, Never>?
 
     // Phase 7 W1: window controllers live in AppWindowsCoordinator.
     // The three legacy properties are computed forwards so external callers
@@ -178,6 +182,7 @@ final class AppController {
         clipboardDock.dockHeight = Self.currentDockHeight()
 
         voiceCoordinator = makeVoiceCoordinator(stores: stores, cleanupKeyStore: cleanupKeyStore)
+        voiceSettings = VoiceSettingsService()
         voiceRetentionRunner = VoiceTranscriptRetentionRunner(
             transcriptStore: stores.voiceTranscripts,
             trainingExampleStore: stores.voiceTrainingExamples,
@@ -273,6 +278,35 @@ final class AppController {
         voiceCoordinator.remindersWorker = featureWorkerHost.reminders
         registerReminderHotkey()
         voiceRetentionRunner.start()
+
+        enrichmentCoordinator = ClipboardEnrichmentCoordinator(
+            clip: stores.clipboard,
+            embed: { text in await ClipEmbeddingService.vector(for: text) },
+            ocr: { image in await ImageOCRService.shared.recognize(cgImage: image) },
+            imageProvider: { [weak self] id in
+                guard let stores = self?.stores else { return nil }
+                return await Task.detached {
+                    guard let body = try? stores.clipboard.body(for: id),
+                          case let .image(blobID, _, _) = body,
+                          let raw = try? stores.blob.read(id: blobID),
+                          let source = CGImageSourceCreateWithData(raw as CFData, nil),
+                          let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
+                    else { return nil }
+                    return cgImage
+                }.value
+            },
+            indexSearchText: { [weak self] id, text in
+                do {
+                    try self?.stores.search.upsert(kind: .clipboardItem, id: id, text: text)
+                } catch {
+                    Logging.logger(for: "AppController", category: "search")
+                        .error(
+                            "FTS upsert failed for clip \(id.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                        )
+                }
+            }
+        )
+        enrichmentCoordinator?.start()
         windowControl.start()
         windowControlAccessibilityTrustMonitor.start()
 
@@ -336,7 +370,7 @@ final class AppController {
             Task { @MainActor in self?.handle(event: event) }
         }
 
-        startAutoDownloadPromptLoop()
+        Task { await self.refreshDownloaderFeatureAvailability() }
 
         Task { [weak self] in
             // Phase 11: run one-time migration for upgraders from pre-modular releases.
@@ -365,6 +399,7 @@ final class AppController {
                 await self.refreshFolderHistoryFeatureAvailability()
                 await self.refreshDockPreviewsFeatureAvailability()
                 await self.refreshVoiceFeatureAvailability()
+                await self.refreshClipboardSmartTextFeatureAvailability()
             }
 
             // Surface the What's New sheet on first window appearance (upgrade only).
@@ -537,6 +572,8 @@ final class AppController {
             Task { await self.refreshFolderHistoryFeatureAvailability() }
             Task { await self.refreshDockPreviewsFeatureAvailability() }
             Task { await self.refreshVoiceFeatureAvailability() }
+            Task { await self.refreshDownloaderFeatureAvailability() }
+            Task { await self.refreshClipboardSmartTextFeatureAvailability() }
         case .hotkeyRecordingStarted:
             suspendShortcutTriggersForHotkeyRecording()
         case .hotkeyRecordingStopped:
@@ -561,6 +598,15 @@ final class AppController {
     private func refreshDockPreviewsFeatureAvailability() async {
         let state = await featureManager.state(for: .dockPreviews)
         dockPreviews.applyEnabled(state.activationState == .enabled)
+    }
+
+    private func refreshClipboardSmartTextFeatureAvailability() async {
+        let state = await featureManager.state(for: .clipboardSmartText)
+        if state.activationState == .enabled {
+            enrichmentCoordinator?.start()
+        } else {
+            enrichmentCoordinator?.stop()
+        }
     }
 
     private func refreshVoiceFeatureAvailability() async {
@@ -610,38 +656,44 @@ final class AppController {
         registerConfiguredHotkeys()
     }
 
-    private func startAutoDownloadPromptLoop() {
-        // When a downloadable URL lands on the pasteboard (single video, playlist,
-        // or Douyin share-card prose), surface AutoDownloadHUD for one-tap enqueue.
-        Task { @MainActor [weak self] in
-            // Baseline after launch so we don't prompt for pre-existing clipboard content.
-            try? await Task.sleep(for: .seconds(2))
-            guard let self else { return }
-            var lastTopID = clipboardReader.items.first?.id.rawValue
-            var lastPasteboardChangeCount = NSPasteboard.general.changeCount
+    private func refreshDownloaderFeatureAvailability() async {
+        let state = await featureManager.state(for: .downloader)
+        if state.activationState == .enabled {
+            guard autoDownloadLoopTask == nil else { return }
+            autoDownloadLoopTask = Task { @MainActor [weak self] in
+                // Baseline after launch so we don't prompt for pre-existing clipboard content.
+                try? await Task.sleep(for: .seconds(2))
+                guard let self else { return }
+                var lastTopID = clipboardReader.items.first?.id.rawValue
+                var lastPasteboardChangeCount = NSPasteboard.general.changeCount
 
-            while true {
-                try? await Task.sleep(for: .milliseconds(400))
-                guard featureStatePublisher.state(for: .downloader).activationState == .enabled else { continue }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { break }
 
-                let pasteboard = NSPasteboard.general
-                let changeCount = pasteboard.changeCount
-                if changeCount != lastPasteboardChangeCount {
-                    lastPasteboardChangeCount = changeCount
-                    if let url = Self.downloadableURLFromPasteboard(pasteboard) {
+                    let pasteboard = NSPasteboard.general
+                    let changeCount = pasteboard.changeCount
+                    if changeCount != lastPasteboardChangeCount {
+                        lastPasteboardChangeCount = changeCount
+                        if let url = Self.downloadableURLFromPasteboard(pasteboard) {
+                            AutoDownloadHUD.prompt(for: url)
+                            continue
+                        }
+                    }
+
+                    let items = clipboardReader.items
+                    let first = items.first
+                    guard let first, first.id.rawValue != lastTopID else { continue }
+                    lastTopID = first.id.rawValue
+                    if let url = Self.downloadableURL(from: first.preview) {
                         AutoDownloadHUD.prompt(for: url)
-                        continue
                     }
                 }
-
-                let items = clipboardReader.items
-                let first = items.first
-                guard let first, first.id.rawValue != lastTopID else { continue }
-                lastTopID = first.id.rawValue
-                if let url = Self.downloadableURL(from: first.preview) {
-                    AutoDownloadHUD.prompt(for: url)
-                }
+                autoDownloadLoopTask = nil
             }
+        } else {
+            autoDownloadLoopTask?.cancel()
+            autoDownloadLoopTask = nil
         }
     }
 
@@ -768,7 +820,7 @@ private func makeVoiceCoordinator(
     } else {
         resolvedProviderKind = asrSettings.providerKind
     }
-    let engine: any VoiceTranscriptionEngine = switch resolvedProviderKind {
+    let engine: any ASRProviding = switch resolvedProviderKind {
     case .local:
         VoiceLocalASREngine()
     case .groq:

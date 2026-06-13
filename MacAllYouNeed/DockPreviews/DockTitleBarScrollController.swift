@@ -68,7 +68,8 @@ final class DockTitleBarScrollController {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var focusedRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedRef) == .success,
-              let windowRef = focusedRef
+              let windowRef = focusedRef,
+              CFGetTypeID(windowRef) == AXUIElementGetTypeID()
         else {
             cachedTitleBarRect = nil
             return
@@ -79,6 +80,8 @@ final class DockTitleBarScrollController {
         guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef) == .success,
               AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef) == .success,
               let posValue = posRef, let sizeValue = sizeRef,
+              CFGetTypeID(posValue) == AXValueGetTypeID(),
+              CFGetTypeID(sizeValue) == AXValueGetTypeID(),
               AXValueGetType(posValue as! AXValue) == .cgPoint,
               AXValueGetType(sizeValue as! AXValue) == .cgSize
         else { return }
@@ -99,12 +102,15 @@ final class DockTitleBarScrollController {
         var posRef: CFTypeRef?
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef) == .success,
-              AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef) == .success
+              AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let posValue = posRef, let sizeValue = sizeRef,
+              CFGetTypeID(posValue) == AXValueGetTypeID(),
+              CFGetTypeID(sizeValue) == AXValueGetTypeID()
         else { return nil }
         var position = CGPoint.zero
         var size = CGSize.zero
-        AXValueGetValue(posRef as! AXValue, .cgPoint, &position)
-        AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+        AXValueGetValue(posValue as! AXValue, .cgPoint, &position)
+        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
         return CGRect(origin: position, size: size)
     }
 

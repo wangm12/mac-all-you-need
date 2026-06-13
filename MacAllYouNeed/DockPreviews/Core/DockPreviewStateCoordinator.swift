@@ -50,9 +50,13 @@ final class DockPreviewStateCoordinator {
     var isWindowSwitcherActive: Bool { mode == .windowSwitcher }
 
     func recomputeAndPublishDimensions(panelSize: CGSize? = nil, screen: NSScreen? = nil) {
-        let screen = screen ?? NSScreen.screens.first { $0.frame.contains(anchorRect.origin) }
+        guard let screen = screen ?? NSScreen.screens.first(where: { $0.frame.contains(anchorRect.origin) })
             ?? NSScreen.main
-            ?? NSScreen.screens[0]
+            ?? NSScreen.screens.first
+        else {
+            // No display attached/awake: skip recompute until a screen returns.
+            return
+        }
         let referenceSize = panelSize ?? CGSize(
             width: CGFloat(settings.previewCardWidth),
             height: CGFloat(settings.previewCardHeight)

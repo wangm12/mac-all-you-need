@@ -19,7 +19,8 @@ enum DockPreviewAXAttributes {
     static func point(_ element: AXUIElement) -> CGPoint? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &value) == .success,
-              let axValue = value
+              let axValue = value,
+              CFGetTypeID(axValue) == AXValueGetTypeID()
         else { return nil }
         var point = CGPoint.zero
         guard AXValueGetValue(axValue as! AXValue, .cgPoint, &point) else { return nil }
@@ -29,7 +30,8 @@ enum DockPreviewAXAttributes {
     static func size(_ element: AXUIElement) -> CGSize? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &value) == .success,
-              let axValue = value
+              let axValue = value,
+              CFGetTypeID(axValue) == AXValueGetTypeID()
         else { return nil }
         var size = CGSize.zero
         guard AXValueGetValue(axValue as! AXValue, .cgSize, &size) else { return nil }
@@ -38,8 +40,11 @@ enum DockPreviewAXAttributes {
 
     static func element(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
-        return value as! AXUIElement?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value,
+              CFGetTypeID(value) == AXUIElementGetTypeID()
+        else { return nil }
+        return (value as! AXUIElement)
     }
 }
 

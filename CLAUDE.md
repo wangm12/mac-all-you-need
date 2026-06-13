@@ -3,7 +3,7 @@
 ## Project
 
 Native macOS productivity app (LSUIElement / menu-bar resident) that bundles
-seven first-class tool surfaces:
+11 first-class tool surfaces:
 
 - **Clipboard** - encrypted clipboard history (AES-GCM / GRDB / FTS5), local
   direct reads via `LocalClipboardReader`, `Command-Shift-V` dock/popup,
@@ -29,6 +29,15 @@ seven first-class tool surfaces:
   double-click maximize, restore history, and per-app ignore rules.
 - **Window Grab** - modifier-drag windows from visible content areas, sharing the
   same window-control coordinator and ignore rules as Window Layouts.
+- **Smart Text** - clipboard smart text transforms and detection rules
+  (`clipboardSmartText`).
+- **Finder History** - folder and path history tracking (`folderHistory`).
+- **Voice Reminders** - voice-created reminders and follow-up actions
+  (`voiceReminders`).
+- **AI File Organizer** - AI-assisted file organization suggestions
+  (`aiFileOrganizer`).
+- **Dock Previews** - rich Dock icon previews for clipboard and file content
+  (`dockPreviews`).
 
 Built with Swift 5.9+, SwiftUI + AppKit, GRDB, libarchive, FluidAudio, and
 Sparkle integration scaffolding. The composition root is `AppController`; all
@@ -171,8 +180,10 @@ Main-app source layout:
 
 ### macOS / SwiftUI / XPC
 
-- **AppController is a static let** - SwiftUI App structs can be recreated; keep
-  one controller instance.
+- **AppController is a per-delegate instance property** - it is declared as a
+  `let` on `MacAllYouNeedApp` (the `@main` struct) and instantiated there.
+  Single-instance safety comes from the `@main` App struct lifecycle, not from a
+  global static; do not promote it to a static or singleton.
 - **XPC auth** - Personal Team certificate OU can differ from provisioning team
   ID. Use `NSRunningApplication(processIdentifier:).bundleIdentifier`.
 - **XPC continuation safety** - use `remoteObjectProxyWithErrorHandler` so

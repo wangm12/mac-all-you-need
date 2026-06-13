@@ -46,7 +46,9 @@ public enum PlaylistEntryLister {
         p.standardOutput = outPipe
         p.standardError = errPipe
         try p.run()
-        p.waitUntilExit()
+        let sem = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in sem.signal() }
+        sem.wait()
 
         let stdout = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

@@ -193,6 +193,7 @@ struct VoiceHUDPreview: View {
             MiniVoiceHUDView(
                 state: state,
                 thinkingProgress: thinkingProgress,
+                audioLevel: MiniVoiceAudioLevelBridge(),
                 onCancel: nil,
                 onPrimary: nil
             )

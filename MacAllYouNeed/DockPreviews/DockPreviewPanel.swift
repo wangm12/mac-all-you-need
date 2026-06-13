@@ -206,8 +206,9 @@ final class DockPreviewPanel {
         }
 
         let target: CGRect
-        if isSizeChange, panel.isVisible, !isFirstShow {
-            let screen = DockPreviewDockCoordinates.screen(containingAXPoint: state.anchorRect.origin)
+        if isSizeChange, panel.isVisible, !isFirstShow,
+           let screen = DockPreviewDockCoordinates.screen(containingAXPoint: state.anchorRect.origin)
+        {
             target = DockPreviewPanelLayoutEngine.resizedFrameKeepingAnchor(
                 currentFrame: previous,
                 newSize: result.frame.size,

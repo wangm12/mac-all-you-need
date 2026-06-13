@@ -35,14 +35,18 @@ enum DockPreviewPanelLayoutEngine {
         hostingView.layoutSubtreeIfNeeded()
         let fitting = hostingView.fittingSize
 
-        let screen: NSScreen = {
+        let resolvedScreen: NSScreen? = {
             if input.centerOnScreen {
-                return NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+                return NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
                     ?? NSScreen.main
-                    ?? NSScreen.screens[0]
+                    ?? NSScreen.screens.first
             }
             return DockPreviewDockCoordinates.screen(containingAXPoint: input.anchorRect.origin)
         }()
+        guard let screen = resolvedScreen else {
+            // No display attached/awake: nothing to lay out against.
+            return LayoutResult(frame: panel.frame, contentSize: .zero)
+        }
 
         let visible = screen.visibleFrame
         // DockDoor `updateContentViewSizeAndPosition`: max(fitting, expected), clamp to visible frame.

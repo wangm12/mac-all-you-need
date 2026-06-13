@@ -234,11 +234,13 @@ extension WindowControlCoordinator {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
-              let axWindow = value
+              let axWindow = value,
+              CFGetTypeID(axWindow) == AXUIElementGetTypeID()
         else {
             return nil
         }
-        let element = WindowAccessibilityElement(axWindow as! AXUIElement)
+        let axElement = axWindow as! AXUIElement
+        let element = WindowAccessibilityElement(axElement)
         guard element.isSupportedForWindowControl else { return nil }
         return element
     }

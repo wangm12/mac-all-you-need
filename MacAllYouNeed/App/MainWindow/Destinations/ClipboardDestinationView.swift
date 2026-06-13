@@ -18,6 +18,9 @@ struct ClipboardDestinationView: View {
     @State private var historySearch = ""
     @State private var historyPage = 0
     @State private var isHistoryLoading = false
+    /// Bundle ID of the app that was frontmost when the main window was last
+    /// opened. Used for context-aware ranking of clipboard history items.
+    @State private var contextBundleID: String?
     private static let historyPageSize = 20
 
     private var selectedTab: Binding<ClipboardFunctionTab> {
@@ -59,6 +62,7 @@ struct ClipboardDestinationView: View {
             }
         }
         .onAppear {
+            contextBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             hotkeyMap = HotkeyMapStore.load()
             blockedApps = ExcludedAppsStore.load()
             reloadClipboardHistory()
@@ -140,8 +144,11 @@ struct ClipboardDestinationView: View {
     }
 
     private var clipboardHistoryState: MainClipboardHistoryPageState {
-        MainClipboardHistoryPresentation.state(
-            items: historyItems,
+        let ranked = historySearch.isEmpty
+            ? ContextAwareRanker.rank(historyItems, forBundleID: contextBundleID)
+            : historyItems
+        return MainClipboardHistoryPresentation.state(
+            items: ranked,
             query: "",
             requestedPage: historyPage,
             pageSize: Self.historyPageSize

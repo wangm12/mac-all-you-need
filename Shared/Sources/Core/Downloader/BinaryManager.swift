@@ -93,13 +93,6 @@ public final class BinaryManager {
     }
 
     public static func verifyArchitectures(at url: URL, required: Set<String>) throws {
-        if Thread.isMainThread {
-            let result: Result<Void, Error> = DispatchQueue.global(qos: .userInitiated).sync {
-                Result { try verifyArchitecturesImpl(at: url, required: required) }
-            }
-            return try result.get()
-        }
-
         try verifyArchitecturesImpl(at: url, required: required)
     }
 
@@ -109,8 +102,14 @@ public final class BinaryManager {
         p.executableURL = URL(fileURLWithPath: "/usr/bin/lipo")
         p.arguments = ["-archs", url.path]
         p.standardOutput = pipe
+        p.standardError = Pipe()  // suppress stderr; errors surfaced via exit status
+        // Use DispatchSemaphore instead of waitUntilExit() to avoid pumping a CFRunLoop
+        // on a background thread. waitUntilExit() calls CFRunLoopRun(), which triggers
+        // UC framework run-loop observers that crash at a null address on background threads.
+        let sem = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in sem.signal() }
         try p.run()
-        p.waitUntilExit()
+        sem.wait()
         let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let found = Set(out.split(whereSeparator: \.isWhitespace).map(String.init))
         for arch in required where !found.contains(arch) {

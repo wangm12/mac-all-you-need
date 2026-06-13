@@ -3,6 +3,21 @@ import Combine
 import SwiftUI
 import UI
 
+/// Holds the live microphone peak level so `WaveformBars` can observe it
+/// directly without requiring a full hosting-view rootView swap every tick.
+@MainActor
+final class MiniVoiceAudioLevelBridge: ObservableObject {
+    @Published private(set) var level: Float = 0
+
+    func update(_ newLevel: Float) {
+        level = newLevel
+    }
+
+    func reset() {
+        level = 0
+    }
+}
+
 /// Drives Typeless-style cleanup progress wipe on the transcribing pill: optional
 /// boot sweep before the first stream chunk, then monotonic progress to `1`
 /// (see `MiniVoiceHUDView`).
@@ -97,6 +112,10 @@ final class MiniVoiceHUD {
     /// window during state transitions.
     private var targetScreen: NSScreen?
     private let thinkingProgressBridge = MiniVoiceThinkingProgressBridge()
+    /// Carries live microphone peak level to `WaveformBars` without forcing a
+    /// full rootView swap on every audio tick. Created once and shared with each
+    /// `MiniVoiceHUDView` instance so the waveform observes it directly.
+    let audioLevelBridge = MiniVoiceAudioLevelBridge()
 
     #if DEBUG
     var testingContentView: NSView? {
@@ -128,6 +147,7 @@ final class MiniVoiceHUD {
         let nextView = MiniVoiceHUDView(
             state: state,
             thinkingProgress: thinkingProgressBridge,
+            audioLevel: audioLevelBridge,
             onCancel: onCancel,
             onPrimary: onPrimary
         )
@@ -189,6 +209,7 @@ final class MiniVoiceHUD {
 
     func dismiss() {
         thinkingProgressBridge.cancelBootAndResetDisplay()
+        audioLevelBridge.reset()
         guard let controller = panelController, controller.isPresented else { return }
         if let fmh = firstMouseHosting, NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false {
             fmh.wantsLayer = true
@@ -400,6 +421,7 @@ extension MiniVoiceHUD.State {
 struct MiniVoiceHUDView: View {
     let state: MiniVoiceHUD.State
     @ObservedObject var thinkingProgress: MiniVoiceThinkingProgressBridge
+    @ObservedObject var audioLevel: MiniVoiceAudioLevelBridge
     let onCancel: (() -> Void)?
     let onPrimary: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -548,8 +570,7 @@ struct MiniVoiceHUDView: View {
     }
 
     private var recordingLevel: Float {
-        if case let .recording(level) = state { return level }
-        return 0
+        audioLevel.level
     }
 }
 

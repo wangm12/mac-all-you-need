@@ -214,7 +214,7 @@ function getDisplayName(url) {
   try {
     const pathname = new URL(url).pathname
     const filename = pathname.split('/').pop()
-    if (filename && filename.length > 0 && filename !== '/') {
+    if (filename && filename.length > 0) {
       const decoded = decodeURIComponent(filename)
       return decoded.length > 60 ? decoded.substring(0, 57) + '...' : decoded
     }

@@ -59,6 +59,28 @@ final class MacAllYouNeedApplicationDelegate: NSObject, NSApplicationDelegate {
         routeStartupSurface()
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let controller else { return .terminateNow }
+        let runtime = controller.runtime
+        // Run deactivation on the main actor so @MainActor deinits (e.g. DownloadCoordinator)
+        // can execute without deadlocking. Returns .terminateLater so the main thread stays
+        // free; NSApp.reply completes the quit once cleanup finishes or the 3-second guard fires.
+        Task { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await runtime.deactivateAll() }
+                group.addTask { try? await Task.sleep(nanoseconds: 3_000_000_000) }
+                _ = await group.next()
+                group.cancelAll()
+            }
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Intentionally empty — cleanup is handled in applicationShouldTerminate.
+    }
+
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool

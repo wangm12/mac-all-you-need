@@ -9,16 +9,28 @@ struct FileCard: View {
     @State private var totalBytes: Int64?
     @State private var thumbnail: NSImage?
     @State private var thumbnailFailed = false
+    @State private var isMissingFile = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
             previewArea
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .opacity(isMissingFile ? 0.35 : 1)
             footer
+            if isMissingFile {
+                missingOverlay
+            }
         }
         .padding(10)
         .task(id: item.id) {
             urls = await loader.urls(recordID: item.id) ?? []
+            // Check existence for single-file items; treat missing as a
+            // warning rather than filtering the item out entirely.
+            if urls.count == 1, let url = urls.first {
+                isMissingFile = !FileManager.default.fileExists(atPath: url.path)
+            } else {
+                isMissingFile = false
+            }
             if urls.count == 1,
                let attrs = try? FileManager.default.attributesOfItem(atPath: urls[0].path),
                let size = attrs[.size] as? Int64,
@@ -30,7 +42,7 @@ struct FileCard: View {
             // PDFs, video posters, and most document types.
             thumbnail = nil
             thumbnailFailed = false
-            if urls.count == 1, let url = urls.first {
+            if urls.count == 1, let url = urls.first, !isMissingFile {
                 if let image = await thumbnailLoader.thumbnail(url: url, maxDim: 240) {
                     thumbnail = image
                 } else {
@@ -38,6 +50,19 @@ struct FileCard: View {
                 }
             }
         }
+    }
+
+    private var missingOverlay: some View {
+        VStack(spacing: 4) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.orange)
+            Text("File not found")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
     }
 
     /// Mirrors ImageCard's structure so the dock has a consistent visual:

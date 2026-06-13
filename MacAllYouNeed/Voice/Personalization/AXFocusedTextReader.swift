@@ -101,7 +101,10 @@ enum AXFocusedTextReader {
             kAXFocusedUIElementAttribute as CFString,
             &focusedRef
         )
-        guard status == .success, let ref = focusedRef else { return nil }
+        guard status == .success,
+              let ref = focusedRef,
+              CFGetTypeID(ref) == AXUIElementGetTypeID()
+        else { return nil }
         let element = ref as! AXUIElement
         return element
     }

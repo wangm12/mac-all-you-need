@@ -42,14 +42,16 @@ enum VoiceTrainingExportMain {
     private static func run() throws {
         let config = try parseArguments()
         if ProcessInfo.processInfo.environment["MAYN_ALLOW_RUNNING_APP"] != "1" {
-            try ensureAppIsNotRunning()
+            if MAYNToolHarness.isMAYNRunning() {
+                throw VoiceTrainingExportCLIError.appStillRunning
+            }
         }
 
         AppGroup.containerURLOverride = config.maynContainer
-        let resolved = AppGroup.containerURL()
-        let expected = config.maynContainer.standardizedFileURL
-        guard resolved.standardizedFileURL.path == expected.path else {
-            throw VoiceTrainingExportCLIError.fallbackContainer(resolved)
+        do {
+            try MAYNToolHarness.validateMAYNContainer(config.maynContainer)
+        } catch {
+            throw VoiceTrainingExportCLIError.fallbackContainer(config.maynContainer)
         }
 
         let key = try KeyManager(keychain: SystemKeychain()).deviceKey()
@@ -112,13 +114,6 @@ enum VoiceTrainingExportMain {
         }
     }
 
-    private static func ensureAppIsNotRunning() throws {
-        let running = NSWorkspace.shared.runningApplications.contains {
-            $0.bundleIdentifier == "com.macallyouneed.app"
-        }
-        if running { throw VoiceTrainingExportCLIError.appStillRunning }
-    }
-
     private static func parseArguments() throws -> VoiceTrainingExportCLIConfiguration {
         var maynContainer = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Group Containers/group.com.macallyouneed.shared", isDirectory: true)
@@ -133,10 +128,10 @@ enum VoiceTrainingExportMain {
             switch arg {
             case "--mayn-container":
                 guard let path = iterator.next() else { throw VoiceTrainingExportCLIError.exportFailed("Missing value for --mayn-container") }
-                maynContainer = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath, isDirectory: true)
+                maynContainer = MAYNToolHarness.expandPath(path, isDirectory: true)
             case "--output", "-o":
                 guard let path = iterator.next() else { throw VoiceTrainingExportCLIError.exportFailed("Missing value for --output") }
-                output = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+                output = MAYNToolHarness.expandPath(path)
             case "--quality":
                 guard let raw = iterator.next() else { throw VoiceTrainingExportCLIError.exportFailed("Missing value for --quality") }
                 guard let q = VoiceTrainingExampleQuality(rawValue: raw) else {

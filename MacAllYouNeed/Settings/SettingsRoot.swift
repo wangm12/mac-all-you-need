@@ -5,20 +5,6 @@ import SwiftUI
 struct SettingsRoot: View {
     let controller: AppController
 
-    /// Registry-driven list of feature settings tabs.
-    /// Tabs are shown only when the feature's asset is not in .notDownloaded state.
-    static func featureTabs(
-        registry: FeatureRegistry,
-        states: [FeatureID: FeatureRuntimeState]
-    ) -> [(FeatureID, AnyView)] {
-        registry.descriptors.compactMap { d in
-            guard let factory = d.settingsTabFactory else { return nil }
-            let state = states[d.id] ?? .initialDefault(assetRequired: d.requiresAsset)
-            if state.assetState == .notDownloaded { return nil }
-            return (d.id, factory())
-        }
-    }
-
     var body: some View {
         SettingsContainer(
             controller: controller,
@@ -231,6 +217,18 @@ private struct SettingsDetailContent: View {
 
     @ViewBuilder
     private var detailView: some View {
+        // Prefer descriptor-driven settings view when the destination maps to a feature
+        // with a registered settingsViewFactory. Falls back to the explicit switch below.
+        if let featureID = selected.featureID,
+           let factory = controller.runtime.registry.descriptor(for: featureID)?.settingsViewFactory {
+            factory()
+        } else {
+            switchView
+        }
+    }
+
+    @ViewBuilder
+    private var switchView: some View {
         switch selected {
         case .clipboard:
             FeatureSettingsContainer(featureID: .clipboard, controller: controller) {

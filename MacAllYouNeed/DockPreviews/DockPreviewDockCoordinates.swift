@@ -18,8 +18,8 @@ extension NSScreen {
     }
 
     /// Resolve the screen containing a point in AX / Quartz (top-left origin) space.
-    static func screenFromQuartzPoint(_ point: CGPoint) -> NSScreen {
-        guard let primary = NSScreen.screens.first else { return NSScreen.main ?? NSScreen.screens[0] }
+    static func screenFromQuartzPoint(_ point: CGPoint) -> NSScreen? {
+        guard let primary = NSScreen.screens.first else { return nil }
         let appKitPoint = CGPoint(x: point.x, y: primary.frame.maxY - point.y)
         return NSScreen.screens.first { $0.frame.contains(appKitPoint) } ?? NSScreen.main ?? primary
     }
@@ -63,7 +63,7 @@ enum DockPreviewDockCoordinates {
         )
     }
 
-    static func screen(containingAXPoint point: CGPoint) -> NSScreen {
+    static func screen(containingAXPoint point: CGPoint) -> NSScreen? {
         NSScreen.screenFromQuartzPoint(point)
     }
 

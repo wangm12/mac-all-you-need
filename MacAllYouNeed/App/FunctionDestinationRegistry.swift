@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import ApplicationServices
 import Core
 import FeatureCore
@@ -13,7 +14,10 @@ enum WindowControlPagePresentation {
 }
 
 enum WindowControlSettingsPresentation {
-    static let sectionTitles = ["Window Layouts", "Layout Shortcuts", "Edge Snap", "Window Grab", "Shared Ignored Apps", "Shared Diagnostics"]
+    static let sectionTitles = [
+        "Window Layouts", "Layout Shortcuts", "Edge Snap",
+        "Window Grab", "Shared Ignored Apps", "Shared Diagnostics"
+    ]
     static let editsShortcutsInToolSettings = true
     static var customShortcutSeedDescriptor: Platform.HotkeyDescriptor {
         HotkeysSettingsPresentation.customTriggerSeedDescriptor
@@ -76,14 +80,54 @@ struct DashboardToolTileItem: Equatable, Identifiable {
     let statusText: String?
     let statusKind: StatusPill.Kind?
     /// The FeatureID this tile directly manages. nil for non-feature tiles.
-    var featureID: FeatureID? = nil
+    var featureID: FeatureID?
     /// When set, enable/disable on this tile proxies to this FeatureID instead.
-    var proxiesFeatureID: FeatureID? = nil
+    var proxiesFeatureID: FeatureID?
 
     var id: String { title }
 }
 
 enum DashboardToolTilePresentation {
+    /// Base (static) tile items derived from the feature registry. These carry the descriptor's
+    /// displayName, icon, and summary. Runtime data (metrics, shortcuts, status) is layered on
+    /// by `dashboardTiles(...)` below.
+    static func baseTiles(registry: FeatureRegistry) -> [DashboardToolTileItem] {
+        // Ordered list of (destination, featureID) pairs that appear on the dashboard.
+        // Destinations without a featureID (dashboard, settings) are excluded here.
+        // The Snippets tile proxies Clipboard's featureID — handled as a special case below.
+        let orderedDestinations: [(MainAppDestination, FeatureID)] = [
+            (.clipboard, .clipboard),
+            (.snippets, .clipboard), // proxy tile
+            (.voice, .voice),
+            (.voiceReminders, .voiceReminders),
+            (.downloads, .downloader),
+            (.folderPreview, .folderPreview),
+            (.finderHistory, .folderHistory),
+            (.aiFileOrganizer, .aiFileOrganizer),
+            (.windowLayouts, .windowLayouts),
+            (.grabAnywhere, .windowGrab),
+            (.dockPreviews, .dockPreviews)
+        ]
+
+        return orderedDestinations.compactMap { (destination, featureID) in
+            guard let descriptor = registry.descriptor(for: featureID) else { return nil }
+            let isProxy = destination == .snippets
+            return DashboardToolTileItem(
+                destination: destination,
+                title: descriptor.displayName,
+                metric: nil,
+                detail: descriptor.summary,
+                symbolName: descriptor.icon,
+                shortcutDisplay: nil,
+                statusText: nil,
+                statusKind: nil,
+                featureID: featureID,
+                proxiesFeatureID: isProxy ? featureID : nil
+            )
+        }
+    }
+
+    // swiftlint:disable:next function_body_length
     static func dashboardTiles(
         clipboardCount: Int,
         downloadsQueueCount: Int,
@@ -342,7 +386,7 @@ enum MainSidebarDestinationPresentation {
         .snippets: .clipboard,
         .windowLayouts: .windowLayouts,
         .grabAnywhere: .windowGrab,
-        .dockPreviews: .dockPreviews,
+        .dockPreviews: .dockPreviews
     ]
 
     static func featureID(for destination: MainAppDestination) -> FeatureID? {

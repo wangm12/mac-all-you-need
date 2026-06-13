@@ -23,6 +23,8 @@ final class DockPreviewCoordinator {
     private let liveCapture = DockPreviewLiveCaptureManager.shared
     private let dockAutoHide = DockPreviewDockAutoHideManager()
     private let cacheMaintainer: DockPreviewWindowCacheMaintainer
+    private let pointerMonitor = DockPreviewPointerMonitor()
+    private let mergeHydrator = DockPreviewMergeHydrator()
 
     private var settings = DockHubSettingsStore.loadPreviews()
     private var hubSettings = DockHubSettings.default
@@ -42,15 +44,9 @@ final class DockPreviewCoordinator {
     private var showWorkToken: UInt = 0
     private var windowRefreshTask: Task<Void, Never>?
     private var settingsObserver: NSObjectProtocol?
-    private var clickMonitors: [Any] = []
-    private var moveMonitors: [Any] = []
-    private var coalescedPointerWorkItem: DispatchWorkItem?
-    private var lastDockSelectionPollTime: CFAbsoluteTime = 0
     private var terminateObserver: NSObjectProtocol?
     private var lastLoggedDismissSnapshot: String?
     private var dockPrewarmTask: Task<Void, Never>?
-    /// Bumps on each `mergePanel` so stale async disk hydrates cannot repaint the wrong hover.
-    private var mergeHydrationGeneration: UInt64 = 0
 
     var dockHoverObserver: DockHoverObserver { observer }
     var onAppHoverPID: ((pid_t?) -> Void)?
@@ -79,6 +75,51 @@ final class DockPreviewCoordinator {
         raiseService = DockPreviewRaiseService(enumerator: enumerator)
         panel.onDismissRequest = { [weak self] in self?.handleInactivityDismiss() }
         panel.onDismissPreservePendingShow = { [weak self] in self?.dismissPreservingPendingShow() }
+        configurePointerMonitor()
+        configureMergeHydrator()
+    }
+
+    private func configurePointerMonitor() {
+        pointerMonitor.isRunning = { [weak self] in self?.isRunning ?? false }
+        pointerMonitor.hasPendingShow = { [weak self] in self?.showWorkItem != nil }
+        pointerMonitor.isPanelVisible = { [weak self] in self?.panel.isVisible ?? false }
+        pointerMonitor.shouldKeepPreviewOpen = { [weak self] in self?.shouldKeepPreviewOpen() ?? false }
+        pointerMonitor.preventPreviewReentryDuringFadeOut = { [weak self] in
+            self?.settings.preventPreviewReentryDuringFadeOut ?? false
+        }
+        pointerMonitor.onEvaluatePendingShowCancellation = { [weak self] in
+            self?.evaluatePendingShowCancellation()
+        }
+        pointerMonitor.onPollDockSelectionIfNeeded = { [weak self] in
+            self?.observer.pollDockSelectionIfPointerInDockRegion()
+        }
+        pointerMonitor.onResetPanelFadeState = { [weak self] in
+            self?.panel.resetFadeState()
+        }
+        pointerMonitor.onContextMenuDismiss = { [weak self] in
+            self?.showWorkItem?.cancel()
+            self?.showWorkItem = nil
+            self?.dismissImmediately(reason: "contextMenu")
+        }
+    }
+
+    private func configureMergeHydrator() {
+        mergeHydrator.currentPID = { [weak self] in self?.currentPID }
+        mergeHydrator.currentHoverIsApp = { [weak self] in
+            guard let self else { return false }
+            if case .app = self.currentHover { return true }
+            return false
+        }
+        mergeHydrator.hydrateSync = { [weak self] entries in
+            self?.visibleThumbnailCache.hydrate(entries) ?? entries
+        }
+        mergeHydrator.hydrateAsync = { [weak self] entries in
+            guard let self else { return entries }
+            return await self.hydrateForDisplayAsync(entries)
+        }
+        mergeHydrator.onApplyMergePanel = { [weak self] pid, list, reposition, allowEmpty in
+            self?.applyMergePanel(for: pid, list: list, reposition: reposition, allowEmpty: allowEmpty)
+        }
     }
 
     func reloadSettings(hub: DockHubSettings? = nil) {
@@ -176,9 +217,7 @@ final class DockPreviewCoordinator {
         }
         terminateObserver = nil
         dockAutoHide.restoreIfNeeded()
-        removePointerEventMonitors()
-        coalescedPointerWorkItem?.cancel()
-        coalescedPointerWorkItem = nil
+        pointerMonitor.removeAll()
         clearSwitcherSession()
         showWorkItem?.cancel()
         showWorkItem = nil
@@ -595,7 +634,7 @@ final class DockPreviewCoordinator {
             showWorkItem?.cancel()
             showWorkItem = nil
         }
-        mergeHydrationGeneration &+= 1
+        mergeHydrator.bumpGeneration()
         lastLoggedDismissSnapshot = nil
         windowRefreshTask?.cancel()
         windowRefreshTask = nil
@@ -677,118 +716,13 @@ final class DockPreviewCoordinator {
     }
 
     private func installClickEventMonitors() {
-        removePointerEventMonitors()
-        let clickMask: NSEvent.EventTypeMask = [.rightMouseDown, .otherMouseDown, .leftMouseDown]
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: clickMask) { [weak self] event in
-            Task { @MainActor in self?.handlePointerEvent(event) }
-        } {
-            clickMonitors.append(global)
-        }
-        if let local = NSEvent.addLocalMonitorForEvents(matching: clickMask) { [weak self] event in
-            Task { @MainActor in self?.handlePointerEvent(event) }
-            return event
-        } {
-            clickMonitors.append(local)
-        }
+        pointerMonitor.installClickMonitors()
     }
 
     private func syncPointerMoveMonitoring() {
         refreshScope.setPanelVisible(panel.isVisible)
         refreshScope.setPendingShow(showWorkItem != nil)
-        let needsMove = panel.isVisible || showWorkItem != nil
-        if needsMove, moveMonitors.isEmpty {
-            let moveMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
-            if let global = NSEvent.addGlobalMonitorForEvents(matching: moveMask) { [weak self] event in
-                Task { @MainActor in self?.handlePointerEvent(event) }
-            } {
-                moveMonitors.append(global)
-            }
-            if let local = NSEvent.addLocalMonitorForEvents(matching: moveMask) { [weak self] event in
-                Task { @MainActor in self?.handlePointerEvent(event) }
-                return event
-            } {
-                moveMonitors.append(local)
-            }
-        } else if !needsMove, !moveMonitors.isEmpty {
-            coalescedPointerWorkItem?.cancel()
-            coalescedPointerWorkItem = nil
-            for monitor in moveMonitors {
-                NSEvent.removeMonitor(monitor)
-            }
-            moveMonitors = []
-        }
-    }
-
-    private func removePointerEventMonitors() {
-        coalescedPointerWorkItem?.cancel()
-        coalescedPointerWorkItem = nil
-        for monitor in clickMonitors + moveMonitors {
-            NSEvent.removeMonitor(monitor)
-        }
-        clickMonitors = []
-        moveMonitors = []
-    }
-
-    private func handlePointerEvent(_ event: NSEvent) {
-        guard isRunning else { return }
-        switch event.type {
-        case .rightMouseDown, .otherMouseDown:
-            handleContextMenuMouseDown(event)
-        case .leftMouseDown:
-            if isSecondaryClickEvent(event) {
-                handleContextMenuMouseDown(event)
-            }
-        case .mouseMoved, .leftMouseDragged, .rightMouseDragged:
-            scheduleCoalescedPointerEvaluation()
-        default:
-            break
-        }
-    }
-
-    private func scheduleCoalescedPointerEvaluation() {
-        coalescedPointerWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.coalescedPointerWorkItem = nil
-            self.evaluatePendingShowCancellation()
-            if self.panel.isVisible {
-                let now = CFAbsoluteTimeGetCurrent()
-                if now - self.lastDockSelectionPollTime >= 0.15 {
-                    self.lastDockSelectionPollTime = now
-                    self.observer.pollDockSelectionIfPointerInDockRegion()
-                }
-                if !self.settings.preventPreviewReentryDuringFadeOut,
-                   self.shouldKeepPreviewOpen() {
-                    self.panel.resetFadeState()
-                }
-            }
-        }
-        coalescedPointerWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0, execute: work)
-    }
-
-    private func handleContextMenuMouseDown(_ event: NSEvent) {
-        guard isRunning else { return }
-        guard isSecondaryClickEvent(event) else { return }
-
-        let nearDock = DockPreviewDockPosition.isMouseInDockRegion(padding: 48)
-        let previewActive = panel.isVisible || showWorkItem != nil
-        guard nearDock || previewActive else { return }
-
-        showWorkItem?.cancel()
-        showWorkItem = nil
-        dismissImmediately(reason: "contextMenu")
-    }
-
-    private func isSecondaryClickEvent(_ event: NSEvent) -> Bool {
-        switch event.type {
-        case .rightMouseDown, .otherMouseDown:
-            return true
-        case .leftMouseDown:
-            return event.modifierFlags.contains(.control)
-        default:
-            return false
-        }
+        pointerMonitor.syncMoveMonitoring()
     }
 
     private func freezePlacementAnchor(axIconRect: CGRect, dockItemToken: UInt) {
@@ -906,47 +840,7 @@ final class DockPreviewCoordinator {
     ) {
         guard currentPID == pid, case .app = currentHover else { return }
         let raw = entries ?? cache.readCached(pid: pid)
-        mergeHydrationGeneration &+= 1
-        let generation = mergeHydrationGeneration
-
-        // Paint immediately from LRU / in-memory thumbnails so hover does not wait on disk I/O.
-        let quickList = visibleThumbnailCache.hydrate(raw)
-        applyMergePanel(
-            for: pid,
-            list: quickList,
-            reposition: reposition,
-            allowEmpty: allowEmpty
-        )
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard generation == self.mergeHydrationGeneration else { return }
-            guard self.currentPID == pid, case .app = self.currentHover else { return }
-            let hydrated = await self.hydrateForDisplayAsync(raw)
-            guard generation == self.mergeHydrationGeneration else { return }
-            guard self.currentPID == pid, case .app = self.currentHover else { return }
-            guard Self.entriesNeedThumbnailRefresh(quickList, hydrated) else { return }
-            self.applyMergePanel(
-                for: pid,
-                list: hydrated,
-                reposition: false,
-                allowEmpty: allowEmpty
-            )
-        }
-    }
-
-    private static func entriesNeedThumbnailRefresh(
-        _ before: [DockPreviewWindowEntry],
-        _ after: [DockPreviewWindowEntry]
-    ) -> Bool {
-        guard before.count == after.count else { return true }
-        for (lhs, rhs) in zip(before, after) {
-            if lhs.id != rhs.id { return true }
-            let hadThumb = lhs.thumbnail != nil
-            let hasThumb = rhs.thumbnail != nil
-            if hadThumb != hasThumb { return true }
-        }
-        return false
+        mergeHydrator.merge(pid: pid, raw: raw, reposition: reposition, allowEmpty: allowEmpty)
     }
 
     private func applyMergePanel(
@@ -985,9 +879,9 @@ final class DockPreviewCoordinator {
         let placementKey = currentDockItemToken ?? 0
         if settings.overlayDockTooltip,
            presentation.dockEdge == .bottom,
-           anchor != .zero
+           anchor != .zero,
+           let screen = DockPreviewDockCoordinates.screen(containingAXPoint: anchor.origin)
         {
-            let screen = DockPreviewDockCoordinates.screen(containingAXPoint: anchor.origin)
             DockPreviewTooltipOverlay.shared.show(iconRect: anchor, screen: screen)
         } else {
             DockPreviewTooltipOverlay.shared.dismiss()

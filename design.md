@@ -434,6 +434,7 @@ These deviations exist for documented reasons. Do not generalize them.
 
 ### 10.4 Main window function indicator colors
 - File: `MacAllYouNeed/App/MainWindowRoot.swift`
+- Also: `MacAllYouNeed/App/FunctionDestinationRegistry.swift` `accent(for:)` carries the same per-feature brand accents for sidebar/destination iconography; both files are excluded from `mayn_no_raw_color_rgb`.
 - Seven RGB tuples used as iconography accents for the seven feature cards (Clipboard, Voice, Downloads, Folder Preview, Snippets, Window Layouts, Window Grab). These are product affordances, not chrome.
 - Allowed because they identify the function. Do not extend to settings rows, cards, or status indicators.
 

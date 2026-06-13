@@ -91,7 +91,9 @@ public enum MetadataFetcher {
             DispatchQueue.global().asyncAfter(deadline: .now() + 25) {
                 if p.isRunning { p.terminate() }
             }
-            p.waitUntilExit()
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                p.terminationHandler = { _ in cont.resume() }
+            }
             guard p.terminationStatus == 0 else { return nil }
             let raw = pipe.fileHandleForReading.readDataToEndOfFile()
             guard let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any] else {

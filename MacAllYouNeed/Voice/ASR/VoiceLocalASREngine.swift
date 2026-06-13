@@ -22,7 +22,7 @@ enum VoiceLocalASREngineError: LocalizedError {
     }
 }
 
-actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
+actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine, ASRProviding {
     private let qwen = Qwen3Engine()
     private let parakeet = ParakeetEngine()
 
@@ -83,7 +83,7 @@ actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
     }
 }
 
-actor ParakeetEngine: VoiceTranscriptionEngine {
+actor ParakeetEngine: VoiceTranscriptionEngine, ASRProviding {
     nonisolated var modelIdentifier: String {
         VoiceASRSettingsStore.load().modelID.rawValue
     }

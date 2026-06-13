@@ -2,6 +2,11 @@
 
 Behavioral and project-specific guidance for agents working in this repo.
 
+> **Note:** The coding behavioral guidelines in sections 1–5 below are derived
+> from and should stay in sync with the user's global `~/.claude/CLAUDE.md`.
+> That file is the canonical source. This file adds project-specific context
+> (architecture, UI rules, platform decisions) on top.
+
 ## User Preferences
 
 - Always address the user as **mingjie-father**.
@@ -67,7 +72,7 @@ Native macOS productivity app built with Swift 5.9+, SwiftUI, AppKit, GRDB,
 libarchive, FluidAudio, and yt-dlp/ffmpeg. The app is menu-bar resident but also
 has a Dock/main-window flow.
 
-Current first-class tool surfaces:
+Current first-class tool surfaces (11 total):
 
 - **Clipboard** - encrypted clipboard history, local direct reads, searchable
   main history, `Command-Shift-V` dock/popup, capture rules, paste behavior,
@@ -89,6 +94,15 @@ Current first-class tool surfaces:
   double-click layout, ignored apps, and diagnostics.
 - **Window Grab** - modifier-drag windows from visible content, sharing the
   Window Layouts coordinator and ignored apps.
+- **Smart Text** - clipboard smart text transforms and detection rules
+  (`clipboardSmartText`).
+- **Finder History** - folder and path history tracking (`folderHistory`).
+- **Voice Reminders** - voice-created reminders and follow-up actions
+  (`voiceReminders`).
+- **AI File Organizer** - AI-assisted file organization suggestions
+  (`aiFileOrganizer`).
+- **Dock Previews** - rich Dock icon previews for clipboard and file content
+  (`dockPreviews`).
 
 ## UI Rules
 
@@ -202,7 +216,9 @@ Main-app source layout:
 
 ### macOS / SwiftUI / XPC
 
-- Keep `AppController` as a static singleton from the SwiftUI App entry point.
+- `AppController` is a per-delegate instance property on `MacAllYouNeedApp` (the
+  `@main` struct); single-instance safety comes from the `@main` App struct
+  lifecycle. Do not promote it to a static or global singleton.
 - XPC auth uses `NSRunningApplication(processIdentifier:).bundleIdentifier`;
   Personal Team certificate OU and provisioning team ID can differ.
 - XPC calls must use `remoteObjectProxyWithErrorHandler` so continuations resume

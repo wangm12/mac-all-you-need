@@ -37,7 +37,7 @@ final class VoiceCoordinatorReminderIntentTests: XCTestCase {
 
     // MARK: - Stubs
 
-    private final class StubASREngine: VoiceTranscriptionEngine, @unchecked Sendable {
+    private final class StubASREngine: VoiceTranscriptionEngine, ASRProviding, @unchecked Sendable {
         let modelIdentifier = "stub-asr"
         let result: VoiceTranscriptionResult
         init(text: String) {

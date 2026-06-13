@@ -15,7 +15,7 @@ extension WindowControlEventTap {
         case cancel
     }
 
-    fileprivate static let radialMultiTapWindow: TimeInterval = ModifierTapTiming.multiTapWindow
+    fileprivate static var radialMultiTapWindow: TimeInterval { ModifierTapTiming.multiTapWindow }
 
     /// Builds the CGEvent mask. Radial keys (`flagsChanged` + `mouseMoved`) are
     /// only included when the radial menu is enabled, so the tap does not see

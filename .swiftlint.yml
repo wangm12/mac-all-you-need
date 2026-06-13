@@ -60,6 +60,8 @@ custom_rules:
     excluded:
       # design.md §10.4 — seven function-card brand accent colors
       - "MacAllYouNeed/App/MainWindowRoot.swift"
+      # design.md §10.4 — same function-card brand accents in accent(for:)
+      - "MacAllYouNeed/App/FunctionDestinationRegistry.swift"
       # design.md §10.3 — HUD processing background, deliberate floating-HUD choice
       - "MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift"
       # design.md §10.2 — per-app brand palette for clipboard cards

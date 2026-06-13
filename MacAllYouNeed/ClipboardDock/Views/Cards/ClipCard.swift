@@ -10,6 +10,9 @@ struct ClipCard: View {
     let fileThumbnailLoader: FileThumbnailLoader
     let favicons: FaviconCache
     let cardBackground: Color
+    /// When true, `CardSlot` shows the ⌘1…⌘9 chip over the bottom-leading corner;
+    /// the smart-text footer indents so labels clear that overlay.
+    var showsPasteShortcutChip: Bool = false
 
     private var appAccent: Color {
         ClipCardAccentPresentation.accent(for: item)
@@ -21,7 +24,11 @@ struct ClipCard: View {
             cardContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             if item.smartCopyValue != nil {
-                SmartTextFooter(item: item, appAccent: appAccent)
+                SmartTextFooter(
+                    item: item,
+                    appAccent: appAccent,
+                    showsPasteShortcutChip: showsPasteShortcutChip
+                )
             }
         }
         .background {
@@ -135,12 +142,19 @@ private struct CardHeader: View {
 private struct SmartTextFooter: View {
     let item: DockItem
     let appAccent: Color
+    let showsPasteShortcutChip: Bool
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var copyPressPulse = false
 
     private var label: String {
         if item.calculation != nil { return "= \(item.calculation!.value)" }
         if item.trackerCount > 0   { return "\(item.trackerCount) tracker\(item.trackerCount == 1 ? "" : "s") removed" }
         if item.hasOCRText         { return "Text recognized" }
         return "Smart Text"
+    }
+
+    private var reduceMotion: Bool {
+        accessibilityReduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
     var body: some View {
@@ -153,28 +167,55 @@ private struct SmartTextFooter: View {
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(1)
             Spacer(minLength: 0)
-            Button {
-                guard let value = item.smartCopyValue else { return }
-                let pb = NSPasteboard.general
-                pb.clearContents()
-                pb.setString(value, forType: .string)
-                pb.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
-                CopyHUD.show("Copied")
-            } label: {
-                Text("Copy")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
-            }
-            .buttonStyle(.borderless)
+            copyButton
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 10 + (showsPasteShortcutChip ? DockCardShellPresentation.pasteShortcutChipGutter : 0))
+        .padding(.trailing, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
         .background {
             appAccent.opacity(0.72)
+        }
+    }
+
+    private var copyButton: some View {
+        Button {
+            guard let value = item.smartCopyValue else { return }
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(value, forType: .string)
+            pb.setData(Data([0]), forType: PasteboardUTI.daemonWrite)
+            CopyHUD.show("Smart copied", symbol: "sparkles")
+            playCopyPressedFeedback()
+        } label: {
+            Text("Copy")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(.white.opacity(copyPressPulse ? 0.32 : 0.18))
+                )
+                .scaleEffect(copyPressPulse && !reduceMotion ? 0.93 : 1)
+        }
+        .buttonStyle(.borderless)
+        .animation(MAYNMotion.animation(.press, reduceMotion: reduceMotion), value: copyPressPulse)
+    }
+
+    private func playCopyPressedFeedback() {
+        let step = MAYNMotionDuration.press
+        if reduceMotion {
+            copyPressPulse = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + step) {
+                copyPressPulse = false
+            }
+            return
+        }
+        copyPressPulse = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + step) {
+            copyPressPulse = false
         }
     }
 }

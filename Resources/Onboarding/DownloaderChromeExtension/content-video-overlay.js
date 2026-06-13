@@ -267,7 +267,7 @@
 
     const icon = document.createElement('span')
     icon.className = 'ytdl-format-icon'
-    icon.innerHTML = opt.type === 'hls' ? SVG_VIDEO : SVG_VIDEO
+    icon.innerHTML = SVG_VIDEO
 
     const info = document.createElement('div')
     info.className = 'ytdl-format-info'

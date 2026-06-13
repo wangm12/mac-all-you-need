@@ -1,3 +1,4 @@
+import Core
 import SwiftUI
 
 /// Two-pane model picker for the AI File Organizer — adapts the existing
@@ -7,7 +8,7 @@ struct AIFileOrganizerModelPickerSheet: View {
     @Binding var settings: AIFileOrganizerSettings
     let onClose: () -> Void
 
-    @State private var selectedProvider: VoiceCleanupProviderKind
+    @State private var selectedProvider: LLMProviderKind
     @State private var filter: VoiceCleanupPickerFilter = .all
     @State private var searchText = ""
     @State private var draftModel: String
@@ -16,7 +17,7 @@ struct AIFileOrganizerModelPickerSheet: View {
     @State private var draftTimeout: Int
     @State private var draftLatency: VoiceCleanupLatencyPolicy
     @State private var statusMessage: String?
-    @State private var preloadedAPIKeys: [VoiceCleanupProviderKind: String] = [:]
+    @State private var preloadedAPIKeys: [LLMProviderKind: String] = [:]
 
     init(controller: AppController, settings: Binding<AIFileOrganizerSettings>, onClose: @escaping () -> Void) {
         self.controller = controller

@@ -29,7 +29,9 @@ public final class ModifierTapDispatcher {
     public var tapHoldMax: TimeInterval = ModifierTapTiming.tapHoldMax
 
     /// Window (seconds) within which a second tap must arrive to be counted
-    /// as part of a multi-tap sequence.
+    /// as part of a multi-tap sequence. Initialized from ModifierTapTiming (which
+    /// honors the user preference and NSEvent.doubleClickInterval). Can be set at
+    /// runtime when the user changes the preference; also writable in tests.
     public var multiTapWindow: TimeInterval = ModifierTapTiming.multiTapWindow
 
     // MARK: - Private state
@@ -44,8 +46,12 @@ public final class ModifierTapDispatcher {
     // Per-key timing state (main queue only)
     private var pressStart: [ModifierTapShortcut.Key: TimeInterval] = [:]
     private var nonModifierDownSincePress: Set<ModifierTapShortcut.Key> = []
+    // Keys whose press was suppressed because another modifier was already held.
+    private var suppressedPresses: Set<ModifierTapShortcut.Key> = []
+    // swiftlint:disable:next large_tuple
     private var pendingTap: (key: ModifierTapShortcut.Key, count: Int, time: TimeInterval)?
-    private var pendingTimer: Task<Void, Never>?
+    // Incremented on cancel; asyncAfter closures compare their captured epoch and bail if stale.
+    private var pendingTimerEpoch = 0
     private var lastFlags: CGEventFlags = []
 
     // MARK: - Init
@@ -120,6 +126,7 @@ public final class ModifierTapDispatcher {
         tapController = nil
         pressStart.removeAll()
         nonModifierDownSincePress.removeAll()
+        suppressedPresses.removeAll()
         cancelPendingTimer()
         pendingTap = nil
         lastFlags = []
@@ -159,15 +166,26 @@ public final class ModifierTapDispatcher {
         let transitions = modifierTransitions(from: lastFlags, to: newFlags)
         lastFlags = newFlags
 
+        // If multiple modifiers are pressed in the same event, none can be a clean tap.
+        let newPresses = transitions.filter { $0.1 }.map { $0.0 }
+        if newPresses.count > 1 {
+            suppressedPresses.formUnion(newPresses)
+        }
+
         for (key, pressed) in transitions {
             if pressed {
-                // Modifier pressed: record start time. Do not clear
-                // `nonModifierDownSincePress` here — a combo key may arrive on keyDown
-                // after flagsChanged and must still invalidate this press on release.
+                // If another modifier is already being tracked, this press cannot be
+                // a clean single-modifier tap — it is part of a chord.
+                if !pressStart.isEmpty {
+                    suppressedPresses.insert(key)
+                }
                 pressStart[key] = now
             } else {
                 // Modifier released.
                 guard let start = pressStart.removeValue(forKey: key) else { continue }
+
+                // Reject if this press was part of a simultaneous multi-modifier chord.
+                if suppressedPresses.remove(key) != nil { continue }
 
                 // Reject if another key was pressed while this modifier was held.
                 if nonModifierDownSincePress.remove(key) != nil { continue }
@@ -188,7 +206,7 @@ public final class ModifierTapDispatcher {
                 }
                 pendingTap = (key: key, count: tapCount, time: now)
 
-                // Dispatch immediately if no double-tap sibling exists for this key,
+                // Dispatch immediately if no higher-count sibling exists for this key,
                 // otherwise wait the multi-tap window in case a second tap is coming.
                 if !hasHigherCountRegistration(for: key, count: tapCount) {
                     firePendingTap()
@@ -202,22 +220,17 @@ public final class ModifierTapDispatcher {
     // MARK: - Dispatch helpers
 
     private func schedulePendingTimer() {
-        pendingTimer = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let nanos = UInt64(self.multiTapWindow * 1_000_000_000)
-            do {
-                try await Task.sleep(nanoseconds: nanos)
-            } catch {
-                return
-            }
-            if Task.isCancelled { return }
+        pendingTimerEpoch += 1
+        let epoch = pendingTimerEpoch
+        let window = multiTapWindow
+        DispatchQueue.main.asyncAfter(deadline: .now() + window) { [weak self] in
+            guard let self, self.pendingTimerEpoch == epoch else { return }
             self.firePendingTap()
         }
     }
 
     private func cancelPendingTimer() {
-        pendingTimer?.cancel()
-        pendingTimer = nil
+        pendingTimerEpoch += 1
     }
 
     private func firePendingTap() {
@@ -274,14 +287,14 @@ public final class ModifierTapDispatcher {
             if wasOn != isOn { result.append((key, isOn)) }
         }
 
-        physicalTransition(key: .leftControl,  mask: CGModifierDeviceBit.leftControl)
+        physicalTransition(key: .leftControl, mask: CGModifierDeviceBit.leftControl)
         physicalTransition(key: .rightControl, mask: CGModifierDeviceBit.rightControl)
-        physicalTransition(key: .leftOption,   mask: CGModifierDeviceBit.leftOption)
-        physicalTransition(key: .rightOption,  mask: CGModifierDeviceBit.rightOption)
-        physicalTransition(key: .leftCommand,  mask: CGModifierDeviceBit.leftCommand)
+        physicalTransition(key: .leftOption, mask: CGModifierDeviceBit.leftOption)
+        physicalTransition(key: .rightOption, mask: CGModifierDeviceBit.rightOption)
+        physicalTransition(key: .leftCommand, mask: CGModifierDeviceBit.leftCommand)
         physicalTransition(key: .rightCommand, mask: CGModifierDeviceBit.rightCommand)
-        physicalTransition(key: .leftShift,    mask: CGModifierDeviceBit.leftShift)
-        physicalTransition(key: .rightShift,   mask: CGModifierDeviceBit.rightShift)
+        physicalTransition(key: .leftShift, mask: CGModifierDeviceBit.leftShift)
+        physicalTransition(key: .rightShift, mask: CGModifierDeviceBit.rightShift)
 
         // Generic modifiers — only fire if no physical bit handled a transition.
         let handledKeys = Set(result.map(\.0))
@@ -293,11 +306,11 @@ public final class ModifierTapDispatcher {
             if wasOn != isOn { result.append((key, isOn)) }
         }
 
-        genericTransition(key: .control, flag: .maskControl,     physicals: [.leftControl, .rightControl])
-        genericTransition(key: .option,  flag: .maskAlternate,   physicals: [.leftOption, .rightOption])
-        genericTransition(key: .command, flag: .maskCommand,      physicals: [.leftCommand, .rightCommand])
-        genericTransition(key: .shift,   flag: .maskShift,        physicals: [.leftShift, .rightShift])
-        genericTransition(key: .fn,      flag: .maskSecondaryFn,  physicals: [])
+        genericTransition(key: .control, flag: .maskControl, physicals: [.leftControl, .rightControl])
+        genericTransition(key: .option, flag: .maskAlternate, physicals: [.leftOption, .rightOption])
+        genericTransition(key: .command, flag: .maskCommand, physicals: [.leftCommand, .rightCommand])
+        genericTransition(key: .shift, flag: .maskShift, physicals: [.leftShift, .rightShift])
+        genericTransition(key: .fn, flag: .maskSecondaryFn, physicals: [])
 
         return result
     }

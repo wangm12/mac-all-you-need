@@ -7,7 +7,7 @@ import OSLog
 /// fast-path used by the undo replay flow — when the user cancels mid-cleanup
 /// we already have the ASR transcript and don't need to re-run it.
 struct ASRPhase {
-    let engine: any VoiceTranscriptionEngine
+    let engine: (any ASRProviding)?
     let log: Logger
 
     /// Runs ASR (or skips it when `presetASRResult` was provided) and writes
@@ -17,6 +17,9 @@ struct ASRPhase {
             ctx.asrResult = preset
             ctx.asrMs = nil
             return
+        }
+        guard let engine else {
+            throw ASRPhaseError.engineUnavailable
         }
         let asrStart = Date()
         var result = try await engine.transcribe(
@@ -57,5 +60,13 @@ struct ASRPhase {
         ctx.asrResult = result
         ctx.asrMs = ms
         ctx.cleanupBudgetStartedAt = Date()
+    }
+}
+
+enum ASRPhaseError: LocalizedError {
+    case engineUnavailable
+
+    var errorDescription: String? {
+        "No ASR engine is configured. Select a recognition provider in Voice Settings."
     }
 }

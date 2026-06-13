@@ -23,6 +23,10 @@
   let currentData = null   // Latest DOUYIN_VIDEO_DATA payload
   let activePanel = null   // DOM node of the open panel, or null
   let rafId = null         // rAF loop handle
+  let rafAllowed = false   // true only while player anchor is in viewport
+  let anchorObserver = null // IntersectionObserver on the player anchor element
+  let lastObservedAnchor = null // the element currently being observed
+  let checkAnchorIntervalId = null // setInterval handle for periodic anchor check
   let lastHref = location.href
   let lastLoggedAwemeId = null
 
@@ -149,8 +153,12 @@
   // ── rAF loop ───────────────────────────────────────────────────────────────
 
   function startRaf() {
-    if (rafId) return
+    if (rafId || !rafAllowed) return
     const tick = () => {
+      if (!rafAllowed) {
+        rafId = null
+        return
+      }
       const btn = document.getElementById(BTN_ID)
       if (btn) {
         positionButton(btn)
@@ -166,6 +174,35 @@
       cancelAnimationFrame(rafId)
       rafId = null
     }
+  }
+
+  // ── IntersectionObserver gate for RAF ──────────────────────────────────────
+  // Observes the active Douyin player anchor so RAF only runs while visible.
+
+  function getAnchorElement() {
+    if (PL) {
+      const ctx = PL.getSiteContext()
+      // PL may expose the anchor; fall back to DOM query
+      return ctx && ctx.anchor ? ctx.anchor : document.querySelector('[data-e2e="feed-active-video"]')
+    }
+    return document.querySelector('[data-e2e="feed-active-video"]')
+  }
+
+  function attachAnchorObserver(anchor) {
+    if (!anchor || anchor === lastObservedAnchor) return
+    if (anchorObserver) anchorObserver.disconnect()
+    lastObservedAnchor = anchor
+    anchorObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        rafAllowed = entry.isIntersecting
+        if (rafAllowed) {
+          startRaf()
+        } else {
+          stopRaf()
+        }
+      }
+    }, { threshold: 0.1 })
+    anchorObserver.observe(anchor)
   }
 
   // ── Panel ──────────────────────────────────────────────────────────────────
@@ -462,6 +499,7 @@
   // ── Message listener (receive from bridge) ─────────────────────────────────
 
   window.addEventListener('message', (e) => {
+    if (e.origin !== window.location.origin) return
     if (!e.data || e.data.type !== 'DOUYIN_VIDEO_DATA' || e.data.source !== 'douyin-bridge') return
     const data = e.data.data
     if (!data || !data.awemeId) return
@@ -485,6 +523,8 @@
 
     const btn = ensureButton()
     positionButton(btn)
+    const anchor = getAnchorElement()
+    if (anchor) attachAnchorObserver(anchor)
     startRaf()
 
     // User may have opened the panel while waiting for bridge data — replace loading UI.
@@ -503,20 +543,34 @@
 
   function checkAnchor() {
     const btn = document.getElementById(BTN_ID)
+    const anchor = getAnchorElement()
 
-    if (hasDouyinPlayer()) {
+    if (anchor) {
+      attachAnchorObserver(anchor)
       const b = btn || ensureButton()
       positionButton(b)
-      startRaf()
+      if (rafAllowed) startRaf()
     } else if (btn) {
       btn.classList.remove('dy-dl-visible')
       btn.classList.add('dy-dl-hidden')
     }
   }
 
-  setInterval(checkAnchor, 500)
+  checkAnchorIntervalId = setInterval(checkAnchor, 500)
   setTimeout(checkAnchor, 300)
   setTimeout(checkAnchor, 1000)
+
+  window.addEventListener('beforeunload', () => {
+    if (checkAnchorIntervalId !== null) {
+      clearInterval(checkAnchorIntervalId)
+      checkAnchorIntervalId = null
+    }
+    stopRaf()
+    if (anchorObserver) {
+      anchorObserver.disconnect()
+      anchorObserver = null
+    }
+  }, { once: true })
 
   // ── Panel dismissal (no click-outside — Douyin's player captures many clicks) ──
 

@@ -19,7 +19,7 @@ enum Qwen3EngineError: LocalizedError {
     }
 }
 
-actor Qwen3Engine: VoiceTranscriptionEngine {
+actor Qwen3Engine: VoiceTranscriptionEngine, ASRProviding {
     nonisolated var modelIdentifier: String {
         VoiceASRSettingsStore.load().modelID.rawValue
     }

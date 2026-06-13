@@ -15,7 +15,7 @@ final class FileOrganizerCoordinator {
     ) throws {
         let llmService = S2OrganizerLLMService(generate: llmGenerate)
         engine = OrganizerEngine(llmService: llmService)
-        let dir = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.macallyouneed.shared")!
+        let dir = AppGroup.containerURL()
             .appendingPathComponent("organizer-manifests")
         manifestStore = try OrganizerManifestStore(directory: dir)
         fileMutator = FileMutator()

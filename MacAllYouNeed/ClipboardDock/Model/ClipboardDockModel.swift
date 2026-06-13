@@ -61,6 +61,14 @@ final class ClipboardDockModel {
     let clipboardWorker: ClipboardWorker?
 
     var items: [DockItem] = []
+
+    /// Context-aware ranked items for display and index-based actions.
+    /// Ranking applies only when browsing history without an active search
+    /// query — pinboards and search results stay in their natural order.
+    var displayItems: [DockItem] {
+        guard activeList == .history, search.isEmpty else { return items }
+        return ContextAwareRanker.rank(items, forBundleID: previousFrontmostBundleID)
+    }
     var snippetItems: [Snippet] = []
     var pendingSnippetDraft: SnippetDraft?
     var search: String = ""
@@ -274,8 +282,8 @@ final class ClipboardDockModel {
         if !selection.isEmpty {
             return items.map(\.id).filter { selection.contains($0) }
         }
-        if items.indices.contains(focusedIndex) {
-            return [items[focusedIndex].id]
+        if displayItems.indices.contains(focusedIndex) {
+            return [displayItems[focusedIndex].id]
         }
         return []
     }
@@ -385,13 +393,13 @@ final class ClipboardDockModel {
             selection.removeAll()
             return
         }
-        guard !items.isEmpty else { return }
-        let next = min(items.count - 1, focusedIndex + 1)
+        guard !displayItems.isEmpty else { return }
+        let next = min(displayItems.count - 1, focusedIndex + 1)
         // Replace selection with the newly-focused card so the highlight
         // border follows arrow keys (Finder-style). Without this, focus
         // and selection diverge after a click — the dock card stops
         // showing the accent border even though arrows moved focus.
-        selectOnly(itemID: items[next].id)
+        selectOnly(itemID: displayItems[next].id)
     }
 
     func focusBackward() {
@@ -401,9 +409,9 @@ final class ClipboardDockModel {
             selection.removeAll()
             return
         }
-        guard !items.isEmpty else { return }
+        guard !displayItems.isEmpty else { return }
         let prev = max(0, focusedIndex - 1)
-        selectOnly(itemID: items[prev].id)
+        selectOnly(itemID: displayItems[prev].id)
     }
 
     func toggleSelection(itemID: String) {
@@ -418,7 +426,7 @@ final class ClipboardDockModel {
     /// it. Standard macOS single-click semantics.
     func selectOnly(itemID: String) {
         selection = [itemID]
-        if let idx = items.firstIndex(where: { $0.id == itemID }) {
+        if let idx = displayItems.firstIndex(where: { $0.id == itemID }) {
             focusedIndex = idx
             selectionAnchorIndex = idx
         }
@@ -427,7 +435,7 @@ final class ClipboardDockModel {
     /// ⌘-click semantics: toggle in/out, move anchor + focus to the card.
     func cmdToggleSelection(itemID: String) {
         toggleSelection(itemID: itemID)
-        if let idx = items.firstIndex(where: { $0.id == itemID }) {
+        if let idx = displayItems.firstIndex(where: { $0.id == itemID }) {
             focusedIndex = idx
             selectionAnchorIndex = idx
         }
@@ -435,32 +443,32 @@ final class ClipboardDockModel {
 
     /// ⇧-click semantics: extend from anchor to target, inclusive.
     func shiftExtendSelection(toItemID itemID: String) {
-        guard let target = items.firstIndex(where: { $0.id == itemID }) else { return }
+        guard let target = displayItems.firstIndex(where: { $0.id == itemID }) else { return }
         let anchor = selectionAnchorIndex ?? focusedIndex
         let lower = min(anchor, target)
         let upper = max(anchor, target)
-        for rangeIndex in lower ... upper where items.indices.contains(rangeIndex) {
-            selection.insert(items[rangeIndex].id)
+        for rangeIndex in lower ... upper where displayItems.indices.contains(rangeIndex) {
+            selection.insert(displayItems[rangeIndex].id)
         }
         focusedIndex = target
     }
 
     func extendSelectionRight() {
-        guard items.indices.contains(focusedIndex) else { return }
-        selection.insert(items[focusedIndex].id)
+        guard displayItems.indices.contains(focusedIndex) else { return }
+        selection.insert(displayItems[focusedIndex].id)
         let nextIndex = focusedIndex + 1
-        guard items.indices.contains(nextIndex) else { return }
+        guard displayItems.indices.contains(nextIndex) else { return }
         focusedIndex = nextIndex
-        selection.insert(items[nextIndex].id)
+        selection.insert(displayItems[nextIndex].id)
     }
 
     func extendSelectionLeft() {
-        guard items.indices.contains(focusedIndex) else { return }
-        selection.insert(items[focusedIndex].id)
+        guard displayItems.indices.contains(focusedIndex) else { return }
+        selection.insert(displayItems[focusedIndex].id)
         let previousIndex = focusedIndex - 1
-        guard items.indices.contains(previousIndex) else { return }
+        guard displayItems.indices.contains(previousIndex) else { return }
         focusedIndex = previousIndex
-        selection.insert(items[previousIndex].id)
+        selection.insert(displayItems[previousIndex].id)
     }
 
     func clearSelection() {
@@ -468,7 +476,7 @@ final class ClipboardDockModel {
     }
 
     func selectAllVisible() {
-        selection = Set(items.prefix(50).map(\.id))
+        selection = Set(displayItems.prefix(50).map(\.id))
     }
 
     // MARK: - Paste / copy / delete on effective targets

@@ -5,12 +5,28 @@ import Platform
 import SwiftUI
 
 /// Draws an inner or outer border around the frontmost window (Tangrid-style).
+///
+/// Driven by AX notifications (kAXWindowMovedNotification, kAXWindowResizedNotification,
+/// kAXFocusedWindowChangedNotification) instead of a periodic timer, so the border
+/// updates reactively with zero idle-CPU cost.
 @MainActor
 final class ActiveWindowBorderController {
     private var panel: NSPanel?
-    private var timer: Timer?
     private var settings: WindowControlSettings = .default
     private var enabled = false
+
+    // AX observer wired to the currently-frontmost app's PID.
+    private let axCoordinator = AXObserverCoordinator(engine: SystemAXObserverEngine())
+    // Workspace observer — re-subscribes AX when the active app changes.
+    private var workspaceObserver: NSObjectProtocol?
+    // PID of the app the coordinator is currently subscribed to.
+    private var observedPID: pid_t?
+
+    private static let axNotifications: [String] = [
+        kAXWindowMovedNotification as String,
+        kAXWindowResizedNotification as String,
+        kAXFocusedWindowChangedNotification as String,
+    ]
 
     func apply(settings: WindowControlSettings, runtimeEnabled: Bool) {
         self.settings = settings
@@ -25,18 +41,49 @@ final class ActiveWindowBorderController {
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        axCoordinator.stop()
+        observedPID = nil
+        if let workspaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver)
+            self.workspaceObserver = nil
+        }
         panel?.orderOut(nil)
         panel = nil
     }
 
     private func start() {
         stop()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+        installWorkspaceObserver()
+        attachObserver(to: NSWorkspace.shared.frontmostApplication)
+        refresh()
+    }
+
+    /// Subscribe the AX coordinator to `app`, replacing any previous subscription.
+    private func attachObserver(to app: NSRunningApplication?) {
+        guard let app else {
+            axCoordinator.stop()
+            observedPID = nil
+            return
+        }
+        let pid = app.processIdentifier
+        guard pid != observedPID else { return }
+        observedPID = pid
+        axCoordinator.start(pid: pid, notifications: Self.axNotifications) { [weak self] _, _ in
             Task { @MainActor in self?.refresh() }
         }
-        refresh()
+    }
+
+    private func installWorkspaceObserver() {
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, self.enabled else { return }
+            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            self.attachObserver(to: app)
+            self.refresh()
+        }
     }
 
     private func refresh() {
@@ -66,7 +113,8 @@ final class ActiveWindowBorderController {
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
               let axWindow = value
         else { return nil }
-        let element = WindowAccessibilityElement(axWindow as! AXUIElement)
+        let axElement = axWindow as! AXUIElement
+        let element = WindowAccessibilityElement(axElement)
         guard element.isSupportedForWindowControl else { return nil }
         let frame = element.frame
         guard !frame.isNull, !frame.isEmpty else { return nil }

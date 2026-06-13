@@ -51,7 +51,9 @@ enum TypelessImportMain {
 
     private static func run() throws {
         let config = try parseArguments()
-        try ensureAppIsNotRunning()
+        if MAYNToolHarness.isMAYNRunning() {
+            throw TypelessImportCLIError.appStillRunning
+        }
 
         guard FileManager.default.fileExists(atPath: config.typelessDB.path) else {
             throw TypelessImportCLIError.missingTypelessDatabase(config.typelessDB)
@@ -68,7 +70,11 @@ enum TypelessImportMain {
         }
 
         AppGroup.containerURLOverride = config.maynContainer
-        try validateContainer(config.maynContainer)
+        do {
+            try MAYNToolHarness.validateMAYNContainer(config.maynContainer)
+        } catch {
+            throw TypelessImportCLIError.fallbackContainer(config.maynContainer)
+        }
 
         fputs("Writing to App Group container:\n  \(config.maynContainer.path)\n", stderr)
 
@@ -107,26 +113,6 @@ enum TypelessImportMain {
         }
     }
 
-    private static func validateContainer(_ container: URL) throws {
-        let path = container.path
-        let isGroupContainer = path.contains("/Library/Group Containers/group.com.macallyouneed.shared")
-        let isFallback = path.contains("/MacAllYouNeed-")
-        if isFallback || !isGroupContainer {
-            throw TypelessImportCLIError.fallbackContainer(container)
-        }
-        let dbPath = container.appendingPathComponent("databases/clipboard.sqlite").path
-        guard FileManager.default.fileExists(atPath: dbPath) else {
-            throw TypelessImportCLIError.fallbackContainer(container)
-        }
-    }
-
-    private static func ensureAppIsNotRunning() throws {
-        let running = NSWorkspace.shared.runningApplications.contains {
-            $0.bundleIdentifier == "com.macallyouneed.app"
-        }
-        if running { throw TypelessImportCLIError.appStillRunning }
-    }
-
     private static func parseArguments() throws -> TypelessImportCLIConfiguration {
         let home = FileManager.default.homeDirectoryForCurrentUser
         var config = TypelessImportCLIConfiguration(
@@ -148,7 +134,7 @@ enum TypelessImportMain {
             case "--typeless-recordings":
                 config.recordingsRoot = try requiredURL(args: &args, flag: flag)
             case "--mayn-container":
-                config.maynContainer = try requiredURL(args: &args, flag: flag)
+                config.maynContainer = try requiredURL(args: &args, flag: flag, isDirectory: true)
             case "--ffmpeg":
                 config.ffmpeg = try requiredURL(args: &args, flag: flag)
             case "--dry-run":
@@ -172,11 +158,10 @@ enum TypelessImportMain {
         return config
     }
 
-    private static func requiredURL(args: inout [String], flag: String) throws -> URL {
+    private static func requiredURL(args: inout [String], flag: String, isDirectory: Bool = false) throws -> URL {
         guard let raw = args.first else { throw ArgumentParseError.missingValue(flag) }
         args.removeFirst()
-        let expanded = NSString(string: raw).expandingTildeInPath
-        return URL(fileURLWithPath: expanded, isDirectory: false)
+        return MAYNToolHarness.expandPath(raw, isDirectory: isDirectory)
     }
 
     private static func defaultFFmpegURL() -> URL {

@@ -64,10 +64,11 @@ enum FolderHistoryPanelPlacement {
         let app = AXUIElementCreateApplication(pid)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
-              let window = value
+              let window = value,
+              CFGetTypeID(window) == AXUIElementGetTypeID()
         else { return nil }
-        // swiftlint:disable:next force_cast
-        return axFrame(of: window as! AXUIElement)
+        let axWindow = window as! AXUIElement
+        return axFrame(of: axWindow)
     }
 
     private static func axFrame(of window: AXUIElement) -> CGRect? {

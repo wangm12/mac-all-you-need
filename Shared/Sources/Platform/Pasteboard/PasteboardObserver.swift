@@ -25,11 +25,20 @@ public final class SystemPasteboardReader: PasteboardReading {
 
     public func currentItems() -> [PasteboardItem] {
         var items: [PasteboardItem] = []
-        if let s = pb.string(forType: PasteboardUTI.plainText) { items.append(.text(s)) }
+
+        let plainText = pb.string(forType: PasteboardUTI.plainText)
+        if let s = plainText, !Self.isSynthesizedImagePlaceholder(s) { items.append(.text(s)) }
         if let d = pb.data(forType: PasteboardUTI.rtf) { items.append(.rtf(d)) }
         if let s = pb.string(forType: PasteboardUTI.html) { items.append(.html(s)) }
         if let d = pb.data(forType: PasteboardUTI.png) { items.append(.png(d)) }
         if let d = pb.data(forType: PasteboardUTI.tiff) { items.append(.tiff(d)) }
+
+        // Fallback: some apps (e.g. CleanShot) put images under non-standard UTIs.
+        // NSImage handles pasteboard type coercion for all AppKit-supported formats.
+        let hasImage = items.contains { if case .png = $0 { return true }; if case .tiff = $0 { return true }; return false }
+        if !hasImage, let nsImage = NSImage(pasteboard: pb), let tiffData = nsImage.tiffRepresentation {
+            items.append(.tiff(tiffData))
+        }
         var urls = (pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]) ?? []
         if urls.isEmpty, pb.data(forType: PasteboardUTI.finderNode) != nil,
            let finderURLs = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
@@ -38,6 +47,16 @@ public final class SystemPasteboardReader: PasteboardReading {
         }
         if !urls.isEmpty { items.append(.fileURLs(urls)) }
         return items
+    }
+
+    // macOS synthesizes "(image WxH)" as plain text when an image is on the pasteboard
+    // but no real plain-text representation exists. Detect and discard these.
+    private static func isSynthesizedImagePlaceholder(_ s: String) -> Bool {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("(image "), trimmed.hasSuffix(")") else { return false }
+        let inner = trimmed.dropFirst(7).dropLast()
+        // Expected format: "WxH" with × (U+00D7) or "x"
+        return inner.contains("×") || inner.contains("x")
     }
 }
 

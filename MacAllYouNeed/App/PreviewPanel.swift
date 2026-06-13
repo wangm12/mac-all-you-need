@@ -100,15 +100,20 @@ enum ClipboardSystemQuickLookMaterializationError: Error {
 
 enum ClipboardSystemQuickLookLayering {
     static let panelLevel = NSWindow.Level.screenSaver
+    // `.stationary` prevents the window server from moving the panel into a
+    // fullscreen Space — removed so the panel follows the active Space correctly.
+    // `.canJoinAllSpaces` + `.fullScreenAuxiliary` are sufficient for the dock
+    // (which lives above fullscreen apps) to show the panel alongside it.
     static let collectionBehavior: NSWindow.CollectionBehavior = [
         .canJoinAllSpaces,
-        .fullScreenAuxiliary,
-        .stationary
+        .fullScreenAuxiliary
     ]
 
     static func apply(to panel: QLPreviewPanel) {
         panel.level = panelLevel
-        panel.collectionBehavior.formUnion(collectionBehavior)
+        // Assign (not union) so any pre-existing system-set bits that conflict
+        // with fullscreen Space placement (e.g. .moveToActiveSpace) are cleared.
+        panel.collectionBehavior = collectionBehavior
         panel.hidesOnDeactivate = false
     }
 }
@@ -255,6 +260,10 @@ final class ClipboardSystemQuickLookCoordinator {
 
     private let source = ClipboardSystemQuickLookPanelSource()
     private var temporaryURLs: [URL] = []
+    // Tracks whether the QL panel singleton has ever been shown. On first show
+    // the panel has no backing window yet, so data must be loaded after
+    // orderFrontRegardless rather than before it.
+    private var hasShownOnce = false
 
     private init() {
         source.onClose = { [weak self] in
@@ -298,16 +307,39 @@ final class ClipboardSystemQuickLookCoordinator {
         panel.dataSource = source
         panel.delegate = source
         ClipboardSystemQuickLookLayering.apply(to: panel)
-        panel.reloadData()
         panel.currentPreviewItemIndex = max(0, min(index, payload.items.count - 1))
-        panel.refreshCurrentPreviewItem()
+
+        // Show the panel before asking it to load data. On the very first call
+        // the QL singleton has no backing window; calling reloadData() before
+        // orderFrontRegardless() issues data-source requests against an invisible
+        // window, causing the plugin XPC to produce a blank or stuck first preview.
         panel.orderFrontRegardless()
         ClipboardSystemQuickLookLayering.apply(to: panel)
+
+        if hasShownOnce {
+            // Panel already has a rendered backing window — load immediately.
+            panel.reloadData()
+            panel.refreshCurrentPreviewItem()
+        } else {
+            // First ever show: give the window one run-loop tick to finish
+            // its internal layout before the plugin starts reading.
+            hasShownOnce = true
+            DispatchQueue.main.async {
+                panel.reloadData()
+                panel.refreshCurrentPreviewItem()
+            }
+        }
+
         DispatchQueue.main.async {
             ClipboardSystemQuickLookLayering.apply(to: panel)
             panel.orderFrontRegardless()
         }
-        removeTemporaryFiles(oldTemporaryURLs)
+
+        // Delay deletion of old temp files so the QL plugin XPC process has
+        // time to finish any in-flight async reads. Immediate deletion causes
+        // ENOENT mid-read on rapid arrow-key navigation, producing blank or
+        // frozen panels. 5 s is conservative; plugins finish in < 1 s.
+        scheduleTemporaryFileCleanup(urls: oldTemporaryURLs)
     }
 
     func dismiss() {
@@ -323,6 +355,15 @@ final class ClipboardSystemQuickLookCoordinator {
     private func cleanupTemporaryFiles() {
         removeTemporaryFiles(temporaryURLs)
         temporaryURLs = []
+    }
+
+    private func scheduleTemporaryFileCleanup(urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) {
+            for url in urls {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
     }
 
     private func removeTemporaryFiles(_ urls: [URL]) {
@@ -456,7 +497,7 @@ enum PreviewPanel {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.level = .popUpMenu
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.isMovableByWindowBackground = true
         return p
     }

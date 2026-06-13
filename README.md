@@ -34,6 +34,11 @@ for implementation plans.
   restore, and display movement, plus edge snap and ignored apps.
 - **Window Grab** - modifier-drag windows from visible content areas, sharing
   Window Layouts settings and diagnostics.
+- **Smart Text** - clipboard smart text transforms and detection rules.
+- **Finder History** - folder and path history tracking.
+- **Voice Reminders** - voice-created reminders and follow-up actions.
+- **AI File Organizer** - AI-assisted file organization suggestions.
+- **Dock Previews** - rich Dock icon previews for clipboard and file content.
 - **Feature runtime** - Dashboard cards can enable/disable features, install or
   remove asset packs, show migration results, and keep disabled features visible
   but inert in navigation.

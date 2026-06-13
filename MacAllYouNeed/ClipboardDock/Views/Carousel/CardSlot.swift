@@ -70,6 +70,10 @@ enum DockCardShellPresentation {
     static let height: CGFloat = 240
     static let cornerRadius: CGFloat = MAYNControlMetrics.cardRadius
     static let focusedBorderWidth: CGFloat = 2
+    /// `CardSlot` paints a ⌘1…⌘9 chip over the bottom-leading corner; smart
+    /// text footers reserve this much **extra** leading inset so labels never
+    /// draw under the chip (chip pad 6 + ~⌘9 width + margin).
+    static let pasteShortcutChipGutter: CGFloat = 50
 }
 
 enum DockCardDragStatePolicy {
@@ -154,7 +158,8 @@ struct CardSlot: View {
             fileLoader: fileLoader,
             fileThumbnailLoader: fileThumbnailLoader,
             favicons: favicons,
-            cardBackground: cardBackground
+            cardBackground: cardBackground,
+            showsPasteShortcutChip: index < 9
         )
         .frame(width: DockCardShellPresentation.width, height: DockCardShellPresentation.height)
         // Selection border. Any selected card gets the neutral stroke — single

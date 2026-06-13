@@ -84,8 +84,8 @@ final class SearchFilterSubModel {
     ) async {
         let trimmed = model.search.trimmingCharacters(in: .whitespacesAndNewlines)
         let query: String? = trimmed.isEmpty ? nil : trimmed
-        let previousID: String? = preserveFocus && model.items.indices.contains(model.focusedIndex)
-            ? model.items[model.focusedIndex].id
+        let previousID: String? = preserveFocus && model.displayItems.indices.contains(model.focusedIndex)
+            ? model.displayItems[model.focusedIndex].id
             : nil
 
         let newItems: [DockItem]
@@ -108,7 +108,7 @@ final class SearchFilterSubModel {
                 self.model.selection.removeAll()
                 return
             }
-            if let previousID, let newIndex = self.model.items.firstIndex(where: { $0.id == previousID }) {
+            if let previousID, let newIndex = self.model.displayItems.firstIndex(where: { $0.id == previousID }) {
                 self.model.focusedIndex = newIndex
             } else {
                 self.model.focusedIndex = 0
@@ -225,8 +225,8 @@ final class SearchFilterSubModel {
     }
 
     nonisolated static func pastePriority(_ preview: String) -> Int {
-        if preview.hasPrefix("(") && preview.contains("file") { return 2 }
-        if preview.hasPrefix("(image ") { return 1 }
+        if preview.hasPrefix("(image ") { return 2 }
+        if preview.hasPrefix("(") && preview.contains("file") { return 1 }
         return 0
     }
 

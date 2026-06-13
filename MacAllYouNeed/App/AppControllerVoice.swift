@@ -131,30 +131,30 @@ extension AppController {
         VoicePersonalizationSettingsStore.save(settings)
     }
 
+    // MARK: - ASR Settings (delegate to VoiceSettingsService)
+
     func voiceASRSettings() -> VoiceASRSettings {
-        VoiceASRSettingsStore.load()
+        voiceSettings.voiceASRSettings()
     }
 
     func voiceGroqASRSettings() -> GroqASRSettings {
-        GroqASRSettingsStore.load()
+        voiceSettings.voiceGroqASRSettings()
     }
 
     func voiceCloudASRSettings() -> VoiceCloudASRSettings {
-        VoiceCloudASRSettingsStore.load()
+        voiceSettings.voiceCloudASRSettings()
     }
 
     func groqASRAPIKey() -> String {
-        cloudASRAPIKey(for: .groq)
+        voiceSettings.groqASRAPIKey()
     }
 
     func cloudASRAPIKey(for providerKind: VoiceASRProviderKind) -> String {
-        let keyStore = VoiceCloudASRKeyStore(keychain: SystemKeychain())
-        return (try? keyStore.apiKey(for: providerKind)) ?? ""
+        voiceSettings.cloudASRAPIKey(for: providerKind)
     }
 
     func applyVoiceASRSettings(_ settings: VoiceASRSettings) {
-        VoiceASRSettingsStore.save(settings)
-        voiceCoordinator.applyASRProvider(settings.providerKind, keychain: SystemKeychain())
+        voiceSettings.applyVoiceASRSettings(settings, coordinator: voiceCoordinator)
     }
 
     func applyVoiceASRProviderSettings(
@@ -162,11 +162,11 @@ extension AppController {
         groqSettings: GroqASRSettings,
         groqAPIKey: String
     ) throws {
-        let cloudModelID = VoiceCloudASRModelID(groqModelID: groqSettings.modelID) ?? .groqWhisperLargeV3Turbo
-        try applyVoiceASRProviderSettings(
+        try voiceSettings.applyVoiceASRProviderSettings(
             asrSettings: asrSettings,
-            cloudSettings: VoiceCloudASRSettings(modelID: cloudModelID, languageHint: groqSettings.languageHint),
-            cloudAPIKey: groqAPIKey
+            groqSettings: groqSettings,
+            groqAPIKey: groqAPIKey,
+            coordinator: voiceCoordinator
         )
     }
 
@@ -175,79 +175,32 @@ extension AppController {
         cloudSettings: VoiceCloudASRSettings,
         cloudAPIKey: String
     ) throws {
-        let effectiveCloudSettings = asrSettings.providerKind.isCloud
-            ? cloudSettings.updating(modelID: cloudSettings.modelID(for: asrSettings.providerKind))
-            : cloudSettings
-        let normalizedCloudAPIKey = cloudAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let validationMessage = VoiceASRProviderApplyPlan.validationMessage(
-            providerKind: asrSettings.providerKind,
-            apiKey: normalizedCloudAPIKey
-        ) {
-            throw VoiceASRProviderSettingsError.validationFailed(validationMessage)
-        }
-
-        for step in VoiceASRProviderApplyPlan.steps(for: asrSettings.providerKind) {
-            switch step {
-            case .saveCloudSettings:
-                try applyCloudASRSettings(effectiveCloudSettings, apiKey: normalizedCloudAPIKey)
-            case .applyASRSettings:
-                applyVoiceASRSettings(asrSettings)
-            }
-        }
+        try voiceSettings.applyVoiceASRProviderSettings(
+            asrSettings: asrSettings,
+            cloudSettings: cloudSettings,
+            cloudAPIKey: cloudAPIKey,
+            coordinator: voiceCoordinator
+        )
     }
 
     func applyGroqASRSettings(_ settings: GroqASRSettings, apiKey: String) throws {
-        let cloudModelID = VoiceCloudASRModelID(groqModelID: settings.modelID) ?? .groqWhisperLargeV3Turbo
-        try applyCloudASRSettings(
-            VoiceCloudASRSettings(modelID: cloudModelID, languageHint: settings.languageHint),
-            apiKey: apiKey
-        )
+        try voiceSettings.applyGroqASRSettings(settings, apiKey: apiKey)
     }
 
     func applyGroqASRSettings(_ settings: GroqASRSettings) {
-        let cloudModelID = VoiceCloudASRModelID(groqModelID: settings.modelID) ?? .groqWhisperLargeV3Turbo
-        applyCloudASRSettings(VoiceCloudASRSettings(modelID: cloudModelID, languageHint: settings.languageHint))
+        voiceSettings.applyGroqASRSettings(settings)
     }
 
     func applyCloudASRSettings(_ settings: VoiceCloudASRSettings, apiKey: String) throws {
-        let keyStore = VoiceCloudASRKeyStore(keychain: SystemKeychain())
-        try keyStore.saveAPIKey(apiKey, for: settings.modelID.providerKind)
-        VoiceCloudASRSettingsStore.save(settings)
+        try voiceSettings.applyCloudASRSettings(settings, apiKey: apiKey)
     }
 
     func applyCloudASRSettings(_ settings: VoiceCloudASRSettings) {
-        VoiceCloudASRSettingsStore.save(settings)
+        voiceSettings.applyCloudASRSettings(settings)
     }
 
     func testGroqASRSettings(_ settings: GroqASRSettings, apiKey: String) async -> String {
-        let normalizedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedAPIKey.isEmpty else {
-            return "API key is required."
-        }
-        // Use the key in-memory only — do NOT write to Keychain before we know it works.
-        let engine = GroqASREngine(
-            settings: { settings },
-            apiKeyProvider: { normalizedAPIKey }
-        )
-        let silence = [Float](repeating: 0.0, count: 8000)
-        do {
-            _ = try await engine.transcribe(
-                samples: silence,
-                sampleRate: 16000,
-                options: VoiceTranscriptionOptions(preferredModelIdentifier: nil)
-            )
-            return "Connection succeeded."
-        } catch GroqASRError.missingAPIKey {
-            return "API key not saved."
-        } catch let GroqASRError.httpError(code) {
-            return "HTTP \(code) — check your API key."
-        } catch {
-            let msg = error.localizedDescription
-            if msg.lowercased().contains("empty") || msg.lowercased().contains("too short") {
-                return "Connection succeeded."
-            }
-            return "Ping failed: \(msg)"
-        }
+        await voiceSettings.testGroqASRSettings(settings, apiKey: apiKey)
     }
 
     func testCloudASRSettings(
@@ -255,149 +208,52 @@ extension AppController {
         providerKind: VoiceASRProviderKind,
         apiKey: String
     ) async -> String {
-        let normalizedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedAPIKey.isEmpty else {
-            return "\(providerKind.apiKeyLabel) is required."
-        }
-        let engine = VoiceCloudASREngine(
-            providerKind: providerKind,
-            settings: { settings },
-            apiKeyProvider: { requestedProvider in
-                requestedProvider == providerKind ? normalizedAPIKey : nil
-            }
-        )
-        let silence = [Float](repeating: 0.0, count: 8000)
-        do {
-            _ = try await engine.transcribe(
-                samples: silence,
-                sampleRate: 16000,
-                options: VoiceTranscriptionOptions(preferredModelIdentifier: nil)
-            )
-            return "Connection succeeded."
-        } catch let VoiceCloudASRError.httpError(_, code) {
-            return "HTTP \(code) - check your API key."
-        } catch VoiceCloudASRError.missingAPIKey {
-            return "API key not saved."
-        } catch {
-            let msg = error.localizedDescription
-            if msg.lowercased().contains("empty") || msg.lowercased().contains("too short") {
-                return "Connection succeeded."
-            }
-            return "Ping failed: \(msg)"
-        }
+        await voiceSettings.testCloudASRSettings(settings, providerKind: providerKind, apiKey: apiKey)
     }
 
+    // MARK: - Cleanup Settings (delegate to VoiceSettingsService)
+
     func voiceCleanupSettings() -> VoiceCleanupSettings {
-        VoiceCleanupSettingsStore.load()
+        voiceSettings.voiceCleanupSettings()
     }
 
     func voiceCleanupAPIKey(for provider: VoiceCleanupProviderKind) -> String {
-        let keyStore = VoiceCleanupKeyStore(keychain: SystemKeychain())
-        return (try? keyStore.apiKey(for: provider)) ?? ""
+        voiceSettings.voiceCleanupAPIKey(for: provider)
     }
 
     func applyVoiceCleanupSettings(_ settings: VoiceCleanupSettings, apiKey: String) throws {
-        let keyStore = VoiceCleanupKeyStore(keychain: SystemKeychain())
-        try keyStore.saveAPIKey(apiKey, for: settings.provider)
-        VoiceCleanupSettingsStore.save(settings)
-        voiceCoordinator.applyCleanupSettings(settings)
+        try voiceSettings.applyVoiceCleanupSettings(settings, apiKey: apiKey, coordinator: voiceCoordinator)
     }
 
     func disableVoiceCleanup() {
-        var settings = VoiceCleanupSettingsStore.load()
-        settings.isEnabled = false
-        VoiceCleanupSettingsStore.save(settings)
-        voiceCoordinator.applyCleanupSettings(settings)
+        voiceSettings.disableVoiceCleanup(coordinator: voiceCoordinator)
     }
 
     func validateVoiceCleanupSettings(_ settings: VoiceCleanupSettings, apiKey: String) -> String {
-        guard settings.isEnabled else {
-            return "AI cleanup is disabled; local cleanup is active."
-        }
-        guard URL(string: settings.effectiveBaseURLString) != nil else {
-            return "Base URL is invalid."
-        }
-        if settings.provider.requiresAPIKey, apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "API key is required for \(settings.provider.label)."
-        }
-        if settings.effectiveModel.isEmpty {
-            return "Model is required."
-        }
-        return "Configuration is usable."
+        voiceSettings.validateVoiceCleanupSettings(settings, apiKey: apiKey)
     }
 
     func testVoiceCleanupSettings(_ settings: VoiceCleanupSettings, apiKey: String) async -> String {
-        let validation = validateVoiceCleanupSettings(settings, apiKey: apiKey)
-        guard validation == "Configuration is usable." else { return validation }
-
-        do {
-            guard let provider = try VoiceCleanupProviderFactory.makeProvider(settings: settings, apiKey: apiKey) else {
-                return "Provider could not be created."
-            }
-            let output = try await Self.runVoiceCleanupPing(provider: provider, timeoutSeconds: settings.normalizedTimeoutSeconds)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !output.isEmpty else { return "Provider returned an empty response." }
-            return "Ping succeeded: \(output.prefix(80))"
-        } catch {
-            return "Ping failed: \(error.localizedDescription)"
-        }
+        await voiceSettings.testVoiceCleanupSettings(settings, apiKey: apiKey)
     }
 
     func listOllamaCleanupModels(settings: VoiceCleanupSettings) async throws -> [OllamaModel] {
-        try await Self.makeOllamaServiceClient(settings: settings).listModels()
+        try await voiceSettings.listOllamaCleanupModels(settings: settings)
     }
 
     func pullOllamaCleanupModel(settings: VoiceCleanupSettings, model: String) async throws {
-        try await Self.makeOllamaServiceClient(settings: settings).pull(model: model)
+        try await voiceSettings.pullOllamaCleanupModel(settings: settings, model: model)
     }
 
     func deleteOllamaCleanupModel(settings: VoiceCleanupSettings, model: String) async throws {
-        try await Self.makeOllamaServiceClient(settings: settings).delete(model: model)
+        try await voiceSettings.deleteOllamaCleanupModel(settings: settings, model: model)
     }
 
     func testOllamaCleanupService(settings: VoiceCleanupSettings) async -> String {
-        do {
-            let models = try await listOllamaCleanupModels(settings: settings)
-            if models.isEmpty {
-                return "Ollama is reachable. No local models found."
-            }
-            return "Ollama is reachable. \(models.count) local model\(models.count == 1 ? "" : "s") found."
-        } catch {
-            return "Ollama check failed: \(error.localizedDescription)"
-        }
+        await voiceSettings.testOllamaCleanupService(settings: settings)
     }
 
-    private static func makeOllamaServiceClient(settings: VoiceCleanupSettings) throws -> OllamaServiceClient {
-        guard let baseURL = URL(string: settings.effectiveBaseURLString) else {
-            throw VoiceCleanupSettingsTestError.invalidBaseURL
-        }
-        return OllamaServiceClient(baseURL: baseURL)
-    }
-
-    private static func runVoiceCleanupPing(
-        provider: any VoiceLLMProvider,
-        timeoutSeconds: Int
-    ) async throws -> String {
-        let request = VoiceLLMRequest(
-            text: "Reply with: ok",
-            rawText: "Reply with: ok",
-            appBundleID: nil,
-            language: .english
-        )
-        return try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask {
-                try await provider.clean(request)
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(Int64(timeoutSeconds)))
-                throw VoiceCleanupSettingsTestError.timedOut
-            }
-
-            let output = try await group.next() ?? ""
-            group.cancelAll()
-            return output
-        }
-    }
+    // MARK: - History
 
     func loadVoiceHistorySettings() -> VoiceHistorySettings {
         VoiceHistorySettings.load(from: AppGroupSettings.defaults)
@@ -465,30 +321,5 @@ extension AppController {
             undo: undo,
             expiresAt: Date().addingTimeInterval(5)
         )
-    }
-}
-
-private enum VoiceCleanupSettingsTestError: LocalizedError {
-    case invalidBaseURL
-    case timedOut
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidBaseURL:
-            "Base URL is invalid."
-        case .timedOut:
-            "Provider ping timed out."
-        }
-    }
-}
-
-private enum VoiceASRProviderSettingsError: LocalizedError {
-    case validationFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case let .validationFailed(message):
-            message
-        }
     }
 }

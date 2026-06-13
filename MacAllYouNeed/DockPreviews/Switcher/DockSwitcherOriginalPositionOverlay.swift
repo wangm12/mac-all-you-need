@@ -16,10 +16,14 @@ final class DockSwitcherOriginalPositionOverlay {
             dismiss()
             return
         }
+        guard let primaryScreen = NSScreen.main ?? NSScreen.screens.first else {
+            dismiss()
+            return
+        }
         let panel = ensurePanel()
         let appKitFrame = CGRect(
             x: frame.origin.x,
-            y: NSScreen.screens.first!.frame.height - frame.origin.y - frame.height,
+            y: primaryScreen.frame.height - frame.origin.y - frame.height,
             width: frame.width,
             height: frame.height
         )

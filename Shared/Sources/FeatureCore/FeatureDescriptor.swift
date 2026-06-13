@@ -56,6 +56,13 @@ public struct FeatureDescriptor: Sendable {
     /// Multi-step product wizard shown during onboarding. Must not request TCC permissions.
     public let featureOnboardingWizardFactory: (@Sendable @MainActor () -> AnyView)?
     public let menuBarItemFactory: (@Sendable () -> AnyView)?
+    /// Factory for the feature's primary main-window page. Nil when the page
+    /// requires runtime context (e.g. AppController) that cannot be captured at
+    /// descriptor-construction time; the caller falls back to its own routing.
+    public let mainPageViewFactory: (@Sendable @MainActor () -> AnyView)?
+    /// Factory for the feature's full settings view rendered inside SettingsDetailContent.
+    /// Nil when the settings view requires runtime context; the caller falls back.
+    public let settingsViewFactory: (@Sendable @MainActor () -> AnyView)?
 
     public init(
         id: FeatureID,
@@ -72,7 +79,9 @@ public struct FeatureDescriptor: Sendable {
         settingsTabFactory: (@Sendable () -> AnyView)? = nil,
         onboardingSetupFactory: (@Sendable () -> AnyView)? = nil,
         featureOnboardingWizardFactory: (@Sendable @MainActor () -> AnyView)? = nil,
-        menuBarItemFactory: (@Sendable () -> AnyView)? = nil
+        menuBarItemFactory: (@Sendable () -> AnyView)? = nil,
+        mainPageViewFactory: (@Sendable @MainActor () -> AnyView)? = nil,
+        settingsViewFactory: (@Sendable @MainActor () -> AnyView)? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -89,6 +98,8 @@ public struct FeatureDescriptor: Sendable {
         self.onboardingSetupFactory = onboardingSetupFactory
         self.featureOnboardingWizardFactory = featureOnboardingWizardFactory
         self.menuBarItemFactory = menuBarItemFactory
+        self.mainPageViewFactory = mainPageViewFactory
+        self.settingsViewFactory = settingsViewFactory
     }
 
     public var requiresAsset: Bool { !assetPacks.isEmpty }

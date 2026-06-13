@@ -75,7 +75,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         private var tapPressCGFlags: CGEventFlags = []
         private var tapNonModifierPressed = false
         private var tapLastRelease: (key: ModifierTapShortcut.Key, time: TimeInterval, count: Int)?
-        private static let multiTapWindow: TimeInterval = ModifierTapTiming.multiTapWindow
+        private static var multiTapWindow: TimeInterval { ModifierTapTiming.multiTapWindow }
 
         init(
             descriptor: Binding<HotkeyDescriptor>,
@@ -472,7 +472,7 @@ struct HotkeyRecorder: NSViewRepresentable {
                         if let last = tapLastRelease,
                            last.key == key,
                            now - last.time <= Self.multiTapWindow {
-                            count = min(last.count + 1, 2)
+                            count = last.count + 1
                         } else {
                             count = 1
                         }

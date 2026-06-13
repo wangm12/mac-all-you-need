@@ -1,3 +1,4 @@
+import FeatureCore
 import Foundation
 
 enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestination {
@@ -56,6 +57,17 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
         case .permissions: "checkmark.shield"
         case .general: "gearshape"
         case .advanced: "wrench.and.screwdriver"
+        }
+    }
+
+    /// The FeatureID this settings destination directly manages. Nil for non-feature destinations.
+    var featureID: FeatureID? {
+        switch self {
+        case .clipboard: .clipboard
+        case .voice: .voice
+        case .downloads: .downloader
+        case .folderPreview: .folderPreview
+        case .snippets, .hotkeys, .search, .permissions, .general, .advanced: nil
         }
     }
 

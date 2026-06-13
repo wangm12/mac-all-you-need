@@ -21,12 +21,16 @@ struct ClipCarousel: View {
     @State private var cardDropTarget: DockCardReorderTarget?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Context-aware ranked items for display. Delegates to model.displayItems
+    /// which applies ranking only when browsing history without active search.
+    private var displayItems: [DockItem] { model.displayItems }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
-                        ForEach(Array(model.items.enumerated()), id: \.element.id) { idx, item in
+                        ForEach(Array(displayItems.enumerated()), id: \.element.id) { idx, item in
                             CardSlot(
                                 item: item,
                                 index: idx,
@@ -42,7 +46,7 @@ struct ClipCarousel: View {
                             )
                             .background(DockCardDropFrameReporter(itemID: item.id))
                             .id(item.id)
-                            // Cards vanish with a scale+fade when removed (delete /
+                            // Cards vanish with a blur+scale+fade when removed (delete /
                             // retention) and slide in from the leading edge when a
                             // new clipboard item arrives. Driven by `withAnimation`
                             // at the call site so we don't propagate implicit
@@ -51,7 +55,7 @@ struct ClipCarousel: View {
                             .transition(
                                 .asymmetric(
                                     insertion: .move(edge: .leading).combined(with: .opacity),
-                                    removal: .scale(scale: 0.85).combined(with: .opacity)
+                                    removal: .cardRemoval(reduceMotion: reduceMotion)
                                 )
                             )
                             // Click semantics (Finder-style):
@@ -122,9 +126,9 @@ struct ClipCarousel: View {
                     .animation(MAYNMotion.tabAnimation(reduceMotion: reduceMotion), value: model.items.map(\.id))
                 }
                 .onChange(of: model.focusedIndex) { _, newValue in
-                    guard model.items.indices.contains(newValue) else { return }
+                    guard displayItems.indices.contains(newValue) else { return }
                     withAnimation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion)) {
-                        proxy.scrollTo(model.items[newValue].id, anchor: .center)
+                        proxy.scrollTo(displayItems[newValue].id, anchor: .center)
                     }
                 }
             }
@@ -566,5 +570,48 @@ private struct CardAppendDropDelegate: DropDelegate {
             isTargeted = false
         }
         return true
+    }
+}
+
+// MARK: - Card removal transition
+
+/// Animatable modifier that drives three sequential removal phases from a
+/// single [0,1] progress value:
+///   Phase 1 (t 0→0.2):  blur ramps from 0 → 10
+///   Phase 2 (t 0.2→0.6): opacity ramps from 1 → 0 and scale 1 → 0.85
+///   Phase 3 (t 0.6→1.0): scale ramps from 0.85 → 0 (collapse to nothing)
+/// When reduceMotion is true the card fades without spatial motion.
+private struct CardRemovalModifier: ViewModifier, Animatable {
+    var progress: CGFloat
+    let reduceMotion: Bool
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let blur: CGFloat = reduceMotion ? 0 : min(progress / 0.2, 1) * 10
+        let opacity: Double = progress < 0.2 ? 1 : Double(1 - min((progress - 0.2) / 0.4, 1))
+        let scale: CGFloat = {
+            if reduceMotion { return 1 }
+            if progress < 0.2 { return 1 }
+            let p2 = min((progress - 0.2) / 0.4, 1)
+            let p3 = progress < 0.6 ? 0 : min((progress - 0.6) / 0.4, 1)
+            return 1 - p2 * 0.15 - p3 * 0.85
+        }()
+        content
+            .blur(radius: blur)
+            .opacity(opacity)
+            .scaleEffect(scale)
+    }
+}
+
+private extension AnyTransition {
+    static func cardRemoval(reduceMotion: Bool) -> AnyTransition {
+        .modifier(
+            active: CardRemovalModifier(progress: 1, reduceMotion: reduceMotion),
+            identity: CardRemovalModifier(progress: 0, reduceMotion: reduceMotion)
+        )
     }
 }

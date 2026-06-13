@@ -10,7 +10,7 @@ private let log = Logger(subsystem: "com.macallyouneed.voice", category: "groq-a
 /// and uploaded via multipart/form-data. The response is plain JSON with a `text` field.
 ///
 /// Privacy: audio is sent to Groq's servers. User must provide their own API key (BYOK).
-actor GroqASREngine: VoiceTranscriptionEngine {
+actor GroqASREngine: VoiceTranscriptionEngine, ASRProviding {
     private let settings: () -> GroqASRSettings
     private let apiKeyProvider: () throws -> String?
     private let session: URLSession
@@ -191,7 +191,7 @@ enum GroqASRError: LocalizedError {
 
 private let cloudASRLog = Logger(subsystem: "com.macallyouneed.voice", category: "cloud-asr")
 
-actor VoiceCloudASREngine: VoiceTranscriptionEngine {
+actor VoiceCloudASREngine: VoiceTranscriptionEngine, ASRProviding {
     private let providerKind: VoiceASRProviderKind
     private let settings: () -> VoiceCloudASRSettings
     private let apiKeyProvider: (VoiceASRProviderKind) throws -> String?

@@ -99,11 +99,17 @@ final class DaemonContainer {
             let w = Int(nsImg?.size.width ?? 0)
             let h = Int(nsImg?.size.height ?? 0)
             let meta = try clip.append(.image(blobID: blobID, width: w, height: h), sourceAppBundleID: source)
-            Task.detached { [search] in
+            Task.detached { [search, log] in
                 if let png = Self.pngData(from: d),
                    let text = try? await OCRService.recognize(pngData: png), !text.isEmpty
                 {
-                    try? search.upsert(kind: .clipboardItem, id: meta.id, text: text)
+                    do {
+                        try search.upsert(kind: .clipboardItem, id: meta.id, text: text)
+                    } catch {
+                        log.error(
+                            "FTS upsert failed for clip \(meta.id.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                        )
+                    }
                 }
             }
         case let .fileURLs(urls):

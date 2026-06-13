@@ -109,6 +109,7 @@ targets:
     platform: macOS
     sources:
       - Tools/TypelessImport
+      - Tools/Shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.typeless-import
@@ -125,6 +126,7 @@ targets:
     platform: macOS
     sources:
       - Tools/VoiceTrainingExport
+      - Tools/Shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.voice-training-export

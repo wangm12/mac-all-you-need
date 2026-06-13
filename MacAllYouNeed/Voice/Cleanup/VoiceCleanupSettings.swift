@@ -1,79 +1,8 @@
 import Core
 import Foundation
 
-enum VoiceCleanupProviderKind: String, CaseIterable, Codable, Equatable, Identifiable {
-    case anthropic
-    case openAICompatible
-    case groq
-    case gemini
-    case ollama
-    case omlx
-
-    var id: String {
-        rawValue
-    }
-
-    /// Provider name for pickers, settings summaries, and validation copy (not a specific model ID).
-    var label: String {
-        switch self {
-        case .anthropic:
-            "Anthropic"
-        case .openAICompatible:
-            "OpenAI"
-        case .groq:
-            "Groq"
-        case .gemini:
-            "Google"
-        case .ollama:
-            "Ollama"
-        case .omlx:
-            "oMLX"
-        }
-    }
-
-    var defaultModel: String {
-        switch self {
-        case .anthropic:
-            "claude-haiku-4-5"
-        case .openAICompatible:
-            "gpt-5-nano"
-        case .groq:
-            "openai/gpt-oss-20b"
-        case .gemini:
-            "gemini-2.5-flash"
-        case .ollama:
-            "qwen2.5:3b-instruct"
-        case .omlx:
-            "qwen2.5-3b-instruct"
-        }
-    }
-
-    var defaultBaseURLString: String {
-        switch self {
-        case .anthropic:
-            "https://api.anthropic.com"
-        case .openAICompatible:
-            "https://api.openai.com/v1"
-        case .groq:
-            "https://api.groq.com/openai/v1"
-        case .gemini:
-            "https://generativelanguage.googleapis.com/v1beta/openai/"
-        case .ollama:
-            "http://localhost:11434/v1"
-        case .omlx:
-            "http://127.0.0.1:8000/v1"
-        }
-    }
-
-    var requiresAPIKey: Bool {
-        switch self {
-        case .anthropic, .openAICompatible, .groq, .gemini:
-            true
-        case .ollama, .omlx:
-            false
-        }
-    }
-}
+/// Backward-compatibility alias — Voice code continues to compile unchanged.
+typealias VoiceCleanupProviderKind = LLMProviderKind
 
 enum VoiceCleanupLatencyPolicy: String, CaseIterable, Codable, Equatable, Identifiable {
     case balanced2s

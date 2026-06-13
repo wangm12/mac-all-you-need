@@ -5,10 +5,10 @@ import Foundation
 @MainActor
 final class WatchDaemon {
     private var eventStream: FSEventStreamRef?
-    private var debounceTask: Task<Void, Never>?
     private let debounceDelay: TimeInterval
     private let onNewFiles: ([URL]) async -> Void
     private var watchedURL: URL?
+    private var knownPaths: Set<String> = []
 
     init(debounceDelay: TimeInterval = 2.0, onNewFiles: @escaping ([URL]) async -> Void) {
         self.debounceDelay = debounceDelay
@@ -39,7 +39,6 @@ final class WatchDaemon {
     }
 
     func stop() {
-        debounceTask?.cancel()
         if let stream = eventStream {
             FSEventStreamStop(stream)
             FSEventStreamInvalidate(stream)
@@ -47,17 +46,21 @@ final class WatchDaemon {
         }
         eventStream = nil
         watchedURL = nil
+        knownPaths = []
     }
 
     private func handleFSEvent() {
-        debounceTask?.cancel()
-        debounceTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: .seconds(self.debounceDelay))
-            guard !Task.isCancelled, let url = self.watchedURL else { return }
-            let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
-            let newFiles = files.filter { !$0.hasDirectoryPath }
-            if !newFiles.isEmpty { await self.onNewFiles(newFiles) }
+        // FSEvents stream latency (debounceDelay) already coalesces rapid events;
+        // no additional sleep is needed here.
+        guard let url = watchedURL else { return }
+        let all = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
+        let currentPaths = Set(all.filter { !$0.hasDirectoryPath }.map(\.path))
+        let addedPaths = currentPaths.subtracting(knownPaths)
+        knownPaths = currentPaths
+        guard !addedPaths.isEmpty else { return }
+        let newFiles = addedPaths.map { URL(fileURLWithPath: $0) }
+        Task { @MainActor [weak self] in
+            await self?.onNewFiles(newFiles)
         }
     }
 }

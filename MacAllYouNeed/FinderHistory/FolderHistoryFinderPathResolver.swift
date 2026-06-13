@@ -19,10 +19,11 @@ enum FolderHistoryFinderPathResolver {
         let app = AXUIElementCreateApplication(pid)
         var focusedValue: CFTypeRef?
         if AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focusedValue) == .success,
-           let window = focusedValue
+           let window = focusedValue,
+           CFGetTypeID(window) == AXUIElementGetTypeID()
         {
-            // swiftlint:disable:next force_cast
-            if let path = documentPathSearchingDescendants(window as! AXUIElement, axReader: axReader) {
+            let axWindow = window as! AXUIElement
+            if let path = documentPathSearchingDescendants(axWindow, axReader: axReader) {
                 return path
             }
         }

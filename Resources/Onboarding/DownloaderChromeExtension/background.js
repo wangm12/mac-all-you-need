@@ -3,7 +3,69 @@ const COOKIE_SYNC_DOMAINS = globalThis.COOKIE_SYNC_DOMAINS
 const { MEDIA_PATTERNS, MIN_VIDEO_SIZE, SIZE_EXEMPT_TYPES } = globalThis.MAYNMediaPatterns
 
 const APP_URL = 'http://127.0.0.1:18765'
+
+async function getAuthToken() {
+  const r = await chrome.storage.local.get('maynAuthToken')
+  if (r.maynAuthToken) return r.maynAuthToken
+  const t = crypto.randomUUID()
+  await chrome.storage.local.set({ maynAuthToken: t })
+  return t
+}
 const LAST_DOWNLOAD_ERROR_TTL_MS = 10 * 60 * 1000
+
+// True once this service-worker lifetime has successfully registered its token
+// with the app via /ping. Reset on a 401 so we re-register and retry once.
+let registeredThisSession = false
+
+/**
+ * Idempotent token registration. POSTs (well, GETs) /ping with X-MAYN-Token and
+ * awaits success before any cookie sync or download. The app does first-write-wins
+ * registration, so this is safe to call repeatedly. Returns true if the app
+ * acknowledged our token (200). A 409 means a *different* token is already
+ * registered with the app — we cannot proceed, so return false.
+ */
+async function ensureRegistered() {
+  if (registeredThisSession) return true
+  try {
+    const token = await getAuthToken()
+    const res = await fetch(`${APP_URL}/ping`, {
+      headers: { 'X-MAYN-Token': token }
+    })
+    if (res.ok) {
+      registeredThisSession = true
+      return true
+    }
+    if (res.status === 409) {
+      logBg('ensure-registered-conflict', { status: res.status })
+    }
+    return false
+  } catch (e) {
+    return false
+  }
+}
+
+/**
+ * fetch() against the app that guarantees the token is registered first and
+ * transparently recovers from a stale-session 401: on 401, clear the session
+ * flag, re-register, and retry the request exactly once.
+ */
+async function authedFetch(path, init = {}) {
+  if (!(await ensureRegistered())) {
+    return { ok: false, status: 0, _unregistered: true }
+  }
+  const token = await getAuthToken()
+  const withToken = (extra) => ({
+    ...init,
+    headers: { ...(init.headers || {}), 'X-MAYN-Token': token, ...extra }
+  })
+  let res = await fetch(`${APP_URL}${path}`, withToken())
+  if (res.status === 401) {
+    registeredThisSession = false
+    if (!(await ensureRegistered())) return res
+    res = await fetch(`${APP_URL}${path}`, withToken())
+  }
+  return res
+}
 
 function truncateUrl(u, max = 72) {
   if (!u || typeof u !== 'string') return ''
@@ -72,13 +134,15 @@ async function postDownloadsQueueWhenReady(requests, maxAttempts = 48, delayMs =
   })
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const ping = await fetch(`${APP_URL}/ping`)
-      if (ping.ok) {
+      // ensureRegistered() replaces the bare /ping: it registers (first-write-wins)
+      // and only resolves true once the app has acknowledged our token.
+      const registered = await ensureRegistered()
+      if (registered) {
         logBg('post-queue-ping-ok', { rid, attempt })
         await syncCookies()
         for (let i = 0; i < requests.length; i++) {
           const req = requests[i]
-          const res = await fetch(`${APP_URL}/download`, {
+          const res = await authedFetch('/download', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(req)
@@ -91,7 +155,7 @@ async function postDownloadsQueueWhenReady(requests, maxAttempts = 48, delayMs =
         return true
       }
       if (attempt === 0 || attempt % 10 === 0) {
-        logBg('post-queue-ping-notok', { rid, attempt, status: ping.status })
+        logBg('post-queue-ping-notok', { rid, attempt })
       }
     } catch (e) {
       if (attempt === 0 || attempt % 10 === 0) {
@@ -113,8 +177,44 @@ function postDownloadWhenAppReady(request) {
 
 // tabMedia: Map<tabId, Map<frameId, Map<url, mediaEntry>>>
 const tabMedia = new Map()
+
+// Persist tabMedia to chrome.storage.session so sniffed media survives SW sleep.
+let saveTimer = null
+function scheduleTabMediaSave() {
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    const obj = {}
+    for (const [tabId, frames] of tabMedia) {
+      const framesObj = {}
+      for (const [frameId, bucket] of frames) {
+        const bucketObj = {}
+        for (const [url, entry] of bucket) bucketObj[url] = entry
+        framesObj[String(frameId)] = bucketObj
+      }
+      obj[String(tabId)] = framesObj
+    }
+    chrome.storage.session.set({ tabMedia: obj })
+  }, 200)
+}
+
+// Restore tabMedia on SW wake.
+chrome.storage.session.get('tabMedia').then((res) => {
+  if (!res.tabMedia) return
+  for (const [tabIdStr, framesObj] of Object.entries(res.tabMedia)) {
+    const tabId = Number(tabIdStr)
+    for (const [frameIdStr, bucketObj] of Object.entries(framesObj)) {
+      const frameId = Number(frameIdStr)
+      for (const [url, entry] of Object.entries(bucketObj)) {
+        // Use the existing helper so cap logic applies on replay too.
+        addMediaEntry(tabId, frameId, url, entry)
+      }
+    }
+  }
+})
+
 let lastClickTime = 0
 let lastWakeBgAt = 0
+let lastCookieSyncAt = 0
 const WAKE_DEBOUNCE_MS = 2000
 
 // --- Frame-aware storage helpers ---
@@ -136,6 +236,7 @@ function addMediaEntry(tabId, frameId, url, entry) {
     const toRemove = sorted.slice(0, bucket.size - FRAME_BUCKET_MAX)
     for (const [k] of toRemove) bucket.delete(k)
   }
+  scheduleTabMediaSave()
 }
 
 function getFrameMedia(tabId, frameId) {
@@ -199,7 +300,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
   if (isDouyinUrl(tab.url)) {
     try {
-      await syncCookies()
+      await syncCookies({ forced: true })
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: () => {
@@ -232,12 +333,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
   if (changeInfo.url) {
     tabMedia.delete(tabId)
+    scheduleTabMediaSave()
     updateBadge(tabId, 0)
   }
 })
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabMedia.delete(tabId)
+  scheduleTabMediaSave()
 })
 
 function updateTabUI(tab) {
@@ -330,6 +433,7 @@ function getHeader(headers, name) {
 // --- Message handlers ---
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (sender.id !== chrome.runtime.id) return
   if (message.type === 'CLEAR_LAST_DOWNLOAD_ERROR') {
     clearLastDownloadError()
     sendResponse({ ok: true })
@@ -338,7 +442,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'FORCE_COOKIE_SYNC') {
     ;(async () => {
-      const ok = await syncCookies()
+      const ok = await syncCookies({ forced: true })
       sendResponse({
         ok,
         error: ok ? undefined : 'App did not accept cookies (is Mac All You Need running on this machine?)',
@@ -396,8 +500,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }))
 
       try {
-        await syncCookies()
-        const firstRes = await fetch(`${APP_URL}/download`, {
+        await syncCookies({ forced: true })
+        const firstRes = await authedFetch('/download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requests[0])
@@ -405,7 +509,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (firstRes.ok) {
           clearLastDownloadError()
           for (let i = 1; i < requests.length; i++) {
-            await fetch(`${APP_URL}/download`, {
+            await authedFetch('/download', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(requests[i])
@@ -510,9 +614,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     ;(async () => {
       try {
-        const cookiesOk = await syncCookies()
+        const cookiesOk = await syncCookies({ forced: true })
         logBg('download-from-content-sync-cookies', { cookiesOk })
-        const res = await fetch(`${APP_URL}/download`, {
+        const res = await authedFetch('/download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(request)
@@ -568,8 +672,8 @@ function getXStatusUrl(url) {
 async function sendDownloadRequest(request, tabId, opts = {}) {
   const payload = typeof request === 'object' && request !== null ? request : { url: String(request) }
   try {
-    await syncCookies()
-    const res = await fetch(`${APP_URL}/download`, {
+    await syncCookies({ forced: true })
+    const res = await authedFetch('/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -590,17 +694,14 @@ async function sendDownloadRequest(request, tabId, opts = {}) {
   return ok
 }
 
-function launchWakeToFocusApp(tabId, opts = {}) {
+async function syncCookies(opts = {}) {
   const now = Date.now()
-  if (!opts.force && now - lastWakeBgAt < WAKE_DEBOUNCE_MS) {
-    logBg('launch-wake-skipped-debounce', { tabId, msSince: now - lastWakeBgAt })
-    return
-  }
-  lastWakeBgAt = now
-  logBg('launch-wake', { tabId, force: !!opts.force })
-}
-
-async function syncCookies() {
+  if (!opts.forced && now - lastCookieSyncAt < 60000) return false
+  lastCookieSyncAt = now
+  // Register our token before sending any cookies. If the app has a different
+  // token registered (409) or is unreachable, ensureRegistered() returns false
+  // and we never POST /cookies.
+  if (!(await ensureRegistered())) return false
   try {
     const allCookies = []
     for (const domain of COOKIE_SYNC_DOMAINS) {
@@ -617,12 +718,12 @@ async function syncCookies() {
     }
 
     const body = JSON.stringify(allCookies)
-    const headers = { 'Content-Type': 'application/json' }
-    const appRes = await fetch(`${APP_URL}/cookies`, { method: 'POST', headers, body })
-    const appOk = appRes.ok
-
-    console.log(`Synced ${allCookies.length} cookies across ${COOKIE_SYNC_DOMAINS.length} domains`)
-    return appOk
+    const appRes = await authedFetch('/cookies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body
+    })
+    return appRes.ok
   } catch {
     return false
   }
@@ -630,7 +731,7 @@ async function syncCookies() {
 
 async function pollPendingCookieSync() {
   try {
-    const poll = await fetch(`${APP_URL}/cookie-sync-poll`)
+    const poll = await authedFetch('/cookie-sync-poll')
     if (!poll.ok) return
     const data = await poll.json()
     if (!data.pending) return
@@ -640,7 +741,9 @@ async function pollPendingCookieSync() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
+  const r = await chrome.storage.local.get('maynAuthToken')
+  if (!r.maynAuthToken) await chrome.storage.local.set({ maynAuthToken: crypto.randomUUID() })
   syncCookies()
   cleanupLastDownloadError()
   chrome.contextMenus.create({
@@ -666,7 +769,7 @@ chrome.alarms.create('cookie-sync-force-poll', { periodInMinutes: 1 })
 chrome.alarms.create('last-download-error-gc', { periodInMinutes: 5 })
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'sync-cookies') {
-    syncCookies()
+    syncCookies({ forced: true })
   } else if (alarm.name === 'cookie-sync-force-poll') {
     void pollPendingCookieSync()
   } else if (alarm.name === 'last-download-error-gc') {

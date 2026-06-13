@@ -34,7 +34,7 @@ final class DockPreviewSearchWindow: NSObject {
         let searchWidth: CGFloat = 300
         let searchHeight: CGFloat = 40
         let gap: CGFloat = -20
-        let screen = window.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        guard let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let screenFrame = screen.visibleFrame
 
         var searchFrame: NSRect

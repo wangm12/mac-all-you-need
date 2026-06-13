@@ -138,12 +138,12 @@ public struct ModifierTapShortcut: Hashable, Codable, Sendable {
 
     /// The modifier key that must be tapped.
     public let key: Key
-    /// Number of consecutive taps required (1 = single, 2 = double).
+    /// Number of consecutive taps required (1 = single, 2 = double, 3 = triple, …).
     public let count: Int
 
     public init(key: Key, count: Int = 1) {
         self.key = key
-        self.count = max(1, min(count, 2))
+        self.count = max(1, count)
     }
 
     public static func singleTap(_ key: Key) -> ModifierTapShortcut {
