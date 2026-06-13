@@ -705,6 +705,7 @@ struct DockAdvancedSettings: Equatable {
     var switcherLivePreviewFrameRate: DockLivePreviewFrameRate
     var switcherLivePreviewScope: DockLivePreviewScope
     var livePreviewStreamKeepAlive: Int
+    var enableHDRLivePreview: Bool
     var disableMinWindowSizeFilter: Bool
     var openNewWindowForWindowlessApps: Bool
 
@@ -724,6 +725,7 @@ struct DockAdvancedSettings: Equatable {
         switcherLivePreviewFrameRate: .fps10,
         switcherLivePreviewScope: .selectedAppWindows,
         livePreviewStreamKeepAlive: 0,
+        enableHDRLivePreview: false,
         disableMinWindowSizeFilter: false,
         openNewWindowForWindowlessApps: false
     )
@@ -749,6 +751,7 @@ extension DockAdvancedSettings: Codable {
         switcherLivePreviewFrameRate = d(.switcherLivePreviewFrameRate, s.switcherLivePreviewFrameRate)
         switcherLivePreviewScope = d(.switcherLivePreviewScope, s.switcherLivePreviewScope)
         livePreviewStreamKeepAlive = d(.livePreviewStreamKeepAlive, s.livePreviewStreamKeepAlive)
+        enableHDRLivePreview = d(.enableHDRLivePreview, s.enableHDRLivePreview)
         disableMinWindowSizeFilter = d(.disableMinWindowSizeFilter, s.disableMinWindowSizeFilter)
         openNewWindowForWindowlessApps = d(.openNewWindowForWindowlessApps, s.openNewWindowForWindowlessApps)
     }

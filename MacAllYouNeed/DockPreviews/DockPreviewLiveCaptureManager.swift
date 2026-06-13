@@ -16,8 +16,25 @@ final class DockPreviewLiveCaptureManager: ObservableObject {
     private var keepAliveTask: Task<Void, Never>?
     private var cachedShareableContent: SCShareableContent?
     private var cachedShareableContentAt = Date.distantPast
+    private var terminateObserver: NSObjectProtocol?
     private let maxStreams = 4
-    private let shareableContentCacheTTL: TimeInterval = 2
+    private let shareableContentCacheTTL: TimeInterval = 20
+
+    init() {
+        terminateObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.invalidateShareableContentCache() }
+        }
+    }
+
+    deinit {
+        if let terminateObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(terminateObserver)
+        }
+    }
 
     func setActiveWindowIDs(
         _ ids: [CGWindowID],
@@ -76,6 +93,11 @@ final class DockPreviewLiveCaptureManager: ObservableObject {
         }
     }
 
+    func invalidateShareableContentCache() {
+        cachedShareableContent = nil
+        cachedShareableContentAt = .distantPast
+    }
+
     private var panelOpenCount = 0
 
     func panelOpened() {
@@ -128,7 +150,11 @@ final class DockPreviewLiveCaptureManager: ObservableObject {
         streamConfig.width = config.streamWidth
         streamConfig.height = config.streamHeight
         streamConfig.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(config.frameRate))
-        streamConfig.queueDepth = 2
+        streamConfig.queueDepth = config.queueDepth
+        if #available(macOS 15.0, *), config.enableHDR {
+            streamConfig.captureDynamicRange = .hdrLocalDisplay
+            streamConfig.colorSpaceName = CGColorSpace.displayP3
+        }
 
         let minPublishInterval = 1.0 / Double(max(config.frameRate, 1))
         let handler = StreamOutputHandler(
@@ -139,7 +165,7 @@ final class DockPreviewLiveCaptureManager: ObservableObject {
         }
         let stream = SCStream(filter: filter, configuration: streamConfig, delegate: nil)
         do {
-            try stream.addStreamOutput(handler, type: .screen, sampleHandlerQueue: .global(qos: .userInitiated))
+            try stream.addStreamOutput(handler, type: .screen, sampleHandlerQueue: .global(qos: .userInteractive))
             try await stream.startCapture()
             streams[windowID] = stream
             outputs[windowID] = handler

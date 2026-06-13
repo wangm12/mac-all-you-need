@@ -11,6 +11,8 @@ struct DockPreviewLiveCaptureConfiguration: Equatable {
     var streamHeight: Int
     var frameRate: Int
     var keepAliveSec: Int
+    var queueDepth: Int
+    var enableHDR: Bool
 
     static func resolve(hub: DockHubSettings, context: DockPreviewLiveCaptureContext) -> Self {
         let quality: DockLivePreviewQuality
@@ -31,8 +33,19 @@ struct DockPreviewLiveCaptureConfiguration: Equatable {
             streamWidth: width,
             streamHeight: height,
             frameRate: frameRate.rawValue,
-            keepAliveSec: keepAlive
+            keepAliveSec: keepAlive,
+            queueDepth: Self.queueDepth(for: quality),
+            enableHDR: hub.advanced.enableHDRLivePreview
         )
+    }
+
+    private static func queueDepth(for quality: DockLivePreviewQuality) -> Int {
+        switch quality {
+        case .high, .retina, .native:
+            return 5
+        case .thumbnail, .low, .standard:
+            return 3
+        }
     }
 
     private static func dimensions(for quality: DockLivePreviewQuality) -> (Int, Int) {

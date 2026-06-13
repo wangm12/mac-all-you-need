@@ -7,6 +7,7 @@ enum DockPreviewWindowAction: String, Codable, CaseIterable, Hashable, Identifia
     case minimize
     case toggleFullScreen
     case maximize
+    case bringToCurrentSpace
 
     var id: String { rawValue }
 
@@ -17,6 +18,7 @@ enum DockPreviewWindowAction: String, Codable, CaseIterable, Hashable, Identifia
         case .minimize: "minus"
         case .toggleFullScreen: "arrow.up.left.and.arrow.down.right"
         case .maximize: "arrow.up.to.line"
+        case .bringToCurrentSpace: "arrow.right.to.line"
         }
     }
 
@@ -27,6 +29,7 @@ enum DockPreviewWindowAction: String, Codable, CaseIterable, Hashable, Identifia
         case .minimize: "Minimize"
         case .toggleFullScreen: "Fullscreen"
         case .maximize: "Maximize"
+        case .bringToCurrentSpace: "Bring to Current Space"
         }
     }
 }

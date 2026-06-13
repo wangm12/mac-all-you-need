@@ -83,6 +83,7 @@ struct DockPreviewTrafficLightButtons: View {
         case .minimize: return (Color(red: 0.59, green: 0.34, blue: 0.07), Color.yellow)
         case .toggleFullScreen: return (Color(red: 0.05, green: 0.40, blue: 0.05), Color.green)
         case .maximize: return (Color(red: 0.04, green: 0.35, blue: 0.29), Color.teal)
+        case .bringToCurrentSpace: return (Color(red: 0.05, green: 0.22, blue: 0.45), Color.blue)
         }
     }
 
@@ -99,6 +100,8 @@ struct DockPreviewTrafficLightButtons: View {
             DockPreviewWindowActions.toggleFullScreen(entry: entry)
         case .maximize:
             DockPreviewWindowActions.zoom(entry: entry)
+        case .bringToCurrentSpace:
+            _ = DockPreviewSpaceMover.moveWindowToCurrentSpace(entry.id)
         }
     }
 }

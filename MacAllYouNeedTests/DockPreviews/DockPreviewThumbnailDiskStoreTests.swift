@@ -64,6 +64,21 @@ final class DockPreviewThumbnailDiskStoreTests: XCTestCase {
         XCTAssertFalse(store.hasThumbnail(pid: 99, windowID: 1))
     }
 
+    func testFreshWindowIDsBatchAsync() async throws {
+        let image = makeTestCGImage()
+        let capturedAt = Date(timeIntervalSince1970: 4_000)
+        await store.write(pid: 7, windowID: 1, cgImage: image, capturedAt: capturedAt)
+        await store.write(pid: 7, windowID: 2, cgImage: image, capturedAt: capturedAt.addingTimeInterval(-120))
+
+        let fresh = await store.freshWindowIDs(
+            pid: 7,
+            windowIDs: [1, 2, 3],
+            lifespan: 60,
+            now: capturedAt.addingTimeInterval(30)
+        )
+        XCTAssertEqual(fresh, Set([CGWindowID(1)]))
+    }
+
     private func makeTestCGImage() -> CGImage {
         let context = CGContext(
             data: nil,

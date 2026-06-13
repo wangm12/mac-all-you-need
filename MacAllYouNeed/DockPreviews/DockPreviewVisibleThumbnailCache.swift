@@ -77,13 +77,6 @@ final class DockPreviewVisibleThumbnailCache {
             insert(prefetched, key: key)
             return .diskLoad(prefetched)
         }
-        // Sync load only when a JPEG already exists — avoids `panel.show` flashing empty before async hydrate.
-        if diskStore.hasThumbnail(pid: entry.pid, windowID: entry.id),
-           let image = diskStore.loadImage(pid: entry.pid, windowID: entry.id, title: entry.title)
-        {
-            insert(image, key: key)
-            return .diskLoad(image)
-        }
         return .miss
     }
 

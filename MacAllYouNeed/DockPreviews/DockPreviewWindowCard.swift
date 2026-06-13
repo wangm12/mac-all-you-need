@@ -162,10 +162,7 @@ struct DockPreviewWindowCard: View, Equatable {
     private func windowContent(isSelected: Bool) -> some View {
         Group {
             if isLoadingPlaceholder {
-                ZStack {
-                    Color.primary.opacity(0.06)
-                    ProgressView().controlSize(.small)
-                }
+                DockPreviewGlintPlaceholder()
             } else if let liveImage {
                 Image(decorative: liveImage, scale: 1)
                     .resizable()
@@ -175,10 +172,7 @@ struct DockPreviewWindowCard: View, Equatable {
                     .resizable()
                     .scaledToFit()
             } else if isAwaitingThumbnail {
-                ZStack {
-                    Color.primary.opacity(0.06)
-                    ProgressView().controlSize(.small)
-                }
+                DockPreviewGlintPlaceholder()
             } else if isInactiveForPreview {
                 ZStack {
                     Color.primary.opacity(0.08)
@@ -415,15 +409,17 @@ struct DockPreviewWindowCard: View, Equatable {
 
     @ViewBuilder
     private func titlePill(_ title: String) -> some View {
-        Text(title)
-            .font(appearance.windowTitleFont)
-            .lineLimit(1)
-            .truncationMode(truncationMode)
-            .frame(maxWidth: titleMaxWidth, alignment: .leading)
-            .padding(4)
-            .if(!appearance.disableDockStyleTitles) { view in
-                view.dockPreviewMaterialPill(background: appearance.background)
-            }
+        DockPreviewMarqueeTitle(
+            title: title,
+            font: appearance.windowTitleFont,
+            maxWidth: titleMaxWidth,
+            overflowStyle: appearance.titleOverflowStyle,
+            reduceMotion: reduceMotion
+        )
+        .padding(4)
+        .if(!appearance.disableDockStyleTitles) { view in
+            view.dockPreviewMaterialPill(background: appearance.background)
+        }
     }
 
     @ViewBuilder
@@ -436,13 +432,6 @@ struct DockPreviewWindowCard: View, Equatable {
         )
     }
 
-    private var truncationMode: Text.TruncationMode {
-        switch appearance.titleOverflowStyle {
-        case .truncateTail: .tail
-        case .truncateMiddle: .middle
-        case .truncateHead: .head
-        }
-    }
 }
 
 private extension View {

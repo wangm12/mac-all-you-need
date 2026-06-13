@@ -129,6 +129,10 @@ struct DockSettingsTabPreviews: View {
             MAYNSettingsRow(title: "Stream keep-alive", subtitle: "Seconds to keep live streams running after the panel closes (0 = stop immediately).") {
                 MAYNNumericStepper(text: "Keep-alive", value: settings.int(\.advanced.livePreviewStreamKeepAlive), range: 0...30, step: 1, presets: [0, 3, 5, 10], suffix: "sec")
             }
+            MAYNDivider()
+            MAYNSettingsRow(title: "HDR live preview", subtitle: "Capture HDR/P3 colors on macOS 15+ (uses more memory).") {
+                Toggle("", isOn: settings.bool(\.advanced.enableHDRLivePreview)).labelsHidden()
+            }
         }
     }
 

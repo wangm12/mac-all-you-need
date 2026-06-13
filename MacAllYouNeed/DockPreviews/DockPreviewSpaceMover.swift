@@ -31,6 +31,11 @@ enum DockPreviewSpaceMover {
         }
     }
 
+    static func moveWindowToCurrentSpace(_ windowID: CGWindowID) -> Bool {
+        guard let spaceID = currentManagedSpaceID(at: NSEvent.mouseLocation) else { return false }
+        return moveWindow(windowID, to: spaceID)
+    }
+
     static func moveWindow(_ windowID: CGWindowID, to spaceID: SpaceID) -> Bool {
         guard let operationClass = NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation") else {
             return false

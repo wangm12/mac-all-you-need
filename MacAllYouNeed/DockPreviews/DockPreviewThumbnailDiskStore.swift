@@ -104,6 +104,29 @@ final class DockPreviewThumbnailDiskStore: @unchecked Sendable {
         }
     }
 
+    func loadIfPresentAsync(
+        pid: pid_t,
+        windowID: CGWindowID,
+        title: String? = nil
+    ) async -> NSImage? {
+        await loadImageAsync(pid: pid, windowID: windowID, title: title, logMisses: false)
+    }
+
+    func freshWindowIDs(
+        pid: pid_t,
+        windowIDs: [CGWindowID],
+        lifespan: TimeInterval,
+        now: Date = Date()
+    ) async -> Set<CGWindowID> {
+        await runOnQueueReturning {
+            guard lifespan > 0 else { return [] }
+            return Set(windowIDs.filter { windowID in
+                guard let capturedAt = self.capturedAtSync(pid: pid, windowID: windowID) else { return false }
+                return now.timeIntervalSince(capturedAt) <= lifespan
+            })
+        }
+    }
+
     /// Loads by window ID, then falls back to the newest on-disk capture with the same window title (minimized / ID churn).
     func loadImage(pid: pid_t, windowID: CGWindowID, title: String? = nil, logMisses: Bool = false) -> NSImage? {
         let directURL = jpegURL(pid: pid, windowID: windowID)

@@ -14,6 +14,26 @@ final class DockPreviewLiveCaptureConfigurationTests: XCTestCase {
         XCTAssertEqual(config.streamHeight, 300)
         XCTAssertEqual(config.frameRate, 15)
         XCTAssertEqual(config.keepAliveSec, 5)
+        XCTAssertEqual(config.queueDepth, 5)
+        XCTAssertFalse(config.enableHDR)
+    }
+
+    func testDockHoverHighQualityUsesDeeperQueue() {
+        var hub = DockHubSettings.default
+        hub.advanced.dockLivePreviewQuality = .standard
+
+        let config = DockPreviewLiveCaptureConfiguration.resolve(hub: hub, context: .dockHover)
+
+        XCTAssertEqual(config.queueDepth, 3)
+    }
+
+    func testEnableHDRWhenAdvancedToggleOn() {
+        var hub = DockHubSettings.default
+        hub.advanced.enableHDRLivePreview = true
+
+        let config = DockPreviewLiveCaptureConfiguration.resolve(hub: hub, context: .dockHover)
+
+        XCTAssertTrue(config.enableHDR)
     }
 
     func testSwitcherUsesSwitcherAdvancedSettings() {

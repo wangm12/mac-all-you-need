@@ -275,6 +275,10 @@ struct DockSettingsTabCustomizations: View {
                 MAYNDivider()
                 MAYNSettingsRow(title: "Fullscreen", subtitle: nil) { Toggle("", isOn: appearanceTrafficLightToggle(.toggleFullScreen)).labelsHidden() }
                 MAYNDivider()
+                MAYNSettingsRow(title: "Bring to current space", subtitle: nil) {
+                    Toggle("", isOn: appearanceTrafficLightToggle(.bringToCurrentSpace)).labelsHidden()
+                }
+                MAYNDivider()
                 MAYNSettingsRow(title: "Quit", subtitle: nil) { Toggle("", isOn: appearanceTrafficLightToggle(.quit)).labelsHidden() }
                 MAYNDivider()
                 MAYNSettingsRow(title: "Monochrome style", subtitle: "Single-color traffic light buttons.") {

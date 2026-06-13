@@ -69,6 +69,20 @@ final class DockPreviewWindowCapturePipeline {
         cache.freshWindowIDs(pid: pid, lifespan: cacheLifespan)
     }
 
+    private func freshWindowIDsAsync(pid: pid_t) async -> Set<CGWindowID> {
+        await cache.freshWindowIDsAsync(pid: pid, lifespan: cacheLifespan)
+    }
+
+    private func lookupFreshIDs(
+        pid: pid_t,
+        forceRefresh: Bool = false,
+        freshIDs: Set<CGWindowID>? = nil
+    ) async -> Set<CGWindowID> {
+        if forceRefresh { return [] }
+        if let freshIDs { return freshIDs }
+        return await freshWindowIDsAsync(pid: pid)
+    }
+
     /// True when every capturable on-screen window has a fresh on-disk thumbnail within `cacheLifespan`.
     func isDisplayCacheFresh(pid: pid_t) -> Bool {
         let cached = cache.readCached(pid: pid)
@@ -121,12 +135,12 @@ final class DockPreviewWindowCapturePipeline {
         _ = cache.update(entries: entries, for: pid)
         await purify(pid: pid)
         let cached = cache.readCached(pid: pid)
-        let freshIDs = freshWindowIDs(pid: pid)
+        let freshIDs = await freshWindowIDsAsync(pid: pid)
         let eligible = cached.filter { !$0.title.isEmpty }
         let skippedFresh = eligible.filter { freshIDs.contains($0.id) }.count
-        await attachThumbnails(pid: pid)
-        await refreshAXFallbackImages(pid: pid)
-        await seedLiveSnapshotsForMissingThumbnails(pid: pid)
+        await attachThumbnails(pid: pid, freshIDs: freshIDs)
+        await refreshAXFallbackImages(pid: pid, freshIDs: freshIDs)
+        await seedLiveSnapshotsForMissingThumbnails(pid: pid, freshIDs: freshIDs)
         let durationMs = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
         DockPreviewThumbnailDiagnostics.refreshApp(
             pid: pid,
@@ -187,15 +201,22 @@ final class DockPreviewWindowCapturePipeline {
     }
 
     /// When live preview is off, seed disk JPEGs via a short SC stream (one frame, then stop).
-    func seedLiveSnapshotsForMissingThumbnails(pid: pid_t, maxCaptures: Int? = nil) async {
+    func seedLiveSnapshotsForMissingThumbnails(
+        pid: pid_t,
+        maxCaptures: Int? = nil,
+        freshIDs: Set<CGWindowID>? = nil
+    ) async {
         guard !previewsSettings.enableLivePreview else { return }
         guard DockPreviewPermissionGate.screenRecordingGranted() else { return }
 
-        let freshIDs = freshWindowIDs(pid: pid)
-        let missing = Self.prioritizedCaptureBatch(from: cache.readCached(pid: pid)).filter { entry in
-            !freshIDs.contains(entry.id)
-                && !diskStore.hasThumbnail(pid: pid, windowID: entry.id)
-                && diskStore.loadImage(pid: pid, windowID: entry.id, title: entry.title) == nil
+        let resolvedFreshIDs = await lookupFreshIDs(pid: pid, freshIDs: freshIDs)
+        var missing: [DockPreviewWindowEntry] = []
+        for entry in Self.prioritizedCaptureBatch(from: cache.readCached(pid: pid)) {
+            guard !resolvedFreshIDs.contains(entry.id) else { continue }
+            if await diskStore.loadIfPresentAsync(pid: pid, windowID: entry.id, title: entry.title) != nil {
+                continue
+            }
+            missing.append(entry)
         }
         guard !missing.isEmpty else { return }
 
@@ -225,14 +246,18 @@ final class DockPreviewWindowCapturePipeline {
         }
     }
 
-    func attachThumbnails(pid: pid_t, forceRefresh: Bool = false) async {
+    func attachThumbnails(pid: pid_t, forceRefresh: Bool = false, freshIDs: Set<CGWindowID>? = nil) async {
         guard DockPreviewPermissionGate.shouldCaptureWindowImages(hub: hubSettings) else { return }
-        let freshIDs = forceRefresh ? Set<CGWindowID>() : freshWindowIDs(pid: pid)
+        let resolvedFreshIDs = await lookupFreshIDs(
+            pid: pid,
+            forceRefresh: forceRefresh,
+            freshIDs: freshIDs
+        )
         let scale = CGFloat(max(1, hubSettings.advanced.windowPreviewImageScale))
         let quality = hubSettings.advanced.windowImageCaptureQuality
         let entries = cache.readCached(pid: pid)
         let eligible = Self.prioritizedCaptureBatch(from: entries)
-        let skippedFresh = eligible.filter { freshIDs.contains($0.id) }.count
+        let skippedFresh = eligible.filter { resolvedFreshIDs.contains($0.id) }.count
         DockPreviewThumbnailDiagnostics.attachBatch(
             pid: pid,
             total: eligible.count,
@@ -242,13 +267,14 @@ final class DockPreviewWindowCapturePipeline {
         )
         await withTaskGroup(of: Void.self) { group in
             for entry in eligible {
-                if freshIDs.contains(entry.id) { continue }
+                if resolvedFreshIDs.contains(entry.id) { continue }
                 group.addTask { [weak self] in
                     await self?.captureThumbnail(
                         windowID: entry.id,
                         pid: pid,
                         scale: scale,
-                        quality: quality
+                        quality: quality,
+                        freshIDs: resolvedFreshIDs
                     )
                 }
             }
@@ -261,8 +287,13 @@ final class DockPreviewWindowCapturePipeline {
             cache.clear(pid: pid)
             return
         }
-        let liveIDs = Set(liveWindowIDs(for: app))
-        let helperOwnerIDs = Set(helperOwnedWindowIDs(displayApp: app))
+        let cgList = copyCGWindowList()
+        let liveIDs = Set(windowIDsFromCGList(cgList, matching: { ownerPID, _ in ownerPID == app.processIdentifier }))
+        let helperOwnerIDs = Set(windowIDsFromCGList(cgList, matching: { ownerPID, _ in
+            guard let owner = NSRunningApplication(processIdentifier: ownerPID) else { return false }
+            return DockPreviewWindowOwnerResolver.ownerBelongsToDisplayApp(owner, displayApp: app)
+                && owner.processIdentifier != app.processIdentifier
+        }))
         for entry in cache.readCached(pid: pid) {
             if !liveIDs.contains(entry.id), !helperOwnerIDs.contains(entry.id) {
                 cache.removeFromCache(windowID: entry.id, pid: pid)
@@ -271,13 +302,12 @@ final class DockPreviewWindowCapturePipeline {
     }
 
     /// Capture thumbnails for entries still missing on-disk images after enumeration (AX-only gaps).
-    func refreshAXFallbackImages(pid: pid_t) async {
+    func refreshAXFallbackImages(pid: pid_t, freshIDs: Set<CGWindowID>? = nil) async {
         guard DockPreviewPermissionGate.shouldCaptureWindowImages(hub: hubSettings) else { return }
-        let freshIDs = freshWindowIDs(pid: pid)
+        let resolvedFreshIDs = await lookupFreshIDs(pid: pid, freshIDs: freshIDs)
         let missing = cache.readCached(pid: pid).filter { entry in
             DockPreviewCaptureEligibility.canCapture(entry)
-                && !diskStore.hasThumbnail(pid: pid, windowID: entry.id)
-                && !freshIDs.contains(entry.id)
+                && !resolvedFreshIDs.contains(entry.id)
         }
         guard !missing.isEmpty else { return }
         let scale = CGFloat(max(1, hubSettings.advanced.windowPreviewImageScale))
@@ -290,7 +320,8 @@ final class DockPreviewWindowCapturePipeline {
                         pid: pid,
                         scale: scale,
                         quality: quality,
-                        forceRefresh: true
+                        forceRefresh: true,
+                        freshIDs: resolvedFreshIDs
                     )
                 }
             }
@@ -302,11 +333,15 @@ final class DockPreviewWindowCapturePipeline {
         pid: pid_t,
         scale: CGFloat,
         quality: DockWindowImageCaptureQuality,
-        forceRefresh: Bool = false
+        forceRefresh: Bool = false,
+        freshIDs: Set<CGWindowID>? = nil
     ) async {
-        if !forceRefresh, freshWindowIDs(pid: pid).contains(windowID) {
-            DockPreviewThumbnailDiagnostics.captureSkipFresh(pid: pid, windowID: windowID)
-            return
+        if !forceRefresh {
+            let resolvedFreshIDs = await lookupFreshIDs(pid: pid, freshIDs: freshIDs)
+            if resolvedFreshIDs.contains(windowID) {
+                DockPreviewThumbnailDiagnostics.captureSkipFresh(pid: pid, windowID: windowID)
+                return
+            }
         }
         guard let image = await thumbnailService.capture(windowID: windowID, scale: scale, quality: quality) else {
             DockPreviewThumbnailDiagnostics.captureFailed(pid: pid, windowID: windowID, reason: "cgsNil")
@@ -345,27 +380,16 @@ final class DockPreviewWindowCapturePipeline {
         return Array(capturable.prefix(maxCapturesPerHoverBatch))
     }
 
-    private func liveWindowIDs(for app: NSRunningApplication) -> [CGWindowID] {
-        windowIDsFromCGList(matching: { ownerPID, _ in ownerPID == app.processIdentifier })
-    }
-
-    /// Windows owned by Electron/helper PIDs mapped to this display app (DockDoor owner resolution).
-    private func helperOwnedWindowIDs(displayApp: NSRunningApplication) -> [CGWindowID] {
-        windowIDsFromCGList(matching: { ownerPID, _ in
-            guard let owner = NSRunningApplication(processIdentifier: ownerPID) else { return false }
-            return DockPreviewWindowOwnerResolver.ownerBelongsToDisplayApp(owner, displayApp: displayApp)
-                && owner.processIdentifier != displayApp.processIdentifier
-        })
+    private func copyCGWindowList() -> [[String: AnyObject]] {
+        let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+        return (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: AnyObject]]) ?? []
     }
 
     private func windowIDsFromCGList(
+        _ list: [[String: AnyObject]],
         matching predicate: (pid_t, [String: AnyObject]) -> Bool
     ) -> [CGWindowID] {
-        let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
-        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: AnyObject]] else {
-            return []
-        }
-        return list.compactMap { info -> CGWindowID? in
+        list.compactMap { info -> CGWindowID? in
             guard let ownerPID = info[kCGWindowOwnerPID as String] as? Int32,
                   predicate(ownerPID, info),
                   let windowID = info[kCGWindowNumber as String] as? UInt32

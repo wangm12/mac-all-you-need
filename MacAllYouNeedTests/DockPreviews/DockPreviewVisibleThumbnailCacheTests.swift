@@ -4,7 +4,31 @@ import XCTest
 
 @MainActor
 final class DockPreviewVisibleThumbnailCacheTests: XCTestCase {
-    func testHydrateLoadsFromDiskAndEvictsOnClear() async {
+    func testHydrateUsesInMemoryThumbnailAndReloadsAfterEvict() async {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dock-visible-lru-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let diskStore = DockPreviewThumbnailDiskStore(rootURL: tempRoot)
+        let lru = DockPreviewVisibleThumbnailCache(diskStore: diskStore)
+        let image = makeTestCGImage()
+        await diskStore.write(pid: 1, windowID: 10, cgImage: image, capturedAt: Date())
+        let prefetched = await diskStore.loadIfPresentAsync(pid: 1, windowID: 10)
+
+        let entry = DockPreviewWindowEntry(
+            id: 10, pid: 1, title: "A", frame: .zero,
+            thumbnail: prefetched, isMinimized: false, isOnScreen: true
+        )
+        let hydrated = lru.hydrate([entry])
+        XCTAssertNotNil(hydrated.first?.thumbnail)
+
+        lru.evictAll()
+        let afterEvict = lru.hydrate([entry])
+        XCTAssertNotNil(afterEvict.first?.thumbnail)
+    }
+
+    func testHydrateDoesNotSyncLoadFromDiskWhenThumbnailMissing() async {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("dock-visible-lru-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
@@ -20,11 +44,7 @@ final class DockPreviewVisibleThumbnailCacheTests: XCTestCase {
             thumbnail: nil, isMinimized: false, isOnScreen: true
         )
         let hydrated = lru.hydrate([entry])
-        XCTAssertNotNil(hydrated.first?.thumbnail)
-
-        lru.evictAll()
-        let afterEvict = lru.hydrate([entry])
-        XCTAssertNotNil(afterEvict.first?.thumbnail)
+        XCTAssertNil(hydrated.first?.thumbnail)
     }
 
     private func makeTestCGImage() -> CGImage {

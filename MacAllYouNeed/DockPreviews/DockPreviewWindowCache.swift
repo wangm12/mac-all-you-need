@@ -75,6 +75,12 @@ final class DockPreviewWindowCache {
         )
     }
 
+    func freshWindowIDsAsync(pid: pid_t, lifespan: TimeInterval, now: Date = Date()) async -> Set<CGWindowID> {
+        guard let diskStore, lifespan > 0 else { return [] }
+        let windowIDs = entries(for: pid).map(\.id)
+        return await diskStore.freshWindowIDs(pid: pid, windowIDs: windowIDs, lifespan: lifespan, now: now)
+    }
+
     func readCached(pid: pid_t) -> [DockPreviewWindowEntry] {
         entries(for: pid)
     }

@@ -58,5 +58,39 @@ public enum PerformanceSignpost {
         public static func endDiskHydrate(_ id: OSSignpostID) {
             os_signpost(.end, log: dockLog, name: "DockDiskHydrate", signpostID: id)
         }
+
+        public static func beginHoverShow(pid: pid_t) -> OSSignpostID {
+            let id = OSSignpostID(log: dockLog)
+            os_signpost(
+                .begin,
+                log: dockLog,
+                name: "DockHoverShow",
+                signpostID: id,
+                "pid=%d",
+                pid
+            )
+            return id
+        }
+
+        public static func endHoverShow(_ id: OSSignpostID) {
+            os_signpost(.end, log: dockLog, name: "DockHoverShow", signpostID: id)
+        }
+
+        public static func beginFirstThumbnailRender(count: Int) -> OSSignpostID {
+            let id = OSSignpostID(log: dockLog)
+            os_signpost(
+                .begin,
+                log: dockLog,
+                name: "DockFirstThumbnail",
+                signpostID: id,
+                "entries=%d",
+                count
+            )
+            return id
+        }
+
+        public static func endFirstThumbnailRender(_ id: OSSignpostID) {
+            os_signpost(.end, log: dockLog, name: "DockFirstThumbnail", signpostID: id)
+        }
     }
 }

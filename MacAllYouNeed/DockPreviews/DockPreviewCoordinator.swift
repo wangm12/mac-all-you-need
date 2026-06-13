@@ -1,7 +1,9 @@
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
+import Core
 import Foundation
+import os
 import Platform
 
 @MainActor
@@ -47,6 +49,8 @@ final class DockPreviewCoordinator {
     private var terminateObserver: NSObjectProtocol?
     private var lastLoggedDismissSnapshot: String?
     private var dockPrewarmTask: Task<Void, Never>?
+    var hoverShowSignpost: OSSignpostID?
+    var firstThumbnailSignpost: OSSignpostID?
 
     var dockHoverObserver: DockHoverObserver { observer }
     var onAppHoverPID: ((pid_t?) -> Void)?
@@ -635,6 +639,7 @@ final class DockPreviewCoordinator {
             showWorkItem = nil
         }
         mergeHydrator.bumpGeneration()
+        endHoverShowMeasurementIfNeeded()
         lastLoggedDismissSnapshot = nil
         windowRefreshTask?.cancel()
         windowRefreshTask = nil
@@ -808,6 +813,7 @@ final class DockPreviewCoordinator {
         forceShellUpdate: Bool = false
     ) {
         guard case .app = currentHover, currentPID == pid else { return }
+        beginHoverShowMeasurement(pid: pid)
         freezePlacementAnchor(axIconRect: iconRect, dockItemToken: currentDockItemToken ?? 0)
         DockPreviewWorklog.log("panel.present", fields: [
             "pid": pid,
@@ -850,6 +856,9 @@ final class DockPreviewCoordinator {
         allowEmpty: Bool
     ) {
         guard !list.isEmpty || panelController.state.embeddedContent != .none || allowEmpty else { return }
+        if firstThumbnailSignpost == nil {
+            beginFirstThumbnailMeasurement(count: list.count)
+        }
         if !panel.isVisible {
             panelController.state.dismissalAnchorDockItem = currentDockItemElement
             refreshScope.setPanelVisible(true)
@@ -901,6 +910,7 @@ final class DockPreviewCoordinator {
                 }
             }
         )
+        endHoverShowMeasurementIfNeeded()
         if liveEnabled, mode == .fullPreview {
             let liveIDs = list.filter { !$0.title.isEmpty }.map(\.id)
             liveCapture.setActiveWindowIDs(

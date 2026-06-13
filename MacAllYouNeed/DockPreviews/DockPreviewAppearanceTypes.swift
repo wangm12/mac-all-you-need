@@ -290,7 +290,7 @@ struct DockPreviewAppearanceOptions: Codable, Equatable {
         disableDockStyleTrafficLights: false,
         disableDockStyleTitles: false,
         showMinimizedHiddenLabels: true,
-        enabledTrafficLightButtons: [.quit, .close, .minimize, .toggleFullScreen],
+        enabledTrafficLightButtons: [.quit, .close, .minimize, .toggleFullScreen, .bringToCurrentSpace],
         selectionOpacity: 0.4,
         unselectedContentOpacity: 0.75,
         hidePreviewCardBackground: false,
