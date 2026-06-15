@@ -55,10 +55,19 @@ enum VoiceRecordingStartPlanner {
             return .start(provider: .local, mode: mode)
 
         case .groq, .openAITranscribe, .elevenLabs, .deepgram:
-            // Cloud provider configured — use it if conditions allow.
+            // Cloud batch providers — use if conditions allow.
             if cloudKeyPresent, isOnline {
-                // Cloud providers are batch (streaming comes in Phase 5 with openAIRealtime).
                 return .start(provider: configured, mode: .batch)
+            }
+            // Fall back to local.
+            guard localModelInstalled else { return .blocked(.localModelNotInstalled) }
+            let mode: ASRMode = localEngineCapabilities.supportsStreaming ? .streaming : .batch
+            return .start(provider: .local, mode: mode)
+
+        case .openAIRealtime:
+            // Cloud streaming provider — preferred when key + network available.
+            if cloudKeyPresent, isOnline {
+                return .start(provider: configured, mode: .streaming)
             }
             // Fall back to local.
             guard localModelInstalled else { return .blocked(.localModelNotInstalled) }

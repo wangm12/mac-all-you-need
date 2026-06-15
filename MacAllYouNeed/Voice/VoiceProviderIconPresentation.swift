@@ -38,7 +38,7 @@ enum VoiceProviderIconPresentation {
             pickerIcon(for: .qwenCoreML)
         case .groq:
             .brandAsset(BrandAsset.groq)
-        case .openAITranscribe:
+        case .openAITranscribe, .openAIRealtime:
             .brandAsset(BrandAsset.openAI)
         case .elevenLabs, .deepgram:
             pickerIcon(for: voiceModelRuntime(for: providerKind))
@@ -96,7 +96,7 @@ enum VoiceProviderIconPresentation {
             .groq
         case .elevenLabs:
             .elevenLabs
-        case .openAITranscribe:
+        case .openAITranscribe, .openAIRealtime:
             .openAITranscribe
         case .deepgram:
             .deepgram

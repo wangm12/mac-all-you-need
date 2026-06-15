@@ -880,6 +880,11 @@ private func makeVoiceCoordinator(
             settings: { VoiceCloudASRSettingsStore.load() },
             keyStore: cloudKeyStore
         )
+    case .openAIRealtime:
+        OpenAIRealtimeASREngine(
+            keyStore: cloudKeyStore,
+            settings: { VoiceCloudASRSettingsStore.load() }
+        )
     }
 
     return VoiceCoordinator(

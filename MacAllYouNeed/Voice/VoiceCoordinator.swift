@@ -235,6 +235,12 @@ final class VoiceCoordinator {
                 settings: { VoiceCloudASRSettingsStore.load() },
                 keyStore: keyStore
             )
+        case .openAIRealtime:
+            let keyStore = VoiceCloudASRKeyStore(keychain: keychain)
+            activeEngine = OpenAIRealtimeASREngine(
+                keyStore: keyStore,
+                settings: { VoiceCloudASRSettingsStore.load() }
+            )
         }
     }
 

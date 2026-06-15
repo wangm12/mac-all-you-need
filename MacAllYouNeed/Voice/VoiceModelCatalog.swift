@@ -27,7 +27,7 @@ private extension VoiceASRProviderKind {
             .groq
         case .elevenLabs:
             .elevenLabs
-        case .openAITranscribe:
+        case .openAITranscribe, .openAIRealtime:
             .openAITranscribe
         case .deepgram:
             .deepgram

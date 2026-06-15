@@ -292,6 +292,17 @@ actor VoiceCloudASREngine: VoiceTranscriptionEngine {
                 modelID: modelID.providerModelID,
                 language: currentSettings.iso639LanguageCode
             )
+        case .openAIRealtime:
+            // Realtime provider falls back to the standard OpenAI batch endpoint for
+            // non-streaming calls (retry-from-history, offline fallback).
+            try await uploadOpenAICompatible(
+                endpoint: URL(string: "https://api.openai.com/v1/audio/transcriptions")!,
+                authorizationHeader: "Bearer \(apiKey)",
+                wavData: wavData,
+                modelID: modelID.providerModelID,
+                language: currentSettings.iso639LanguageCode,
+                providerKind: .openAITranscribe
+            )
         }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

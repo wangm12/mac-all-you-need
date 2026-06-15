@@ -116,4 +116,14 @@ public enum VoiceAudioCodec {
         }
         return wav
     }
+
+    /// Raw PCM16 LE mono data (no WAV header) — used by streaming engines that
+    /// send raw audio over WebSocket (e.g. OpenAI Realtime API).
+    public static func pcm16Data(samples: [Float]) -> Data {
+        let int16Samples = samples.map { sample -> Int16 in
+            let clamped = max(-1.0, min(1.0, sample))
+            return Int16(max(Float(Int16.min), min(Float(Int16.max), clamped * 32_768.0)))
+        }
+        return int16Samples.withUnsafeBytes { Data($0) }
+    }
 }

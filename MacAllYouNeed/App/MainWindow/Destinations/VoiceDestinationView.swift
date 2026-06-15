@@ -537,7 +537,7 @@ struct VoiceDestinationView: View {
             controller.applyVoiceASRSettings(providerASRSettingsDraft)
             cloudStatusMessage = nil
             errorMessage = nil
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             cloudSetupProviderKind = providerKind
             cloudModelID = cloudASRSettingsDraft.modelID(for: providerKind)
             guard hasUsableCloudAPIKey(for: providerKind) else {
@@ -1013,7 +1013,7 @@ struct VoiceDestinationView: View {
         switch asrProviderKind {
         case .local:
             selectedASRModelID.title
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             cloudModelID.title
         }
     }
@@ -1028,7 +1028,7 @@ struct VoiceDestinationView: View {
             "Fast · On-device"
         case .groq:
             "Recommended for accuracy"
-        case .elevenLabs, .openAITranscribe, .deepgram:
+        case .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             nil
         }
     }
@@ -1046,7 +1046,7 @@ struct VoiceDestinationView: View {
             "\(selectedASRModelID.subtitle) Background transcription speeds up paste after you stop."
         case .groq:
             "\(cloudModelID.subtitle) Strong code-switching; audio is sent to Groq when you dictate."
-        case .elevenLabs, .openAITranscribe, .deepgram:
+        case .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             cloudModelID.subtitle
         }
     }

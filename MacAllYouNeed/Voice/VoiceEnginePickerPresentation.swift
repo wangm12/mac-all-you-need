@@ -126,7 +126,7 @@ enum VoiceEngineCatalogPresentation {
         switch providerKind {
         case .local:
             .local(selectedLocalModelID)
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             .cloud(selectedCloudModelID)
         }
     }

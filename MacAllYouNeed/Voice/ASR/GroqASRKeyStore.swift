@@ -57,7 +57,8 @@ final class VoiceCloudASRKeyStore {
             "voice.asr.groq.api-key.v1"
         case .elevenLabs:
             "voice.asr.elevenlabs.api-key.v1"
-        case .openAITranscribe:
+        case .openAITranscribe, .openAIRealtime:
+            // Realtime shares the OpenAI key — users only need one key for both modes.
             "voice.asr.openai.api-key.v1"
         case .deepgram:
             "voice.asr.deepgram.api-key.v1"

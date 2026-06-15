@@ -369,7 +369,7 @@ struct VoiceSettingsView: View {
             controller.applyVoiceASRSettings(providerASRSettingsDraft)
             cloudStatusMessage = nil
             errorMessage = nil
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             cloudSetupProviderKind = providerKind
             cloudModelID = cloudASRSettingsDraft.modelID(for: providerKind)
             guard hasUsableCloudAPIKey(for: providerKind) else {

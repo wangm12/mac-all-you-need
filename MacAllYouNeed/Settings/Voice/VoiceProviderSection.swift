@@ -28,7 +28,7 @@ struct VoiceProviderSection: View {
         switch asrProviderKind {
         case .local:
             selectedASRModelID.title
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             cloudModelID.title
         }
     }
@@ -37,7 +37,7 @@ struct VoiceProviderSection: View {
         switch asrProviderKind {
         case .local:
             selectedASRModelID.subtitle
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             cloudModelID.subtitle
         }
     }

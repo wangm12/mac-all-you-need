@@ -277,7 +277,7 @@ enum VoiceASRProviderControlsPresentation {
         switch providerKind {
         case .local:
             nil
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             "Test connection"
         }
     }
@@ -299,6 +299,8 @@ enum VoiceCloudASRSetupDrawerPresentation {
             "ElevenLabs Scribe ASR setup"
         case .openAITranscribe:
             "OpenAI Transcribe ASR setup"
+        case .openAIRealtime:
+            "OpenAI Realtime ASR setup"
         case .deepgram:
             "Deepgram Nova ASR setup"
         }
@@ -418,7 +420,7 @@ enum VoiceASRProviderApplyPlan {
         switch providerKind {
         case .local:
             [.applyASRSettings]
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             [.saveCloudSettings, .applyASRSettings]
         }
     }
@@ -427,7 +429,7 @@ enum VoiceASRProviderApplyPlan {
         switch providerKind {
         case .local:
             nil
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "\(providerKind.apiKeyLabel) is required."
                 : nil

@@ -8,6 +8,7 @@ enum VoiceASRProviderKind: String, CaseIterable, Codable, Equatable, Identifiabl
     case groq
     case elevenLabs
     case openAITranscribe
+    case openAIRealtime
     case deepgram
 
     var id: String { rawValue }
@@ -18,6 +19,7 @@ enum VoiceASRProviderKind: String, CaseIterable, Codable, Equatable, Identifiabl
         case .groq: "Groq Whisper"
         case .elevenLabs: "ElevenLabs Scribe"
         case .openAITranscribe: "OpenAI Transcribe"
+        case .openAIRealtime: "OpenAI Realtime"
         case .deepgram: "Deepgram Nova"
         }
     }
@@ -28,6 +30,7 @@ enum VoiceASRProviderKind: String, CaseIterable, Codable, Equatable, Identifiabl
         case .groq: "Cloud via Groq. Best code-switching quality. Requires API key."
         case .elevenLabs: "Cloud via ElevenLabs Scribe v2. Good for high-quality multilingual transcription. Requires API key."
         case .openAITranscribe: "Cloud via OpenAI's transcription API. Strong general-purpose accuracy. Requires API key."
+        case .openAIRealtime: "Cloud via OpenAI Realtime WebSocket. Streams live partials as you speak. Requires OpenAI API key."
         case .deepgram: "Cloud via Deepgram Nova-3. Fast pre-recorded transcription. Requires API key."
         }
     }
@@ -40,7 +43,7 @@ enum VoiceASRProviderKind: String, CaseIterable, Codable, Equatable, Identifiabl
             "Groq API key"
         case .elevenLabs:
             "ElevenLabs API key"
-        case .openAITranscribe:
+        case .openAITranscribe, .openAIRealtime:
             "OpenAI API key"
         case .deepgram:
             "Deepgram API key"
@@ -55,7 +58,7 @@ enum VoiceASRProviderKind: String, CaseIterable, Codable, Equatable, Identifiabl
             "gsk_..."
         case .elevenLabs:
             "xi_..."
-        case .openAITranscribe:
+        case .openAITranscribe, .openAIRealtime:
             "sk-..."
         case .deepgram:
             "Deepgram API key"
@@ -66,7 +69,7 @@ enum VoiceASRProviderKind: String, CaseIterable, Codable, Equatable, Identifiabl
         switch self {
         case .local:
             false
-        case .groq, .elevenLabs, .openAITranscribe, .deepgram:
+        case .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram:
             true
         }
     }
@@ -228,7 +231,7 @@ enum VoiceCloudASRModelID: String, CaseIterable, Codable, Equatable, Identifiabl
             .groqWhisperLargeV3Turbo
         case .elevenLabs:
             .elevenLabsScribeV2
-        case .openAITranscribe:
+        case .openAITranscribe, .openAIRealtime:
             .openAIGPT4oTranscribe
         case .deepgram:
             .deepgramNova3
