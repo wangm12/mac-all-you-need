@@ -50,27 +50,17 @@ public enum PasteInjector {
     public static func pasteWithRestore(
         _ string: String,
         into pasteboard: NSPasteboard = .general,
-        restoreDelay: Duration = .milliseconds(450),
+        restoreDelay: Duration = .milliseconds(200),
         restoreOnManualPasteRequired: Bool = true
     ) async -> PasteInjectionOutcome {
         let snapshot = PasteboardSnapshot.capture(from: pasteboard)
         let result = paste(string, into: pasteboard)
-        // Poll until the receiving app reads the pasteboard (changeCount advances)
-        // or the deadline is reached. Avoids blocking for the full restoreDelay
-        // in the common case where paste completes in <100ms.
-        let writtenChangeCount = pasteboard.changeCount
-        let deadline = ContinuousClock.now + restoreDelay
-        while ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(20))
-            if pasteboard.changeCount != writtenChangeCount {
-                break
-            }
+        if result == .injected || restoreOnManualPasteRequired {
+            try? await Task.sleep(for: restoreDelay)
+            snapshot.restore(to: pasteboard)
+            return PasteInjectionOutcome(result: result, restoredPasteboard: true)
         }
-        guard result == .injected || restoreOnManualPasteRequired else {
-            return PasteInjectionOutcome(result: result, restoredPasteboard: false)
-        }
-        snapshot.restore(to: pasteboard)
-        return PasteInjectionOutcome(result: result, restoredPasteboard: true)
+        return PasteInjectionOutcome(result: result, restoredPasteboard: false)
     }
 }
 

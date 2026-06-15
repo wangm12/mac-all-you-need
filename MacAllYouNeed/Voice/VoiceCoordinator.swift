@@ -265,11 +265,18 @@ final class VoiceCoordinator {
         lastTranscript = nil
         inputSourceAtRecordingStart = currentInputSourceName()
         inputSourceChangedDuringRun = false
+        hudPresenter.showRecording(level: 0)
         // Await warmup before starting audio so the model is ready for the first
         // ASR call. On first dictation this prevents silent ASR failures from an
         // unloaded model. Subsequent calls return quickly (model already warm).
+        // Cap at 3s so a corrupt model file or disk stall cannot hang forever.
         if let local = activeEngine as? VoiceLocalASREngine {
-            await local.warmup()
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await local.warmup() }
+                group.addTask { try? await Task.sleep(for: .seconds(3)) }
+                await group.next()
+                group.cancelAll()
+            }
         }
         guard await audio.requestPermission() else {
             log.error("startRecording: microphone permission denied")
@@ -281,7 +288,6 @@ final class VoiceCoordinator {
             operationGeneration += 1
             state = .recording
             log.info("recording started — generation: \(self.operationGeneration, privacy: .public)")
-            hudPresenter.showRecording(level: 0)
             hudPresenter.startLevelUpdates(peakLevelProvider: { [weak self] in self?.audio.peakLevel ?? 0 })
             await pipeline.beginLiveASR(generation: operationGeneration) { [weak self] in
                 self?.audio.liveFeedSnapshot()
