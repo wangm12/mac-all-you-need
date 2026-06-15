@@ -23,18 +23,11 @@ public enum RadialMenuLayout {
     /// Keys that dismiss the radial menu while it is open (in addition to Esc).
     public static let dismissKeys: Set<Character> = ["x"]
 
-    public static let keyboardMapping: [Character: WindowAction] = [
-        "w": .topHalf,
-        "e": .topRight,
-        "d": .rightHalf,
-        "c": .bottomRight,
-        "s": .bottomHalf,
-        "z": .bottomLeft,
-        "a": .leftHalf,
-        "q": .topLeft,
-        "m": .maximize,
-        "f": .maximize
-    ]
+    public static let keyboardMapping: [Character: WindowAction] = RadialMenuKeyBindings.default.keyboardMapping()
+
+    public static func keyboardMapping(bindings: RadialMenuKeyBindings) -> [Character: WindowAction] {
+        bindings.keyboardMapping()
+    }
 
     public static func action(forRingIndex index: Int) -> WindowAction? {
         guard index >= 0, index < ringActions.count else { return nil }
@@ -42,13 +35,19 @@ public enum RadialMenuLayout {
     }
 
     public static func action(forKey character: Character) -> WindowAction? {
-        keyboardMapping[character]
+        action(forKey: character, bindings: .default)
+    }
+
+    public static func action(forKey character: Character, bindings: RadialMenuKeyBindings) -> WindowAction? {
+        keyboardMapping(bindings: bindings)[character]
     }
 
     /// Keys that select `action` while the radial menu is open (for settings reference).
     public static func inMenuShortcutDisplay(for action: WindowAction) -> String? {
-        let keys = keyboardMapping.filter { $0.value == action }.map(\.key)
-        guard !keys.isEmpty else { return nil }
-        return keys.map { String($0).uppercased() }.sorted().joined(separator: ", ")
+        inMenuShortcutDisplay(for: action, bindings: .default)
+    }
+
+    public static func inMenuShortcutDisplay(for action: WindowAction, bindings: RadialMenuKeyBindings) -> String? {
+        bindings.display(for: action)
     }
 }

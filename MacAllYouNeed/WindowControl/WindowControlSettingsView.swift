@@ -126,6 +126,85 @@ struct WindowControlSettingsView: View {
             ) {
                 Toggle("", isOn: boolBinding(\.animateWindowMoves)).labelsHidden()
             }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Snap haptics",
+                subtitle: "Play a light alignment tap when a snap lands (trackpad)."
+            ) {
+                Toggle("", isOn: boolBinding(\.snapHapticsEnabled)).labelsHidden()
+            }
+            MAYNDivider()
+            snapThresholdSettings
+        }
+    }
+
+    private var snapThresholdSettings: some View {
+        Group {
+            MAYNSettingsRow(title: "Movement threshold", subtitle: "Drag distance before edge snap arms.") {
+                MAYNNumericStepper(
+                    text: "Movement",
+                    value: snapThresholdIntBinding(\.movementThreshold),
+                    range: 4 ... 80,
+                    step: 1,
+                    suffix: "px"
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Edge threshold", subtitle: "Distance from the screen edge.") {
+                MAYNNumericStepper(
+                    text: "Edge",
+                    value: snapThresholdIntBinding(\.edgeThreshold),
+                    range: 1 ... 40,
+                    step: 1,
+                    suffix: "px"
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Corner threshold", subtitle: "Corner snap zone size.") {
+                MAYNNumericStepper(
+                    text: "Corner",
+                    value: snapThresholdIntBinding(\.cornerThreshold),
+                    range: 4 ... 80,
+                    step: 1,
+                    suffix: "px"
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Side-half threshold", subtitle: "Distance from top/bottom for half snaps.") {
+                MAYNNumericStepper(
+                    text: "Side half",
+                    value: snapThresholdIntBinding(\.sideHalfThreshold),
+                    range: 40 ... 400,
+                    step: 5,
+                    suffix: "px"
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(title: "Snap thresholds", subtitle: "Restore Rectangle-style defaults.") {
+                MAYNButton("Reset defaults", role: .secondary) {
+                    var next = settings
+                    next.snapIntentConfiguration = .default
+                    settings = next
+                    WindowControlSettingsStore.save(next)
+                    controller.applyWindowControlSettings(next)
+                }
+            }
+        }
+    }
+
+    private func snapThresholdIntBinding(
+        _ keyPath: WritableKeyPath<WindowSnapIntentConfiguration, CGFloat>
+    ) -> Binding<Int> {
+        Binding {
+            Int(settings.snapIntentConfiguration[keyPath: keyPath].rounded())
+        } set: { value in
+            var next = settings
+            var config = next.snapIntentConfiguration
+            config[keyPath: keyPath] = CGFloat(value)
+            next.snapIntentConfiguration = config.validated()
+            settings = next
+            WindowControlSettingsStore.save(next)
+            controller.applyWindowControlSettings(next)
         }
     }
 

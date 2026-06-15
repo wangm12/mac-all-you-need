@@ -308,6 +308,115 @@ final class WindowMoverTests: XCTestCase {
         XCTAssertEqual(element.frame, CGRect(x: 0, y: -450, width: 1000, height: 450))
     }
 
+    func testMoveUsesSingleSnapshotAndBoundedFrameReads() {
+        let element = FakeWindowElement(frame: CGRect(x: 100, y: 100, width: 800, height: 600))
+        let mover = WindowMover(screenDetector: fixedDetector())
+
+        _ = mover.move(element, action: .leftHalf)
+
+        XCTAssertEqual(element.snapshotCallCount, 1)
+        // Post-write validation, clamp check, and result() each read frame once.
+        XCTAssertLessThanOrEqual(element.frameReadCount, 3)
+    }
+
+    func testMoveWithPreCapturedSnapshotSkipsSecondSnapshot() {
+        let element = FakeWindowElement(frame: CGRect(x: 100, y: 100, width: 800, height: 600))
+        let mover = WindowMover(screenDetector: fixedDetector())
+        let snap = element.snapshot()
+        element.resetCounts()
+
+        _ = mover.move(element, snapshot: snap, action: .leftHalf)
+
+        XCTAssertEqual(element.snapshotCallCount, 0, "passing a pre-captured snapshot must not trigger a second snapshot()")
+    }
+
+    func testCancelAnimationRestoresEnhancedUserInterface() {
+        let element = FakeWindowElement(
+            frame: CGRect(x: 100, y: 100, width: 800, height: 600),
+            enhancedUserInterfaceEnabled: true
+        )
+        let mover = WindowMover(screenDetector: fixedDetector())
+        mover.animationConfiguration = WindowMoveAnimationConfiguration(
+            enabled: true,
+            stepCount: 6,
+            totalDuration: 0.12,
+            reduceMotion: false
+        )
+
+        _ = mover.move(element, action: .leftHalf)
+        // AXEnhancedUserInterface is now false (disabled for in-flight animation).
+        XCTAssertEqual(element.enhancedUserInterfaceEnabled, false)
+
+        // Supersede the in-flight move before the animation timer fires.
+        mover.cancelInFlightMoveAnimation()
+
+        // Must be restored to its original value.
+        XCTAssertEqual(element.enhancedUserInterfaceEnabled, true)
+    }
+
+    func testProposedFrameUsesSingleSnapshot() {
+        let element = FakeWindowElement(frame: CGRect(x: 100, y: 100, width: 800, height: 600))
+        let mover = WindowMover(screenDetector: fixedDetector())
+
+        _ = mover.proposedFrame(for: .leftHalf, element: element)
+
+        XCTAssertEqual(element.snapshotCallCount, 1)
+        XCTAssertEqual(element.frameReadCount, 0)
+    }
+
+    func testAnimateMovesUsesInstantWritePathWithoutExtraSteps() {
+        let element = FakeWindowElement(frame: CGRect(x: 100, y: 100, width: 800, height: 600))
+        let mover = WindowMover(screenDetector: fixedDetector())
+
+        let result = mover.move(element, action: .leftHalf)
+
+        XCTAssertEqual(result.status, .moved)
+        XCTAssertEqual(element.operations, [
+            .size(CGSize(width: 720, height: 900)),
+            .position(CGPoint(x: 0, y: 0)),
+            .size(CGSize(width: 720, height: 900))
+        ])
+    }
+
+    func testReduceMotionForcesInstantWriteDespiteAnimationEnabled() {
+        let element = FakeWindowElement(frame: CGRect(x: 100, y: 100, width: 800, height: 600))
+        let mover = WindowMover(screenDetector: fixedDetector())
+        mover.animationConfiguration = WindowMoveAnimationConfiguration(
+            enabled: true,
+            stepCount: 6,
+            totalDuration: 0.12,
+            reduceMotion: true
+        )
+
+        _ = mover.move(element, action: .leftHalf)
+
+        XCTAssertEqual(element.operations.count, 3)
+    }
+
+    func testAnimatedMoveCompletesIntermediateStepsOnRunLoop() {
+        let element = FakeWindowElement(frame: CGRect(x: 100, y: 100, width: 800, height: 600))
+        let mover = WindowMover(screenDetector: fixedDetector())
+        mover.animationConfiguration = WindowMoveAnimationConfiguration(
+            enabled: true,
+            stepCount: 2,
+            totalDuration: 0.04,
+            reduceMotion: false
+        )
+
+        let result = mover.move(element, action: .leftHalf)
+        XCTAssertEqual(result.status, .moved)
+
+        let expectation = expectation(description: "animation completes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertGreaterThan(element.operations.count, 3)
+        XCTAssertTrue(element.operations.contains(.size(CGSize(width: 720, height: 900))))
+        XCTAssertTrue(element.operations.contains(.position(CGPoint(x: 0, y: 0))))
+    }
+
     private func fixedDetector() -> WindowScreenDetector {
         WindowScreenDetector(screens: [
             WindowControlScreen(
@@ -326,15 +435,27 @@ private final class FakeWindowElement: WindowMovableElement {
         case size(CGSize)
     }
 
-    var frame: CGRect
+    var frame: CGRect {
+        frameReadCount += 1
+        return storedFrame
+    }
+
     let isResizable: Bool
     let isMovable = true
     let isSupportedForWindowControl = true
     var enhancedUserInterfaceEnabled: Bool?
+    private var storedFrame: CGRect
     private var setEnhancedUserInterfaceSucceeds: [Bool]
     private let setPositionSucceeds: Bool
     private let setSizeSucceeds: Bool
     private(set) var operations: [Operation] = []
+    private(set) var snapshotCallCount = 0
+    private(set) var frameReadCount = 0
+
+    func resetCounts() {
+        snapshotCallCount = 0
+        frameReadCount = 0
+    }
 
     init(
         frame: CGRect,
@@ -344,12 +465,23 @@ private final class FakeWindowElement: WindowMovableElement {
         setPositionSucceeds: Bool = true,
         setSizeSucceeds: Bool = true
     ) {
-        self.frame = frame
+        self.storedFrame = frame
         self.isResizable = isResizable
         self.enhancedUserInterfaceEnabled = enhancedUserInterfaceEnabled
         self.setEnhancedUserInterfaceSucceeds = setEnhancedUserInterfaceSucceeds
         self.setPositionSucceeds = setPositionSucceeds
         self.setSizeSucceeds = setSizeSucceeds
+    }
+
+    func snapshot() -> WindowSnapshot {
+        snapshotCallCount += 1
+        return WindowSnapshot(
+            frame: storedFrame,
+            isResizable: isResizable,
+            isMovable: isMovable,
+            isSupportedForWindowControl: isSupportedForWindowControl,
+            enhancedUserInterfaceEnabled: enhancedUserInterfaceEnabled
+        )
     }
 
     func setEnhancedUserInterfaceEnabled(_ enabled: Bool) -> Bool {
@@ -362,13 +494,13 @@ private final class FakeWindowElement: WindowMovableElement {
     }
 
     func setPosition(_ position: CGPoint) -> Bool {
-        frame.origin = position
+        storedFrame.origin = position
         operations.append(.position(position))
         return setPositionSucceeds
     }
 
     func setSize(_ size: CGSize) -> Bool {
-        frame.size = size
+        storedFrame.size = size
         operations.append(.size(size))
         return setSizeSucceeds
     }

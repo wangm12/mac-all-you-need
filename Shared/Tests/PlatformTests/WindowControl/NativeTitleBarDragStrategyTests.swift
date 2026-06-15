@@ -134,4 +134,14 @@ private final class FakeDragWindow: WindowMovableElement {
         frame.size = size
         return true
     }
+
+    func snapshot() -> WindowSnapshot {
+        WindowSnapshot(
+            frame: frame,
+            isResizable: isResizable,
+            isMovable: isMovable,
+            isSupportedForWindowControl: isSupportedForWindowControl,
+            enhancedUserInterfaceEnabled: enhancedUserInterfaceEnabled
+        )
+    }
 }

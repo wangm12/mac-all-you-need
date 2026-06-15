@@ -157,10 +157,17 @@ extension WindowControlEventTap {
             Task { @MainActor in radialPhaseHandler(.cancel) }
             return true
         }
-        if let action = Self.radialAction(for: event) {
+        if let action = radialAction(for: event) {
             Task { @MainActor in radialPhaseHandler(.selectAction(action)) }
         }
         return true
+    }
+
+    private func radialAction(for event: CGEvent) -> WindowAction? {
+        guard let nsEvent = NSEvent(cgEvent: event) else { return nil }
+        let lowered = nsEvent.charactersIgnoringModifiers?.lowercased() ?? ""
+        guard let first = lowered.first else { return nil }
+        return RadialMenuLayout.action(forKey: first, bindings: radialMenuKeyBindings)
     }
 
     private static func isRadialDismissKey(_ event: CGEvent) -> Bool {
@@ -168,13 +175,6 @@ extension WindowControlEventTap {
         if nsEvent.keyCode == 53 { return true } // Esc
         let lowered = nsEvent.charactersIgnoringModifiers?.lowercased() ?? ""
         return lowered.first.map { RadialMenuLayout.dismissKeys.contains($0) } ?? false
-    }
-
-    private static func radialAction(for event: CGEvent) -> WindowAction? {
-        guard let nsEvent = NSEvent(cgEvent: event) else { return nil }
-        let lowered = nsEvent.charactersIgnoringModifiers?.lowercased() ?? ""
-        guard let first = lowered.first else { return nil }
-        return RadialMenuLayout.action(forKey: first)
     }
 
     /// Marks chorded use (e.g. ⌘A) so the subsequent modifier release is not counted as tap 1.

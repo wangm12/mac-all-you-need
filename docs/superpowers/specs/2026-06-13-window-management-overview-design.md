@@ -1,7 +1,7 @@
 # Window Management Enhancement — Overview & Hierarchy Plan
 
 **Date:** 2026-06-13
-**Status:** Approved (design); phases not yet implemented
+**Status:** Approved (design); Phases 1–3 implemented
 **Role:** This is the *controller* document. It organizes and sequences three
 phase specs, defines the invariants they all share, and tracks their status.
 Each phase spec is self-contained and links back here.
@@ -133,9 +133,9 @@ Each phase is its own spec → implementation plan → PR.
 | Phase | Spec | Status | Plan | PR |
 |---|---|---|---|---|
 | Overview | this file | Approved | — | — |
-| 1 — Perf & Reliability | phase1 | Designed (approved) | TBD | TBD |
-| 2 — UX Polish | phase2 | Designed (approved) | TBD | TBD |
-| 3 — Architecture | phase3 | Designed (approved) | TBD | TBD |
+| 1 — Perf & Reliability | phase1 | Implemented | [`2026-06-13-window-mgmt-phase1-performance-reliability.md`](../plans/2026-06-13-window-mgmt-phase1-performance-reliability.md) | TBD |
+| 2 — UX Polish | phase2 | Implemented | [`2026-06-13-window-mgmt-phase2-ux-polish.md`](../plans/2026-06-13-window-mgmt-phase2-ux-polish.md) | TBD |
+| 3 — Architecture | phase3 | Implemented | TBD | TBD |
 
 ## Out of scope (whole effort)
 

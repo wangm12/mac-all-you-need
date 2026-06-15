@@ -220,11 +220,21 @@ final class WindowControlCoordinator {
         let layoutsRuntimeChanged = layoutsRuntimeEnabled != (featureAvailability.windowLayoutsEnabled && next.enabled)
         let radialChanged = settings.radialMenuEnabled != next.radialMenuEnabled
         settings = next
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let animationDuration = MAYNMotionBridge.effectiveDuration(.control, reduceMotion: reduceMotion)
+        let animationConfig = WindowMoveAnimationConfiguration(
+            enabled: next.animateWindowMoves,
+            stepCount: 6,
+            totalDuration: animationDuration > 0 ? animationDuration : 0.12,
+            reduceMotion: reduceMotion
+        )
         if let keyboardPerformer = actionPerformer as? WindowKeyboardActionPerformer {
             keyboardPerformer.repeatHalfAcrossDisplays = next.repeatHalfAcrossDisplays
             keyboardPerformer.animateMoves = next.animateWindowMoves
+            keyboardPerformer.animationConfiguration = animationConfig
         }
         radialFrameMover.animateMoves = next.animateWindowMoves
+        radialFrameMover.animationConfiguration = animationConfig
         if next.disableSequoiaTilingHotkeys {
             WindowControlPrivateAPI.applySequoiaTilingMitigation(disabled: true)
         }
@@ -410,6 +420,13 @@ final class WindowControlCoordinator {
     ) {
         lastAction = action
         lastMovementResult = result
+        if result.status == .moved, settings.snapHapticsEnabled {
+            NSHapticFeedbackManager.defaultPerformer.perform(
+                .alignment,
+                performanceTime: .default
+            )
+        }
+        WindowControlMovementFeedback.present(status: result.status, axTrusted: axTrusted)
         if action != .restore, let identity, result.status == .moved {
             restoreHistory.store(result.originalFrame, for: identity)
         }

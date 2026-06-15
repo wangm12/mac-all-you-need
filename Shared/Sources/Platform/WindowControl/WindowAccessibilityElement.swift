@@ -5,6 +5,16 @@ import Foundation
 public final class WindowAccessibilityElement: WindowTargetElement {
     private let element: AXUIElement
 
+    #if DEBUG
+    /// When true, each AX read/write increments `debugAXOperationCount` (zero cost when false).
+    public static var countsAXOperations = false
+    public static var debugAXOperationCount = 0
+
+    public static func resetAXOperationCountForTesting() {
+        debugAXOperationCount = 0
+    }
+    #endif
+
     public init(_ element: AXUIElement) {
         self.element = element
     }
@@ -42,7 +52,10 @@ public final class WindowAccessibilityElement: WindowTargetElement {
     }
 
     public var frameFingerprint: Int? {
-        let frame = frame
+        Self.frameFingerprint(for: frame)
+    }
+
+    public static func frameFingerprint(for frame: CGRect) -> Int? {
         guard !frame.isNull, !frame.isEmpty else {
             return nil
         }
@@ -63,6 +76,18 @@ public final class WindowAccessibilityElement: WindowTargetElement {
     }
 
     public var isSupportedForWindowControl: Bool {
+        Self.isSupportedForWindowControl(
+            role: role,
+            subrole: subrole,
+            isFullScreen: isFullScreen
+        )
+    }
+
+    private static func isSupportedForWindowControl(
+        role: String?,
+        subrole: String?,
+        isFullScreen: Bool
+    ) -> Bool {
         guard role == "AXWindow" else {
             return false
         }
@@ -74,6 +99,10 @@ public final class WindowAccessibilityElement: WindowTargetElement {
         }
         return true
     }
+
+    private static let unsupportedSubroles: Set<String> = [
+        "AXSystemDialog", "AXDialog", "AXFloatingWindow", "AXUnknown"
+    ]
 
     /// Tie-breaker when multiple AX windows match one CGWindow (Finder, Notes, iTerm).
     public var windowTargetSelectionPriority: Int {
@@ -90,11 +119,40 @@ public final class WindowAccessibilityElement: WindowTargetElement {
         boolAttribute("AXEnhancedUserInterface" as CFString)
     }
 
+    public func snapshot() -> WindowSnapshot {
+        let position = pointAttribute(kAXPositionAttribute as CFString)
+        let size = sizeAttribute(kAXSizeAttribute as CFString)
+        let frame: CGRect
+        if let position, let size {
+            frame = CGRect(origin: position, size: size)
+        } else {
+            frame = .null
+        }
+
+        let role = stringAttribute(kAXRoleAttribute as CFString)
+        let subrole = stringAttribute(kAXSubroleAttribute as CFString)
+        let isFullScreen = boolAttribute("AXFullScreen" as CFString) == true
+        let isSupported = Self.isSupportedForWindowControl(
+            role: role,
+            subrole: subrole,
+            isFullScreen: isFullScreen
+        )
+
+        return WindowSnapshot(
+            frame: frame,
+            isResizable: isAttributeSettable(kAXSizeAttribute as CFString),
+            isMovable: isAttributeSettable(kAXPositionAttribute as CFString),
+            isSupportedForWindowControl: isSupported,
+            enhancedUserInterfaceEnabled: boolAttribute("AXEnhancedUserInterface" as CFString)
+        )
+    }
+
     public func setEnhancedUserInterfaceEnabled(_ enabled: Bool) -> Bool {
         setBoolAttribute(enabled, name: "AXEnhancedUserInterface" as CFString)
     }
 
     public func setPosition(_ position: CGPoint) -> Bool {
+        recordAXWrite()
         var mutablePosition = position
         guard let value = AXValueCreate(.cgPoint, &mutablePosition) else {
             return false
@@ -103,6 +161,7 @@ public final class WindowAccessibilityElement: WindowTargetElement {
     }
 
     public func setSize(_ size: CGSize) -> Bool {
+        recordAXWrite()
         var mutableSize = size
         guard let value = AXValueCreate(.cgSize, &mutableSize) else {
             return false
@@ -136,11 +195,8 @@ public final class WindowAccessibilityElement: WindowTargetElement {
         boolAttribute("AXFullScreen" as CFString) == true
     }
 
-    private var unsupportedSubroles: Set<String> {
-        ["AXSystemDialog", "AXDialog", "AXFloatingWindow", "AXUnknown"]
-    }
-
     private func isAttributeSettable(_ name: CFString) -> Bool {
+        recordAXRead()
         var settable = DarwinBoolean(false)
         return AXUIElementIsAttributeSettable(element, name, &settable) == .success && settable.boolValue
     }
@@ -193,15 +249,33 @@ public final class WindowAccessibilityElement: WindowTargetElement {
     }
 
     private func setBoolAttribute(_ enabled: Bool, name: CFString) -> Bool {
+        recordAXWrite()
         let value: CFBoolean = enabled ? kCFBooleanTrue! : kCFBooleanFalse!
         return AXUIElementSetAttributeValue(element, name, value) == .success
     }
 
     private func copyAttribute(_ name: CFString) -> AnyObject? {
+        recordAXRead()
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name, &value) == .success else {
             return nil
         }
         return value as AnyObject?
+    }
+
+    private func recordAXRead() {
+        #if DEBUG
+        if Self.countsAXOperations {
+            Self.debugAXOperationCount += 1
+        }
+        #endif
+    }
+
+    private func recordAXWrite() {
+        #if DEBUG
+        if Self.countsAXOperations {
+            Self.debugAXOperationCount += 1
+        }
+        #endif
     }
 }

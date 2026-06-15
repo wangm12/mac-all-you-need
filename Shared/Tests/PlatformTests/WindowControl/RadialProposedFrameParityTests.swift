@@ -65,4 +65,13 @@ private final class FakeRadialWindowElement: WindowMovableElement {
     func setEnhancedUserInterfaceEnabled(_: Bool) -> Bool { true }
     func setPosition(_ position: CGPoint) -> Bool { frame.origin = position; return true }
     func setSize(_ size: CGSize) -> Bool { frame.size = size; return true }
+    func snapshot() -> WindowSnapshot {
+        WindowSnapshot(
+            frame: frame,
+            isResizable: isResizable,
+            isMovable: isMovable,
+            isSupportedForWindowControl: isSupportedForWindowControl,
+            enhancedUserInterfaceEnabled: enhancedUserInterfaceEnabled
+        )
+    }
 }

@@ -44,6 +44,28 @@ struct WindowControlDiagnosticsView: View {
                     kind: .neutral
                 )
             }
+            #if DEBUG
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Last move AX round-trips",
+                subtitle: WindowControlDiagnosticsPresentation.moveMetricsDetail()
+            ) {
+                StatusPill(
+                    text: WindowControlDiagnosticsPresentation.moveAXRoundTripsText(),
+                    kind: .neutral
+                )
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Last move duration",
+                subtitle: "Wall-clock time for the most recent keyboard move."
+            ) {
+                StatusPill(
+                    text: WindowControlDiagnosticsPresentation.moveDurationText(),
+                    kind: .neutral
+                )
+            }
+            #endif
         }
     }
 }
@@ -114,6 +136,24 @@ enum WindowControlDiagnosticsPresentation {
         case .writeFailed:
             return "Write failed"
         }
+    }
+
+    static func moveAXRoundTripsText() -> String {
+        let count = WindowControlMoveDiagnostics.latest.axRoundTrips
+        return count > 0 ? "\(count)" : "—"
+    }
+
+    static func moveDurationText() -> String {
+        let ms = WindowControlMoveDiagnostics.latest.durationMilliseconds
+        return ms > 0 ? String(format: "%.1f ms", ms) : "—"
+    }
+
+    static func moveMetricsDetail() -> String {
+        let latest = WindowControlMoveDiagnostics.latest
+        guard latest.axRoundTrips > 0 || latest.durationMilliseconds > 0 else {
+            return "Perform a layout shortcut to capture move-path metrics."
+        }
+        return "Budget target: ≤8 AX round-trips per action."
     }
 
     private static func suspensionReasonText(_ reason: WindowControlCoordinator.SuspensionReason) -> String {

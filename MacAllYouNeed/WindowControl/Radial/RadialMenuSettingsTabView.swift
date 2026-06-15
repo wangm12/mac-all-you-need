@@ -125,6 +125,15 @@ struct RadialMenuSettingsTabView: View {
             }
             MAYNDivider()
             layoutActionRow(action: RadialMenuLayout.centerAction)
+            MAYNDivider()
+            MAYNSettingsRow(title: "Layout keys", subtitle: "Restore default WASD-style bindings.") {
+                MAYNButton("Reset defaults", role: .secondary) {
+                    var next = settings
+                    next.radialMenuKeyBindings = .default
+                    settings = next
+                    onSettingsChange(next)
+                }
+            }
         }
     }
 
@@ -138,9 +147,38 @@ struct RadialMenuSettingsTabView: View {
                     .frame(width: 22, height: 22)
             }
         ) {
-            if let shortcut = RadialMenuLayout.inMenuShortcutDisplay(for: action) {
-                ShortcutChip(text: shortcut, height: HotkeyChipPresentation.compactHeight)
+            radialKeyField(for: action)
+        }
+    }
+
+    private func radialKeyField(for action: WindowAction) -> some View {
+        MAYNTextField(
+            placeholder: "—",
+            text: radialKeyBinding(for: action),
+            width: 44,
+            alignment: .center,
+            font: .system(.callout, design: .monospaced)
+        )
+    }
+
+    private func radialKeyBinding(for action: WindowAction) -> Binding<String> {
+        let raw = action.rawValue
+        return Binding {
+            settings.radialMenuKeyBindings.bindings[raw] ?? ""
+        } set: { newValue in
+            var next = settings
+            var dict = next.radialMenuKeyBindings.bindings
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if let first = trimmed.first, first.isLetter, !RadialMenuKeyBindings.reservedKeys.contains(first) {
+                dict[raw] = String(first)
+            } else if trimmed.isEmpty {
+                dict[raw] = RadialMenuKeyBindings.defaultBindings[raw] ?? ""
+            } else {
+                return
             }
+            next.radialMenuKeyBindings = RadialMenuKeyBindings(bindings: dict).replacingDuplicateKeys()
+            settings = next
+            onSettingsChange(next)
         }
     }
 

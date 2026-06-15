@@ -9,16 +9,13 @@ final class DockPreviewTooltipOverlay {
 
     private init() {}
 
-    func show(iconRect: CGRect, screen: NSScreen) {
-        guard iconRect != .zero else {
+    /// `iconRect` is in AX screen space (top-left origin), matching `placementAnchorRect` from the hover observer.
+    func show(iconRect axIconRect: CGRect, screen: NSScreen) {
+        guard axIconRect != .zero else {
             dismiss()
             return
         }
-        let cgIcon = DockPreviewDockCoordinates.cgPoint(fromAppKit: iconRect.origin)
-        let flipped = DockPreviewDockCoordinates.flippedIconRect(
-            axRect: CGRect(origin: cgIcon, size: iconRect.size),
-            screen: screen
-        )
+        let flipped = DockPreviewDockCoordinates.flippedIconRect(axRect: axIconRect, screen: screen)
         let overlay = DockPreviewTooltipGeometry.overlayRect(iconRect: flipped)
         let panel = ensurePanel()
         panel.setFrame(overlay, display: true)

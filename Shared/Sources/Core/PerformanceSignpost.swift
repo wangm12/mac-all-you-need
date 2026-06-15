@@ -93,4 +93,41 @@ public enum PerformanceSignpost {
             os_signpost(.end, log: dockLog, name: "DockFirstThumbnail", signpostID: id)
         }
     }
+
+    public enum WindowControl {
+        private static let log = OSLog(
+            subsystem: Logging.subsystem(for: "windowcontrol"),
+            category: "move"
+        )
+
+        public static func beginResolveWindow() -> OSSignpostID {
+            let id = OSSignpostID(log: log)
+            os_signpost(.begin, log: log, name: "ResolveWindow", signpostID: id)
+            return id
+        }
+
+        public static func endResolveWindow(_ id: OSSignpostID) {
+            os_signpost(.end, log: log, name: "ResolveWindow", signpostID: id)
+        }
+
+        public static func beginCalculateFrame(action: String) -> OSSignpostID {
+            let id = OSSignpostID(log: log)
+            os_signpost(.begin, log: log, name: "CalculateFrame", signpostID: id, "action=%{public}s", action)
+            return id
+        }
+
+        public static func endCalculateFrame(_ id: OSSignpostID) {
+            os_signpost(.end, log: log, name: "CalculateFrame", signpostID: id)
+        }
+
+        public static func beginAXWrite() -> OSSignpostID {
+            let id = OSSignpostID(log: log)
+            os_signpost(.begin, log: log, name: "AXWrite", signpostID: id)
+            return id
+        }
+
+        public static func endAXWrite(_ id: OSSignpostID) {
+            os_signpost(.end, log: log, name: "AXWrite", signpostID: id)
+        }
+    }
 }

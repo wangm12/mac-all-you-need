@@ -74,6 +74,10 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
         runtime.settings.radialTriggerTapCount
     }
 
+    var radialMenuKeyBindings: RadialMenuKeyBindings {
+        runtime.settings.radialMenuKeyBindings
+    }
+
     var radialActive = false
 
     /// Edge-tracking for double-tap radial triggers.
@@ -116,6 +120,7 @@ final class WindowControlEventTap: WindowControlTapLifecycle, WindowControlRunti
             coordinatorActive: coordinatorActive,
             recordingHotkey: recordingHotkey
         )
+        snapIntent = WindowSnapIntentTracker(configuration: settings.snapIntentConfiguration.validated())
         stateMachine.updateAccessibilityTrust(axTrusted, enabled: runtime.anyRuntimeBehaviorEnabled)
     }
 

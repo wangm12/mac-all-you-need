@@ -7,13 +7,22 @@ import Platform
 final class WindowKeyboardActionPerformer: WindowControlActionPerforming {
     private struct ResolvedWindow {
         let element: WindowAccessibilityElement
+        let snapshot: WindowSnapshot
         let identity: WindowIdentity
+    }
+
+    private struct SettlingMove {
+        let identity: WindowIdentity
+        let startedAt: Date
     }
 
     private let mover: WindowMover
     private var pendingWindow: ResolvedWindow?
     private var previousResult: WindowMovementResult?
     private var previousIdentity: WindowIdentity?
+    private var settlingMove: SettlingMove?
+    private let now: () -> Date
+
     var repeatHalfAcrossDisplays: Bool {
         get { mover.repeatHalfAcrossDisplays }
         set { mover.repeatHalfAcrossDisplays = newValue }
@@ -24,33 +33,80 @@ final class WindowKeyboardActionPerformer: WindowControlActionPerforming {
         set { mover.animateMoves = newValue }
     }
 
-    init(mover: WindowMover = WindowMover()) {
+    var animationConfiguration: WindowMoveAnimationConfiguration {
+        get { mover.animationConfiguration }
+        set { mover.animationConfiguration = newValue }
+    }
+
+    init(mover: WindowMover = WindowMover(), now: @escaping () -> Date = Date.init) {
         self.mover = mover
+        self.now = now
     }
 
     var currentIdentity: WindowIdentity? {
+        let resolveSignpost = PerformanceSignpost.WindowControl.beginResolveWindow()
+        defer { PerformanceSignpost.WindowControl.endResolveWindow(resolveSignpost) }
         let resolved = resolveFocusedWindow()
         pendingWindow = resolved
         return resolved?.identity
     }
 
     func perform(_ action: WindowAction, restoreFrame: CGRect?) -> WindowMovementResult? {
+        let resolveSignpost = PerformanceSignpost.WindowControl.beginResolveWindow()
         let resolved = pendingWindow ?? resolveFocusedWindow()
         pendingWindow = nil
+        PerformanceSignpost.WindowControl.endResolveWindow(resolveSignpost)
         guard let resolved else { return nil }
+
+        let currentDate = now()
+        if let settlingMove,
+           resolved.identity.matchesSameWindow(as: settlingMove.identity),
+           WindowMoveCoalescing.shouldSupersedeInFlightMove(
+               sameWindow: true,
+               inFlightStartedAt: settlingMove.startedAt,
+               now: currentDate
+           )
+        {
+            mover.cancelPendingCrossDisplayRetry()
+            mover.cancelInFlightMoveAnimation()
+        }
+
+        defer {
+            settlingMove = SettlingMove(identity: resolved.identity, startedAt: now())
+        }
+
+        #if DEBUG
+        WindowAccessibilityElement.countsAXOperations = true
+        let axCountStart = WindowAccessibilityElement.debugAXOperationCount
+        #endif
+        let started = CFAbsoluteTimeGetCurrent()
+
+        let calculateSignpost = PerformanceSignpost.WindowControl.beginCalculateFrame(action: action.rawValue)
+        let result: WindowMovementResult?
         if action == .restore, let restoreFrame {
-            let result = mover.move(resolved.element, to: restoreFrame, action: action)
+            result = mover.move(resolved.element, to: restoreFrame, action: action)
+        } else {
+            result = mover.move(
+                resolved.element,
+                snapshot: resolved.snapshot,
+                action: action,
+                previousResult: resolved.identity.matchesSameWindow(as: previousIdentity) ? previousResult : nil
+            )
+        }
+        PerformanceSignpost.WindowControl.endCalculateFrame(calculateSignpost)
+
+        let durationMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
+        #if DEBUG
+        let axRoundTrips = WindowAccessibilityElement.debugAXOperationCount - axCountStart
+        WindowControlMoveDiagnostics.record(axRoundTrips: axRoundTrips, durationMilliseconds: durationMs)
+        #else
+        WindowControlMoveDiagnostics.record(axRoundTrips: 0, durationMilliseconds: durationMs)
+        #endif
+
+        if let result {
             previousResult = result
             previousIdentity = resolved.identity
-            return result
         }
-        let result = mover.move(
-            resolved.element,
-            action: action,
-            previousResult: resolved.identity.matchesSameWindow(as: previousIdentity) ? previousResult : nil
-        )
-        previousResult = result
-        previousIdentity = resolved.identity
         return result
     }
 
@@ -69,16 +125,18 @@ final class WindowKeyboardActionPerformer: WindowControlActionPerforming {
 
         let axElement = axWindow as! AXUIElement
         let element = WindowAccessibilityElement(axElement)
-        guard element.isSupportedForWindowControl else {
+        let snap = element.snapshot()
+        guard snap.isSupportedForWindowControl else {
             return nil
         }
         return ResolvedWindow(
             element: element,
+            snapshot: snap,
             identity: WindowIdentity(
                 pid: element.processIdentifier,
                 cgWindowID: nil,
                 titleHash: element.windowTitleHash,
-                frameFingerprint: element.frameFingerprint
+                frameFingerprint: WindowAccessibilityElement.frameFingerprint(for: snap.frame)
             )
         )
     }

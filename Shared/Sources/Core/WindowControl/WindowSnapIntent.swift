@@ -1,6 +1,6 @@
 import CoreGraphics
 
-public struct WindowSnapIntentConfiguration: Equatable, Sendable {
+public struct WindowSnapIntentConfiguration: Equatable, Codable, Sendable {
     public var movementThreshold: CGFloat
     public var edgeThreshold: CGFloat
     public var cornerThreshold: CGFloat
@@ -16,6 +16,23 @@ public struct WindowSnapIntentConfiguration: Equatable, Sendable {
         self.edgeThreshold = edgeThreshold
         self.cornerThreshold = cornerThreshold
         self.sideHalfThreshold = sideHalfThreshold
+    }
+
+    public static let `default` = WindowSnapIntentConfiguration()
+
+    public func validated() -> WindowSnapIntentConfiguration {
+        WindowSnapIntentConfiguration(
+            movementThreshold: movementThreshold.clamped(to: 4 ... 80),
+            edgeThreshold: edgeThreshold.clamped(to: 1 ... 40),
+            cornerThreshold: cornerThreshold.clamped(to: 4 ... 80),
+            sideHalfThreshold: sideHalfThreshold.clamped(to: 40 ... 400)
+        )
+    }
+}
+
+private extension CGFloat {
+    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }
 }
 

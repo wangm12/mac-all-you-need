@@ -29,6 +29,9 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
     public var activeWindowBorderEnabled: Bool
     public var activeWindowBorderInner: Bool
     public var animateWindowMoves: Bool
+    public var snapHapticsEnabled: Bool
+    public var snapIntentConfiguration: WindowSnapIntentConfiguration
+    public var radialMenuKeyBindings: RadialMenuKeyBindings
     public var disableSequoiaTilingHotkeys: Bool
     public var scrollResizeEnabled: Bool
     public var windowRules: [WindowRule]
@@ -59,6 +62,9 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         activeWindowBorderEnabled: Bool = false,
         activeWindowBorderInner: Bool = true,
         animateWindowMoves: Bool = false,
+        snapHapticsEnabled: Bool = false,
+        snapIntentConfiguration: WindowSnapIntentConfiguration = .default,
+        radialMenuKeyBindings: RadialMenuKeyBindings = .default,
         disableSequoiaTilingHotkeys: Bool = true,
         scrollResizeEnabled: Bool = false,
         windowRules: [WindowRule] = []
@@ -88,6 +94,9 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         self.activeWindowBorderEnabled = activeWindowBorderEnabled
         self.activeWindowBorderInner = activeWindowBorderInner
         self.animateWindowMoves = animateWindowMoves
+        self.snapHapticsEnabled = snapHapticsEnabled
+        self.snapIntentConfiguration = snapIntentConfiguration.validated()
+        self.radialMenuKeyBindings = radialMenuKeyBindings.replacingDuplicateKeys()
         self.disableSequoiaTilingHotkeys = disableSequoiaTilingHotkeys
         self.scrollResizeEnabled = scrollResizeEnabled
         self.windowRules = windowRules
@@ -123,6 +132,15 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         activeWindowBorderEnabled = try container.decodeIfPresent(Bool.self, forKey: .activeWindowBorderEnabled) ?? false
         activeWindowBorderInner = try container.decodeIfPresent(Bool.self, forKey: .activeWindowBorderInner) ?? true
         animateWindowMoves = try container.decodeIfPresent(Bool.self, forKey: .animateWindowMoves) ?? false
+        snapHapticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .snapHapticsEnabled) ?? false
+        snapIntentConfiguration = (try container.decodeIfPresent(
+            WindowSnapIntentConfiguration.self,
+            forKey: .snapIntentConfiguration
+        ) ?? .default).validated()
+        radialMenuKeyBindings = (try container.decodeIfPresent(
+            RadialMenuKeyBindings.self,
+            forKey: .radialMenuKeyBindings
+        ) ?? .default).replacingDuplicateKeys()
         disableSequoiaTilingHotkeys = try container.decodeIfPresent(Bool.self, forKey: .disableSequoiaTilingHotkeys) ?? true
         scrollResizeEnabled = try container.decodeIfPresent(Bool.self, forKey: .scrollResizeEnabled) ?? false
         windowRules = try container.decodeIfPresent([WindowRule].self, forKey: .windowRules) ?? []
