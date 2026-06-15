@@ -126,8 +126,9 @@ enum CursorPaster {
     }
 
     private static func insertUsingAccessibility(_ text: String, element: AXUIElement) -> Bool {
-        // Prevent multi-second hangs on unresponsive apps.
-        AXUIElementSetMessagingTimeout(element, 0.05)
+        // 100ms timeout prevents multi-second hangs on unresponsive apps while
+        // still leaving room for apps under transient load.
+        AXUIElementSetMessagingTimeout(element, 0.1)
 
         // Reject elements that are not writable text inputs.
         guard isWritableTextInputElement(element) else { return false }
@@ -149,8 +150,10 @@ enum CursorPaster {
                     return true
                 }
             } else {
-                // No pre-snapshot available (web content etc.) — trust the .success result.
-                return true
+                // No pre-snapshot available (web content, sandboxed apps). Cannot verify
+                // the write landed — Chrome and Electron return .success but silently discard
+                // AX writes to web inputs. Fall through to Cmd+V which handles browsers.
+                return false
             }
         }
 

@@ -276,7 +276,10 @@ final class VoiceCoordinator {
         // ── Decision tree: resolve which engine to use ──────────────────────
         let settings = VoiceASRSettingsStore.load()
         let localModelInstalled = VoiceModelManager.isLocalASRModelInstalled(settings.modelID)
-        let localCaps = VoiceLocalASREngine().capabilities
+        // Derive local capabilities from the model ID without allocating an engine actor.
+        let localCaps: VoiceASRCapabilities = settings.modelID.runtime == .qwenCoreML
+            ? VoiceASRCapabilities(supportsStreaming: true, requiresNetwork: false, emitsPartials: false)
+            : .batchOnly
         let cloudKeyPresent: Bool
         if settings.providerKind != .local {
             let keyStore = VoiceCloudASRKeyStore(keychain: SystemKeychain())
@@ -298,9 +301,13 @@ final class VoiceCoordinator {
             return
         case .start(let provider, _):
             // If the planner chose local but we're configured for cloud, hot-swap the engine.
+            // applyASRProvider already fires Task.detached warmup, so skip the guarded warmup
+            // below to avoid two concurrent warmup calls on the same actor.
             if provider == .local, settings.providerKind != .local {
                 log.info("startRecording: falling back to local engine (cloud unavailable)")
                 applyASRProvider(.local, keychain: SystemKeychain())
+                // Warmup fired by applyASRProvider — skip the guard below.
+                break
             }
         }
         // ────────────────────────────────────────────────────────────────────
@@ -309,6 +316,7 @@ final class VoiceCoordinator {
         // ASR call. On first dictation this prevents silent ASR failures from an
         // unloaded model. Subsequent calls return quickly (model already warm).
         // Cap at 3s so a corrupt model file or disk stall cannot hang forever.
+        // (Skipped when hot-swap already fired warmup above.)
         if let local = activeEngine as? VoiceLocalASREngine {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await local.warmup() }
