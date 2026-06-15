@@ -322,9 +322,13 @@ final class VoiceCoordinator {
             state = .recording
             log.info("recording started — generation: \(self.operationGeneration, privacy: .public)")
             hudPresenter.startLevelUpdates(peakLevelProvider: { [weak self] in self?.audio.peakLevel ?? 0 })
-            await pipeline.beginLiveASR(generation: operationGeneration) { [weak self] in
+            let gen = operationGeneration
+            await pipeline.beginLiveASR(generation: operationGeneration, audioSnapshotProvider: { [weak self] in
                 self?.audio.liveFeedSnapshot()
-            }
+            }, onPartial: { [weak self] partial in
+                guard let self, self.operationGeneration == gen, self.state == .recording else { return }
+                self.hudPresenter.showLivePartial(partial.text)
+            })
         } catch {
             log.error("audio start failed: \(error.localizedDescription, privacy: .public)")
             fail(error.localizedDescription)

@@ -90,6 +90,11 @@ public struct VoiceTranscriptionPartial: Sendable, Equatable {
     public let text: String
     /// True if this portion of the transcript is committed (won't change).
     public let isStable: Bool
+
+    public init(text: String, isStable: Bool) {
+        self.text = text
+        self.isStable = isStable
+    }
 }
 
 /// One dictation session. Samples are fed in capture order; `finish` returns the final transcript.

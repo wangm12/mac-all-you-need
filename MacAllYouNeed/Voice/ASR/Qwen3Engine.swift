@@ -163,6 +163,7 @@ private actor Qwen3LongFormLiveSession: VoiceLiveTranscriptionSession {
     private var pendingSamples: [Float] = []
     private var committedParts: [String] = []
     private var cancelled = false
+    private var partialHandler: (@Sendable (VoiceTranscriptionPartial) -> Void)?
 
     init(
         manager: Qwen3AsrManager,
@@ -172,6 +173,10 @@ private actor Qwen3LongFormLiveSession: VoiceLiveTranscriptionSession {
         self.manager = manager
         self.modelID = modelID
         self.languageHint = languageHint
+    }
+
+    func setPartialHandler(_ handler: @escaping @Sendable (VoiceTranscriptionPartial) -> Void) async {
+        partialHandler = handler
     }
 
     func enqueueAudio(samples: [Float], sampleRate: Double) async throws {
@@ -261,6 +266,10 @@ private actor Qwen3LongFormLiveSession: VoiceLiveTranscriptionSession {
             let part = try await transcribe(samples: chunk)
             if !part.isEmpty {
                 committedParts.append(part)
+                // Emit a partial so the HUD can show live transcription progress.
+                let merged = VoiceSequentialTranscriptMerge.mergeSequential(committedParts)
+                let handler = partialHandler
+                handler?(.init(text: merged, isStable: true))
             }
             pendingSamples.removeFirst(commitCount)
         }

@@ -95,7 +95,8 @@ final class MiniVoiceHUD {
 
     enum State: Equatable {
         case idlePreview
-        case recording(level: Float)
+        /// `liveText`: current partial transcript (nil = no partials yet, show "Listening").
+        case recording(level: Float, liveText: String? = nil)
         case transcribing(TranscribingSubphase)
         case cancelled
         case noSpeech(String)
@@ -364,8 +365,15 @@ struct VoicePillContentModel: Equatable {
             labelTransitionSlot = "idlePreview"
             leading = .none
             actionAvailability = .none
-        case .recording:
-            label = "Listening"
+        case .recording(_, let liveText):
+            // Show live partial text if available, otherwise "Listening".
+            if let liveText, !liveText.isEmpty {
+                // Truncate to last ~40 chars so it fits the 144px pill.
+                let tail = liveText.count > 40 ? String(liveText.suffix(40)) : liveText
+                label = tail
+            } else {
+                label = "Listening"
+            }
             labelTransitionSlot = "recording"
             leading = .waveformBars
             actionAvailability = .stop

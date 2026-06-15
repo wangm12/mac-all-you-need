@@ -49,7 +49,12 @@ final class VoiceHUDPresenter {
     // MARK: - HUD display
 
     func showRecording(level: Float) {
-        hud.show(.recording(level: level), onCancel: makeCancelAction(), onPrimary: makeCancelAction())
+        hud.show(.recording(level: level, liveText: nil), onCancel: makeCancelAction(), onPrimary: makeCancelAction())
+    }
+
+    /// Update the recording HUD with live partial transcript text.
+    func showLivePartial(_ text: String) {
+        hud.show(.recording(level: hud.audioLevelBridge.level, liveText: text), onCancel: makeCancelAction(), onPrimary: makeCancelAction())
     }
 
     func showTranscribingPhase(_ phase: MiniVoiceHUD.TranscribingSubphase) {

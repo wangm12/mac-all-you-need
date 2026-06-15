@@ -344,13 +344,13 @@ struct VoiceASRSettings: Codable, Equatable {
     var providerKind: VoiceASRProviderKind
 
     static let `default` = VoiceASRSettings(
-        modelID: .qwen3ASR06BInt8,
+        modelID: .qwen3ASR06BF32,
         languageHint: .automatic,
         providerKind: .local
     )
 
     init(
-        modelID: VoiceASRModelID = .qwen3ASR06BInt8,
+        modelID: VoiceASRModelID = .qwen3ASR06BF32,
         languageHint: VoiceASRLanguageHint = .automatic,
         providerKind: VoiceASRProviderKind = .local
     ) {

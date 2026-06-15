@@ -137,12 +137,22 @@ final class VoicePipelineController {
 
     // MARK: - Live ASR session
 
-    func beginLiveASR(generation: Int, audioSnapshotProvider: @escaping () -> (samples: [Float], sampleRate: Double)?) async {
+    func beginLiveASR(
+        generation: Int,
+        audioSnapshotProvider: @escaping () -> (samples: [Float], sampleRate: Double)?,
+        onPartial: ((@MainActor (VoiceTranscriptionPartial) -> Void))? = nil
+    ) async {
         guard let liveEngine = delegate?.activeEngine as? VoiceLiveTranscriptionEngine else { return }
         do {
             let session = try await liveEngine.makeLiveSession(options: .default)
             liveSession = session
             liveSessionGeneration = generation
+            // Wire up the partial handler if provided.
+            if let onPartial {
+                await session.setPartialHandler { partial in
+                    Task { @MainActor in onPartial(partial) }
+                }
+            }
             await liveFeed.reset()
             liveFeedTask = Task { [weak self] in
                 guard let self else { return }
