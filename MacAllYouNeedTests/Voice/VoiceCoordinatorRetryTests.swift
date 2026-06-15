@@ -121,7 +121,7 @@ final class VoiceCoordinatorRetryTests: XCTestCase {
 }
 
 /// Stub ASR engine for testing.
-private final class StubASREngine: VoiceTranscriptionEngine, ASRProviding {
+private final class StubASREngine: ASRProviding {
     let modelIdentifier: String = "stub"
     private let result: VoiceTranscriptionResult?
     private let stubError: Error?

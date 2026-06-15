@@ -28,7 +28,7 @@ final class VoiceCoordinatorPipelineCallSequenceTests: XCTestCase {
 
     // MARK: - Stubs
 
-    private final class StubASREngine: VoiceTranscriptionEngine, ASRProviding, @unchecked Sendable {
+    private final class StubASREngine: ASRProviding, @unchecked Sendable {
         let modelIdentifier: String = "stub-asr"
         let result: VoiceTranscriptionResult
         let log: PipelineCallLog
@@ -286,7 +286,7 @@ private actor BlockingASREngineState {
     }
 }
 
-private final class BlockingASREngine: VoiceTranscriptionEngine, ASRProviding, @unchecked Sendable {
+private final class BlockingASREngine: ASRProviding, @unchecked Sendable {
     let modelIdentifier: String = "blocking-asr"
     private let state = BlockingASREngineState()
     let log: PipelineCallLog

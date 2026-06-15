@@ -266,6 +266,39 @@ final class VoiceCoordinator {
         inputSourceAtRecordingStart = currentInputSourceName()
         inputSourceChangedDuringRun = false
         hudPresenter.showRecording(level: 0)
+
+        // ── Decision tree: resolve which engine to use ──────────────────────
+        let settings = VoiceASRSettingsStore.load()
+        let localModelInstalled = VoiceModelManager.isLocalASRModelInstalled(settings.modelID)
+        let localCaps = VoiceLocalASREngine().capabilities
+        let cloudKeyPresent: Bool
+        if settings.providerKind != .local {
+            let keyStore = VoiceCloudASRKeyStore(keychain: SystemKeychain())
+            cloudKeyPresent = (try? keyStore.apiKey(for: settings.providerKind)) != nil
+        } else {
+            cloudKeyPresent = false
+        }
+        let decision = VoiceRecordingStartPlanner.resolve(
+            configured: settings.providerKind,
+            cloudKeyPresent: cloudKeyPresent,
+            isOnline: NetworkReachability.shared.isOnline,
+            localModelInstalled: localModelInstalled,
+            localEngineCapabilities: localCaps
+        )
+        switch decision {
+        case .blocked(let reason):
+            log.error("startRecording blocked: \(reason.userMessage, privacy: .public)")
+            fail(reason.userMessage)
+            return
+        case .start(let provider, _):
+            // If the planner chose local but we're configured for cloud, hot-swap the engine.
+            if provider == .local, settings.providerKind != .local {
+                log.info("startRecording: falling back to local engine (cloud unavailable)")
+                applyASRProvider(.local, keychain: SystemKeychain())
+            }
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         // Await warmup before starting audio so the model is ready for the first
         // ASR call. On first dictation this prevents silent ASR failures from an
         // unloaded model. Subsequent calls return quickly (model already warm).
