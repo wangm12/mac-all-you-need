@@ -100,6 +100,8 @@ final class MiniVoiceHUD {
         case cancelled
         case noSpeech(String)
         case error(String)
+        /// Text landed in the clipboard but couldn't be auto-pasted. Brief notice before dismiss.
+        case clipboardFallback
     }
 
     private var panelController: NonActivatingFloatingPanelController<MiniVoiceHUDView>?
@@ -399,6 +401,11 @@ struct VoicePillContentModel: Equatable {
             labelTransitionSlot = "error"
             leading = .warningTriangle
             actionAvailability = .dismissTerminal
+        case .clipboardFallback:
+            label = "⌘V to paste"
+            labelTransitionSlot = "clipboardFallback"
+            leading = .none
+            actionAvailability = .none
         }
     }
 }

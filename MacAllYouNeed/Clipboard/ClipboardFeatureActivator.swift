@@ -3,12 +3,9 @@ import Foundation
 
 /// Owns the Clipboard feature's enable/disable lifecycle state.
 ///
-/// The clipboard subsystem (LocalClipboardReader, SnippetExpander, hotkeys)
-/// is wired by AppController at launch and runs continuously while the app is
-/// open; it does not start or stop per feature-enable toggle. This activator
-/// therefore only tracks the logical enabled/disabled state so the FeatureRuntime
-/// can reflect it. testMode=true lets unit tests exercise the state machine
-/// without requiring Accessibility permission or a live database.
+/// Runtime start/stop (snippet expander, reader polling, dock, hotkeys) is handled
+/// by `AppController.refreshClipboardFeatureAvailability()`. This activator tracks
+/// logical state for `FeatureRuntime`.
 public actor ClipboardFeatureActivator: FeatureActivator {
     private var _isPolling: Bool = false
     private let testMode: Bool

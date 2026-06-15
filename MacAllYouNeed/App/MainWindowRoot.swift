@@ -131,9 +131,17 @@ struct MainWindowRoot: View {
         case .folderPreview:
             return AnyView(FolderPreviewDestinationView(controller: controller))
         case .finderHistory:
-            return AnyView(FolderHistoryPageView(controller: controller))
+            AppGroupSettings.defaults.set(
+                FolderPreviewFunctionTab.history.rawValue,
+                forKey: FolderPreviewFunctionTab.storageKey
+            )
+            return AnyView(FolderPreviewDestinationView(controller: controller))
         case .snippets:
-            return AnyView(SnippetsDestinationView(controller: controller))
+            AppGroupSettings.defaults.set(
+                ClipboardFunctionTab.snippets.rawValue,
+                forKey: ClipboardFunctionTab.storageKey
+            )
+            return AnyView(ClipboardDestinationView(controller: controller))
         case .windowLayouts:
             return AnyView(WindowLayoutsDestinationView(controller: controller))
         case .grabAnywhere:
@@ -167,8 +175,9 @@ struct MainWindowRoot: View {
     // MARK: Feature gating helpers
 
     private func isFeatureDisabled(for destination: MainAppDestination) -> Bool {
-        guard let fid = MainSidebarDestinationPresentation.featureID(for: destination) else { return false }
-        return statePublisher.state(for: fid).activationState != .enabled
+        !MainSidebarDestinationPresentation.isFeatureEnabled(for: destination) { id in
+            statePublisher.state(for: id)
+        }
     }
 
     private var mainSidebar: some View {

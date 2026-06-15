@@ -34,6 +34,7 @@ final class VoiceTranscriptRetentionRunner {
     }
 
     func start() {
+        guard timer == nil else { return }
         sweepNow()
         timer = Timer.scheduledTimer(withTimeInterval: 3_600, repeats: true) { [weak self] _ in
             self?.sweepNow()

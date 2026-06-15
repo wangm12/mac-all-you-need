@@ -405,7 +405,13 @@ final class VoicePipelineController {
             }
             if let pasteResult = ctx.pasteResult, !pasteResult.insertedIntoActiveInput {
                 undoBookkeeping.clearInflight()
-                fail(pasteFailureMessage(for: pasteResult))
+                if pasteResult.deliveryPath == .clipboardOnly {
+                    // Text is in the clipboard — softer notice rather than an error HUD state.
+                    delegate.state = .idle
+                    hudPresenter?.showClipboardFallbackNotice()
+                } else {
+                    fail(pasteFailureMessage(for: pasteResult))
+                }
                 return
             }
 

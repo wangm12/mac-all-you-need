@@ -1,6 +1,7 @@
 @testable import MacAllYouNeed
 import XCTest
 
+@MainActor
 final class DownloadCoordinatorCookieModeTests: XCTestCase {
     func testDispatchBlockPolicyDoesNotBlockOutsideExtensionOnlyMode() {
         XCTAssertFalse(

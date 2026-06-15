@@ -21,10 +21,6 @@ struct FeatureToolCard<Footer: View>: View {
     /// nil  → not feature-managed; behaves like a plain MAYNToolCard.
     let state: FeatureRuntimeState?
 
-    /// The feature descriptor driving this card.
-    /// nil for unmanaged / non-feature tiles; used only for the About popover.
-    let descriptor: FeatureDescriptor?
-
     /// true while an `applyTransition` Task is in flight (but state has not
     /// changed to `.downloading` yet). Shows a small spinner overlaid in the
     /// top-right corner of the card; the status badge remains visible.
@@ -38,7 +34,6 @@ struct FeatureToolCard<Footer: View>: View {
     var onInstall: (() -> Void)? = nil
     var onCancelDownload: (() -> Void)? = nil
     var onRetryInstall: (() -> Void)? = nil
-    var onUninstall: (() -> Void)? = nil
 
     // MARK: Tool-specific footer
 
@@ -48,10 +43,6 @@ struct FeatureToolCard<Footer: View>: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    // MARK: Local state
-
-    @State private var showingAbout = false
-
     // MARK: Body
 
     var body: some View {
@@ -60,14 +51,6 @@ struct FeatureToolCard<Footer: View>: View {
                 featureManagedCard
             } else {
                 unmanagedCard
-            }
-        }
-        .contextMenu { contextMenuItems }
-        .popover(isPresented: $showingAbout) {
-            if let descriptor, let state {
-                FeatureAboutContent(descriptor: descriptor, state: state)
-                    .frame(minWidth: 280, maxWidth: 340)
-                    .padding()
             }
         }
     }
@@ -189,61 +172,6 @@ struct FeatureToolCard<Footer: View>: View {
         case .unmanaged, .enabled: true
         case .disabled, .notDownloaded, .downloading, .failed: false
         }
-    }
-
-    // MARK: Context menu
-
-    @ViewBuilder
-    private var contextMenuItems: some View {
-        // Open — only when the tool is usable
-        switch visualState {
-        case .unmanaged, .enabled:
-            Button("Open \(title)") { onOpen?() }
-        case .disabled, .notDownloaded, .downloading, .failed:
-            EmptyView()
-        }
-
-        // Lifecycle section — only for feature-managed tiles
-        switch visualState {
-        case .unmanaged:
-            EmptyView()
-        case .enabled:
-            Divider()
-            Button("Disable") { onDisable?() }
-        case .disabled:
-            Divider()
-            Button("Enable") { onEnable?() }
-        case .notDownloaded:
-            Divider()
-            Button("Install…") { onInstall?() }
-        case .downloading:
-            Divider()
-            Button("Cancel Download") { onCancelDownload?() }
-        case .failed:
-            Divider()
-            Button("Retry Install") { onRetryInstall?() }
-        }
-
-        // Uninstall — only for asset-backed features that are present
-        if showUninstallOption {
-            Button("Uninstall…", role: .destructive) { onUninstall?() }
-        }
-
-        Divider()
-
-        // About — only for feature-managed tiles
-        if descriptor != nil {
-            Button("About \(title)…") { showingAbout = true }
-        }
-    }
-
-    // MARK: Uninstall visibility
-
-    /// Show "Uninstall…" when the feature has an asset pack and it is present.
-    private var showUninstallOption: Bool {
-        guard let s = state else { return false }
-        if case .present = s.assetState { return true }
-        return false
     }
 
     // MARK: Visual state helper

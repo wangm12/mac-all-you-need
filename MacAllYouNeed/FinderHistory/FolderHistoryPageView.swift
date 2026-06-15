@@ -8,6 +8,7 @@ import SwiftUI
 /// Configuration page for Finder Folder History (settings tab and main sidebar destination).
 struct FolderHistoryPageView: View {
     private let controller: AppController?
+    private let embeddedInFinderPreview: Bool
     @State private var hotkeyMap = HotkeyMapStore.defaultMap
     @State private var settings = FolderHistorySettingsStore.load()
     @State private var axGranted = AXIsProcessTrusted()
@@ -19,14 +20,36 @@ struct FolderHistoryPageView: View {
 
     private var store: FolderHistoryStore? { FolderHistoryStoreLocator.shared() }
 
-    init(controller: AppController? = nil) {
+    init(controller: AppController? = nil, embeddedInFinderPreview: Bool = false) {
         self.controller = controller
+        self.embeddedInFinderPreview = embeddedInFinderPreview
         if let controller {
             _statePublisher = State(initialValue: controller.featureStatePublisher)
         }
     }
 
     var body: some View {
+        Group {
+            if embeddedInFinderPreview {
+                FunctionPageScrollContent {
+                    folderHistorySettingsSections
+                }
+            } else {
+                standalonePage
+            }
+        }
+        .onAppear(perform: onPageAppear)
+        .alert("Clear folder history?", isPresented: $clearConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear", role: .destructive) {
+                try? store?.clear()
+            }
+        } message: {
+            Text("This removes every folder from your visit history. This cannot be undone.")
+        }
+    }
+
+    private var standalonePage: some View {
         MAYNSettingsPage(
             title: "Finder Folder History",
             subtitle: "Keeps track of folders you open in Finder. Use the hotkey to browse and reopen them."
@@ -34,7 +57,16 @@ struct FolderHistoryPageView: View {
             if controller != nil {
                 featureEnableSection
             }
+            folderHistorySettingsSections
+        }
+        .onAppear(perform: onPageAppear)
+        .onReceive(NotificationCenter.default.publisher(for: .featureRuntimeStateChanged)) { _ in
+            refreshFeatureEnabled()
+        }
+    }
 
+    @ViewBuilder
+    private var folderHistorySettingsSections: some View {
             if !axGranted {
                 MAYNSection(title: "Permission") {
                     AccessibilityPermissionRow(
@@ -143,25 +175,14 @@ struct FolderHistoryPageView: View {
                     }
                 }
             }
-        }
-        .onAppear {
-            hotkeyMap = HotkeyMapStore.load()
-            settings = FolderHistorySettingsStore.load()
-            axGranted = AXIsProcessTrusted()
-            refreshFeatureEnabled()
-            refreshVisitCount()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .featureRuntimeStateChanged)) { _ in
-            refreshFeatureEnabled()
-        }
-        .alert("Clear folder history?", isPresented: $clearConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Clear", role: .destructive) {
-                try? store?.clear()
-            }
-        } message: {
-            Text("This removes every folder from your visit history. This cannot be undone.")
-        }
+    }
+
+    private func onPageAppear() {
+        hotkeyMap = HotkeyMapStore.load()
+        settings = FolderHistorySettingsStore.load()
+        axGranted = AXIsProcessTrusted()
+        refreshFeatureEnabled()
+        refreshVisitCount()
     }
 
     @ViewBuilder

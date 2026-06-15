@@ -122,6 +122,11 @@ final class LocalClipboardReader {
         pollTask = nil
     }
 
+    func resumePolling() {
+        guard pollTask == nil else { return }
+        startPolling()
+    }
+
     private func startPolling() {
         pollTask = Task {
             try? await Task.sleep(for: .milliseconds(300))

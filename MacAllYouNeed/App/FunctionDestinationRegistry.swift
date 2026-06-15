@@ -83,6 +83,8 @@ struct DashboardToolTileItem: Equatable, Identifiable {
     var featureID: FeatureID?
     /// When set, enable/disable on this tile proxies to this FeatureID instead.
     var proxiesFeatureID: FeatureID?
+    /// Additional FeatureIDs toggled together with `featureID` (e.g. Finder Preview + History).
+    var coupledFeatureIDs: [FeatureID] = []
 
     var id: String { title }
 }
@@ -94,15 +96,12 @@ enum DashboardToolTilePresentation {
     static func baseTiles(registry: FeatureRegistry) -> [DashboardToolTileItem] {
         // Ordered list of (destination, featureID) pairs that appear on the dashboard.
         // Destinations without a featureID (dashboard, settings) are excluded here.
-        // The Snippets tile proxies Clipboard's featureID — handled as a special case below.
         let orderedDestinations: [(MainAppDestination, FeatureID)] = [
             (.clipboard, .clipboard),
-            (.snippets, .clipboard), // proxy tile
             (.voice, .voice),
             (.voiceReminders, .voiceReminders),
             (.downloads, .downloader),
             (.folderPreview, .folderPreview),
-            (.finderHistory, .folderHistory),
             (.aiFileOrganizer, .aiFileOrganizer),
             (.windowLayouts, .windowLayouts),
             (.grabAnywhere, .windowGrab),
@@ -111,7 +110,6 @@ enum DashboardToolTilePresentation {
 
         return orderedDestinations.compactMap { (destination, featureID) in
             guard let descriptor = registry.descriptor(for: featureID) else { return nil }
-            let isProxy = destination == .snippets
             return DashboardToolTileItem(
                 destination: destination,
                 title: descriptor.displayName,
@@ -122,7 +120,7 @@ enum DashboardToolTilePresentation {
                 statusText: nil,
                 statusKind: nil,
                 featureID: featureID,
-                proxiesFeatureID: isProxy ? featureID : nil
+                coupledFeatureIDs: destination == .folderPreview ? [.folderHistory] : []
             )
         }
     }
@@ -141,25 +139,12 @@ enum DashboardToolTilePresentation {
                 destination: .clipboard,
                 title: "Clipboard",
                 metric: "\(clipboardCount)",
-                detail: "Capture, search, pin, and paste clipboard history.",
+                detail: "Capture, search, pin, paste, and expand snippets.",
                 symbolName: "doc.on.clipboard",
                 shortcutDisplay: MainHotkeyPresentation.display(for: .clipboard, in: hotkeys),
                 statusText: nil,
                 statusKind: nil,
                 featureID: .clipboard
-            ),
-            DashboardToolTileItem(
-                destination: .snippets,
-                title: "Snippets",
-                metric: nil,
-                detail: "Expand reusable text from this Mac.",
-                symbolName: "text.quote",
-                shortcutDisplay: nil,
-                statusText: nil,
-                statusKind: nil,
-                // Snippets surfaces the Clipboard feature; there is no separate SnippetsFeatureID.
-                featureID: .clipboard,
-                proxiesFeatureID: .clipboard
             ),
             DashboardToolTileItem(
                 destination: .voice,
@@ -196,25 +181,15 @@ enum DashboardToolTilePresentation {
             ),
             DashboardToolTileItem(
                 destination: .folderPreview,
-                title: "Folder Preview",
+                title: "Finder Preview",
                 metric: nil,
-                detail: "Preview Finder folders and archives.",
+                detail: "Quick Look previews, browse folder, and visit history.",
                 symbolName: "folder.badge.gearshape",
                 shortcutDisplay: "Space",
                 statusText: nil,
                 statusKind: nil,
-                featureID: .folderPreview
-            ),
-            DashboardToolTileItem(
-                destination: .finderHistory,
-                title: "Finder Folder History",
-                metric: nil,
-                detail: "Jump back to recently visited Finder folders via hotkey.",
-                symbolName: "clock.badge.checkmark",
-                shortcutDisplay: nil,
-                statusText: nil,
-                statusKind: nil,
-                featureID: .folderHistory
+                featureID: .folderPreview,
+                coupledFeatureIDs: [.folderHistory]
             ),
             DashboardToolTileItem(
                 destination: .aiFileOrganizer,
@@ -382,8 +357,8 @@ enum MainSidebarDestinationPresentation {
         .downloads: .downloader,
         .aiFileOrganizer: .aiFileOrganizer,
         .folderPreview: .folderPreview,
-        .finderHistory: .folderHistory,
         .snippets: .clipboard,
+        .finderHistory: .folderHistory,
         .windowLayouts: .windowLayouts,
         .grabAnywhere: .windowGrab,
         .dockPreviews: .dockPreviews
@@ -391,6 +366,20 @@ enum MainSidebarDestinationPresentation {
 
     static func featureID(for destination: MainAppDestination) -> FeatureID? {
         destinationFeatureIDs[destination]
+    }
+
+    static func isFeatureEnabled(
+        for destination: MainAppDestination,
+        state: (FeatureID) -> FeatureRuntimeState
+    ) -> Bool {
+        switch destination {
+        case .folderPreview, .finderHistory:
+            return state(.folderPreview).activationState == .enabled
+                && state(.folderHistory).activationState == .enabled
+        default:
+            guard let featureID = featureID(for: destination) else { return true }
+            return state(featureID).activationState == .enabled
+        }
     }
 
     static func renderedDestinations(
@@ -435,9 +424,9 @@ enum DashboardToolSettingsNavigation {
             )
         case .snippets:
             DashboardToolSettingsRoute(
-                destination: .snippets,
-                tabStorageKey: SnippetsFunctionTab.storageKey,
-                tabRawValue: SnippetsFunctionTab.settings.rawValue
+                destination: .clipboard,
+                tabStorageKey: ClipboardFunctionTab.storageKey,
+                tabRawValue: ClipboardFunctionTab.snippets.rawValue
             )
         case .windowLayouts, .grabAnywhere, .dashboard, .settings,
              .voiceReminders, .finderHistory, .aiFileOrganizer, .dockPreviews:

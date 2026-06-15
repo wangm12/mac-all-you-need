@@ -24,7 +24,6 @@ final class FolderHistoryRuntime {
             historyWorker: historyWorker
         )
         switcher = FolderHistorySwitcherPanel(store: store)
-        registerHotkey()
     }
 
     func applyEnabled(_ enabled: Bool) {
@@ -32,13 +31,19 @@ final class FolderHistoryRuntime {
         isRecordingEnabled = enabled
         if enabled {
             recorder.start()
+            registerHotkey()
         } else {
             recorder.stop()
             switcher.dismiss()
+            unregisterHotkey()
         }
     }
 
     func reloadHotkey() {
+        guard isRecordingEnabled else {
+            unregisterHotkey()
+            return
+        }
         registerHotkey()
     }
 

@@ -403,6 +403,22 @@ final class HotkeyRecorderTests: XCTestCase {
         XCTAssertEqual(active[.windowLeftHalf], [descriptor])
     }
 
+    func testRegistryRegistrationMapExcludesDisabledFeatureHotkeys() {
+        let map: [HotkeyAction: [HotkeyDescriptor]] = [
+            .clipboard: [.defaultClipboard],
+            .browseFolder: [.defaultFolder]
+        ]
+
+        let active = HotkeyRegistryRegistrationPlan.activeMap(
+            from: map,
+            registerWindowLayoutHotkeys: false,
+            isFeatureEnabled: { $0 == .clipboard }
+        )
+
+        XCTAssertEqual(active[.clipboard], [.defaultClipboard])
+        XCTAssertNil(active[.browseFolder])
+    }
+
     func testValidationSkipsDisabledEmptyDescriptorArrays() {
         let map: [HotkeyAction: [HotkeyDescriptor]] = [
             .clipboard: [],

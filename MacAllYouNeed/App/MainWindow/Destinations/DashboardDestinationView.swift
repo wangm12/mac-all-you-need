@@ -8,7 +8,6 @@ struct DashboardDestinationView: View {
     let openDestination: (MainAppDestination) -> Void
     private var statePublisher: FeatureStatePublisher
     @State private var pendingFeatureIDs: Set<FeatureID> = []
-    @State private var showingUninstallFor: FeatureDescriptor?
 
     init(controller: AppController, openDestination: @escaping (MainAppDestination) -> Void) {
         self.controller = controller
@@ -31,27 +30,6 @@ struct DashboardDestinationView: View {
         .scrollIndicators(.never)
         .task {
             await controller.downloaderVM.refresh()
-        }
-        .sheet(
-            isPresented: Binding(
-                get: { showingUninstallFor != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        showingUninstallFor = nil
-                    }
-                }
-            )
-        ) {
-            if let descriptor = showingUninstallFor {
-                UninstallConfirmationSheet(
-                    descriptor: descriptor,
-                    onCancel: { showingUninstallFor = nil },
-                    onConfirm: { sheet in
-                        showingUninstallFor = nil
-                        Task { await performUninstall(descriptor: descriptor, sheetState: sheet) }
-                    }
-                )
-            }
         }
     }
 
@@ -86,15 +64,13 @@ struct DashboardDestinationView: View {
                     accent: accent(for: tile.destination),
                     fixedHeight: DashboardRenderingPresentation.toolCardHeight,
                     state: state(for: tile),
-                    descriptor: descriptor(for: tile),
-                    isPending: (tile.proxiesFeatureID ?? tile.featureID).map { pendingFeatureIDs.contains($0) } ?? false,
+                    isPending: transitionTargets(for: tile).contains { pendingFeatureIDs.contains($0) },
                     onOpen: { openTile(tile) },
                     onEnable: { Task { await handleAction(.enable, for: tile) } },
                     onDisable: { Task { await handleAction(.disable, for: tile) } },
                     onInstall: { Task { await handleAction(.install, for: tile) } },
                     onCancelDownload: { Task { await handleAction(.cancelDownload, for: tile) } },
-                    onRetryInstall: { Task { await handleAction(.retryInstall, for: tile) } },
-                    onUninstall: { Task { await handleAction(.uninstall, for: tile) } }
+                    onRetryInstall: { Task { await handleAction(.retryInstall, for: tile) } }
                 ) {
                     DashboardToolCardFooter(
                         tile: tile,
@@ -115,11 +91,7 @@ struct DashboardDestinationView: View {
     }
 
     private func openTile(_ tile: DashboardToolTileItem) {
-        let effectiveID = tile.proxiesFeatureID ?? tile.featureID
-        if let effectiveID,
-           statePublisher.state(for: effectiveID).activationState != .enabled {
-            return
-        }
+        if !isTileEnabled(tile) { return }
         let route = DashboardToolOpenNavigation.route(for: tile.destination)
         if let tabStorageKey = route.tabStorageKey, let tabRawValue = route.tabRawValue {
             AppGroupSettings.defaults.set(tabRawValue, forKey: tabStorageKey)
@@ -127,61 +99,75 @@ struct DashboardDestinationView: View {
         openDestination(route.destination)
     }
 
-    // MARK: Feature helpers
-
-    private func descriptor(for tile: DashboardToolTileItem) -> FeatureDescriptor? {
-        guard let featureID = tile.featureID else { return nil }
-        return controller.runtime.registry.descriptor(for: featureID)
+    private func isTileEnabled(_ tile: DashboardToolTileItem) -> Bool {
+        transitionTargets(for: tile).allSatisfy {
+            statePublisher.state(for: $0).activationState == .enabled
+        }
     }
+
+    private func transitionTargets(for tile: DashboardToolTileItem) -> [FeatureID] {
+        guard let featureID = tile.proxiesFeatureID ?? tile.featureID else { return [] }
+        var ids = [featureID]
+        for coupled in tile.coupledFeatureIDs where coupled != featureID {
+            ids.append(coupled)
+        }
+        return ids
+    }
+
+    // MARK: Feature helpers
 
     private func state(for tile: DashboardToolTileItem) -> FeatureRuntimeState? {
         guard let featureID = tile.featureID else { return nil }
-        return statePublisher.state(for: featureID)
+        let ids = transitionTargets(for: tile)
+        let states = ids.map { statePublisher.state(for: $0) }
+        guard let primary = states.first else { return nil }
+        if states.allSatisfy({ $0.activationState == .enabled }) {
+            return primary
+        }
+        return FeatureRuntimeState(assetState: primary.assetState, activationState: .disabled)
     }
 
     // MARK: Action dispatch
 
     private enum DashboardFeatureAction {
-        case enable, disable, install, cancelDownload, retryInstall, uninstall
+        case enable, disable, install, cancelDownload, retryInstall
     }
 
     private func handleAction(_ action: DashboardFeatureAction, for tile: DashboardToolTileItem) async {
-        guard let targetID = tile.proxiesFeatureID ?? tile.featureID else { return }
-        pendingFeatureIDs.insert(targetID)
-        defer { pendingFeatureIDs.remove(targetID) }
+        let targetIDs = transitionTargets(for: tile)
+        guard !targetIDs.isEmpty else { return }
+        for targetID in targetIDs {
+            pendingFeatureIDs.insert(targetID)
+        }
+        defer {
+            for targetID in targetIDs {
+                pendingFeatureIDs.remove(targetID)
+            }
+        }
 
         switch action {
         case .enable:
-            try? await controller.runtime.applyTransition(.enable, for: targetID)
-            controller.showFeatureOnboardingIfNeeded(for: targetID)
+            for targetID in targetIDs {
+                try? await controller.runtime.applyTransition(.enable, for: targetID)
+                controller.showFeatureOnboardingIfNeeded(for: targetID)
+            }
         case .disable:
-            try? await controller.runtime.applyTransition(.disable, for: targetID)
+            for targetID in targetIDs {
+                try? await controller.runtime.applyTransition(.disable, for: targetID)
+            }
         case .install:
+            guard let targetID = targetIDs.first else { return }
             try? await controller.packInstallController.install(featureID: targetID)
             await controller.featureStatePublisher.refresh()
         case .cancelDownload:
+            guard let targetID = targetIDs.first else { return }
             await controller.packInstallController.cancel(featureID: targetID)
             await controller.featureStatePublisher.refresh()
         case .retryInstall:
+            guard let targetID = targetIDs.first else { return }
             try? await controller.packInstallController.install(featureID: targetID)
             await controller.featureStatePublisher.refresh()
-        case .uninstall:
-            guard let desc = controller.runtime.registry.descriptor(for: targetID) else { return }
-            showingUninstallFor = desc
         }
-    }
-
-    private func performUninstall(descriptor: FeatureDescriptor, sheetState: UninstallSheetState) async {
-        do {
-            try FeatureCacheManager().deleteCaches(sheetState.checkedCacheIDs, in: descriptor)
-        } catch {
-            NSLog("DashboardDestinationView uninstall: cache deletion failed: \(error)")
-        }
-        try? await controller.runtime.applyTransition(.disable, for: descriptor.id)
-        if descriptor.requiresAsset {
-            try? await controller.packInstallController.uninstall(featureID: descriptor.id)
-        }
-        await controller.featureStatePublisher.refresh()
     }
 
     // MARK: Voice status

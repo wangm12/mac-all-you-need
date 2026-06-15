@@ -1,19 +1,24 @@
 import AppKit
 import Core
+import FeatureCore
 import SwiftUI
 
 struct AppMenuBarContent: View {
     let controller: AppController
     @State private var tab: Tab = .clipboard
+    private var statePublisher: FeatureStatePublisher
+
+    init(controller: AppController) {
+        self.controller = controller
+        self.statePublisher = controller.featureStatePublisher
+    }
 
     enum Tab: String, CaseIterable, Hashable, SegmentedTabDestination {
         case clipboard = "Clipboard"
         case voice = "Voice"
         case downloads = "Downloads"
         case layouts = "Layouts"
-        case snippets = "Snippets"
         case reminders = "Reminders"
-        case folders = "Folders"
 
         var title: String { rawValue }
 
@@ -23,9 +28,7 @@ struct AppMenuBarContent: View {
             case .voice: "waveform"
             case .downloads: "arrow.down.circle"
             case .layouts: "rectangle.3.group"
-            case .snippets: "text.quote"
             case .reminders: "checklist"
-            case .folders: "clock.badge.checkmark"
             }
         }
 
@@ -60,26 +63,10 @@ struct AppMenuBarContent: View {
             Divider().overlay(Color.primary.opacity(0.12))
 
             Group {
-                switch tab {
-                case .clipboard:
-                    ClipboardPopoverView(
-                        reader: controller.clipboardReader,
-                        imageLoader: controller.clipboardDeps.imageLoader,
-                        appIcons: controller.clipboardDeps.appIcons,
-                        blobs: controller.clipboardDeps.blobs
-                    )
-                case .voice:
-                    VoicePopoverView(controller: controller)
-                case .downloads:
-                    DownloadsPopoverView(controller: controller)
-                case .layouts:
-                    WindowLayoutsPopoverView(controller: controller)
-                case .snippets:
-                    SnippetsListView(model: controller.clipboardDeps.dockModel)
-                case .reminders:
-                    RemindersPopoverView(controller: controller)
-                case .folders:
-                    FolderHistoryCommandCenterView(controller: controller)
+                if isTabDisabled(tab) {
+                    CommandCenterDisabledPlaceholder(featureName: tab.title)
+                } else {
+                    tabContent
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -133,6 +120,45 @@ struct AppMenuBarContent: View {
         }
     }
 
+    @ViewBuilder
+    private var tabContent: some View {
+        switch tab {
+        case .clipboard:
+            ClipboardPopoverView(
+                reader: controller.clipboardReader,
+                imageLoader: controller.clipboardDeps.imageLoader,
+                appIcons: controller.clipboardDeps.appIcons,
+                blobs: controller.clipboardDeps.blobs
+            )
+        case .voice:
+            VoicePopoverView(controller: controller)
+        case .downloads:
+            DownloadsPopoverView(controller: controller)
+        case .layouts:
+            WindowLayoutsPopoverView(controller: controller)
+        case .reminders:
+            RemindersPopoverView(controller: controller)
+        }
+    }
+
+    private func isTabDisabled(_ tab: Tab) -> Bool {
+        switch tab {
+        case .clipboard:
+            return statePublisher.state(for: .clipboard).activationState != .enabled
+        case .voice:
+            return statePublisher.state(for: .voice).activationState != .enabled
+        case .downloads:
+            return statePublisher.state(for: .downloader).activationState != .enabled
+        case .layouts:
+            let layouts = statePublisher.state(for: .windowLayouts).activationState == .enabled
+            let grab = statePublisher.state(for: .windowGrab).activationState == .enabled
+            return !layouts && !grab
+        case .reminders:
+            return statePublisher.state(for: .voiceReminders).activationState != .enabled
+                || statePublisher.state(for: .voice).activationState != .enabled
+        }
+    }
+
     private func openSelectedTabInMainWindow() {
         switch tab {
         case .clipboard:
@@ -147,36 +173,10 @@ struct AppMenuBarContent: View {
         case .layouts:
             AppGroupSettings.defaults.set(WindowLayoutsFunctionTab.shortcuts.rawValue, forKey: WindowLayoutsFunctionTab.storageKey)
             controller.showMainWindow(destination: .windowLayouts)
-        case .snippets:
-            AppGroupSettings.defaults.set(SnippetsFunctionTab.library.rawValue, forKey: SnippetsFunctionTab.storageKey)
-            controller.showMainWindow(destination: .snippets)
         case .reminders:
             // Reminders has no dedicated main-window destination; Voice is its
             // closest home (the reminder flow lives in the Voice pipeline).
             controller.showMainWindow(destination: .voice)
-        case .folders:
-            controller.showMainWindow(destination: .finderHistory)
-        }
-    }
-}
-
-/// Command Center tab for Finder Folder History when the feature is enabled.
-private struct FolderHistoryCommandCenterView: View {
-    let controller: AppController
-
-    var body: some View {
-        Group {
-            if let store = FolderHistoryStoreLocator.shared() {
-                ScrollView {
-                    FolderHistoryMenuBarView(store: store)
-                        .padding(.vertical, 8)
-                }
-            } else {
-                Text("Folder history is unavailable.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
         }
     }
 }

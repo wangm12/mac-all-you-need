@@ -1,4 +1,5 @@
 import Core
+import FeatureCore
 import Foundation
 import Platform
 
@@ -68,13 +69,15 @@ final class HotkeyOrchestrator {
     func applyMap(
         _ map: [HotkeyAction: [Platform.HotkeyDescriptor]],
         controller: AppController,
-        registerWindowLayoutHotkeys: Bool
+        registerWindowLayoutHotkeys: Bool,
+        isFeatureEnabled: @escaping (FeatureID) -> Bool = { _ in true }
     ) throws {
         fallbackHotkey = nil
         try registry.apply(
             map,
             controller: controller,
-            registerWindowLayoutHotkeys: registerWindowLayoutHotkeys
+            registerWindowLayoutHotkeys: registerWindowLayoutHotkeys,
+            isFeatureEnabled: isFeatureEnabled
         )
     }
 

@@ -9,7 +9,8 @@ final class MainAppDestinationTests: XCTestCase {
         XCTAssertEqual(MainAppDestination.storedSelection("voice"), .voice)
         XCTAssertEqual(MainAppDestination.storedSelection("downloads"), .downloads)
         XCTAssertEqual(MainAppDestination.storedSelection("folderPreview"), .folderPreview)
-        XCTAssertEqual(MainAppDestination.storedSelection("snippets"), .snippets)
+        XCTAssertEqual(MainAppDestination.storedSelection("snippets"), .clipboard)
+        XCTAssertEqual(MainAppDestination.storedSelection("finderHistory"), .folderPreview)
         XCTAssertEqual(MainAppDestination.storedSelection("windowLayouts"), .windowLayouts)
         XCTAssertEqual(MainAppDestination.storedSelection("grabAnywhere"), .grabAnywhere)
         XCTAssertEqual(MainAppDestination.storedSelection("settings"), .settings)
@@ -59,17 +60,15 @@ final class MainAppDestinationTests: XCTestCase {
         XCTAssertEqual(MainAppDestination.grabAnywhere.symbolName, "hand.draw")
     }
 
-    func testPrimarySidebarDestinationsPlaceWindowFeaturesAfterSnippetsBeforeFooterSettings() {
+    func testPrimarySidebarDestinationsMergeSnippetsAndFinderHistoryIntoParentTools() {
         XCTAssertEqual(MainAppDestination.primarySidebarDestinations, [
             .dashboard,
             .clipboard,
-            .snippets,
             .voice,
             .voiceReminders,
             .downloads,
             .aiFileOrganizer,
             .folderPreview,
-            .finderHistory,
             .windowLayouts,
             .grabAnywhere,
             .dockPreviews
@@ -100,7 +99,11 @@ final class MainAppDestinationTests: XCTestCase {
         )
         XCTAssertEqual(
             MainWindowDestinationRouter.detailViewTypeName(for: .snippets),
-            "SnippetsDestinationView"
+            "ClipboardDestinationView"
+        )
+        XCTAssertEqual(
+            MainWindowDestinationRouter.detailViewTypeName(for: .finderHistory),
+            "FolderPreviewDestinationView"
         )
         XCTAssertEqual(
             MainWindowDestinationRouter.detailViewTypeName(for: .windowLayouts),

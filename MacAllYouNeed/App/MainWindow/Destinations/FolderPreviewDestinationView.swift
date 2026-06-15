@@ -18,8 +18,8 @@ struct FolderPreviewDestinationView: View {
 
     var body: some View {
         FunctionPageShell(
-            title: "Folder Preview",
-            subtitle: "Configure the Finder Space preview for folders and archives.",
+            title: "Finder Preview",
+            subtitle: "Quick Look previews, browse folder, and Finder visit history.",
             selection: selectedTab
         ) {
             switch FolderPreviewFunctionTab.storedSelection(selectedTabRaw) {
@@ -27,6 +27,8 @@ struct FolderPreviewDestinationView: View {
                 FunctionPageScrollContent {
                     folderSettingsSection
                 }
+            case .history:
+                FolderHistoryPageView(embeddedInFinderPreview: true)
             }
         }
     }

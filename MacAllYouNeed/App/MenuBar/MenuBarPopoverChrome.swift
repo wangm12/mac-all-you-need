@@ -45,25 +45,11 @@ enum CommandCenterFooterPresentation {
                 openButtonTitle: "Open Window Layouts",
                 showsCapturePause: false
             )
-        case .snippets:
-            CommandCenterFooterModel(
-                shortcutText: nil,
-                label: "snippet library",
-                openButtonTitle: "Open Snippets",
-                showsCapturePause: false
-            )
         case .reminders:
             CommandCenterFooterModel(
                 shortcutText: "⌘⇧R",
                 label: "spoken reminders",
                 openButtonTitle: "Open Voice",
-                showsCapturePause: false
-            )
-        case .folders:
-            CommandCenterFooterModel(
-                shortcutText: "⌘⇧H",
-                label: "visited folders",
-                openButtonTitle: "Open Finder History",
                 showsCapturePause: false
             )
         }

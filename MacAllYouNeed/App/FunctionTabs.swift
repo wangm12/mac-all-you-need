@@ -49,15 +49,23 @@ enum FunctionTabFlow {
 
 enum ClipboardFunctionTab: String, FunctionTabDestination {
     case history
+    case snippets
     case rules
     case settings
 
     static let storageKey = "main.clipboard.selectedTab"
     static let defaultTab = ClipboardFunctionTab.history
 
+    static func storedSelection(_ raw: String?) -> Self {
+        guard let raw else { return defaultTab }
+        if raw == "library" { return .snippets }
+        return Self(rawValue: raw) ?? defaultTab
+    }
+
     var title: String {
         switch self {
         case .history: "History"
+        case .snippets: "Snippets"
         case .rules: "Ignored Apps"
         case .settings: "Settings"
         }
@@ -66,6 +74,7 @@ enum ClipboardFunctionTab: String, FunctionTabDestination {
     var symbolName: String {
         switch self {
         case .history: "clock"
+        case .snippets: "text.quote"
         case .rules: "shield"
         case .settings: "slider.horizontal.3"
         }
@@ -242,19 +251,27 @@ enum DockFunctionTab: String, FunctionTabDestination, CaseIterable {
 
 enum FolderPreviewFunctionTab: String, FunctionTabDestination {
     case settings
+    case history
 
     static let storageKey = "main.folderPreview.selectedTab"
     static let defaultTab = FolderPreviewFunctionTab.settings
 
+    static func storedSelection(_ raw: String?) -> Self {
+        guard let raw else { return defaultTab }
+        return Self(rawValue: raw) ?? defaultTab
+    }
+
     var title: String {
         switch self {
-        case .settings: "Settings"
+        case .settings: "Preview"
+        case .history: "History"
         }
     }
 
     var symbolName: String {
         switch self {
-        case .settings: "slider.horizontal.3"
+        case .settings: "folder"
+        case .history: "clock.badge.checkmark"
         }
     }
 }

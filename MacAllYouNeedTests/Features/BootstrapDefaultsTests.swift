@@ -4,7 +4,7 @@ import FeatureCore
 @testable import MacAllYouNeed
 
 final class BootstrapDefaultsTests: XCTestCase {
-    func testSeedsAllFeaturesDisabledOnFirstLaunch() async throws {
+    func testSeedsSelectiveDefaultsOnFirstLaunch() async throws {
         let suiteName = "BootstrapDefaultsTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -15,9 +15,12 @@ final class BootstrapDefaultsTests: XCTestCase {
 
         for descriptor in registry.descriptors {
             let state = await manager.state(for: descriptor.id)
+            let expected: ActivationState = BootstrapDefaults.defaultEnabled.contains(descriptor.id)
+                ? .enabled
+                : .disabled
             XCTAssertEqual(
-                state.activationState, .disabled,
-                "first-launch should default \(descriptor.id) to disabled until explicitly enabled"
+                state.activationState, expected,
+                "first-launch default for \(descriptor.id)"
             )
         }
         XCTAssertTrue(defaults.bool(forKey: BootstrapDefaults.seededKey))

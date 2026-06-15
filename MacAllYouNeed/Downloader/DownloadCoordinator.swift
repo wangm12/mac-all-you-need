@@ -158,6 +158,7 @@ final class DownloadCoordinator {
     }
 
     func startDispatchServer() async {
+        guard dispatch == nil else { return }
         let tokenURL = AppGroup.containerURL().appendingPathComponent("dispatch.token")
         let token = (try? DispatchToken.rotate(at: tokenURL)) ?? UUID().uuidString
         do {
@@ -169,6 +170,15 @@ final class DownloadCoordinator {
             startPeriodicExtensionCookieSync()
         } catch {
             log.warning("Could not start DispatchServer: \(error.localizedDescription)")
+        }
+    }
+
+    func stopDispatchServer() async {
+        periodicCookieSyncTask?.cancel()
+        periodicCookieSyncTask = nil
+        if let server = dispatch {
+            await server.stop()
+            dispatch = nil
         }
     }
 

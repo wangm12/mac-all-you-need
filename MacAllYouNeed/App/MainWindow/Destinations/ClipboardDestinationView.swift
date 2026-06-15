@@ -2,6 +2,7 @@ import AppKit
 import Core
 import CoreFoundation
 import FeatureCore
+import ApplicationServices
 import Platform
 import SwiftUI
 
@@ -11,6 +12,7 @@ struct ClipboardDestinationView: View {
     @AppStorage("autoPaste.behavior", store: AppGroupSettings.defaults) private var pasteBehavior = "pasteIntoFocused"
     @AppStorage("autoPaste.delayMs", store: AppGroupSettings.defaults) private var pasteDelay = 150
     @AppStorage(ClipboardFunctionTab.storageKey, store: AppGroupSettings.defaults) private var selectedTabRaw = ClipboardFunctionTab.history.rawValue
+    @AppStorage(SnippetExpansionSettings.modeKey, store: AppGroupSettings.defaults) private var expansionModeRaw = SnippetExpansionSettings.defaultMode.rawValue
     @State private var blockedApps: [String] = ExcludedAppsStore.load()
     @State private var hotkeyMap: [HotkeyAction: [Platform.HotkeyDescriptor]] = HotkeyMapStore.defaultMap
     @State private var hotkeyRegistrationErrors: [HotkeyAction: String] = [:]
@@ -31,10 +33,14 @@ struct ClipboardDestinationView: View {
         }
     }
 
+    private var expansionMode: SnippetExpansionMode {
+        SnippetExpansionMode(rawValue: expansionModeRaw) ?? SnippetExpansionSettings.defaultMode
+    }
+
     var body: some View {
         FunctionPageShell(
             title: "Clipboard",
-            subtitle: "History, ignored apps, and paste behavior for local clipboard memory.",
+            subtitle: "History, snippets, ignored apps, and paste behavior for local clipboard memory.",
             selection: selectedTab,
             toolbar: {
                 MainHeaderShortcutDisplay(
@@ -51,6 +57,8 @@ struct ClipboardDestinationView: View {
                 FunctionPageScrollContent {
                     clipboardHistorySection
                 }
+            case .snippets:
+                SnippetsListView(model: controller.clipboardDeps.dockModel)
             case .rules:
                 FunctionPageScrollContent {
                     clipboardRulesSection
@@ -243,6 +251,32 @@ struct ClipboardDestinationView: View {
             ClipboardDockHeightSection(controller: controller)
 
             SearchPreferencesSection()
+
+            MAYNSection(title: "Snippets") {
+                MAYNSettingsRow(
+                    title: SnippetsSettingsPresentation.expansionModeRowTitle,
+                    subtitle: SnippetsSettingsPresentation.expansionModeSubtitle(for: expansionMode)
+                ) {
+                    FunctionSegmentedTabStrip(
+                        tabs: Array(SnippetExpansionMode.allCases),
+                        selection: expansionMode,
+                        fillsAvailableWidth: false,
+                        size: .control
+                    ) { mode in
+                        expansionModeRaw = mode.rawValue
+                    }
+                }
+                MAYNDivider()
+                MAYNSettingsRow(
+                    title: SnippetsSettingsPresentation.accessibilityRowTitle,
+                    subtitle: "Snippet expansion uses the main app Accessibility permission to type into the focused app."
+                ) {
+                    StatusPill(
+                        text: AXIsProcessTrusted() ? "Granted" : "Needed",
+                        kind: AXIsProcessTrusted() ? .success : .warning
+                    )
+                }
+            }
 
             SmartTextEnableSection(controller: controller)
         }

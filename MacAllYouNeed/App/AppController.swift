@@ -277,7 +277,6 @@ final class AppController {
         voiceCoordinator.reminderWriterOverride = RemindersServiceWriter(service: remindersService)
         voiceCoordinator.remindersWorker = featureWorkerHost.reminders
         registerReminderHotkey()
-        voiceRetentionRunner.start()
 
         enrichmentCoordinator = ClipboardEnrichmentCoordinator(
             clip: stores.clipboard,
@@ -370,8 +369,6 @@ final class AppController {
             Task { @MainActor in self?.handle(event: event) }
         }
 
-        Task { await self.refreshDownloaderFeatureAvailability() }
-
         Task { [weak self] in
             // Phase 11: run one-time migration for upgraders from pre-modular releases.
             // If migration ran, skip BootstrapDefaults (migration already seeded state).
@@ -396,10 +393,14 @@ final class AppController {
             }
             await rt.activateAllEnabled()
             if let self {
+                await self.refreshClipboardFeatureAvailability()
+                await self.refreshFinderPreviewFeatureAvailability()
                 await self.refreshFolderHistoryFeatureAvailability()
                 await self.refreshDockPreviewsFeatureAvailability()
                 await self.refreshVoiceFeatureAvailability()
                 await self.refreshClipboardSmartTextFeatureAvailability()
+                await self.refreshDownloaderFeatureAvailability()
+                self.registerConfiguredHotkeys()
             }
 
             // Surface the What's New sheet on first window appearance (upgrade only).
@@ -431,7 +432,8 @@ final class AppController {
         try hotkeys.applyMap(
             map,
             controller: self,
-            registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable
+            registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable,
+            isFeatureEnabled: featureEnabledForHotkeyRegistration
         )
         folderHistory?.reloadHotkey()
     }
@@ -507,29 +509,36 @@ final class AppController {
             try hotkeys.applyMap(
                 map,
                 controller: self,
-                registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable
+                registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable,
+                isFeatureEnabled: featureEnabledForHotkeyRegistration
             )
         } catch {
-            let hk = GlobalHotkey(descriptor: .defaultClipboard) { [weak clipboardDock] in
-                Task { @MainActor in clipboardDock?.toggle() }
+            if featureEnabledForHotkeyRegistration(.clipboard) {
+                let hk = GlobalHotkey(descriptor: .defaultClipboard) { [weak clipboardDock] in
+                    Task { @MainActor in clipboardDock?.toggle() }
+                }
+                try? hk.register()
+                hotkeys.installFallbackHotkey(hk)
             }
-            try? hk.register()
-            hotkeys.installFallbackHotkey(hk)
         }
         syncLayoutHotkeysToEventTap(from: map)
         folderHistory?.reloadHotkey()
     }
 
+    private func featureEnabledForHotkeyRegistration(_ featureID: FeatureID) -> Bool {
+        featureStatePublisher.state(for: featureID).activationState == .enabled
+    }
+
     private func syncLayoutHotkeysToEventTap(from map: [HotkeyAction: [Platform.HotkeyDescriptor]]) {
         let activeMap = HotkeyRegistryRegistrationPlan.activeMap(
             from: map,
-            registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable
+            registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable,
+            isFeatureEnabled: featureEnabledForHotkeyRegistration
         )
         windowControl.syncLayoutHotkeyBindings(LayoutHotkeyBindings.from(activeMap))
     }
 
     private func startDownloadTasks(coordinator: DownloadCoordinator, viewModel: DownloaderViewModel) {
-        Task { await coordinator.startDispatchServer() }
         Task {
             await coordinator.prepareInterruptedDownloadsForRetry()
             await viewModel.refresh()
@@ -568,16 +577,46 @@ final class AppController {
             AppGroupSettings.defaults.set(destination.rawValue, forKey: DockSettingsNavigation.settingsSelectionKey)
             showMainWindow(destination: .settings)
         case .featureRuntimeStateChanged:
-            Task { await self.refreshWindowControlFeatureAvailability() }
-            Task { await self.refreshFolderHistoryFeatureAvailability() }
-            Task { await self.refreshDockPreviewsFeatureAvailability() }
-            Task { await self.refreshVoiceFeatureAvailability() }
-            Task { await self.refreshDownloaderFeatureAvailability() }
-            Task { await self.refreshClipboardSmartTextFeatureAvailability() }
+            Task { await self.refreshAllFeatureAvailability() }
         case .hotkeyRecordingStarted:
             suspendShortcutTriggersForHotkeyRecording()
         case .hotkeyRecordingStopped:
             resumeShortcutTriggersAfterHotkeyRecording()
+        }
+    }
+
+    private func refreshAllFeatureAvailability() async {
+        await refreshClipboardFeatureAvailability()
+        await refreshFinderPreviewFeatureAvailability()
+        await refreshWindowControlFeatureAvailability()
+        await refreshFolderHistoryFeatureAvailability()
+        await refreshDockPreviewsFeatureAvailability()
+        await refreshVoiceFeatureAvailability()
+        await refreshDownloaderFeatureAvailability()
+        await refreshClipboardSmartTextFeatureAvailability()
+        registerConfiguredHotkeys()
+    }
+
+    private func refreshClipboardFeatureAvailability() async {
+        let state = await featureManager.state(for: .clipboard)
+        if state.activationState == .enabled {
+            snippetExpander.stop()
+            snippetExpander.start()
+            clipboardReader.resumePolling()
+        } else {
+            snippetExpander.stop()
+            clipboardReader.stopPolling()
+            clipboardDock.hide()
+        }
+    }
+
+    private func refreshFinderPreviewFeatureAvailability() async {
+        let previewState = await featureManager.state(for: .folderPreview)
+        let historyState = await featureManager.state(for: .folderHistory)
+        let coupledEnabled = previewState.activationState == .enabled
+            && historyState.activationState == .enabled
+        if !coupledEnabled {
+            folder.close()
         }
     }
 
@@ -591,8 +630,11 @@ final class AppController {
     }
 
     private func refreshFolderHistoryFeatureAvailability() async {
-        let state = await featureManager.state(for: .folderHistory)
-        folderHistory?.applyEnabled(state.activationState == .enabled)
+        let previewState = await featureManager.state(for: .folderPreview)
+        let historyState = await featureManager.state(for: .folderHistory)
+        let coupledEnabled = previewState.activationState == .enabled
+            && historyState.activationState == .enabled
+        folderHistory?.applyEnabled(coupledEnabled)
     }
 
     private func refreshDockPreviewsFeatureAvailability() async {
@@ -614,11 +656,13 @@ final class AppController {
         let remindersState = await featureManager.state(for: .voiceReminders)
         if voiceState.activationState == .enabled {
             voiceCoordinator.resumeActivationMonitoring()
+            voiceRetentionRunner.start()
         } else {
             voiceCoordinator.suspendActivationMonitoring()
             if voiceCoordinator.state != .idle {
                 voiceCoordinator.cancelCurrentOperation()
             }
+            voiceRetentionRunner.stop()
         }
         if voiceState.activationState == .enabled, remindersState.activationState == .enabled {
             if reminderHotkey == nil {
@@ -659,6 +703,8 @@ final class AppController {
     private func refreshDownloaderFeatureAvailability() async {
         let state = await featureManager.state(for: .downloader)
         if state.activationState == .enabled {
+            await downloader.startDispatchServer()
+            downloaderDock.start()
             guard autoDownloadLoopTask == nil else { return }
             autoDownloadLoopTask = Task { @MainActor [weak self] in
                 // Baseline after launch so we don't prompt for pre-existing clipboard content.
@@ -694,6 +740,8 @@ final class AppController {
         } else {
             autoDownloadLoopTask?.cancel()
             autoDownloadLoopTask = nil
+            await downloader.stopDispatchServer()
+            downloaderDock.stop()
         }
     }
 
@@ -711,9 +759,7 @@ final class AppController {
     }
 
     private static func makeSnippetExpander(store: SnippetStore) -> SnippetExpander {
-        let expander = SnippetExpander { trigger in try? store.find(trigger: trigger)?.body }
-        expander.start()
-        return expander
+        SnippetExpander { trigger in try? store.find(trigger: trigger)?.body }
     }
 
     private static func currentDockHeight() -> CGFloat {

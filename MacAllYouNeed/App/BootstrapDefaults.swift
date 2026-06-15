@@ -2,13 +2,25 @@ import Core
 import FeatureCore
 import Foundation
 
-/// Seeds first-launch feature state so the app behaves identically to the
-/// pre-modular release: all features default to `.enabled`.
+/// Seeds first-launch feature activation state once per install (guarded by `seededKey`).
 ///
-/// This runs once per install (guarded by `seededKey`). After Phase 11 the
-/// onboarding flow will set the seeded flag itself so new installs bypass this.
+/// Core productivity features default to enabled; Dock Previews and AI File Organizer
+/// default to disabled. User changes after the first seed are never overwritten.
 enum BootstrapDefaults {
     static let seededKey = "feature.bootstrap.seeded"
+
+    /// Features enabled on a fresh install before the user changes anything.
+    static let defaultEnabled: Set<FeatureID> = [
+        .clipboard,
+        .clipboardSmartText,
+        .voice,
+        .voiceReminders,
+        .downloader,
+        .folderPreview,
+        .folderHistory,
+        .windowLayouts,
+        .windowGrab,
+    ]
 
     static func seedIfNeeded(manager: FeatureManager, defaults: UserDefaults) async throws {
         // Phase 11: if migration already ran, mark seeded and exit — migration owns state.
@@ -21,8 +33,11 @@ enum BootstrapDefaults {
             let asset: AssetState = descriptor.requiresAsset
                 ? .present(version: "legacy") // Phase 06 replaces "legacy" with real pack version
                 : .notRequired
+            let activation: ActivationState = defaultEnabled.contains(descriptor.id)
+                ? .enabled
+                : .disabled
             try await manager.setState(
-                .init(assetState: asset, activationState: .disabled),
+                .init(assetState: asset, activationState: activation),
                 for: descriptor.id
             )
         }

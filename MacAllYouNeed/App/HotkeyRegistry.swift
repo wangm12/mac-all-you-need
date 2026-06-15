@@ -34,10 +34,17 @@ enum HotkeyRegistryRegistrationPlan {
     /// Runtime behavior (moving windows) is still gated separately by `settings.enabled`.
     static func activeMap(
         from map: [HotkeyAction: [Platform.HotkeyDescriptor]],
-        registerWindowLayoutHotkeys: Bool
+        registerWindowLayoutHotkeys: Bool,
+        isFeatureEnabled: (FeatureID) -> Bool = { _ in true }
     ) -> [HotkeyAction: [Platform.HotkeyDescriptor]] {
         map.filter { action, _ in
-            !action.isWindowControlAction || registerWindowLayoutHotkeys
+            if action.isWindowControlAction {
+                return registerWindowLayoutHotkeys
+            }
+            if let featureID = action.relatedFeatureID {
+                return isFeatureEnabled(featureID)
+            }
+            return true
         }
     }
 }
@@ -54,11 +61,13 @@ final class HotkeyRegistry {
     func apply(
         _ map: [HotkeyAction: [Platform.HotkeyDescriptor]],
         controller: AppController,
-        registerWindowLayoutHotkeys: Bool = false
+        registerWindowLayoutHotkeys: Bool = false,
+        isFeatureEnabled: (FeatureID) -> Bool = { _ in true }
     ) throws {
         let activeMap = HotkeyRegistryRegistrationPlan.activeMap(
             from: map,
-            registerWindowLayoutHotkeys: registerWindowLayoutHotkeys
+            registerWindowLayoutHotkeys: registerWindowLayoutHotkeys,
+            isFeatureEnabled: isFeatureEnabled
         )
         if HotkeyRegistryApplyPlan.shouldSkipApply(
             next: activeMap,

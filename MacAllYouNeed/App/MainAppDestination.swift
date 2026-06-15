@@ -1,3 +1,4 @@
+import Core
 import FeatureCore
 import Foundation
 
@@ -20,13 +21,11 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
     static let primarySidebarDestinations: [MainAppDestination] = [
         .dashboard,
         .clipboard,
-        .snippets,
         .voice,
         .voiceReminders,
         .downloads,
         .aiFileOrganizer,
         .folderPreview,
-        .finderHistory,
         .windowLayouts,
         .grabAnywhere,
         .dockPreviews,
@@ -42,9 +41,9 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .voiceReminders: "Voice Reminders"
         case .downloads: "Downloads"
         case .aiFileOrganizer: "AI File Organizer"
-        case .folderPreview: "Folder Preview"
-        case .finderHistory: "Finder History"
-        case .snippets: "Snippets"
+        case .folderPreview: "Finder Preview"
+        case .finderHistory: "Finder Preview"
+        case .snippets: "Clipboard"
         case .windowLayouts: "Window Layouts"
         case .grabAnywhere: "Window Grab"
         case .dockPreviews: "Dock"
@@ -60,9 +59,9 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .voiceReminders: "Spoken tasks saved to Reminders"
         case .downloads: "Queue and completed items"
         case .aiFileOrganizer: "Rename and organize files with AI"
-        case .folderPreview: "Finder Quick Look settings"
-        case .finderHistory: "Recently visited Finder folders"
-        case .snippets: "Reusable text entries"
+        case .folderPreview: "Quick Look previews, browse folder, and visit history"
+        case .finderHistory: "Quick Look previews, browse folder, and visit history"
+        case .snippets: "Clipboard history, snippets, and paste behavior"
         case .windowLayouts: "Keyboard shortcuts and edge snapping"
         case .grabAnywhere: "Modifier-drag windows"
         case .dockPreviews: "Dock previews, switcher, Cmd+Tab, lock, and indicator"
@@ -94,6 +93,14 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         }
         if raw == "windowSwitcher" || raw == "cmdTabEnhancements" || raw == "dockLocking" || raw == "activeAppIndicator" {
             return .dockPreviews
+        }
+        if raw == "snippets" {
+            AppGroupSettings.defaults.set(ClipboardFunctionTab.snippets.rawValue, forKey: ClipboardFunctionTab.storageKey)
+            return .clipboard
+        }
+        if raw == "finderHistory" {
+            AppGroupSettings.defaults.set(FolderPreviewFunctionTab.history.rawValue, forKey: FolderPreviewFunctionTab.storageKey)
+            return .folderPreview
         }
         return raw.flatMap(MainAppDestination.init(rawValue:)) ?? .dashboard
     }

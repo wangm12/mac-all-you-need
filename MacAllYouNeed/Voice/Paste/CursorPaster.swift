@@ -1,9 +1,49 @@
+import AppKit
 import ApplicationServices
 import Foundation
 import Platform
 
 @MainActor
 enum CursorPaster {
+    // MARK: - Role classification for writability detection
+
+    private static let nativeWritableRoles: Set<String> = [
+        "AXTextArea", "AXTextField", "AXSearchField", "AXComboBox",
+    ]
+    private static let genericEditableRoles: Set<String> = [
+        "AXWebArea", "AXGroup", "AXLayoutArea", "AXScrollArea", "AXDocument", "AXUnknown",
+    ]
+    private static let nonEditableRoles: Set<String> = [
+        "AXWindow", "AXButton", "AXStaticText", "AXToolbar",
+        "AXMenuBar", "AXMenu", "AXMenuItem", "AXList", "AXTable", "AXRow",
+    ]
+
+    private static func isWritableTextInputElement(_ element: AXUIElement) -> Bool {
+        guard let role = stringAttribute(of: element, name: kAXRoleAttribute as CFString) else { return false }
+        if nonEditableRoles.contains(role) { return false }
+        if nativeWritableRoles.contains(role) { return true }
+        if genericEditableRoles.contains(role) {
+            var settable: DarwinBoolean = false
+            let status = AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable)
+            if status == .success, settable.boolValue { return true }
+            var rangeRef: CFTypeRef?
+            return AXUIElementCopyAttributeValue(
+                element, kAXSelectedTextRangeAttribute as CFString, &rangeRef
+            ) == .success
+        }
+        return false
+    }
+
+    private static func pidOfFocusedElement() -> pid_t? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef
+        ) == .success, let ref = focusedRef else { return nil }
+        let element = ref as! AXUIElement
+        var pid: pid_t = 0
+        return AXUIElementGetPid(element, &pid) == .success ? pid : nil
+    }
     enum DeliveryPath: String, Equatable {
         case preferredAX
         case focusedAX
@@ -51,6 +91,16 @@ enum CursorPaster {
             }
         }
 
+        // Re-activate target app if focus was stolen (HUD or Esc monitor may have taken it).
+        let targetPID = preferredTarget?.metadata.pid ?? pidOfFocusedElement()
+        if let pid = targetPID,
+           let targetApp = NSRunningApplication(processIdentifier: pid),
+           NSWorkspace.shared.frontmostApplication?.processIdentifier != pid
+        {
+            targetApp.activate(options: [.activateIgnoringOtherApps])
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
         let outcome = await PasteInjector.pasteWithRestore(text, restoreOnManualPasteRequired: false)
         if outcome.result == .injected {
             return Result(
@@ -76,12 +126,32 @@ enum CursorPaster {
     }
 
     private static func insertUsingAccessibility(_ text: String, element: AXUIElement) -> Bool {
+        // Prevent multi-second hangs on unresponsive apps.
+        AXUIElementSetMessagingTimeout(element, 0.05)
+
+        // Reject elements that are not writable text inputs.
+        guard isWritableTextInputElement(element) else { return false }
+
+        // Snapshot value before write so we can verify the write actually landed.
+        let valueBefore = stringAttribute(of: element, name: kAXValueAttribute as CFString)
 
         // Prefer replacing the current selection directly. This keeps behavior
         // aligned with "insert into active field" and avoids clipboard reliance.
         if isSettable(element, attribute: kAXSelectedTextAttribute as CFString),
-           AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success {
-            return true
+           AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success
+        {
+            // Verify the write wasn't silently ignored (e.g. Chrome accepts but resets).
+            if let before = valueBefore {
+                let valueAfter = stringAttribute(of: element, name: kAXValueAttribute as CFString)
+                if valueAfter == before {
+                    // Write was accepted but value didn't change — fall through.
+                } else {
+                    return true
+                }
+            } else {
+                // No pre-snapshot available (web content etc.) — trust the .success result.
+                return true
+            }
         }
 
         // Fallback for controls that do not expose selected-text writes but do

@@ -313,15 +313,10 @@ final class FunctionTabsTests: XCTestCase {
                 showsCapturePause: false
             )
         )
-        XCTAssertEqual(
-            CommandCenterFooterPresentation.model(for: .snippets),
-            CommandCenterFooterModel(
-                shortcutText: nil,
-                label: "snippet library",
-                openButtonTitle: "Open Snippets",
-                showsCapturePause: false
-            )
-        )
+    }
+
+    func testClipboardFunctionTabMigratesLegacySnippetsSelection() {
+        XCTAssertEqual(ClipboardFunctionTab.storedSelection("library"), .snippets)
     }
 
     func testEveryFunctionTabHasStableStorageKey() {
@@ -364,12 +359,10 @@ final class FunctionTabsTests: XCTestCase {
 
         XCTAssertEqual(tiles.map(\.destination), [
             .clipboard,
-            .snippets,
             .voice,
             .voiceReminders,
             .downloads,
             .folderPreview,
-            .finderHistory,
             .aiFileOrganizer,
             .windowLayouts,
             .grabAnywhere,
@@ -377,12 +370,10 @@ final class FunctionTabsTests: XCTestCase {
         ])
         XCTAssertEqual(tiles.map(\.title), [
             "Clipboard",
-            "Snippets",
             "Voice",
             "Voice Reminders",
             "Downloads",
-            "Folder Preview",
-            "Finder Folder History",
+            "Finder Preview",
             "AI File Organizer",
             "Window Layouts",
             "Window Grab",
@@ -399,13 +390,11 @@ final class FunctionTabsTests: XCTestCase {
         )
 
         XCTAssertEqual(tiles.map(\.detail), [
-            "Capture, search, pin, and paste clipboard history.",
-            "Expand reusable text from this Mac.",
+            "Capture, search, pin, paste, and expand snippets.",
             "Dictate into any app with local speech recognition.",
             "Speak a task and save it directly to Apple Reminders.",
             "Download media and manage saved files.",
-            "Preview Finder folders and archives.",
-            "Jump back to recently visited Finder folders via hotkey.",
+            "Quick Look previews, browse folder, and visit history.",
             "Rename and re-file messy folders using on-device content extraction.",
             "Arrange, snap, and restore windows.",
             "Move windows by holding a modifier and dragging.",
@@ -420,7 +409,7 @@ final class FunctionTabsTests: XCTestCase {
             downloadsQueueCount: 0
         )
 
-        XCTAssertEqual(tiles.map(\.metric), ["30", nil, nil, nil, "0", nil, nil, nil, nil, nil, nil])
+        XCTAssertEqual(tiles.map(\.metric), ["30", nil, nil, nil, "0", nil, nil, nil, nil])
     }
 
     func testDashboardWindowLayoutTileSurfacesOnlyActionableStatus() {
@@ -544,12 +533,10 @@ final class FunctionTabsTests: XCTestCase {
 
         XCTAssertEqual(tiles.map(\.shortcutDisplay), [
             "⇧⌘V",
-            nil,
             "⌃⌥Space",
             nil,
             nil,
             "Space",
-            nil,
             nil,
             nil,
             nil,
@@ -766,9 +753,9 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(
             DashboardToolSettingsNavigation.route(for: .snippets),
             DashboardToolSettingsRoute(
-                destination: .snippets,
-                tabStorageKey: SnippetsFunctionTab.storageKey,
-                tabRawValue: SnippetsFunctionTab.settings.rawValue
+                destination: .clipboard,
+                tabStorageKey: ClipboardFunctionTab.storageKey,
+                tabRawValue: ClipboardFunctionTab.snippets.rawValue
             )
         )
         XCTAssertEqual(

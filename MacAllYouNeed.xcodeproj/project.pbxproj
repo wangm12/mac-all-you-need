@@ -262,6 +262,7 @@
 		57A0D3780189FD2B9902A1EE /* WindowGestureModifierPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 270A6A75BEBC34BBBB8CA36A /* WindowGestureModifierPicker.swift */; };
 		57B73E22BDACDCB60818E70F /* OnboardingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFEAC6BBBD9438A1790B90B /* OnboardingState.swift */; };
 		582DFF7623B6B8A16349A269 /* MenuBarPopoverChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF01C1EB3A255081C6D30294 /* MenuBarPopoverChrome.swift */; };
+		A1CC7E0D2F4B8D9A1001C002 /* CommandCenterDisabledPlaceholder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1CC7E0D2F4B8D9A1001C001 /* CommandCenterDisabledPlaceholder.swift */; };
 		58944CD593AB746D7CC43C1E /* VoiceTranscriptHistoryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2272B2E654945F8E41447EE3 /* VoiceTranscriptHistoryRowView.swift */; };
 		58ADC7C90556176718B14CF5 /* StorageSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C51FD0F039999C99D523F48 /* StorageSettingsView.swift */; };
 		58E96848F0F054FB399DDED9 /* RadialSettingsPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D53EDBC60B1E244A2740D68 /* RadialSettingsPreview.swift */; };
@@ -1351,6 +1352,7 @@
 		BE5A9C0D548B2DAA644BC1E8 /* FeatureOnboardingStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureOnboardingStepView.swift; sourceTree = "<group>"; };
 		BEC9C99ADC6738B80EA20E3C /* ClipboardPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardPopoverView.swift; sourceTree = "<group>"; };
 		BF01C1EB3A255081C6D30294 /* MenuBarPopoverChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPopoverChrome.swift; sourceTree = "<group>"; };
+		A1CC7E0D2F4B8D9A1001C001 /* CommandCenterDisabledPlaceholder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandCenterDisabledPlaceholder.swift; sourceTree = "<group>"; };
 		BF8DADF3520A0DD5FFAE40D8 /* VoicePersonalizationSummarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePersonalizationSummarizer.swift; sourceTree = "<group>"; };
 		BF9FF3EBE0F1ED86BFE94A17 /* FolderHistorySwitcherPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderHistorySwitcherPanel.swift; sourceTree = "<group>"; };
 		C05964D3713DCCE4DD46D2C3 /* WindowControlPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowControlPresentationTests.swift; sourceTree = "<group>"; };
@@ -2447,6 +2449,7 @@
 		8AFEEFB9318D39B6F940EF4D /* MenuBar */ = {
 			isa = PBXGroup;
 			children = (
+				A1CC7E0D2F4B8D9A1001C001 /* CommandCenterDisabledPlaceholder.swift */,
 				BF01C1EB3A255081C6D30294 /* MenuBarPopoverChrome.swift */,
 				149C33B72AAB5A535C269DAD /* Popovers */,
 			);
@@ -4104,6 +4107,7 @@
 				051D5139A9BC6E99170FD42B /* MainWindowController.swift in Sources */,
 				7B1DE4BE4207077CAC76A87E /* MainWindowRoot.swift in Sources */,
 				582DFF7623B6B8A16349A269 /* MenuBarPopoverChrome.swift in Sources */,
+				A1CC7E0D2F4B8D9A1001C002 /* CommandCenterDisabledPlaceholder.swift in Sources */,
 				A7EB87F7355D16D65EC1D7E7 /* MicrophonePermissionRow.swift in Sources */,
 				F836E34A7DBD02A630B0D1DC /* MicrophoneStepView.swift in Sources */,
 				E0A7926FFB8A4483BE878592 /* MigrationDecisionMatrix.swift in Sources */,

@@ -67,6 +67,16 @@ final class VoiceHUDPresenter {
         hud.show(.error(message), onPrimary: onDismiss)
     }
 
+    /// Show a brief "⌘V to paste" notice when auto-paste couldn't inject the text.
+    /// Dismisses automatically after 2 seconds — calmer than the error state.
+    func showClipboardFallbackNotice() {
+        hud.show(.clipboardFallback)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            hud.dismiss()
+        }
+    }
+
     func updateThinkingProgress(_ progress: Double) {
         hud.updateThinkingProgress(progress)
     }

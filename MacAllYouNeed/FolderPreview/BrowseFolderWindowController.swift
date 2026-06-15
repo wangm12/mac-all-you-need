@@ -49,4 +49,8 @@ final class BrowseFolderWindowController {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    func close() {
+        window?.orderOut(nil)
+    }
 }
