@@ -265,10 +265,11 @@ final class VoiceCoordinator {
         lastTranscript = nil
         inputSourceAtRecordingStart = currentInputSourceName()
         inputSourceChangedDuringRun = false
-        Task {
-            if let local = activeEngine as? VoiceLocalASREngine {
-                await local.warmup()
-            }
+        // Await warmup before starting audio so the model is ready for the first
+        // ASR call. On first dictation this prevents silent ASR failures from an
+        // unloaded model. Subsequent calls return quickly (model already warm).
+        if let local = activeEngine as? VoiceLocalASREngine {
+            await local.warmup()
         }
         guard await audio.requestPermission() else {
             log.error("startRecording: microphone permission denied")

@@ -55,7 +55,17 @@ public enum PasteInjector {
     ) async -> PasteInjectionOutcome {
         let snapshot = PasteboardSnapshot.capture(from: pasteboard)
         let result = paste(string, into: pasteboard)
-        try? await Task.sleep(for: restoreDelay)
+        // Poll until the receiving app reads the pasteboard (changeCount advances)
+        // or the deadline is reached. Avoids blocking for the full restoreDelay
+        // in the common case where paste completes in <100ms.
+        let writtenChangeCount = pasteboard.changeCount
+        let deadline = ContinuousClock.now + restoreDelay
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+            if pasteboard.changeCount != writtenChangeCount {
+                break
+            }
+        }
         guard result == .injected || restoreOnManualPasteRequired else {
             return PasteInjectionOutcome(result: result, restoredPasteboard: false)
         }
