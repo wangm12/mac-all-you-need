@@ -19,10 +19,15 @@ enum Qwen3EngineError: LocalizedError {
     }
 }
 
-actor Qwen3Engine: VoiceTranscriptionEngine, ASRProviding {
+actor Qwen3Engine: VoiceTranscriptionEngine {
     nonisolated var modelIdentifier: String {
         VoiceASRSettingsStore.load().modelID.rawValue
     }
+
+    nonisolated var capabilities: VoiceASRCapabilities {
+        .init(supportsStreaming: true, requiresNetwork: false, emitsPartials: false)
+    }
+
     private var managers: [VoiceASRModelID: Any] = [:]
 
     func transcribe(

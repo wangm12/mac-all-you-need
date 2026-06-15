@@ -182,6 +182,7 @@
 		38BBFEDFF2F20708FA1BB3E1 /* RadialEventTapGatingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B2B5611BEE80E31861BF1C /* RadialEventTapGatingTests.swift */; };
 		38F2166E107A1E9EF8EA5B1F /* VoiceOnboardingEmbeddedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5BE0494C5CAD8D436EC1C95 /* VoiceOnboardingEmbeddedView.swift */; };
 		39319B7168BDA074131576F7 /* DockPreviewAXHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1AE8E88F66B6BDC3C602B9 /* DockPreviewAXHelpersTests.swift */; };
+		3A915AB0E47572C72C295F27 /* VoiceTuning.swift in Sources */ = {isa = PBXBuildFile; fileRef = D18C65117204087AD1CA1A73 /* VoiceTuning.swift */; };
 		3A92F034E75FFA09E1E49E41 /* DouyinProfileLister.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E58B79D04FF9B356732D7D7 /* DouyinProfileLister.swift */; };
 		3AA8B181BE80E8C9F129B3A7 /* AppControllerVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1947BE0084AE5B6B1DAD74C /* AppControllerVoice.swift */; };
 		3AB948990A9AF5379893EC70 /* VoiceOnboardingWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BD7A88A562D1BB0CC94E9A /* VoiceOnboardingWizardView.swift */; };
@@ -1408,6 +1409,7 @@
 		D02426F0FD815353A891A5A7 /* SettingsExclusionListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsExclusionListTests.swift; sourceTree = "<group>"; };
 		D128921B9333B98A3ADCD818 /* DockPreviewWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPreviewWorker.swift; sourceTree = "<group>"; };
 		D1500ADF50C39B1C18D059F4 /* DownloadPickerEntryRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadPickerEntryRow.swift; sourceTree = "<group>"; };
+		D18C65117204087AD1CA1A73 /* VoiceTuning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTuning.swift; sourceTree = "<group>"; };
 		D1BA64D8933C219395D025E3 /* ClipboardOnboardingHotkeySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardOnboardingHotkeySection.swift; sourceTree = "<group>"; };
 		D302978CDB21A4F76AC28493 /* BinaryLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BinaryLocator.swift; sourceTree = "<group>"; };
 		D3042513DF174C4EA64EC188 /* ReminderWritePhaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderWritePhaseTests.swift; sourceTree = "<group>"; };
@@ -2019,6 +2021,7 @@
 				85361DAC5A817E0F8FEB4610 /* VoicePipelineController.swift */,
 				56A1ADB98F1714C4A4A8CB19 /* VoiceProviderIconPresentation.swift */,
 				5DE04D12C9DE286CFFDAF02F /* VoiceTranscriptRetentionRunner.swift */,
+				D18C65117204087AD1CA1A73 /* VoiceTuning.swift */,
 				E6F8E5EFC388DFA24C31B26A /* ASR */,
 				317349CB4FAB4A089D2898F3 /* Audio */,
 				DBABA2366A5763E280E995FA /* Cleanup */,
@@ -4283,6 +4286,7 @@
 				58944CD593AB746D7CC43C1E /* VoiceTranscriptHistoryRowView.swift in Sources */,
 				444CF48D008FF98D258BBC5F /* VoiceTranscriptRetentionRunner.swift in Sources */,
 				1FF93092D9B581D75C8B7CD1 /* VoiceTranscriptRowMenu.swift in Sources */,
+				3A915AB0E47572C72C295F27 /* VoiceTuning.swift in Sources */,
 				A592559316BB1661CA188139 /* VoiceTwoPanePickerSheet.swift in Sources */,
 				5B1438F12C926B34FBC81CBB /* VoiceUnsupportedASRModelRow.swift in Sources */,
 				FDC1AB84CA9B51C53B3C75D9 /* WatchDaemon.swift in Sources */,

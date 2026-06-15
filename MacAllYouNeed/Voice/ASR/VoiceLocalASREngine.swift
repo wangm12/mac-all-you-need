@@ -22,12 +22,22 @@ enum VoiceLocalASREngineError: LocalizedError {
     }
 }
 
-actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine, ASRProviding {
+actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
     private let qwen = Qwen3Engine()
     private let parakeet = ParakeetEngine()
 
     nonisolated var modelIdentifier: String {
         VoiceASRSettingsStore.load().modelID.rawValue
+    }
+
+    nonisolated var capabilities: VoiceASRCapabilities {
+        let modelID = VoiceASRSettingsStore.load().modelID
+        switch modelID.runtime {
+        case .qwenCoreML:
+            return qwen.capabilities
+        default:
+            return .batchOnly
+        }
     }
 
     func transcribe(
@@ -83,10 +93,12 @@ actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine, ASRProviding {
     }
 }
 
-actor ParakeetEngine: VoiceTranscriptionEngine, ASRProviding {
+actor ParakeetEngine: VoiceTranscriptionEngine {
     nonisolated var modelIdentifier: String {
         VoiceASRSettingsStore.load().modelID.rawValue
     }
+
+    nonisolated var capabilities: VoiceASRCapabilities { .batchOnly }
 
     private var managers: [VoiceASRModelID: AsrManager] = [:]
 
