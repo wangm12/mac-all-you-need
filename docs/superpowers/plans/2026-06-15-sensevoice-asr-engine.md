@@ -14,11 +14,11 @@
 
 | Action | File | What changes |
 |---|---|---|
-| **Add dep** | `MacAllYouNeed.xcodeproj/project.pbxproj` (via xcodegen) | mlx-audio-swift package + MLXAudioCore + MLXAudioSTT link |
+| **Add dep** | `project.yml` → `MacAllYouNeed.xcodeproj/project.pbxproj` (via xcodegen) | mlx-audio-swift package (`MLXAudioCore` + `MLXAudioSTT`) **plus the `MLX` product from mlx-swift** (the engine does `import MLX` for `MLXArray`) |
 | **Create** | `MacAllYouNeed/Voice/ASR/SenseVoiceEngine.swift` | Actor: load model, transcribe, warmup |
-| **Create** | `MacAllYouNeed/Voice/ASR/SenseVoiceModels.swift` | Download, cache dir, install check |
-| **Modify** | `MacAllYouNeed/Voice/ASR/VoiceASRSettings.swift` | Add `senseVoiceSmall` case to `VoiceASRModelID`; new `runtime`, `title`, `subtitle`, `diskLabel` |
-| **Modify** | `MacAllYouNeed/Voice/VoiceModelCatalog.swift` | Add `sensevoice` to `VoiceModelRuntime`; add descriptor to `localASRModels`; update `isLocalASRModelInstalled`, `localASRCacheDirectory`, `downloadLocalASRModel`, `deleteLocalASRModel` |
+| **Create** | `MacAllYouNeed/Voice/ASR/SenseVoiceModels.swift` | Download (4 verified files), cache dir, install check |
+| **Modify** | `MacAllYouNeed/Voice/ASR/VoiceASRSettings.swift` | Add `senseVoiceSmall` case to `VoiceASRModelID`; fill **every** exhaustive switch: `runtime`, `title`, `subtitle`, `strengths`, `tradeoffs`, `diskLabel`, `requiresOSLabel`, `qwen3Variant` (nil), `parakeetVersion` (nil) |
+| **Modify** | `MacAllYouNeed/Voice/VoiceModelCatalog.swift` | Add `sensevoice` to `VoiceModelRuntime`; add descriptor to `VoiceModelCatalog.localASRModels`; update `VoiceModelManager.{recommendedLocalASROrder, isLocalASRModelInstalled, localASRCacheDirectory, downloadLocalASRModel}` (note: these live in `enum VoiceModelManager`, not `VoiceModelCatalog`) |
 | **Modify** | `MacAllYouNeed/Voice/ASR/VoiceLocalASREngine.swift` | Add `SenseVoiceEngine` instance; route `.sensevoice` in transcribe/warmup/capabilities |
 | **Modify** | All exhaustive switches on `VoiceASRModelID` / `VoiceModelRuntime` | Compiler flags each one — add `.senseVoiceSmall` / `.sensevoice` |
 
@@ -29,21 +29,35 @@
 **Files:**
 - Modify: `project.yml` (xcodegen source)
 
+> **Dependency-weight risk (read before starting).** `MLXAudioCore` pulls in a
+> full MLX stack transitively: `mlx-swift`, `mlx-swift-lm`, `swift-transformers`,
+> and `swift-huggingface`. Today this app's local ASR (Qwen3 / Parakeet) runs on
+> FluidAudio's **CoreML** path; this adds a second, independent ML runtime
+> (hundreds of MB of frameworks, longer clean builds, larger app, possible MLX
+> version pins). Confirm this trade-off is acceptable before proceeding — it is
+> the single biggest cost of this feature.
+
 - [ ] **Check the project.yml for how existing SPM packages are declared**
 
 ```bash
 grep -A5 "FluidAudio\|packages:" /Users/mingjie.wang/Documents/personal/mac-all-you-need/project.yml | head -30
 ```
 
-- [ ] **Add mlx-audio-swift to project.yml under the MacAllYouNeed target's packages**
+- [ ] **Add the packages to project.yml**
 
-In `project.yml`, under `MacAllYouNeed` target packages, add:
+The engine does `import MLX` (for `MLXArray`), so the `MLX` product must be a
+**direct** dependency of the target — relying on it being transitively visible
+through `MLXAudioCore` is fragile in SPM/Xcode. Declare `mlx-swift` explicitly.
+
+In `project.yml`, under the `MacAllYouNeed` target `dependencies:` add:
 
 ```yaml
 - package: mlx-audio-swift
   product: MLXAudioCore
 - package: mlx-audio-swift
   product: MLXAudioSTT
+- package: mlx-swift
+  product: MLX
 ```
 
 And in the top-level `packages:` section add:
@@ -52,7 +66,16 @@ And in the top-level `packages:` section add:
 mlx-audio-swift:
   url: https://github.com/hehehai/mlx-audio-swift
   revision: a1c7b11b68b16f1591bb0ff586372dde9b265135
+mlx-swift:
+  url: https://github.com/ml-explore/mlx-swift
+  # Pin to whatever version mlx-audio-swift@a1c7b11 resolves to (read its
+  # Package.resolved after the first `xcodegen generate` + resolve, then pin
+  # the exact version here to keep builds reproducible).
 ```
+
+> If, after building, `import MLX` resolves cleanly via the transitive
+> `MLXAudioCore` dependency on your toolchain, the explicit `mlx-swift` entry can
+> be dropped. Keep it if you see "No such module 'MLX'".
 
 - [ ] **Regenerate the Xcode project**
 
@@ -71,7 +94,10 @@ Expected: `BUILD SUCCEEDED`
 - [ ] **Commit**
 
 ```bash
-git add project.yml MacAllYouNeed.xcodeproj/project.pbxproj Shared/Package.resolved
+# The resolved file for the app-target packages lives inside the xcodeproj,
+# not Shared/. Add whatever xcodegen + the resolve actually touched:
+git add project.yml MacAllYouNeed.xcodeproj
+git add MacAllYouNeed.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved 2>/dev/null || true
 git commit -m "feat(voice): add mlx-audio-swift dependency for SenseVoice"
 ```
 
@@ -82,14 +108,31 @@ git commit -m "feat(voice): add mlx-audio-swift dependency for SenseVoice"
 **Files:**
 - Create: `MacAllYouNeed/Voice/ASR/SenseVoiceModels.swift`
 
-This mirrors the pattern of `Qwen3AsrModels` / `AsrModels`. It knows:
+This mirrors the role of FluidAudio's `Qwen3AsrModels` / `AsrModels` (which live in
+the FluidAudio package, not in this repo). It knows:
 1. Where to store model files on disk
 2. Which files must be present for "installed" to return true
 3. How to download from HuggingFace
 
+> **VERIFIED against the real repo (`mlx-community/SenseVoiceSmall`).** The repo
+> contains exactly four content files: `config.json`, `model.safetensors`,
+> `am.mvn`, `chn_jpn_yue_eng_ko_spectok.bpe.model`. There is **no** `tokenizer.json`
+> / `tokenizer_config.json` / `special_tokens_map.json`. `SenseVoiceModel.fromDirectory`
+> reads `am.mvn` (CMVN normalization) and the `.bpe.model` tokenizer from the
+> directory, so all four files are mandatory.
+
+> **VERIFIED:** FluidAudio's `DownloadUtils` has **no** `downloadFile(from:to:)`
+> method. Its public surface is `downloadRepo` / `downloadSubdirectory` /
+> `fetchHuggingFaceFile`, all coupled to FluidAudio's own `Repo` registry, so we
+> cannot reuse it for an arbitrary HF repo. We therefore stream the four files
+> ourselves with `URLSession`, while still emitting the shared
+> `DownloadUtils.ProgressHandler` / `DownloadUtils.DownloadProgress` type so the
+> catalog and UI progress plumbing is unchanged.
+
 - [ ] **Create SenseVoiceModels.swift**
 
 ```swift
+import FluidAudio
 import Foundation
 
 /// Manages the on-disk lifecycle of the SenseVoice Small MLX model.
@@ -97,13 +140,13 @@ import Foundation
 enum SenseVoiceModels {
     static let huggingFaceRepo = "mlx-community/SenseVoiceSmall"
 
-    /// Required files that must all be present for the model to be usable.
+    /// Files that must all be present for the model to be usable.
+    /// Verified against the actual HuggingFace repo contents.
     static let requiredFiles = [
         "config.json",
         "model.safetensors",
-        "tokenizer.json",
-        "tokenizer_config.json",
-        "special_tokens_map.json",
+        "am.mvn",
+        "chn_jpn_yue_eng_ko_spectok.bpe.model",
     ]
 
     static func defaultCacheDirectory() -> URL {
@@ -132,17 +175,35 @@ enum SenseVoiceModels {
             at: directory, withIntermediateDirectories: true
         )
         let baseURL = URL(string: "https://huggingface.co")!
-        for file in requiredFiles {
+        let total = requiredFiles.count
+        for (index, file) in requiredFiles.enumerated() {
             let destination = directory.appendingPathComponent(file)
-            guard !FileManager.default.fileExists(atPath: destination.path) else { continue }
+            guard !FileManager.default.fileExists(atPath: destination.path) else {
+                continue
+            }
             let fileURL = baseURL
                 .appendingPathComponent(huggingFaceRepo)
                 .appendingPathComponent("resolve/main")
                 .appendingPathComponent(file)
-            try await DownloadUtils.downloadFile(
-                from: fileURL,
-                to: destination,
-                progressHandler: progressHandler
+
+            // Download to a temp URL, then move into place so a partial
+            // download never satisfies modelsExist(at:).
+            let (tempURL, response) = try await URLSession.shared.download(from: fileURL)
+            if let http = response as? HTTPURLResponse,
+               !(200..<300).contains(http.statusCode)
+            {
+                throw URLError(.badServerResponse)
+            }
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.moveItem(at: tempURL, to: destination)
+
+            progressHandler?(
+                DownloadUtils.DownloadProgress(
+                    fractionCompleted: Double(index + 1) / Double(total),
+                    phase: .downloading(completedFiles: index + 1, totalFiles: total)
+                )
             )
         }
         return directory
@@ -150,14 +211,10 @@ enum SenseVoiceModels {
 }
 ```
 
-- [ ] **Check that DownloadUtils.downloadFile exists with this signature**
-
-```bash
-grep -n "func downloadFile\|static func download" /Users/mingjie.wang/Documents/personal/mac-all-you-need/MacAllYouNeed/App/DownloadUtils.swift 2>/dev/null | head -10
-grep -rn "func downloadFile\|static func download" /Users/mingjie.wang/Documents/personal/mac-all-you-need/Shared --include="*.swift" | head -10
-```
-
-If `DownloadUtils.downloadFile` does not exist with that exact signature, adapt the call to match the actual API. The key requirement: download a single file from a URL to a local path with optional progress.
+> Per-file fraction (not byte-level) progress is intentional — it keeps the
+> helper dependency-free and is enough for a four-file download. If byte-level
+> progress is later wanted, swap `URLSession.shared.download` for a
+> `URLSessionDownloadDelegate`.
 
 - [ ] **Build to verify**
 
@@ -181,26 +238,30 @@ git commit -m "feat(voice): add SenseVoiceModels download helper"
 **Files:**
 - Create: `MacAllYouNeed/Voice/ASR/SenseVoiceEngine.swift`
 
-- [ ] **Check the exact MLXAudioSTT API in the mlx-audio-swift package**
+- [ ] **(Optional) Re-confirm the MLXAudioSTT API at the pinned revision**
+
+The signatures below are **verified** against `hehehai/mlx-audio-swift` at revision
+`a1c7b11` (`Sources/MLXAudioSTT/Models/SenseVoice/SenseVoiceModel.swift`). If you
+bump the revision, re-check them:
 
 ```bash
-# After xcodegen, the package is in DerivedData or the checkouts folder:
-find ~/Library/Developer/Xcode/DerivedData -name "SenseVoiceModel.swift" 2>/dev/null | head -3
-find ~/.spm -name "SenseVoiceModel.swift" 2>/dev/null | head -3
-# OR look at Package.resolved to find checkout location
-grep -r "SenseVoiceModel\|func generate\|fromDirectory" ~/Library/Developer/Xcode/DerivedData/MacAllYouNeed*/SourcePackages 2>/dev/null | head -10
+grep -rn "func generate\|static func fromDirectory\|struct STTOutput\|var text\|var language" \
+  ~/Library/Developer/Xcode/DerivedData/MacAllYouNeed*/SourcePackages/checkouts/mlx-audio-swift/Sources/MLXAudioSTT/Models/SenseVoice 2>/dev/null | head -20
 ```
 
-Confirm the exact signatures of:
-- `SenseVoiceModel.fromDirectory(_ url: URL) throws -> SenseVoiceModel`
-- `model.generate(audio: MLXArray, language: String?, useITN: Bool, verbose: Bool) -> <OutputType>`
-- The property that holds the transcription text on the output (e.g. `output.text`)
+Confirmed facts (do not change unless the revision changes):
+- `public static func fromDirectory(_ modelDirectory: URL) throws -> SenseVoiceModel`
+- `public func generate(audio: MLXArray, language: String = "auto", useITN: Bool = false, verbose: Bool = false) -> STTOutput`
+  — **`language` is a non-optional `String` (default `"auto"`); passing `nil` does not compile.**
+- `STTOutput.text: String` and `STTOutput.language: String?`
+- `generate` takes an `MLXArray`, which lives in the `MLX` module → **`import MLX` is required.**
 
 - [ ] **Create SenseVoiceEngine.swift with the confirmed API**
 
 ```swift
 import Core
 import Foundation
+import MLX
 import MLXAudioCore
 import MLXAudioSTT
 import OSLog
@@ -210,17 +271,15 @@ private let senseVoiceLog = Logger(
     category: "sensevoice"
 )
 
-/// Non-autoregressive ASR engine using SenseVoice Small via mlx-audio-swift.
-/// Batch-only: no live streaming session. Transcribes full audio in <100ms.
+/// Non-autoregressive CTC ASR engine using SenseVoice Small via mlx-audio-swift.
+/// Batch-only: no live streaming session.
 actor SenseVoiceEngine: VoiceTranscriptionEngine {
 
     private var model: SenseVoiceModel?
 
     nonisolated var modelIdentifier: String { "sense-voice-small" }
 
-    nonisolated var capabilities: VoiceASRCapabilities {
-        .init(supportsStreaming: false, requiresNetwork: false, emitsPartials: false)
-    }
+    nonisolated var capabilities: VoiceASRCapabilities { .batchOnly }
 
     func transcribe(
         samples: [Float],
@@ -234,8 +293,8 @@ actor SenseVoiceEngine: VoiceTranscriptionEngine {
         senseVoiceLog.info("SenseVoice transcribe: \(resampled.count / 16000, privacy: .public)s audio")
         let output = loadedModel.generate(
             audio: MLXArray(resampled),
-            language: nil,   // auto-detect zh/en
-            useITN: true,    // normalize numbers/dates
+            language: "auto",  // auto-detect language
+            useITN: true,      // normalize numbers/dates
             verbose: false
         )
         let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -267,7 +326,10 @@ actor SenseVoiceEngine: VoiceTranscriptionEngine {
 }
 ```
 
-> **If the `output.text` property name or `generate` signature differs** from what you confirmed in the previous step, adjust accordingly. Do not guess — read the actual API.
+> `capabilities` uses `.batchOnly` to match `ParakeetEngine` (SenseVoice has no
+> live streaming path). `VoiceLocalASREngine.makeLiveSession` already throws
+> `unsupportedEngine` for any non-Qwen runtime via its `default:` branch, so no
+> change is needed there for batch-only SenseVoice.
 
 - [ ] **Build to verify it compiles**
 
@@ -324,7 +386,21 @@ case .senseVoiceSmall:
 
 ```swift
 case .senseVoiceSmall:
-    "Non-autoregressive · Chinese & English · Fast batch inference"
+    "Non-autoregressive CTC model for Chinese & English. Fast batch transcription; no live streaming."
+```
+
+- [ ] **Add `strengths` for the new case** (non-optional `String`):
+
+```swift
+case .senseVoiceSmall:
+    "Single-pass CTC decoding (no beam search / repetition), small resident footprint, strong mixed zh/en."
+```
+
+- [ ] **Add `tradeoffs` for the new case** (non-optional `String`):
+
+```swift
+case .senseVoiceSmall:
+    "Batch only — no live partials. Requires Apple Silicon (MLX). Different ML runtime from the CoreML models."
 ```
 
 - [ ] **Add `diskLabel` for the new case**:
@@ -334,13 +410,25 @@ case .senseVoiceSmall:
     "~900 MB"
 ```
 
+- [ ] **Add `requiresOSLabel` for the new case** (non-optional `String`):
+
+```swift
+case .senseVoiceSmall:
+    "Apple Silicon"
+```
+
 - [ ] **Fix all remaining exhaustive switch errors on VoiceASRModelID** — build to find them:
 
 ```bash
 xcodebuild build -project MacAllYouNeed.xcodeproj -scheme MacAllYouNeed -destination 'platform=macOS,arch=arm64' 2>&1 | grep "error:" | head -20
 ```
 
-For each "switch must be exhaustive" error on `VoiceASRModelID`, add `case .senseVoiceSmall:` with a sensible value (return `nil` for Qwen3/Parakeet-specific properties like `qwen3Variant`, `parakeetVersion`).
+`VoiceASRModelID` has these exhaustive switches: `title`, `subtitle`, `strengths`,
+`tradeoffs`, `diskLabel`, `runtime`, `qwen3Variant`, `parakeetVersion`,
+`requiresOSLabel`. The only ones that may return `nil` are the **optional**
+`qwen3Variant: Qwen3AsrVariant?` and `parakeetVersion: AsrModelVersion?`. The
+`strengths` / `tradeoffs` / `requiresOSLabel` properties are **non-optional
+`String`** and must have real copy (added above) — `nil` will not compile.
 
 - [ ] **Fix all exhaustive switch errors on VoiceModelRuntime** the same way.
 
@@ -366,9 +454,15 @@ git commit -m "feat(voice): add senseVoiceSmall model ID and sensevoice runtime"
 **Files:**
 - Modify: `MacAllYouNeed/Voice/VoiceModelCatalog.swift`
 
-- [ ] **Add SenseVoice to `localASRModels` array**
+> This file contains **two** enums. The descriptor list lives in
+> `enum VoiceModelCatalog`; everything else below (`recommendedLocalASROrder`,
+> `isLocalASRModelInstalled`, `localASRCacheDirectory`, `downloadLocalASRModel`)
+> lives in `enum VoiceModelManager`. `deleteLocalASRModel` is generic (uses
+> `localASRCacheDirectory`) and needs no SenseVoice-specific change.
 
-In `VoiceModelCatalog.localASRModels`, add after the Parakeet entry:
+- [ ] **Add SenseVoice to `VoiceModelCatalog.localASRModels` array**
+
+Add after the Parakeet entry:
 
 ```swift
 VoiceModelDescriptor(
@@ -376,7 +470,7 @@ VoiceModelDescriptor(
     category: .localASR,
     runtime: .sensevoice,
     title: "SenseVoice Small",
-    subtitle: "Non-autoregressive zh-en model. ~10× faster than Qwen3; pairs well with AI cleanup.",
+    subtitle: "Non-autoregressive CTC zh/en model. Fast single-pass batch transcription; pairs well with AI cleanup.",
     diskLabel: "~900 MB",
     requiresOSLabel: "Apple Silicon",
     localASRModelID: .senseVoiceSmall,
@@ -385,7 +479,7 @@ VoiceModelDescriptor(
 ),
 ```
 
-- [ ] **Add SenseVoice to `recommendedLocalASROrder`**
+- [ ] **Add SenseVoice to `VoiceModelManager.recommendedLocalASROrder`**
 
 ```swift
 static let recommendedLocalASROrder: [VoiceASRModelID] = [
