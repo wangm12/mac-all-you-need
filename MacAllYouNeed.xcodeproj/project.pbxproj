@@ -107,6 +107,7 @@
 		2242C8255042CCC2D77159FF /* VoiceAPIKeySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4054DC082BCC990839FC3E96 /* VoiceAPIKeySection.swift */; };
 		226FF15D1665169F775BF5E2 /* AppIconColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E1A984A7EE9AEB13955E475 /* AppIconColor.swift */; };
 		2386682C50920BA1CEB44EDF /* DownloadPickerSheetChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F03A3B7D587C57D3F9613DCF /* DownloadPickerSheetChrome.swift */; };
+		23B4BF9E98B2624D96A5F2AB /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7C77CB590A5BFFD67564EDE8 /* MLXAudioCore */; };
 		24591DF9298CFE0A43A81111 /* VoiceLiveASRQualityCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A6A053AB66112F76AD417E /* VoiceLiveASRQualityCheckTests.swift */; };
 		249C28F4ABDEF24CEBCF969D /* DockPreviewCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7891C05DE58D6458922A752 /* DockPreviewCoordinatorTests.swift */; };
 		24DAE1D9524084D5B64D939F /* DockPreviewWindowCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA3D6008CFB0A3CCD71B156 /* DockPreviewWindowCache.swift */; };
@@ -523,6 +524,7 @@
 		B0438D7CE9200925C2EC239D /* WindowControlPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05964D3713DCCE4DD46D2C3 /* WindowControlPresentationTests.swift */; };
 		B14D21F4ABE8A65254A7F659 /* DockHoverPreviewsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BCC104A76C8C4B402A0DE50 /* DockHoverPreviewsPage.swift */; };
 		B208550A07103797EC878212 /* FeaturePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA92B9375FB58120C7881CC2 /* FeaturePickerView.swift */; };
+		B230A95011FDB5A2EDEAED53 /* MLXAudioSTT in Frameworks */ = {isa = PBXBuildFile; productRef = B75D9A8EF8686E6CD034B939 /* MLXAudioSTT */; };
 		B28CB1B1BAC8A42A43B8F042 /* DockSettingsTabCmdTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EABB61F5316AE3D1433C67C /* DockSettingsTabCmdTab.swift */; };
 		B294574F13D6AD6825A31889 /* DockCmdTabController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80EB14F3AAB1129BB121BE14 /* DockCmdTabController.swift */; };
 		B2D13425C45F611C5106886D /* ImageBlobLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73EAEF685647289BB98087D3 /* ImageBlobLoaderTests.swift */; };
@@ -1632,6 +1634,8 @@
 				A3A59B439B8C37DFC9C6BE62 /* FeatureCore in Frameworks */,
 				E1622165EA55C2AAA57CDF7B /* PackPipeline in Frameworks */,
 				4D83906AA4B3BD6747E6F95E /* FluidAudio in Frameworks */,
+				23B4BF9E98B2624D96A5F2AB /* MLXAudioCore in Frameworks */,
+				B230A95011FDB5A2EDEAED53 /* MLXAudioSTT in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3299,6 +3303,8 @@
 				952C2FA275CB5346BB2507C3 /* FeatureCore */,
 				57059E371017B24AAC312097 /* PackPipeline */,
 				831ACFB2C6BAD322928FF299 /* FluidAudio */,
+				7C77CB590A5BFFD67564EDE8 /* MLXAudioCore */,
+				B75D9A8EF8686E6CD034B939 /* MLXAudioSTT */,
 			);
 			productName = MacAllYouNeed;
 			productReference = 0883BAD56856BBEFD18C0F79 /* MacAllYouNeed.app */;
@@ -3473,6 +3479,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				E16F8EDB8DC870DC22AEF3AA /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				9AF4574DFEA2D88CB57BBCB3 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */,
 				6F6C8B9EBB0EAB17D78F17E4 /* XCLocalSwiftPackageReference "Shared" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -4864,6 +4871,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		9AF4574DFEA2D88CB57BBCB3 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/hehehai/mlx-audio-swift";
+			requirement = {
+				kind = revision;
+				revision = a1c7b11b68b16f1591bb0ff586372dde9b265135;
+			};
+		};
 		E16F8EDB8DC870DC22AEF3AA /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/FluidInference/FluidAudio";
@@ -4903,6 +4918,11 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = Core;
 		};
+		7C77CB590A5BFFD67564EDE8 /* MLXAudioCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9AF4574DFEA2D88CB57BBCB3 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */;
+			productName = MLXAudioCore;
+		};
 		831ACFB2C6BAD322928FF299 /* FluidAudio */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = E16F8EDB8DC870DC22AEF3AA /* XCRemoteSwiftPackageReference "FluidAudio" */;
@@ -4911,6 +4931,11 @@
 		952C2FA275CB5346BB2507C3 /* FeatureCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = FeatureCore;
+		};
+		B75D9A8EF8686E6CD034B939 /* MLXAudioSTT */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9AF4574DFEA2D88CB57BBCB3 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */;
+			productName = MLXAudioSTT;
 		};
 		C90EF9C0B92791031982E209 /* Platform */ = {
 			isa = XCSwiftPackageProductDependency;

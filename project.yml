@@ -28,6 +28,9 @@ packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio
     exactVersion: 0.14.5
+  mlx-audio-swift:
+    url: https://github.com/hehehai/mlx-audio-swift
+    revision: a1c7b11b68b16f1591bb0ff586372dde9b265135
 
 targets:
 
@@ -68,6 +71,10 @@ targets:
         product: PackPipeline
       - package: FluidAudio
         product: FluidAudio
+      - package: mlx-audio-swift
+        product: MLXAudioCore
+      - package: mlx-audio-swift
+        product: MLXAudioSTT
       - target: ClipboardDaemon
         embed: false
         copy: false
