@@ -36,9 +36,13 @@ actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
         switch modelID.runtime {
         case .qwenCoreML:
             return qwen.capabilities
+        case .parakeetCoreML:
+            return parakeet.capabilities
         case .sensevoice:
             return senseVoice.capabilities
-        default:
+        case .whisperKit, .mlxExperimental,
+             .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram,
+             .anthropic, .openAICompatible, .ollama:
             return .batchOnly
         }
     }

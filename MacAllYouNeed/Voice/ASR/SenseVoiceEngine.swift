@@ -11,7 +11,8 @@ private let senseVoiceLog = Logger(
 )
 
 /// Non-autoregressive CTC ASR engine using SenseVoice Small via mlx-audio-swift.
-/// Batch-only: no live streaming session.
+/// Batch-only: no live streaming session. Model load and inference are dispatched
+/// off the cooperative thread pool to avoid actor-thread starvation.
 actor SenseVoiceEngine: VoiceTranscriptionEngine {
 
     private var model: SenseVoiceModel?
@@ -29,18 +30,36 @@ actor SenseVoiceEngine: VoiceTranscriptionEngine {
         let resampled = sampleRate == 16000
             ? samples
             : AudioCaptureService.resample(samples, from: sampleRate, to: 16000)
-        senseVoiceLog.info("SenseVoice transcribe: \(resampled.count / 16000, privacy: .public)s audio")
-        let output = loadedModel.generate(
-            audio: MLXArray(resampled),
-            language: "auto",
-            useITN: true,
-            verbose: false
-        )
+        let durationSeconds = Double(resampled.count) / 16000.0
+        senseVoiceLog.info("SenseVoice transcribe: \(String(format: "%.1f", durationSeconds), privacy: .public)s audio")
+
+        // Plumb language hint from settings (auto-detect if not set).
+        let settings = VoiceASRSettingsStore.load()
+        let languageArg: String = switch settings.languageHint {
+        case .automatic: "auto"
+        case .chinese:   "zh"
+        case .english:   "en"
+        }
+
+        // generate() is synchronous CPU/MLX work — dispatch off the cooperative pool.
+        let output = try await Task.detached(priority: .userInitiated) {
+            loadedModel.generate(
+                audio: MLXArray(resampled),
+                language: languageArg,
+                useITN: true,
+                verbose: false
+            )
+        }.value
+
+        // "nospeech" is SenseVoice's signal for no detected speech.
+        if output.language == "nospeech" || output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return VoiceTranscriptionResult(text: "", language: .mixed, modelIdentifier: modelIdentifier)
+        }
+
         let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let language = voiceLanguage(from: output.language)
         return VoiceTranscriptionResult(
             text: text,
-            language: language,
+            language: Self.voiceLanguage(from: output.language),
             modelIdentifier: modelIdentifier
         )
     }
@@ -58,16 +77,19 @@ actor SenseVoiceEngine: VoiceTranscriptionEngine {
             throw VoiceLocalASREngineError.modelNotInstalled(.senseVoiceSmall)
         }
         senseVoiceLog.info("SenseVoice: loading model from \(dir.path, privacy: .public)")
-        let loaded = try SenseVoiceModel.fromDirectory(dir)
+        // fromDirectory is synchronous and CPU-heavy — dispatch off the cooperative pool.
+        let loaded = try await Task.detached(priority: .userInitiated) {
+            try SenseVoiceModel.fromDirectory(dir)
+        }.value
         model = loaded
         return loaded
     }
 
-    private nonisolated func voiceLanguage(from detected: String?) -> VoiceLanguage {
+    private static func voiceLanguage(from detected: String?) -> VoiceLanguage {
         switch detected {
         case "zh": return .chinese
         case "en": return .english
-        default: return .mixed
+        default:   return .mixed
         }
     }
 }
