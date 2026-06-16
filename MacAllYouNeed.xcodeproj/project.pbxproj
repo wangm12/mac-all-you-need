@@ -276,6 +276,7 @@
 		5BABA323D1B6C43818D07A28 /* OpenAIRealtimeASREngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 433B7C6D2CBC48D09A4ED771 /* OpenAIRealtimeASREngine.swift */; };
 		5C3D6B6EC2A7AA7696EB3436 /* AppMenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC48168DB6EB1529C64CEDF /* AppMenuBarContent.swift */; };
 		5C834C39BFD604385BC5DA9F /* DockCalendarSkeleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A333CD8ABDC12B99E3C171CB /* DockCalendarSkeleton.swift */; };
+		5CB33702FB7F506A562CAACC /* SenseVoiceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79C5DCF81911E85729816AE /* SenseVoiceModels.swift */; };
 		5D6ED797DFE23677DED5ECB2 /* FolderPreviewFeatureActivatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 181EEF5DFC372CFF18BA80C7 /* FolderPreviewFeatureActivatorTests.swift */; };
 		5D87FF264B9573EA310D1797 /* DockPreviewWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D128921B9333B98A3ADCD818 /* DockPreviewWorker.swift */; };
 		5DBB75D7F758582757FC9997 /* DockAppDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97B30B92E7FCFDB5DC31A02F /* DockAppDiscovery.swift */; };
@@ -1286,6 +1287,7 @@
 		A6544D53D5B6E738712CA0CA /* DockPreviewWindowOrderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPreviewWindowOrderStore.swift; sourceTree = "<group>"; };
 		A687DE59A1A2F72106F2D248 /* VoiceSettingsSectionRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSettingsSectionRegistryTests.swift; sourceTree = "<group>"; };
 		A6B4767C17E287B4FD68057E /* FolderHistoryAXReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderHistoryAXReading.swift; sourceTree = "<group>"; };
+		A79C5DCF81911E85729816AE /* SenseVoiceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenseVoiceModels.swift; sourceTree = "<group>"; };
 		A7EC1FDA72DB34FA116CECE3 /* DragDropSubModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragDropSubModel.swift; sourceTree = "<group>"; };
 		A82D1441A94453DD0BD08D77 /* VoiceOnboardingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceOnboardingState.swift; sourceTree = "<group>"; };
 		A87911919342F5F07926DED7 /* AppFeatureWorkerHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFeatureWorkerHostTests.swift; sourceTree = "<group>"; };
@@ -3133,6 +3135,7 @@
 				433B7C6D2CBC48D09A4ED771 /* OpenAIRealtimeASREngine.swift */,
 				378A4F8EC325E557A110936B /* OpenAIRealtimeSession.swift */,
 				9005CAFFBC8E8A328E09A36E /* Qwen3Engine.swift */,
+				A79C5DCF81911E85729816AE /* SenseVoiceModels.swift */,
 				BB3E15B164F5F227BAA37A6C /* VoiceASRSettings.swift */,
 				785744B7EDB4693B4E74C5BD /* VoiceLiveASRQualityCheck.swift */,
 				3731AA996B685E35BD98FEE3 /* VoiceLiveAudioFeed.swift */,
@@ -4204,6 +4207,7 @@
 				441401EEF817BD0E1979472C /* ScreenRecordingPermissionRow.swift in Sources */,
 				D62C7BC3E1E296E4DA6110B3 /* SearchFilterSubModel.swift in Sources */,
 				13968FA76948F7D6DCD0E8C0 /* SearchSettingsView.swift in Sources */,
+				5CB33702FB7F506A562CAACC /* SenseVoiceModels.swift in Sources */,
 				97027A28DFE827C719336FA8 /* SettingsDestination.swift in Sources */,
 				C3485491828447607006ADF6 /* SettingsDestinationView.swift in Sources */,
 				A2B49177550A4B446BA37124 /* SettingsExclusionEditor.swift in Sources */,
