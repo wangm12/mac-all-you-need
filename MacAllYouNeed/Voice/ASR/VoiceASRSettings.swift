@@ -47,6 +47,7 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
     case qwen3ASR06BF32 = "qwen3-asr-0.6b-f32"
     case qwen3ASR06BInt8 = "qwen3-asr-0.6b-int8"
     case parakeetTDT06BV3 = "parakeet-tdt-0.6b-v3"
+    case senseVoiceSmall = "sense-voice-small"
 
     var id: String {
         rawValue
@@ -74,6 +75,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "Qwen3-ASR 0.6B int8"
         case .parakeetTDT06BV3:
             "Parakeet TDT 0.6B v3"
+        case .senseVoiceSmall:
+            "SenseVoice Small"
         }
     }
 
@@ -85,6 +88,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "Lower-memory Qwen3-ASR build. Good for keeping dictation resident while other tools run."
         case .parakeetTDT06BV3:
             "Fast local Parakeet model for English and European-language dictation."
+        case .senseVoiceSmall:
+            "Non-autoregressive CTC model for Chinese & English. Fast batch transcription; no live streaming."
         }
     }
 
@@ -96,6 +101,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "Smaller resident memory footprint with the same Qwen3-ASR language coverage."
         case .parakeetTDT06BV3:
             "Very fast local batch transcription for English and supported European languages."
+        case .senseVoiceSmall:
+            "Single-pass CTC decoding, small resident footprint, strong mixed zh/en with ITN."
         }
     }
 
@@ -107,6 +114,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "May trade some throughput for memory savings; needs the same macOS 15 CoreML path."
         case .parakeetTDT06BV3:
             "Does not cover Chinese; keep Qwen3 selected for mixed Chinese/English dictation."
+        case .senseVoiceSmall:
+            "Batch only — no live partials. Requires Apple Silicon (MLX). Separate ML runtime from CoreML models."
         }
     }
 
@@ -118,6 +127,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             "~900 MB"
         case .parakeetTDT06BV3:
             "~850 MB"
+        case .senseVoiceSmall:
+            "~900 MB"
         }
     }
 
@@ -127,6 +138,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             .qwenCoreML
         case .parakeetTDT06BV3:
             .parakeetCoreML
+        case .senseVoiceSmall:
+            .sensevoice
         }
     }
 
@@ -138,6 +151,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             .int8
         case .parakeetTDT06BV3:
             nil
+        case .senseVoiceSmall:
+            nil
         }
     }
 
@@ -147,6 +162,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
             .v3
         case .qwen3ASR06BF32, .qwen3ASR06BInt8:
             nil
+        case .senseVoiceSmall:
+            nil
         }
     }
 
@@ -155,6 +172,8 @@ enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
         case .qwen3ASR06BF32, .qwen3ASR06BInt8:
             "macOS 15+"
         case .parakeetTDT06BV3:
+            "Apple Silicon"
+        case .senseVoiceSmall:
             "Apple Silicon"
         }
     }

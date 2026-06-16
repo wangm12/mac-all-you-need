@@ -14,6 +14,7 @@ enum VoiceModelRuntime: String, Codable, Equatable, Identifiable {
     case anthropic
     case openAICompatible
     case ollama
+    case sensevoice
 
     var id: String { rawValue }
 }
