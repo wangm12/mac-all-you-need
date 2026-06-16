@@ -20,6 +20,7 @@
 		03E97BCD78A122CAD3DF27B9 /* VoiceGroqCleanupChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F411AE0A7E4F2946EDC8F076 /* VoiceGroqCleanupChatModels.swift */; };
 		051D5139A9BC6E99170FD42B /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F208E396D585E76CE9A288 /* MainWindowController.swift */; };
 		0585329FE3280A9B5B12698D /* OllamaServiceClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE81270FBD0830A6ADAE856 /* OllamaServiceClientTests.swift */; };
+		06218641395306489F0F7F03 /* SenseVoiceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02956F699EEDAE7EBE237C46 /* SenseVoiceEngine.swift */; };
 		064F7B5F7E256CBEEDDFBDC7 /* KeyboardShortcutVisualizerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481E458F2CFC493580F6D8DB /* KeyboardShortcutVisualizerState.swift */; };
 		066578EA69E2EC36995B907E /* WindowControlAccessibilityTrustMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440B93CF73472061631521A9 /* WindowControlAccessibilityTrustMonitor.swift */; };
 		0692CF13BE93A3BD35C7B1E4 /* FullDiskAccessProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A98DBAEE8E14FA47E8D030A /* FullDiskAccessProbe.swift */; };
@@ -816,6 +817,7 @@
 		0048E0AE4C75E2960CE5EA9C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		01669BBA1C61D611D592A25B /* WindowControlFeatureActivator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowControlFeatureActivator.swift; sourceTree = "<group>"; };
 		01F00AB1BCCEAE21F478859D /* WindowControlCoordinator+Radial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WindowControlCoordinator+Radial.swift"; sourceTree = "<group>"; };
+		02956F699EEDAE7EBE237C46 /* SenseVoiceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenseVoiceEngine.swift; sourceTree = "<group>"; };
 		02AAF12F66A66BFBCBF53CA3 /* PriorUsageDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PriorUsageDetector.swift; sourceTree = "<group>"; };
 		02ECAE4FA3AC4620DF9901CA /* DockPasteCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPasteCoordinator.swift; sourceTree = "<group>"; };
 		03A77819F7CDA7E2AAA93679 /* VoiceCoordinatorRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCoordinatorRetryTests.swift; sourceTree = "<group>"; };
@@ -3135,6 +3137,7 @@
 				433B7C6D2CBC48D09A4ED771 /* OpenAIRealtimeASREngine.swift */,
 				378A4F8EC325E557A110936B /* OpenAIRealtimeSession.swift */,
 				9005CAFFBC8E8A328E09A36E /* Qwen3Engine.swift */,
+				02956F699EEDAE7EBE237C46 /* SenseVoiceEngine.swift */,
 				A79C5DCF81911E85729816AE /* SenseVoiceModels.swift */,
 				BB3E15B164F5F227BAA37A6C /* VoiceASRSettings.swift */,
 				785744B7EDB4693B4E74C5BD /* VoiceLiveASRQualityCheck.swift */,
@@ -4207,6 +4210,7 @@
 				441401EEF817BD0E1979472C /* ScreenRecordingPermissionRow.swift in Sources */,
 				D62C7BC3E1E296E4DA6110B3 /* SearchFilterSubModel.swift in Sources */,
 				13968FA76948F7D6DCD0E8C0 /* SearchSettingsView.swift in Sources */,
+				06218641395306489F0F7F03 /* SenseVoiceEngine.swift in Sources */,
 				5CB33702FB7F506A562CAACC /* SenseVoiceModels.swift in Sources */,
 				97027A28DFE827C719336FA8 /* SettingsDestination.swift in Sources */,
 				C3485491828447607006ADF6 /* SettingsDestinationView.swift in Sources */,
