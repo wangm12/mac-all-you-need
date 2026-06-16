@@ -562,7 +562,7 @@ final class AppController {
             clearAllClipboardHistory()
         case let .mainWindowSettings(route):
             if DockSettingsNavigation.isClipboardRulesRoute(route) {
-                AppGroupSettings.defaults.set(ClipboardFunctionTab.rules.rawValue, forKey: ClipboardFunctionTab.storageKey)
+                AppGroupSettings.defaults.set(ClipboardFunctionTab.settings.rawValue, forKey: ClipboardFunctionTab.storageKey)
                 showMainWindow(destination: .clipboard)
                 return
             }

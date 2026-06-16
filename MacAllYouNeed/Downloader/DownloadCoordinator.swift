@@ -634,12 +634,10 @@ final class DownloadCoordinator {
         let sleepInterval = max(0, defaults.double(forKey: "downloadSleepInterval"))
         let rawSpeedMode = defaults.string(forKey: "downloadSpeedMode") ?? DownloadSpeedMode.balanced.rawValue
         let speedMode = DownloadSpeedMode(rawValue: rawSpeedMode) ?? .balanced
-        let external = defaults.string(forKey: "downloadExternalDownloader")
         return YtDlpArgumentOptions(
             concurrentFragments: concurrentFragments,
             sleepInterval: sleepInterval,
-            speedMode: speedMode,
-            externalDownloader: external
+            speedMode: speedMode
         )
     }
 

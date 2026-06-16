@@ -12,10 +12,10 @@ enum DisabledPlaceholderRenderer {
     }
 
     static func render() -> PlaceholderContent {
-        let title = "Folder Preview is disabled"
+        let title = "Enhanced Finder is disabled"
 
         let bodyText =
-            "Open Mac All You Need → Settings → Features to re-enable Folder Preview.\n\n" +
+            "Open Mac All You Need → Settings → Features to re-enable Enhanced Finder.\n\n" +
             "The Quick Look extension stays installed with the app, so this placeholder " +
             "appears whenever you press Space on a folder while the feature is off."
 

@@ -20,7 +20,7 @@ enum SettingsDestination: String, CaseIterable, Identifiable, SegmentedTabDestin
         case .clipboard: "Clipboard"
         case .voice: "Voice"
         case .downloads: "Downloads"
-        case .folderPreview: "Folder Preview"
+        case .folderPreview: "Enhanced Finder"
         case .snippets: "Snippets"
         case .hotkeys: "Hotkeys"
         case .search: "Search"

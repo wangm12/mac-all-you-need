@@ -147,7 +147,7 @@ final class DockSettingsNavigationTests: XCTestCase {
             activateApp: { didActivate = true }
         )
 
-        XCTAssertEqual(defaults.string(forKey: ClipboardFunctionTab.storageKey), ClipboardFunctionTab.rules.rawValue)
+        XCTAssertEqual(defaults.string(forKey: ClipboardFunctionTab.storageKey), ClipboardFunctionTab.settings.rawValue)
         XCTAssertTrue(didDismiss)
         XCTAssertTrue(didActivate)
         XCTAssertEqual(postedDestination, DockSettingsNavigation.clipboardRulesRoute)

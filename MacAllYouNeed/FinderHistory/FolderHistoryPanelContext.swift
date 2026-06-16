@@ -11,10 +11,10 @@ struct FolderHistoryPanelContext: Equatable {
             return "Enable Finder Folder History on the Dashboard to record folders."
         }
         if !isAccessibilityGranted {
-            return "Grant Accessibility in Finder History settings, then browse folders in Finder."
+            return "Grant Accessibility in Settings → Permissions, then browse folders in Finder."
         }
         if isPaused {
-            return "Recording is paused. Turn off Pause in Finder History settings."
+            return "Recording is paused."
         }
         return "No folders in history yet. Open a few folders in Finder, wait a moment, then check again."
     }

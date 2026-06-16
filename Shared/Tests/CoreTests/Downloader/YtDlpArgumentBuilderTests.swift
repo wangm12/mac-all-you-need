@@ -42,7 +42,7 @@ final class YtDlpArgumentBuilderTests: XCTestCase {
         XCTAssertTrue(args.contains("X-Test:v"))
     }
 
-    func testBuildIncludesNativePlaylistAndExternalDownloader() {
+    func testBuildIncludesNativePlaylist() {
         var record = DownloadRecord(
             url: "https://www.youtube.com/watch?v=abc",
             title: "test",
@@ -59,14 +59,12 @@ final class YtDlpArgumentBuilderTests: XCTestCase {
             options: YtDlpArgumentOptions(
                 concurrentFragments: 3,
                 sleepInterval: 0,
-                speedMode: .turbo,
-                externalDownloader: "aria2c"
+                speedMode: .turbo
             )
         )
 
         XCTAssertTrue(args.contains("--yes-playlist"))
-        XCTAssertTrue(args.contains("--downloader"))
-        XCTAssertTrue(args.contains("aria2c"))
+        XCTAssertFalse(args.contains("--downloader"))
         XCTAssertTrue(args.contains("--retry-sleep"))
         XCTAssertTrue(args.contains("fragment:linear=0.2::1.5"))
         // Non-Douyin URL uses the configured fragments count unchanged

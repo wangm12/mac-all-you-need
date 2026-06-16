@@ -40,7 +40,7 @@ struct ClipboardDestinationView: View {
     var body: some View {
         FunctionPageShell(
             title: "Clipboard",
-            subtitle: "History, snippets, ignored apps, and paste behavior for local clipboard memory.",
+            subtitle: "History, snippets, and paste behavior for local clipboard memory.",
             selection: selectedTab,
             toolbar: {
                 MainHeaderShortcutDisplay(
@@ -59,10 +59,6 @@ struct ClipboardDestinationView: View {
                 }
             case .snippets:
                 SnippetsListView(model: controller.clipboardDeps.dockModel)
-            case .rules:
-                FunctionPageScrollContent {
-                    clipboardRulesSection
-                }
             case .settings:
                 FunctionPageScrollContent {
                     clipboardSettingsSection
@@ -171,15 +167,6 @@ struct ClipboardDestinationView: View {
         clipboardHistoryState.visibleItems
     }
 
-    private var clipboardRulesSection: some View {
-        MAYNSection(
-            title: "Ignored Apps",
-            subtitle: "Clipboard content copied from these apps will never be saved to history."
-        ) {
-            BundleIDExclusionEditor(bundleIDs: $blockedApps) { ExcludedAppsStore.save($0) }
-        }
-    }
-
     private var clipboardSettingsSection: some View {
         Group {
             MAYNSection(title: "Shortcut") {
@@ -215,6 +202,13 @@ struct ClipboardDestinationView: View {
                         width: MAYNControlMetrics.widePickerWidth
                     )
                 }
+            }
+
+            MAYNSection(
+                title: "Ignored apps",
+                subtitle: "Clipboard content copied from these apps will never be saved to history."
+            ) {
+                BundleIDExclusionEditor(bundleIDs: $blockedApps) { ExcludedAppsStore.save($0) }
             }
 
             MAYNSection(title: "Paste behavior") {

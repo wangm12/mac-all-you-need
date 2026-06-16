@@ -280,7 +280,6 @@ private struct DownloadGeneralSection: View {
     @AppStorage("downloadDefaultVideoQuality", store: AppGroupSettings.defaults) private var defaultQuality = 1080
     @AppStorage("downloadCollectionSubfolder", store: AppGroupSettings.defaults) private var collectionSubfolder = true
     @AppStorage("downloadAutoEnqueueSingleURL", store: AppGroupSettings.defaults) private var autoEnqueueSingleURL = false
-    @AppStorage("downloadBatchSleepSeconds", store: AppGroupSettings.defaults) private var batchSleepSeconds = 0.0
 
     private var effectivePath: String { DownloadDestinationPresentation.effectivePath(downloadDir: downloadDir) }
 
@@ -334,18 +333,6 @@ private struct DownloadGeneralSection: View {
                 subtitle: "Skip the format picker and use the default quality."
             ) {
                 Toggle("", isOn: $autoEnqueueSingleURL).labelsHidden()
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Batch start delay",
-                subtitle: "Pause between starting each item in a bulk queue."
-            ) {
-                MAYNDropdown(
-                    selection: $batchSleepSeconds,
-                    options: [0.0, 0.25, 0.5, 1.0],
-                    title: { $0 == 0 ? "Automatic" : String(format: "%.2gs", $0) },
-                    width: 120
-                )
             }
         }
     }
@@ -834,7 +821,6 @@ private struct DownloadAdvancedSection: View {
     @AppStorage("downloadConcurrentFragments", store: AppGroupSettings.defaults) private var concurrentFragments = 4
     @AppStorage("downloadSpeedMode", store: AppGroupSettings.defaults) private var speedMode = "balanced"
     @AppStorage("downloadSleepInterval", store: AppGroupSettings.defaults) private var sleepInterval = 0.0
-    @AppStorage("downloadExternalDownloader", store: AppGroupSettings.defaults) private var externalDownloader = ""
 
     var body: some View {
         MAYNSection(title: "Advanced") {
@@ -872,13 +858,6 @@ private struct DownloadAdvancedSection: View {
                     title: { $0 == 0 ? "Off" : String(format: "%.2gs", $0) },
                     width: 88
                 )
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "External downloader",
-                subtitle: "Optional binary name such as aria2c. Leave empty to use yt-dlp defaults."
-            ) {
-                MAYNTextField(placeholder: "aria2c", text: $externalDownloader, width: 160)
             }
             MAYNDivider()
             MAYNSettingsRow(

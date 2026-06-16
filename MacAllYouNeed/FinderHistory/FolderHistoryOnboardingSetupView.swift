@@ -52,7 +52,7 @@ struct FolderHistoryOnboardingSetupView: View {
                 }
             }
         },
-        footnote: "Excluded paths and pause controls live on the Finder History page."
+        footnote: "Excluded paths live on the Enhanced Finder History tab."
         )
     }
 
@@ -87,7 +87,7 @@ struct FolderHistoryOnboardingSetupView: View {
 
     private func captureCurrentFinderFolder() {
         guard AXIsProcessTrusted() else {
-            tryStatus = "Grant Accessibility first, then try again."
+            tryStatus = "Grant Accessibility in Settings → Permissions, then try again."
             return
         }
         guard let pid = NSWorkspace.shared.runningApplications

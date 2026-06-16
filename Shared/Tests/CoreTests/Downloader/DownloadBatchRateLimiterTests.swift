@@ -2,13 +2,7 @@ import XCTest
 @testable import Core
 
 final class DownloadBatchRateLimiterTests: XCTestCase {
-    override func tearDown() {
-        AppGroupSettings.defaults.removeObject(forKey: "downloadBatchSleepSeconds")
-        super.tearDown()
-    }
-
-    func testDouyinAutoSleepWhenBatchLargeAndSettingZero() {
-        AppGroupSettings.defaults.set(0, forKey: "downloadBatchSleepSeconds")
+    func testDouyinAutoSleepWhenBatchLarge() {
         XCTAssertEqual(
             DownloadBatchRateLimiter.effectiveSleepSeconds(kind: .douyinProfile, count: 50),
             1.0,
@@ -16,11 +10,10 @@ final class DownloadBatchRateLimiterTests: XCTestCase {
         )
     }
 
-    func testConfiguredSleepOverridesAuto() {
-        AppGroupSettings.defaults.set(1.0, forKey: "downloadBatchSleepSeconds")
+    func testNoSleepForSmallDouyinBatch() {
         XCTAssertEqual(
-            DownloadBatchRateLimiter.effectiveSleepSeconds(kind: .douyinProfile, count: 100),
-            1.0,
+            DownloadBatchRateLimiter.effectiveSleepSeconds(kind: .douyinProfile, count: 10),
+            0,
             accuracy: 0.001
         )
     }

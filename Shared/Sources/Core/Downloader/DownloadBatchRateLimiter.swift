@@ -4,16 +4,8 @@ public enum DownloadBatchRateLimiter {
     private static let douyinAutoBatchThreshold = 50
     private static let douyinAutoSleepSeconds = 1.0
 
-    /// User-configured delay between starting jobs in a bulk enqueue (seconds).
-    public static func configuredSleepSeconds() -> Double {
-        let stored = AppGroupSettings.defaults.double(forKey: "downloadBatchSleepSeconds")
-        return max(0, stored)
-    }
-
     /// Effective stagger delay between bulk job starts.
     public static func effectiveSleepSeconds(kind: DownloadCollectionKind, count: Int) -> Double {
-        let configured = configuredSleepSeconds()
-        if configured > 0 { return configured }
         if kind == .douyinProfile, count >= douyinAutoBatchThreshold {
             return douyinAutoSleepSeconds
         }

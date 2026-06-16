@@ -163,7 +163,7 @@ struct MainWindowRoot: View {
             openMainDestination(.dashboard)
             return
         }
-        AppGroupSettings.defaults.set(ClipboardFunctionTab.rules.rawValue, forKey: ClipboardFunctionTab.storageKey)
+        AppGroupSettings.defaults.set(ClipboardFunctionTab.settings.rawValue, forKey: ClipboardFunctionTab.storageKey)
         openMainDestination(.clipboard)
     }
 

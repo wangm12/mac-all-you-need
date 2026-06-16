@@ -10,18 +10,15 @@ public struct YtDlpArgumentOptions {
     public var concurrentFragments: Int
     public var sleepInterval: Double
     public var speedMode: DownloadSpeedMode
-    public var externalDownloader: String?
 
     public init(
         concurrentFragments: Int = 4,
         sleepInterval: Double = 0,
-        speedMode: DownloadSpeedMode = .balanced,
-        externalDownloader: String? = nil
+        speedMode: DownloadSpeedMode = .balanced
     ) {
         self.concurrentFragments = concurrentFragments
         self.sleepInterval = sleepInterval
         self.speedMode = speedMode
-        self.externalDownloader = externalDownloader
     }
 }
 
@@ -49,12 +46,6 @@ public enum YtDlpArgumentBuilder {
             args += ["--retry-sleep", "fragment:linear=2::5"]
         case .turbo:
             args += ["--retry-sleep", "fragment:linear=0.2::1.5"]
-        }
-
-        if let external = options.externalDownloader?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !external.isEmpty
-        {
-            args += ["--downloader", external]
         }
 
         if record.nativeYoutubePlaylist == true {

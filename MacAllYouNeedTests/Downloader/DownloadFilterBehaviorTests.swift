@@ -50,6 +50,11 @@ final class DownloadFilterBehaviorTests: XCTestCase {
         XCTAssertEqual(visible.count, allRecords.count)
     }
 
+    func testAllFilterShowsActiveRowsBeforeCompletedRows() {
+        let visible = DownloadsQueuePresentation.visibleRows([completed, queued], filter: .all)
+        XCTAssertEqual(visible.map(\.id), [queued.id, completed.id])
+    }
+
     func testActiveQueueFilterOmitsCompletedRows() {
         let visible = DownloadsQueuePresentation.visibleRows(allRecords, filter: .activeQueue)
         XCTAssertFalse(visible.contains { $0.state == .completed })
@@ -115,7 +120,7 @@ final class DownloadFilterBehaviorTests: XCTestCase {
 
     func testEmptyStateTitleForAllFilter() {
         let model = DownloadsEmptyStatePresentation.model(for: .all)
-        XCTAssertEqual(model.title, "No downloads queued")
+        XCTAssertEqual(model.title, "No downloads yet")
         XCTAssertNotNil(model.primaryActionTitle)
         XCTAssertNotNil(model.secondaryActionTitle)
     }

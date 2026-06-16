@@ -36,7 +36,7 @@ struct FolderPreviewOnboardingWizardView: View {
                 }
             }
         },
-        footnote: "Tune hidden files, cascade folders, and entry limits on the Folder Preview page."
+        footnote: "Tune hidden files, cascade folders, and entry limits on the Enhanced Finder page."
         )
     }
 
@@ -47,7 +47,7 @@ struct FolderPreviewOnboardingWizardView: View {
         }
         controller.folder.show(at: url)
         OnboardingTryItReporter.markSucceeded(tryItSucceeded)
-        statusMessage = "Browse Folder opened. Folder Preview is ready."
+        statusMessage = "Browse Folder opened. Enhanced Finder is ready."
     }
 }
 

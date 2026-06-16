@@ -36,7 +36,14 @@ enum DownloadsListFilter {
 
 enum DownloadsQueuePresentation {
     static func visibleRows(_ rows: [DownloadRecord], filter: DownloadsListFilter) -> [DownloadRecord] {
-        rows.filter { filter.includes($0.state) }
+        let filtered = rows.filter { filter.includes($0.state) }
+        guard filter == .all else { return filtered }
+        return filtered.sorted { lhs, rhs in
+            let lhsActive = DownloadsListFilter.activeQueue.includes(lhs.state)
+            let rhsActive = DownloadsListFilter.activeQueue.includes(rhs.state)
+            if lhsActive != rhsActive { return lhsActive && !rhsActive }
+            return lhs.modified > rhs.modified
+        }
     }
 
     static func showsFailedBanner(rows: [DownloadRecord], filter: DownloadsListFilter) -> Bool {
@@ -66,7 +73,14 @@ struct DownloadsEmptyStateModel: Equatable {
 enum DownloadsEmptyStatePresentation {
     static func model(for filter: DownloadsListFilter) -> DownloadsEmptyStateModel {
         switch filter {
-        case .all, .activeQueue:
+        case .all:
+            DownloadsEmptyStateModel(
+                title: "No downloads yet",
+                subtitle: "Add a URL, paste with ⌘V, or send a link from the optional Mac All You Need Companion.",
+                secondaryActionTitle: "Paste URL",
+                primaryActionTitle: "Add URL"
+            )
+        case .activeQueue:
             DownloadsEmptyStateModel(
                 title: "No downloads queued",
                 subtitle: "Add a URL, paste with ⌘V, or send a link from the optional Mac All You Need Companion.",

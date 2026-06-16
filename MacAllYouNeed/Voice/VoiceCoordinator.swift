@@ -373,7 +373,7 @@ final class VoiceCoordinator {
         }
 
         let liveFinishStartedAt = Date()
-        let presetASRResult = (await pipeline.withTimeout(seconds: 0.8) {
+        let presetASRResult = (await pipeline.withTimeout(seconds: 2.0) {
             await self.pipeline.finishLiveASRIfEligible(
                 captured: captured,
                 generation: liveGeneration

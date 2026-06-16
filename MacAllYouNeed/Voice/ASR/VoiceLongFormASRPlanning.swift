@@ -2,8 +2,15 @@ import Foundation
 
 /// Shared segment sizing for Qwen3 long-form dictation (batch + live).
 enum VoiceLongFormASRPlanning {
-    /// Safe per-pass audio window for Qwen3 KV cache (~512 tokens).
-    static let segmentSeconds: Double = 25.0
+    /// Per-pass audio window for live streaming. Kept short so partials appear
+    /// while the user is still speaking (FunASR-style ~600ms chunk feel).
+    /// The Qwen3 KV cache limit of 512 tokens applies to batch long-form; for
+    /// live streaming 3-second chunks are well within that budget.
+    static let segmentSeconds: Double = 3.0
+
+    /// Per-pass window for batch (offline) long-form chunking. Larger window
+    /// is fine for batch since latency isn't visible to the user.
+    static let batchSegmentSeconds: Double = 25.0
     /// Overlap between adjacent committed segments to improve merge quality.
     static let overlapSeconds: Double = 2.0
     static let sampleRate: Int = 16_000
@@ -39,7 +46,8 @@ enum VoiceLongFormASRPlanning {
 
     /// Batch stride for offline chunking with overlap between consecutive windows.
     static var batchStrideSamples: Int {
-        max(maxSegmentSamples - overlapSamples, 1)
+        let batchMax = Int(batchSegmentSeconds * Double(sampleRate))
+        return max(batchMax - overlapSamples, 1)
     }
 
     struct TailPlan: Equatable {

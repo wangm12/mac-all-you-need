@@ -89,7 +89,7 @@ final class UIAuditAppController {
         defaults.set(MainAppDestination.dashboard.rawValue, forKey: MainAppDestination.storageKey)
         defaults.set(ClipboardFunctionTab.history.rawValue, forKey: ClipboardFunctionTab.storageKey)
         defaults.set(VoiceFunctionTab.dictate.rawValue, forKey: VoiceFunctionTab.storageKey)
-        defaults.set(DownloadsFunctionTab.queue.rawValue, forKey: DownloadsFunctionTab.storageKey)
+        defaults.set(DownloadsFunctionTab.downloads.rawValue, forKey: DownloadsFunctionTab.storageKey)
         defaults.set(SnippetsFunctionTab.library.rawValue, forKey: SnippetsFunctionTab.storageKey)
         defaults.set(SettingsDestination.general.rawValue, forKey: DockSettingsNavigation.settingsSelectionKey)
         defaults.set(3, forKey: "downloadConcurrency")

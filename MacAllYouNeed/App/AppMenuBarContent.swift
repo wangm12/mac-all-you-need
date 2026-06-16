@@ -168,7 +168,7 @@ struct AppMenuBarContent: View {
             AppGroupSettings.defaults.set(VoiceFunctionTab.history.rawValue, forKey: VoiceFunctionTab.storageKey)
             controller.showMainWindow(destination: .voice)
         case .downloads:
-            AppGroupSettings.defaults.set(DownloadsFunctionTab.queue.rawValue, forKey: DownloadsFunctionTab.storageKey)
+            AppGroupSettings.defaults.set(DownloadsFunctionTab.downloads.rawValue, forKey: DownloadsFunctionTab.storageKey)
             controller.showMainWindow(destination: .downloads)
         case .layouts:
             AppGroupSettings.defaults.set(WindowLayoutsFunctionTab.shortcuts.rawValue, forKey: WindowLayoutsFunctionTab.storageKey)

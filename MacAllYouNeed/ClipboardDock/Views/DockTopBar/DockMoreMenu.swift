@@ -98,7 +98,7 @@ enum DockSettingsNavigation {
         dismissDock: () -> Void,
         activateApp: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
     ) {
-        defaults.set(ClipboardFunctionTab.rules.rawValue, forKey: ClipboardFunctionTab.storageKey)
+        defaults.set(ClipboardFunctionTab.settings.rawValue, forKey: ClipboardFunctionTab.storageKey)
         dismissDock()
         activateApp()
         notificationCenter.post(name: .mainWindowSettingsRequested, object: clipboardRulesRoute)

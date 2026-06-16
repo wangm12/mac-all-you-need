@@ -1,5 +1,3 @@
-import AppKit
-import ApplicationServices
 import Core
 import FeatureCore
 import Platform
@@ -11,12 +9,10 @@ struct FolderHistoryPageView: View {
     private let embeddedInFinderPreview: Bool
     @State private var hotkeyMap = HotkeyMapStore.defaultMap
     @State private var settings = FolderHistorySettingsStore.load()
-    @State private var axGranted = AXIsProcessTrusted()
     @State private var clearConfirm = false
     @State private var isFeatureEnabled = false
     @State private var statePublisher: FeatureStatePublisher?
     @State private var visitCount = 0
-    @State private var captureStatus: String?
 
     private var store: FolderHistoryStore? { FolderHistoryStoreLocator.shared() }
 
@@ -43,6 +39,7 @@ struct FolderHistoryPageView: View {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
                 try? store?.clear()
+                refreshVisitCount()
             }
         } message: {
             Text("This removes every folder from your visit history. This cannot be undone.")
@@ -67,56 +64,9 @@ struct FolderHistoryPageView: View {
 
     @ViewBuilder
     private var folderHistorySettingsSections: some View {
-            if !axGranted {
-                MAYNSection(title: "Permission") {
-                    AccessibilityPermissionRow(
-                        status: PermissionStatusProvider.requiredPermission(isGranted: axGranted),
-                        isHighlighted: false,
-                        onAction: requestAccessibility
-                    )
-                }
-            }
-
-            MAYNSection(title: "Status") {
+            MAYNSection(title: "Shortcut") {
                 MAYNSettingsRow(
-                    title: "Recorded folders",
-                    subtitle: visitCount == 0
-                        ? "No folders recorded yet."
-                        : "\(visitCount) folder\(visitCount == 1 ? "" : "s") in history."
-                ) {
-                    EmptyView()
-                }
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Capture current Finder folder",
-                    subtitle: captureStatus ?? "Use while Finder is frontmost to test recording."
-                ) {
-                    MAYNButton("Capture now") {
-                        captureCurrentFinderFolder()
-                    }
-                }
-            }
-
-            MAYNSection(title: "Recording") {
-                MAYNSettingsRow(
-                    title: "Pause recording",
-                    subtitle: "Temporarily stop adding folders to history."
-                ) {
-                    Toggle("", isOn: pauseBinding)
-                        .labelsHidden()
-                }
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "How it works",
-                    subtitle: "Folders are recorded when you browse in Finder while this feature is enabled."
-                ) {
-                    EmptyView()
-                }
-            }
-
-            MAYNSection(title: "Quick switcher") {
-                MAYNSettingsRow(
-                    title: "Shortcut",
+                    title: "History switcher",
                     subtitle: "Opens a searchable list of visited folders."
                 ) {
                     HotkeyRecorderControl(
@@ -142,26 +92,12 @@ struct FolderHistoryPageView: View {
                 }
             }
 
-            MAYNSection(title: "Dock & Folder Preview") {
+            MAYNSection(title: "History") {
                 MAYNSettingsRow(
-                    title: "Works with Dock folder previews",
-                    subtitle: "When Dock previews are enabled, use “Browse in Mac All You Need” or “Add to Folder History” from a dock folder stack."
-                ) {
-                    EmptyView()
-                }
-                MAYNDivider()
-                MAYNSettingsRow(
-                    title: "Folder Preview",
-                    subtitle: "Open any history path in the Browse Folder window from the switcher or menu bar."
-                ) {
-                    EmptyView()
-                }
-            }
-
-            MAYNSection(title: "Privacy") {
-                MAYNSettingsRow(
-                    title: "What is stored",
-                    subtitle: "Only folder paths are recorded — never the contents of any folder."
+                    title: "Recorded folders",
+                    subtitle: visitCount == 0
+                        ? "No folders recorded yet."
+                        : "\(visitCount) folder\(visitCount == 1 ? "" : "s") in history."
                 ) {
                     EmptyView()
                 }
@@ -180,7 +116,6 @@ struct FolderHistoryPageView: View {
     private func onPageAppear() {
         hotkeyMap = HotkeyMapStore.load()
         settings = FolderHistorySettingsStore.load()
-        axGranted = AXIsProcessTrusted()
         refreshFeatureEnabled()
         refreshVisitCount()
     }
@@ -215,48 +150,6 @@ struct FolderHistoryPageView: View {
 
     private func refreshVisitCount() {
         visitCount = (try? store?.list(limit: 10_000).count) ?? 0
-    }
-
-    private func captureCurrentFinderFolder() {
-        guard axGranted else {
-            captureStatus = "Grant Accessibility first, then try again."
-            return
-        }
-        guard let pid = NSWorkspace.shared.runningApplications
-            .first(where: { $0.bundleIdentifier == "com.apple.finder" })?
-            .processIdentifier
-        else {
-            captureStatus = "Finder is not running."
-            return
-        }
-        guard let path = FolderHistoryFinderPathResolver.resolve(pid: pid, axReader: SystemFolderHistoryAXReader()) else {
-            captureStatus = "Could not read the front Finder folder. Allow Automation for Finder if macOS prompts you."
-            return
-        }
-        do {
-            _ = try store?.upsert(path: path, now: Date())
-            refreshVisitCount()
-            captureStatus = "Recorded \(path)"
-        } catch {
-            captureStatus = "Could not save: \(error.localizedDescription)"
-        }
-    }
-
-    private func requestAccessibility() {
-        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    private var pauseBinding: Binding<Bool> {
-        Binding(
-            get: { settings.isPaused },
-            set: { newValue in
-                settings.isPaused = newValue
-                FolderHistorySettingsStore.save(settings)
-            }
-        )
     }
 
     private var excludedPathsBinding: Binding<[String]> {

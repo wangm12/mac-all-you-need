@@ -18,7 +18,7 @@ struct FolderPreviewDestinationView: View {
 
     var body: some View {
         FunctionPageShell(
-            title: "Finder Preview",
+            title: "Enhanced Finder",
             subtitle: "Quick Look previews, browse folder, and Finder visit history.",
             selection: selectedTab
         ) {

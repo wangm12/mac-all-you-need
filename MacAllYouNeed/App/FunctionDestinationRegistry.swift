@@ -83,7 +83,7 @@ struct DashboardToolTileItem: Equatable, Identifiable {
     var featureID: FeatureID?
     /// When set, enable/disable on this tile proxies to this FeatureID instead.
     var proxiesFeatureID: FeatureID?
-    /// Additional FeatureIDs toggled together with `featureID` (e.g. Finder Preview + History).
+    /// Additional FeatureIDs toggled together with `featureID` (e.g. Enhanced Finder + History).
     var coupledFeatureIDs: [FeatureID] = []
 
     var id: String { title }
@@ -181,7 +181,7 @@ enum DashboardToolTilePresentation {
             ),
             DashboardToolTileItem(
                 destination: .folderPreview,
-                title: "Finder Preview",
+                title: "Enhanced Finder",
                 metric: nil,
                 detail: "Quick Look previews, browse folder, and visit history.",
                 symbolName: "folder.badge.gearshape",

@@ -50,7 +50,6 @@ enum FunctionTabFlow {
 enum ClipboardFunctionTab: String, FunctionTabDestination {
     case history
     case snippets
-    case rules
     case settings
 
     static let storageKey = "main.clipboard.selectedTab"
@@ -59,6 +58,7 @@ enum ClipboardFunctionTab: String, FunctionTabDestination {
     static func storedSelection(_ raw: String?) -> Self {
         guard let raw else { return defaultTab }
         if raw == "library" { return .snippets }
+        if raw == "rules" { return .settings }
         return Self(rawValue: raw) ?? defaultTab
     }
 
@@ -66,7 +66,6 @@ enum ClipboardFunctionTab: String, FunctionTabDestination {
         switch self {
         case .history: "History"
         case .snippets: "Snippets"
-        case .rules: "Ignored Apps"
         case .settings: "Settings"
         }
     }
@@ -75,7 +74,6 @@ enum ClipboardFunctionTab: String, FunctionTabDestination {
         switch self {
         case .history: "clock"
         case .snippets: "text.quote"
-        case .rules: "shield"
         case .settings: "slider.horizontal.3"
         }
     }
@@ -121,25 +119,28 @@ enum VoiceMainPagePresentation {
 }
 
 enum DownloadsFunctionTab: String, FunctionTabDestination {
-    case queue
-    case completed
+    case downloads
     case settings
 
     static let storageKey = "main.downloads.selectedTab"
-    static let defaultTab = DownloadsFunctionTab.queue
+    static let defaultTab = DownloadsFunctionTab.downloads
+
+    static func storedSelection(_ raw: String?) -> Self {
+        guard let raw else { return defaultTab }
+        if raw == "queue" || raw == "completed" { return .downloads }
+        return Self(rawValue: raw) ?? defaultTab
+    }
 
     var title: String {
         switch self {
-        case .queue: "Queue"
-        case .completed: "Completed"
+        case .downloads: "Downloads"
         case .settings: "Settings"
         }
     }
 
     var symbolName: String {
         switch self {
-        case .queue: "arrow.down.circle"
-        case .completed: "checkmark.circle"
+        case .downloads: "arrow.down.circle"
         case .settings: "slider.horizontal.3"
         }
     }

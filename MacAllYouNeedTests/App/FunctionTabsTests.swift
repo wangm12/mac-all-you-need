@@ -24,6 +24,11 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(DownloadsFunctionTab.storedSelection("settings"), .settings)
     }
 
+    func testDownloadsTabMigratesLegacyQueueAndCompletedSelections() {
+        XCTAssertEqual(DownloadsFunctionTab.storedSelection("queue"), .downloads)
+        XCTAssertEqual(DownloadsFunctionTab.storedSelection("completed"), .downloads)
+    }
+
     func testWindowLayoutsTabDefaultsToShortcuts() {
         XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection(nil), .shortcuts)
         XCTAssertEqual(WindowLayoutsFunctionTab.storedSelection("missing"), .shortcuts)
@@ -319,6 +324,10 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(ClipboardFunctionTab.storedSelection("library"), .snippets)
     }
 
+    func testClipboardFunctionTabMigratesLegacyRulesSelection() {
+        XCTAssertEqual(ClipboardFunctionTab.storedSelection("rules"), .settings)
+    }
+
     func testEveryFunctionTabHasStableStorageKey() {
         XCTAssertEqual(ClipboardFunctionTab.storageKey, "main.clipboard.selectedTab")
         XCTAssertEqual(VoiceFunctionTab.storageKey, "main.voice.selectedTab")
@@ -373,7 +382,7 @@ final class FunctionTabsTests: XCTestCase {
             "Voice",
             "Voice Reminders",
             "Downloads",
-            "Finder Preview",
+            "Enhanced Finder",
             "AI File Organizer",
             "Window Layouts",
             "Window Grab",
@@ -851,10 +860,10 @@ final class FunctionTabsTests: XCTestCase {
             .forward
         )
         XCTAssertEqual(
-            FunctionTabFlow.direction(from: .settings, to: .rules, in: tabs),
+            FunctionTabFlow.direction(from: .settings, to: .snippets, in: tabs),
             .backward
         )
-        XCTAssertNil(FunctionTabFlow.direction(from: .rules, to: .rules, in: tabs))
+        XCTAssertNil(FunctionTabFlow.direction(from: .snippets, to: .snippets, in: tabs))
     }
 
     func testTabFlowContentInsertionOffsetIsSmallAndDirectional() {

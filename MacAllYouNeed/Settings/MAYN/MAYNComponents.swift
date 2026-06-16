@@ -193,7 +193,6 @@ struct MAYNSection<Content: View>: View {
                 content
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(maxHeight: .infinity, alignment: .topLeading)
             .background(MAYNTheme.panel)
             .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous))
             .overlay(
@@ -202,7 +201,6 @@ struct MAYNSection<Content: View>: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 }
 

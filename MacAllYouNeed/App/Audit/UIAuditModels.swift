@@ -218,7 +218,7 @@ enum UIAuditSurfaceCatalog {
         UIAuditScenario(
             id: "main.folder-preview.settings",
             surface: "Main Window",
-            route: "Folder Preview / Settings",
+            route: "Enhanced Finder / Settings",
             state: "Preview settings",
             nativeRenderingMode: .simulatedEquivalent
         ),

@@ -292,41 +292,77 @@ final class VoicePipelineController {
             delegate.maybePromoteToReminderIntent(rawText: ctx.asrResult?.text)
 
             // Phase 2 — Cleanup.
-            hudPresenter?.showTranscribingPhase(.cleanup(progress: 0))
+            // Only run LLM cleanup (and show the cleanup HUD) when explicitly enabled.
+            // When disabled, bypass LLM and paste the raw ASR text immediately.
             let cleanupStartedAt = Date()
-            let cleanupCompleted = await withTimeout(seconds: VoiceStageTimeouts.cleanupSeconds) {
-                await self.makeCleanupPhase(bundleID: appBundleID, generation: generation).run(&ctx)
-                return true
-            } ?? false
-            let cleanupMs = Int(Date().timeIntervalSince(cleanupStartedAt) * 1000)
-            ctx.cleanupMs = cleanupMs
-            guard checkpoint(generation, delegate: delegate) else { return }
-            if !cleanupCompleted {
-                log.error("processCapturedAudio: cleanup timed out, falling back to raw ASR text")
-                let fallbackText = (ctx.asrResult?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !fallbackText.isEmpty else {
+            let cleanupSettings = VoiceCleanupSettingsStore.load()
+            if cleanupSettings.isEnabled {
+                // LLM cleanup path — show HUD, run provider, handle timeouts.
+                hudPresenter?.showTranscribingPhase(.cleanup(progress: 0))
+                let cleanupCompleted = await withTimeout(seconds: VoiceStageTimeouts.cleanupSeconds) {
+                    await self.makeCleanupPhase(bundleID: appBundleID, generation: generation).run(&ctx)
+                    return true
+                } ?? false
+                let cleanupMs = Int(Date().timeIntervalSince(cleanupStartedAt) * 1000)
+                ctx.cleanupMs = cleanupMs
+                guard checkpoint(generation, delegate: delegate) else { return }
+                if !cleanupCompleted {
+                    log.error("processCapturedAudio: cleanup timed out, falling back to raw ASR text")
+                    let fallbackText = (ctx.asrResult?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !fallbackText.isEmpty else {
+                        undoBookkeeping.clearInflight()
+                        await failPipeline(
+                            message: "ASR returned empty transcript",
+                            stage: .cleanup,
+                            reason: "cleanup_timeout_empty_fallback",
+                            ctx: ctx
+                        )
+                        return
+                    }
+                    let fallbackResult = VoiceCleanupResult(
+                        rawText: fallbackText,
+                        cleanedText: fallbackText,
+                        usedLLM: false,
+                        providerIdentifier: nil,
+                        fallbackReason: .deadlineExceeded,
+                        asrMs: ctx.asrMs,
+                        cleanupMs: cleanupMs,
+                        totalMs: Int(Date().timeIntervalSince(ctx.operationStartedAt) * 1000),
+                        deadlineExceeded: true
+                    )
+                    ctx.cleanupResult = fallbackResult
+                    delegate.lastTranscript = fallbackResult
+                }
+            } else {
+                // Cleanup disabled — use raw ASR text, no HUD change, no LLM wait.
+                let rawText = (ctx.asrResult?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleanupMs = Int(Date().timeIntervalSince(cleanupStartedAt) * 1000)
+                ctx.cleanupMs = cleanupMs
+                guard !rawText.isEmpty else {
+                    let capturedDuration = ctx.captured.endedAt.timeIntervalSince(ctx.captured.startedAt)
+                    let hasSpeechSignal = capturedDuration >= 1.0 && ctx.captured.peakLevel >= 0.02
                     undoBookkeeping.clearInflight()
                     await failPipeline(
-                        message: "ASR returned empty transcript",
-                        stage: .cleanup,
-                        reason: "cleanup_timeout_empty_fallback",
+                        message: hasSpeechSignal ? "ASR returned empty transcript" : "Transcript was empty",
+                        stage: .asr,
+                        reason: hasSpeechSignal ? "asr_empty_with_speech_signal" : "asr_empty_no_signal",
                         ctx: ctx
                     )
                     return
                 }
-                let fallbackResult = VoiceCleanupResult(
-                    rawText: fallbackText,
-                    cleanedText: fallbackText,
+                let skipResult = VoiceCleanupResult(
+                    rawText: rawText,
+                    cleanedText: rawText,
                     usedLLM: false,
                     providerIdentifier: nil,
-                    fallbackReason: .deadlineExceeded,
+                    fallbackReason: nil,
                     asrMs: ctx.asrMs,
                     cleanupMs: cleanupMs,
                     totalMs: Int(Date().timeIntervalSince(ctx.operationStartedAt) * 1000),
-                    deadlineExceeded: true
+                    deadlineExceeded: false
                 )
-                ctx.cleanupResult = fallbackResult
-                delegate.lastTranscript = fallbackResult
+                ctx.cleanupResult = skipResult
+                delegate.lastTranscript = skipResult
             }
             guard let cleanupResult = ctx.cleanupResult else {
                 log.error("processCapturedAudio: cleanup result missing")
@@ -429,7 +465,7 @@ final class VoicePipelineController {
             makeLearningPhase().run(ctx)
 
             guard isCurrentOperation(generation) else { return }
-            logPipelineMetrics(ctx: ctx, cleanupMs: cleanupMs, pasteMs: pasteMs, delegate: delegate)
+            logPipelineMetrics(ctx: ctx, cleanupMs: ctx.cleanupMs ?? 0, pasteMs: pasteMs, delegate: delegate)
             delegate.state = .idle
             undoBookkeeping.clearInflight()
             delegate.inputSourceChangedDuringRun = false

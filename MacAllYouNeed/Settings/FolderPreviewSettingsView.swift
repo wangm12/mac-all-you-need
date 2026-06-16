@@ -8,7 +8,7 @@ struct FolderPreviewSettingsView: View {
     @AppStorage("folderPreviewMaxEntries", store: AppGroupSettings.defaults) private var maxEntries = 50_000
     var body: some View {
         MAYNSettingsPage(
-            title: "Folder Preview",
+            title: "Enhanced Finder",
             subtitle: "Tune how much folder and archive content Quick Look indexes before rendering a preview."
         ) {
             MAYNSection(title: "Enumeration") {

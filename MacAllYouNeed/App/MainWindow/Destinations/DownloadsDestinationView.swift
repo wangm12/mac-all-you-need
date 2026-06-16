@@ -8,7 +8,7 @@ struct DownloadsDestinationView: View {
     @AppStorage("downloadConcurrency", store: AppGroupSettings.defaults) private var concurrency = 3
     @AppStorage("downloadOutputTemplate", store: AppGroupSettings.defaults) private var template = "%(title)s [%(id)s].%(ext)s"
     @AppStorage("downloadDirectory", store: AppGroupSettings.defaults) private var downloadDir = ""
-    @AppStorage(DownloadsFunctionTab.storageKey, store: AppGroupSettings.defaults) private var selectedTabRaw = DownloadsFunctionTab.queue.rawValue
+    @AppStorage(DownloadsFunctionTab.storageKey, store: AppGroupSettings.defaults) private var selectedTabRaw = DownloadsFunctionTab.downloads.rawValue
     @State private var hotkeyMap = HotkeyMapStore.defaultMap
     @State private var hotkeyRegistrationErrors: [HotkeyAction: String] = [:]
     @State private var showingAddURL = false
@@ -26,7 +26,7 @@ struct DownloadsDestinationView: View {
     var body: some View {
         FunctionPageShell(
             title: "Downloads",
-            subtitle: "Queue media downloads, review results, and tune downloader behavior.",
+            subtitle: "Manage active and completed downloads, and tune downloader behavior.",
             selection: selectedTab,
             toolbar: {
                 MainHeaderShortcutDisplay(
@@ -44,14 +44,10 @@ struct DownloadsDestinationView: View {
             }
         ) {
             switch DownloadsFunctionTab.storedSelection(selectedTabRaw) {
-            case .queue:
+            case .downloads:
                 FunctionPageScrollContent {
                     clipboardURLDetectedSection
-                    downloadsQueueSection
-                }
-            case .completed:
-                FunctionPageScrollContent {
-                    downloadsCompletedSection
+                    downloadsSection
                 }
             case .settings:
                 FunctionPageScrollContent {
@@ -96,22 +92,11 @@ struct DownloadsDestinationView: View {
         }
     }
 
-    private var downloadsQueueSection: some View {
-        MAYNSection(title: "Queue") {
+    private var downloadsSection: some View {
+        MAYNSection(title: "Downloads") {
             DownloadsListView(
                 vm: controller.downloaderVM,
-                filter: .activeQueue,
-                onPasteURL: enqueueClipboardURL,
-                onAddURL: { presentAddURLSheet(prefill: DownloaderViewModel.clipboardVideoURL()) }
-            )
-        }
-    }
-
-    private var downloadsCompletedSection: some View {
-        MAYNSection(title: "Completed") {
-            DownloadsListView(
-                vm: controller.downloaderVM,
-                filter: .completed,
+                filter: .all,
                 onPasteURL: enqueueClipboardURL,
                 onAddURL: { presentAddURLSheet(prefill: DownloaderViewModel.clipboardVideoURL()) }
             )
