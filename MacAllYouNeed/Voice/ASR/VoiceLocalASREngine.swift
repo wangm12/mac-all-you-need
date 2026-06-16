@@ -41,7 +41,7 @@ actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
         case .sensevoice:
             return senseVoice.capabilities
         case .whisperKit, .mlxExperimental,
-             .groq, .elevenLabs, .openAITranscribe, .openAIRealtime, .deepgram,
+             .groq, .elevenLabs, .openAITranscribe, .deepgram,
              .anthropic, .openAICompatible, .ollama:
             return .batchOnly
         }

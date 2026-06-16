@@ -2,14 +2,23 @@ import Core
 import EventKit
 import Foundation
 
-enum RemindersServiceError: Error {
+enum RemindersServiceError: LocalizedError {
     case unsupportedStore
+    case notAuthorized
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedStore:
+            return "Internal error: unexpected EventKit store type."
+        case .notAuthorized:
+            return "Mac All You Need doesn't have permission to access Reminders. Grant access in System Settings → Privacy & Security → Reminders."
+        }
+    }
 }
 
 @MainActor
 final class RemindersService {
     private let store: any EventStoreProtocol
-    private(set) var authStatus: EKAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
 
     init(store: any EventStoreProtocol = EKEventStore()) {
         self.store = store
@@ -17,12 +26,13 @@ final class RemindersService {
 
     func requestAccess() async throws -> Bool {
         let granted = try await store.requestFullAccessToReminders()
-        authStatus = EKEventStore.authorizationStatus(for: .reminder)
         return granted
     }
 
     var isAuthorized: Bool {
-        authStatus == .fullAccess
+        // Re-read the live status — the cached authStatus may lag after the user
+        // grants or revokes permission in System Settings.
+        EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
     }
 
     func availableLists() -> [ReminderListInfo] {
@@ -41,6 +51,9 @@ final class RemindersService {
         // so tests inject a fake RemindersWriter; the real write needs the store.
         guard let eventStore = store as? EKEventStore else {
             throw RemindersServiceError.unsupportedStore
+        }
+        guard isAuthorized else {
+            throw RemindersServiceError.notAuthorized
         }
         let reminder = EKReminder(eventStore: eventStore)
         reminder.title = title

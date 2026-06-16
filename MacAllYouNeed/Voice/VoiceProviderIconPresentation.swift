@@ -59,7 +59,7 @@ enum VoiceProviderIconPresentation {
             .systemSymbol("waveform.badge.mic")
         case .ollama:
             .brandAsset(BrandAsset.ollama)
-        case .qwenCoreML, .parakeetCoreML:
+        case .qwenCoreML, .parakeetCoreML, .sensevoice:
             .systemSymbol("internaldrive.fill")
         case .whisperKit, .mlxExperimental:
             .systemSymbol("flask.fill")
