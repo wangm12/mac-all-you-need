@@ -25,6 +25,7 @@ enum VoiceLocalASREngineError: LocalizedError {
 actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
     private let qwen = Qwen3Engine()
     private let parakeet = ParakeetEngine()
+    private let senseVoice = SenseVoiceEngine()
 
     nonisolated var modelIdentifier: String {
         VoiceASRSettingsStore.load().modelID.rawValue
@@ -35,6 +36,8 @@ actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
         switch modelID.runtime {
         case .qwenCoreML:
             return qwen.capabilities
+        case .sensevoice:
+            return senseVoice.capabilities
         default:
             return .batchOnly
         }
@@ -53,6 +56,8 @@ actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
             return try await qwen.transcribe(samples: samples, sampleRate: sampleRate, options: options)
         case .parakeetCoreML:
             return try await parakeet.transcribe(samples: samples, sampleRate: sampleRate, options: options)
+        case .sensevoice:
+            return try await senseVoice.transcribe(samples: samples, sampleRate: sampleRate, options: options)
         default:
             throw VoiceLocalASREngineError.unsupportedModel(modelID)
         }
@@ -71,6 +76,8 @@ actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
             } catch {
                 localASRLog.error("Parakeet ASR warmup failed: \(error.localizedDescription, privacy: .public)")
             }
+        case .sensevoice:
+            await senseVoice.warmup()
         default:
             localASRLog.info("Local ASR warmup skipped — unsupported model: \(modelID.rawValue, privacy: .public)")
         }
