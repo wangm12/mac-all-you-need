@@ -103,6 +103,18 @@ enum VoiceModelCatalog {
             groqASRModelID: nil
         ),
         VoiceModelDescriptor(
+            id: "sensevoice.sense-voice-small",
+            category: .localASR,
+            runtime: .sensevoice,
+            title: "SenseVoice Small",
+            subtitle: "Non-autoregressive CTC zh/en model. Fast single-pass batch transcription; pairs well with AI cleanup.",
+            diskLabel: "~900 MB",
+            requiresOSLabel: "Apple Silicon",
+            localASRModelID: .senseVoiceSmall,
+            cloudASRModelID: nil,
+            groqASRModelID: nil
+        ),
+        VoiceModelDescriptor(
             id: "whisperKit.whisper-large-v3-turbo",
             category: .localASR,
             runtime: .whisperKit,
@@ -152,7 +164,8 @@ enum VoiceModelManager {
     static let recommendedLocalASROrder: [VoiceASRModelID] = [
         .qwen3ASR06BF32,
         .parakeetTDT06BV3,
-        .qwen3ASR06BInt8
+        .qwen3ASR06BInt8,
+        .senseVoiceSmall,
     ]
 
     static func localASRInstallState(
@@ -211,6 +224,9 @@ enum VoiceModelManager {
         case .parakeetCoreML:
             guard let version = modelID.parakeetVersion else { return false }
             return AsrModels.modelsExist(at: localASRCacheDirectory(for: modelID), version: version)
+        case .sensevoice:
+            guard SystemInfo.isAppleSilicon else { return false }
+            return SenseVoiceModels.modelsExist(at: localASRCacheDirectory(for: modelID))
         default:
             return false
         }
@@ -228,6 +244,8 @@ enum VoiceModelManager {
                 return unavailableLocalASRCacheDirectory(for: modelID)
             }
             return AsrModels.defaultCacheDirectory(for: version)
+        case .sensevoice:
+            return SenseVoiceModels.defaultCacheDirectory()
         default:
             return unavailableLocalASRCacheDirectory(for: modelID)
         }
@@ -261,6 +279,11 @@ enum VoiceModelManager {
                 version: version,
                 progressHandler: progressHandler
             )
+        case .sensevoice:
+            guard SystemInfo.isAppleSilicon else {
+                throw VoiceLocalASREngineError.unsupportedPlatform("SenseVoice requires Apple Silicon.")
+            }
+            return try await SenseVoiceModels.download(progressHandler: progressHandler)
         default:
             throw VoiceLocalASREngineError.unsupportedModel(modelID)
         }
