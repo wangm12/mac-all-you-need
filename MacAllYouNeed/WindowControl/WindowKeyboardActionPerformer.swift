@@ -38,6 +38,22 @@ final class WindowKeyboardActionPerformer: WindowControlActionPerforming {
         set { mover.animationConfiguration = newValue }
     }
 
+    var onAnimatedMoveFinished: ((WindowMovementResult) -> Void)? {
+        get { mover.onAnimatedMoveFinished }
+        set { mover.onAnimatedMoveFinished = newValue }
+    }
+
+    var lastAnimatedMoveGeneration: Int {
+        mover.lastAnimatedMoveGeneration
+    }
+
+    func setAnimatedMoveCompletion(
+        for generation: Int,
+        handler: @escaping (WindowMovementResult) -> Void
+    ) {
+        mover.setAnimatedMoveCompletion(for: generation, handler: handler)
+    }
+
     init(mover: WindowMover = WindowMover(), now: @escaping () -> Date = Date.init) {
         self.mover = mover
         self.now = now
@@ -134,7 +150,10 @@ final class WindowKeyboardActionPerformer: WindowControlActionPerforming {
             snapshot: snap,
             identity: WindowIdentity(
                 pid: element.processIdentifier,
-                cgWindowID: nil,
+                cgWindowID: WindowCGWindowMatcher.windowID(
+                    forProcessIdentifier: element.processIdentifier,
+                    frame: snap.frame
+                ),
                 titleHash: element.windowTitleHash,
                 frameFingerprint: WindowAccessibilityElement.frameFingerprint(for: snap.frame)
             )

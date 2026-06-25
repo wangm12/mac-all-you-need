@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mac All You Need Downloader",
-  "version": "1.1.6",
+  "version": "1.1.8",
   "description": "Detect media streams and send downloads to Mac All You Need",
   "permissions": [
     "cookies",

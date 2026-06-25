@@ -209,9 +209,10 @@ struct AdvancedSettingsView: View {
 
     private func resetAllData() {
         let root = AppGroup.containerURL()
-        for name in ["databases", "blobs", "thumbnails", "downloader-updates", "dispatch.token"] {
+        for name in ["databases", "blobs", "thumbnails", "downloader-updates", "dispatch.token", "extension.token"] {
             try? FileManager.default.removeItem(at: root.appendingPathComponent(name))
         }
+        Task { await controller.downloader.resetCompanionRegistration() }
         OnboardingState.reset()
         VoiceOnboardingProgressStore.reset()
         AppGroupSettings.defaults.removeObject(forKey: "syncFolderPath")

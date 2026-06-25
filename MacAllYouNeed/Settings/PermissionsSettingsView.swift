@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import AVFoundation
 import CoreGraphics
+import EventKit
 import SwiftUI
 import UI
 import UserNotifications
@@ -100,6 +101,25 @@ enum PermissionStatusProvider {
             .needsAction
         }
     }
+
+    static func remindersStatus(_ status: EKAuthorizationStatus) -> PermissionDisplayState {
+        switch status {
+        case .fullAccess, .authorized:
+            .granted
+        case .notDetermined:
+            .notRequested
+        case .denied, .restricted:
+            .denied
+        case .writeOnly:
+            .needsAction
+        @unknown default:
+            .needsAction
+        }
+    }
+
+    static func currentRemindersStatus() -> PermissionDisplayState {
+        remindersStatus(EKEventStore.authorizationStatus(for: .reminder))
+    }
 }
 
 enum PermissionActionPresentation {
@@ -116,11 +136,26 @@ enum PermissionActionPresentation {
 }
 
 struct PermissionsSettingsView: View {
+    let remindersService: RemindersService
+
+    var body: some View {
+        MAYNSettingsPage(
+            title: "Permissions",
+            subtitle: "macOS access required for paste, voice, reminders, cookies, and alerts."
+        ) {
+            PermissionsSettingsSection(remindersService: remindersService)
+        }
+    }
+}
+
+struct PermissionsSettingsSection: View {
+    let remindersService: RemindersService
     @State private var accessibilityStatus = PermissionStatusProvider.requiredPermission(isGranted: AXIsProcessTrusted())
     @State private var fullDiskAccessStatus = PermissionStatusProvider.currentFullDiskAccessStatus()
     @State private var microphoneStatus = PermissionStatusProvider.currentMicrophoneStatus()
     @State private var screenRecordingStatus = PermissionStatusProvider.currentScreenRecordingStatus()
     @State private var notificationsStatus = PermissionDisplayState.optional
+    @State private var remindersStatus = PermissionStatusProvider.currentRemindersStatus()
     @State private var requestedInstructionTarget: PermissionInstructionTarget?
     @State private var highlightedPermission: PermissionInstructionTarget?
     @State private var hostWindow: NSWindow?
@@ -129,10 +164,7 @@ struct PermissionsSettingsView: View {
     private let appName = "Mac All You Need"
 
     var body: some View {
-        MAYNSettingsPage(
-            title: "Permissions",
-            subtitle: "macOS access required for paste, voice, cookies, and alerts."
-        ) {
+        Group {
             MAYNSection(
                 title: "Required Access",
                 subtitle: "These permissions unlock core workflows. The app stays local-first either way."
@@ -151,6 +183,13 @@ struct PermissionsSettingsView: View {
                     onAction: requestMicrophone
                 )
 
+                MAYNDivider()
+
+                RemindersPermissionRow(
+                    status: remindersStatus,
+                    isHighlighted: false,
+                    onAction: requestReminders
+                )
             }
 
             MAYNSection(
@@ -191,6 +230,9 @@ struct PermissionsSettingsView: View {
             refresh()
             loadNotificationStatus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            remindersStatus = PermissionStatusProvider.currentRemindersStatus()
+        }
         .onDisappear {
             PermissionGrantPresenter.dismissFloatingPanel()
         }
@@ -230,9 +272,26 @@ struct PermissionsSettingsView: View {
     private func refresh() {
         accessibilityStatus = PermissionStatusProvider.requiredPermission(isGranted: AXIsProcessTrusted())
         microphoneStatus = PermissionStatusProvider.currentMicrophoneStatus()
+        remindersStatus = PermissionStatusProvider.currentRemindersStatus()
         fullDiskAccessStatus = PermissionStatusProvider.currentFullDiskAccessStatus()
         screenRecordingStatus = PermissionStatusProvider.currentScreenRecordingStatus()
         advanceInstructionIfCurrentTargetIsGranted()
+    }
+
+    private func requestReminders() {
+        Task { @MainActor in
+            NSApp.activate(ignoringOtherApps: true)
+            switch EKEventStore.authorizationStatus(for: .reminder) {
+            case .notDetermined:
+                _ = try? await remindersService.requestAccess()
+            default:
+                PermissionGateProbe.openSettings(for: .reminders)
+            }
+            remindersStatus = PermissionStatusProvider.currentRemindersStatus()
+            if remindersStatus == .denied || remindersStatus == .needsAction {
+                PermissionGateProbe.openSettings(for: .reminders)
+            }
+        }
     }
 
     private func requestScreenRecording() {

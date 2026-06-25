@@ -29,7 +29,12 @@ enum PermissionGateProbe {
         case .screenRecording:
             return CGPreflightScreenCaptureAccess()
         case .reminders:
-            return EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
+            switch EKEventStore.authorizationStatus(for: .reminder) {
+            case .fullAccess, .authorized:
+                return true
+            default:
+                return false
+            }
         }
     }
 

@@ -66,9 +66,9 @@ final class WindowControlAccessibilityTrustMonitor {
     ) -> Bool {
         guard runtimeEnabled else { return false }
         switch coordinatorState {
-        case .needsAccessibility, .active:
+        case .needsAccessibility, .active, .error:
             return true
-        case .off, .suspended, .error:
+        case .off, .suspended:
             return false
         }
     }

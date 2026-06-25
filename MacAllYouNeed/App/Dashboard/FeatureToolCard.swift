@@ -126,11 +126,16 @@ struct FeatureToolCard<Footer: View>: View {
                 .tint(MAYNTheme.progress)
                 .accessibilityLabel("Downloading: \(Int(progress * 100))%")
         case .failed(let reason):
-            HStack(spacing: 8) {
-                StatusPill(text: "Failed", kind: .danger)
-                    .accessibilityLabel("Download failed for \(title): \(reason)")
-                Spacer(minLength: 0)
-                MAYNButton("Retry", role: .primary, action: { onRetryInstall?() })
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    StatusPill(text: "Failed", kind: .danger)
+                        .accessibilityLabel("Download failed for \(title): \(reason)")
+                    Spacer(minLength: 0)
+                    MAYNButton("Retry", role: .primary, action: { onRetryInstall?() })
+                }
+                Text("Tap Retry to fetch the feature pack again.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -154,15 +159,17 @@ struct FeatureToolCard<Footer: View>: View {
     /// nil disables the built-in header press gesture.
     private var cardAction: (() -> Void)? {
         switch visualState {
-        case .unmanaged, .enabled: return onOpen
-        case .disabled, .notDownloaded, .downloading, .failed: return nil
+        case .unmanaged, .enabled, .disabled, .notDownloaded, .failed:
+            return onOpen
+        case .downloading:
+            return nil
         }
     }
 
     private var cardOpacity: Double {
         switch visualState {
         case .unmanaged, .enabled: 1.0
-        case .disabled, .notDownloaded: 0.45
+        case .disabled, .notDownloaded: 0.68
         case .downloading, .failed: 0.65
         }
     }

@@ -43,6 +43,39 @@ final class MacAllYouNeedTests: XCTestCase {
 
         XCTAssertEqual(updated.videoTitle, "Fetched title")
         XCTAssertEqual(updated.thumbnailURL, "https://example.com/thumb.jpg")
+        XCTAssertEqual(updated.destinationPath, "/Users/mingjie/Downloads/Derived title.mp4")
+    }
+
+    func testDownloadMetadataFallbackPersistsConcreteDestinationPath() {
+        let record = DownloadRecord(
+            url: "https://www.youtube.com/watch?v=RkJBqhYz9GM",
+            title: "original",
+            destinationPath: "/tmp/%(title)s.%(ext)s",
+            state: .running
+        )
+
+        let updated = DownloadMetadataFallback.applyingFallbacks(
+            to: record,
+            destinationPath: "/Users/mingjie/Downloads/Real file.mp4"
+        )
+
+        XCTAssertEqual(updated.destinationPath, "/Users/mingjie/Downloads/Real file.mp4")
+    }
+
+    func testDownloadMetadataFallbackIgnoresTemplateDestinationPath() {
+        let record = DownloadRecord(
+            url: "https://www.youtube.com/watch?v=RkJBqhYz9GM",
+            title: "original",
+            destinationPath: "/tmp/%(title)s.%(ext)s",
+            state: .running
+        )
+
+        let updated = DownloadMetadataFallback.applyingFallbacks(
+            to: record,
+            destinationPath: "/tmp/%(title)s.%(ext)s"
+        )
+
+        XCTAssertEqual(updated.destinationPath, "/tmp/%(title)s.%(ext)s")
     }
 
     func testNotificationPillsUsePlainCapsuleWithoutOuterShadow() {

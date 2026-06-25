@@ -4,7 +4,7 @@ public struct VoiceHistorySettings: Equatable, Sendable {
     public var retention: VoiceHistoryRetention
     public var saveAudio: Bool
 
-    public init(retention: VoiceHistoryRetention = .forever, saveAudio: Bool = false) {
+    public init(retention: VoiceHistoryRetention = .forever, saveAudio: Bool = true) {
         self.retention = retention
         self.saveAudio = saveAudio
     }
@@ -19,7 +19,12 @@ public struct VoiceHistorySettings: Equatable, Sendable {
         } else {
             retention = .forever
         }
-        let saveAudio = defaults.bool(forKey: saveAudioKey)
+        let saveAudio: Bool
+        if defaults.object(forKey: saveAudioKey) == nil {
+            saveAudio = true
+        } else {
+            saveAudio = defaults.bool(forKey: saveAudioKey)
+        }
         return VoiceHistorySettings(retention: retention, saveAudio: saveAudio)
     }
 

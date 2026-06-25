@@ -15,3 +15,20 @@ final class MockReminderWriter: RemindersWriter, @unchecked Sendable {
         return r
     }
 }
+
+/// Writer that always fails — used to verify reminder errors propagate.
+final class FailingReminderWriter: RemindersWriter, @unchecked Sendable {
+    struct Failure: Error, Equatable {
+        let message: String
+    }
+
+    let message: String
+
+    init(message: String = "Reminders write failed") {
+        self.message = message
+    }
+
+    func write(title: String, dueDate: ReminderDueDate?, listID: String?) async throws -> CreatedReminder {
+        throw Failure(message: message)
+    }
+}

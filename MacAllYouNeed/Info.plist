@@ -20,17 +20,28 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.macallyouneed.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>mayn</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>MAYNKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)com.macallyouneed.shared</string>
 	<key>MAYNTeamIdentifier</key>
 	<string>$(DEVELOPMENT_TEAM)</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Mac All You Need reads the front Finder window folder for your folder history when Accessibility cannot resolve the path.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MacAllYouNeed needs microphone access for voice dictation.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>MacAllYouNeed saves spoken reminders to Apple Reminders.</string>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>Mac All You Need reads the front Finder window folder for your folder history when Accessibility cannot resolve the path.</string>
 </dict>
 </plist>

@@ -23,12 +23,13 @@ private enum DownloadFormatTab: String, CaseIterable, SegmentedTabDestination {
 struct DownloadFormatSheet: View {
     let sourceURL: String
     let metadata: VideoMetadata?
+    let isRefiningResolutions: Bool
     let onClose: () -> Void
     let onDownload: (DownloadFormatPreset) -> Void
 
     @State private var selectedTab: DownloadFormatTab = .video
+    @State private var selectedPreset: DownloadFormatPreset = .videoBest
 
-    // Standard presets in priority order (after Best available)
     private static let standardVideoPresets: [DownloadFormatPreset] = [
         .video1080, .video720, .video360, .video240, .video144,
     ]
@@ -37,10 +38,8 @@ struct DownloadFormatSheet: View {
         var result: [DownloadFormatPreset] = [.videoBest]
         let available = metadata?.availableHeights ?? []
         if available.isEmpty {
-            // Metadata not loaded yet, or site doesn't expose heights — show standard list
             result += Self.standardVideoPresets
         } else {
-            // Only show presets whose height is actually available
             for preset in Self.standardVideoPresets where available.contains(preset.qualityHeight) {
                 result.append(preset)
             }
@@ -49,6 +48,14 @@ struct DownloadFormatSheet: View {
     }
 
     private var audioPresets: [DownloadFormatPreset] { [.audio320, .audio128] }
+
+    private var activePresets: [DownloadFormatPreset] {
+        selectedTab == .video ? videoPresets : audioPresets
+    }
+
+    private var controlsLocked: Bool {
+        metadata == nil || isRefiningResolutions
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -59,62 +66,62 @@ struct DownloadFormatSheet: View {
 
             FunctionSegmentedTabStrip(selection: selectedTab, size: .control) { nextTab in
                 selectedTab = nextTab
+                syncSelectedPreset(for: nextTab)
             }
+            .disabled(controlsLocked)
 
-            VStack(spacing: 8) {
-                let presets = selectedTab == .video ? videoPresets : audioPresets
-                ForEach(presets, id: \.rawValue) { preset in
-                    Button(action: { onDownload(preset) }) {
-                        HStack(spacing: 10) {
-                            Text(preset.displayLabel)
-                                .font(.callout.weight(.medium))
-                            Spacer(minLength: 12)
-                            Image(systemName: "arrow.down.circle")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius)
-                                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-                // Spinner row while video metadata is still loading
-                if selectedTab == .video, metadata == nil {
+            VStack(alignment: .leading, spacing: 8) {
+                MAYNDropdown(
+                    selection: $selectedPreset,
+                    options: activePresets,
+                    title: { $0.displayLabel },
+                    width: 412
+                )
+                .disabled(controlsLocked)
+
+                if metadata == nil {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Fetching available resolutions…")
+                        Text("Loading video details…")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
+                } else if isRefiningResolutions {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking exact resolutions…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
             HStack {
                 Spacer()
                 MAYNButton("Cancel", action: onClose)
+                MAYNButton("Download", role: .primary) {
+                    onDownload(selectedPreset)
+                }
+                .disabled(controlsLocked)
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(24)
         .frame(width: 460)
         .background(MAYNTheme.window)
+        .onAppear {
+            syncSelectedPreset(for: selectedTab)
+        }
+        .onChange(of: metadata?.availableHeights) { _, _ in
+            syncSelectedPreset(for: selectedTab)
+        }
     }
 
     @ViewBuilder
     private var thumbnailView: some View {
         Group {
             if let urlStr = metadata?.thumbnailURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
-                AsyncImage(url: url) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    thumbnailPlaceholder
-                }
+                DownloadPickerThumbnailImage(url: url)
             } else {
                 thumbnailPlaceholder
             }
@@ -154,7 +161,6 @@ struct DownloadFormatSheet: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                // Skeleton while loading
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(MAYNTheme.elevated)
                     .frame(width: 220, height: 13)
@@ -168,5 +174,13 @@ struct DownloadFormatSheet: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+    }
+
+    private func syncSelectedPreset(for tab: DownloadFormatTab) {
+        let presets = tab == .video ? videoPresets : audioPresets
+        if presets.contains(selectedPreset) {
+            return
+        }
+        selectedPreset = presets.first ?? .videoBest
     }
 }

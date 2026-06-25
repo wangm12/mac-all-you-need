@@ -104,6 +104,36 @@ final class DispatchServerTests: XCTestCase {
         XCTAssertEqual(seen, ["https://example.com/a", "https://example.com/b"])
     }
 
+    func testBulkEnqueueRespondsBeforeHandlerCompletes() async throws {
+        let handlerStarted = expectation(description: "handler started")
+        let gate = DispatchSemaphore(value: 0)
+        let server = try DispatchServer(port: 18991, token: "secret", extensionToken: extToken) { req in
+            XCTAssertEqual(req.action, .bulkEnqueue)
+            handlerStarted.fulfill()
+            _ = gate.wait(timeout: .now() + 5)
+        }
+        try await server.start()
+        defer {
+            gate.signal()
+            Task { await server.stop() }
+        }
+
+        let body = Data(#"{"action":"bulkEnqueue","title":"Bulk","entries":[{"pageURL":"https://example.com/1","title":"One","channel":"","thumbnailURL":null,"durationSeconds":null,"playlistIndex":1}]}"#.utf8)
+        var req = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18991/dispatch")))
+        req.httpMethod = "POST"
+        req.httpBody = body
+        req.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let start = Date()
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertLessThan(elapsed, 1.0)
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 200)
+        await fulfillment(of: [handlerStarted], timeout: 3)
+    }
+
     func testDownloadEndpointRejectsUnsupportedURLScheme() async throws {
         let server = try DispatchServer(port: 18990, token: "secret", extensionToken: extToken) { _ in
             XCTFail("should not call handler for unsupported URL")
@@ -152,7 +182,79 @@ final class DispatchServerTests: XCTestCase {
         let (data, resp) = try await URLSession.shared.data(for: req)
         XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 200)
         let body = String(data: data, encoding: .utf8) ?? ""
-        XCTAssertTrue(body.contains("Cookie sync requested"))
+        XCTAssertTrue(body.contains("id=\"status\""))
+        XCTAssertTrue(body.contains("Mac All You Need Companion"))
+    }
+
+    func testCookieSyncLandingWorksWithoutToken() async throws {
+        let server = try DispatchServer(port: 18988, token: "secret", extensionToken: extToken) { _ in
+            XCTFail("should not call")
+        }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        let (data, resp) = try await URLSession.shared.data(from: try XCTUnwrap(URL(string: "http://127.0.0.1:18988/cookie-sync-landing")))
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 200)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        XCTAssertTrue(body.contains("id=\"status\""))
+        XCTAssertTrue(body.contains("Mac All You Need Companion"))
+    }
+
+    func testCookiesStillRequiresToken() async throws {
+        let server = try DispatchServer(port: 18987, token: "secret", extensionToken: extToken) { _ in
+            XCTFail("should not call")
+        }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        var post = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18987/cookies")))
+        post.httpMethod = "POST"
+        post.httpBody = Data("[]".utf8)
+        post.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (_, resp) = try await URLSession.shared.data(for: post)
+        XCTAssertEqual((resp as? HTTPURLResponse)?.statusCode, 401)
+    }
+
+    func testResetExtensionTokenAllowsReregistration() async throws {
+        let tokenA = "token-a"
+        let tokenB = "token-b"
+        let server = try DispatchServer(port: 18986, token: "secret", extensionToken: tokenA) { _ in
+            XCTFail("should not call")
+        }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        var conflictReq = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18986/ping")))
+        conflictReq.setValue(tokenB, forHTTPHeaderField: "X-MAYN-Token")
+        let (_, conflictResp) = try await URLSession.shared.data(for: conflictReq)
+        XCTAssertEqual((conflictResp as? HTTPURLResponse)?.statusCode, 409)
+
+        await server.resetExtensionToken()
+
+        var registerReq = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18986/ping")))
+        registerReq.setValue(tokenB, forHTTPHeaderField: "X-MAYN-Token")
+        let (_, registerResp) = try await URLSession.shared.data(for: registerReq)
+        XCTAssertEqual((registerResp as? HTTPURLResponse)?.statusCode, 200)
+    }
+
+    func testCompanionResetClearsRegistration() async throws {
+        let tokenA = "token-a"
+        let tokenB = "token-b"
+        let server = try DispatchServer(port: 18985, token: "secret", extensionToken: tokenA) { _ in
+            XCTFail("should not call")
+        }
+        try await server.start()
+        defer { Task { await server.stop() } }
+
+        var reset = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18985/companion-reset")))
+        reset.httpMethod = "POST"
+        let (_, resetResp) = try await URLSession.shared.data(for: reset)
+        XCTAssertEqual((resetResp as? HTTPURLResponse)?.statusCode, 200)
+
+        var registerReq = try URLRequest(url: XCTUnwrap(URL(string: "http://127.0.0.1:18985/ping")))
+        registerReq.setValue(tokenB, forHTTPHeaderField: "X-MAYN-Token")
+        let (_, registerResp) = try await URLSession.shared.data(for: registerReq)
+        XCTAssertEqual((registerResp as? HTTPURLResponse)?.statusCode, 200)
     }
 
     func testOptionsReturnsNoContent() async throws {

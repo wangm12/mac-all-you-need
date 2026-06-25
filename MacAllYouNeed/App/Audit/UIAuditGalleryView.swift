@@ -393,26 +393,28 @@ enum UIAuditScreenshotRenderer {
         var capturedIDs = Set<String>()
 
         for scenario in manifest.scenarios where scenario.captureStatus != .skipped {
-            let view = UIAuditScenarioCaptureView(scenario: scenario, manifest: manifest)
-                .frame(width: manifest.windowSize.width, height: manifest.windowSize.height)
-                .background(MAYNTheme.window)
+            autoreleasepool {
+                let view = UIAuditScenarioCaptureView(scenario: scenario, manifest: manifest)
+                    .frame(width: manifest.windowSize.width, height: manifest.windowSize.height)
+                    .background(MAYNTheme.window)
 
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
+                let renderer = ImageRenderer(content: view)
+                renderer.scale = 2
 
-            guard let image = renderer.nsImage,
-                  let tiffData = image.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiffData),
-                  let pngData = bitmap.representation(using: .png, properties: [:])
-            else {
-                continue
-            }
+                guard let image = renderer.nsImage,
+                      let tiffData = image.tiffRepresentation,
+                      let bitmap = NSBitmapImageRep(data: tiffData),
+                      let pngData = bitmap.representation(using: .png, properties: [:])
+                else {
+                    return
+                }
 
-            do {
-                try pngData.write(to: directory.appendingPathComponent(scenario.screenshotFilename))
-                capturedIDs.insert(scenario.id)
-            } catch {
-                continue
+                do {
+                    try pngData.write(to: directory.appendingPathComponent(scenario.screenshotFilename))
+                    capturedIDs.insert(scenario.id)
+                } catch {
+                    return
+                }
             }
         }
 

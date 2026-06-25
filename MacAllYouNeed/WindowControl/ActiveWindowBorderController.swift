@@ -29,12 +29,18 @@ final class ActiveWindowBorderController {
     ]
 
     func apply(settings: WindowControlSettings, runtimeEnabled: Bool) {
+        let previousInner = self.settings.activeWindowBorderInner
         self.settings = settings
         let shouldRun = runtimeEnabled && settings.activeWindowBorderEnabled
-        if shouldRun == enabled { return }
+        let styleChanged = previousInner != settings.activeWindowBorderInner
+        if shouldRun == enabled, !styleChanged { return }
         enabled = shouldRun
         if shouldRun {
-            start()
+            if styleChanged, panel != nil {
+                rebuildPanel()
+            } else {
+                start()
+            }
         } else {
             stop()
         }
@@ -101,11 +107,6 @@ final class ActiveWindowBorderController {
         panel.orderFrontRegardless()
     }
 
-    private func shouldIgnoreFrontmost() -> Bool {
-        guard let bundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return true }
-        return settings.ignoredBundleIDs.contains(bundle)
-    }
-
     private func frontmostWindowFrame() -> CGRect? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
@@ -116,11 +117,38 @@ final class ActiveWindowBorderController {
         let axElement = axWindow as! AXUIElement
         let element = WindowAccessibilityElement(axElement)
         guard element.isSupportedForWindowControl else { return nil }
-        let frame = element.frame
-        guard !frame.isNull, !frame.isEmpty else { return nil }
-        guard let screen = NSScreen.screens.first else { return nil }
-        let appKitY = screen.frame.height - frame.origin.y - frame.height
-        return CGRect(x: frame.origin.x, y: appKitY, width: frame.width, height: frame.height)
+        let cgFrame = element.frame
+        guard !cgFrame.isNull, !cgFrame.isEmpty else { return nil }
+        guard let screen = WindowScreenDetector.current().screen(containing: cgFrame),
+              let nsScreen = NSScreen.screens.first(where: { nsScreen in
+                  (nsScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?
+                      .uint32Value == screen.id
+              })
+        else { return nil }
+        return WindowScreenDetector.convertCGDisplayRectToAppKitCoordinates(
+            cgRect: cgFrame,
+            appKitScreenFrame: nsScreen.frame,
+            cgDisplayBounds: CGDisplayBounds(screen.id)
+        )
+    }
+
+    private func shouldIgnoreFrontmost() -> Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return true }
+        let bundle = app.bundleIdentifier
+        if let bundle, settings.ignoredBundleIDs.contains(bundle) { return true }
+        let title = frontmostWindowTitle()
+        return WindowRulesEngine(rules: settings.windowRules).shouldIgnore(bundleID: bundle, title: title)
+    }
+
+    private func frontmostWindowTitle() -> String? {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
+              let axWindow = value,
+              CFGetTypeID(axWindow) == AXUIElementGetTypeID()
+        else { return nil }
+        return WindowAccessibilityElement(axWindow as! AXUIElement).windowTitle
     }
 
     private func ensurePanel() -> NSPanel {
@@ -132,18 +160,57 @@ final class ActiveWindowBorderController {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
         panel.ignoresMouseEvents = true
-        let hosting = NSHostingView(rootView: ActiveWindowBorderView(inner: settings.activeWindowBorderInner))
-        panel.contentView = hosting
+        panel.contentView = NSHostingView(rootView: ActiveWindowBorderView(inner: settings.activeWindowBorderInner))
         self.panel = panel
         return panel
     }
+
+    private func rebuildPanel() {
+        guard let panel else {
+            start()
+            return
+        }
+        panel.contentView = NSHostingView(rootView: ActiveWindowBorderView(inner: settings.activeWindowBorderInner))
+        refresh()
+    }
+}
+
+private enum ActiveWindowBorderVisualTokens {
+    static let accent = Color(red: 10 / 255, green: 132 / 255, blue: 1)
+    static let strokeOpacity: CGFloat = 0.50
+    static let glowOpacity: CGFloat = 0.34
+    static let haloOpacity: CGFloat = 0.18
 }
 
 private struct ActiveWindowBorderView: View {
     let inner: Bool
 
+    private var strokeColor: Color {
+        ActiveWindowBorderVisualTokens.accent.opacity(ActiveWindowBorderVisualTokens.strokeOpacity)
+    }
+
+    private var lineWidth: CGFloat {
+        inner ? 1.5 : 2
+    }
+
     var body: some View {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .strokeBorder(Color.accentColor.opacity(0.9), lineWidth: inner ? 2 : 3)
+            .fill(ActiveWindowBorderVisualTokens.accent.opacity(0.05))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(strokeColor, lineWidth: lineWidth)
+            }
+            .shadow(
+                color: ActiveWindowBorderVisualTokens.accent.opacity(ActiveWindowBorderVisualTokens.glowOpacity),
+                radius: 10,
+                x: 0,
+                y: 0
+            )
+            .shadow(
+                color: ActiveWindowBorderVisualTokens.accent.opacity(ActiveWindowBorderVisualTokens.haloOpacity),
+                radius: 22,
+                x: 0,
+                y: 0
+            )
     }
 }

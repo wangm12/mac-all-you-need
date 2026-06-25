@@ -8,6 +8,8 @@ enum WindowScrollResizeController {
     static func handleScroll(deltaY: Int, shiftHeld: Bool, settings: WindowControlSettings) -> Bool {
         guard settings.scrollResizeEnabled else { return false }
         guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+        let bundleID = app.bundleIdentifier
+        if let bundleID, settings.ignoredBundleIDs.contains(bundleID) { return false }
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
@@ -17,6 +19,12 @@ enum WindowScrollResizeController {
         let axElement = axWindow as! AXUIElement
         let element = WindowAccessibilityElement(axElement)
         guard element.isSupportedForWindowControl else { return false }
+        if !WindowRulesEngine(rules: settings.windowRules).allowsWindowControl(
+            bundleID: bundleID,
+            title: element.windowTitle
+        ) {
+            return false
+        }
         var frame = element.frame
         guard !frame.isNull, !frame.isEmpty else { return false }
 

@@ -9,10 +9,11 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(ClipboardFunctionTab.storedSelection("missing"), .history)
     }
 
-    func testVoiceTabMapsKnownValuesAndDefaultsToDictate() {
+    func testVoiceTabMapsKnownValuesAndDefaultsToHistory() {
         XCTAssertEqual(VoiceFunctionTab.storedSelection("models"), .models)
         XCTAssertEqual(VoiceFunctionTab.storedSelection("dictionary"), .dictionary)
-        XCTAssertEqual(VoiceFunctionTab.storedSelection("missing"), .dictate)
+        XCTAssertEqual(VoiceFunctionTab.storedSelection("dictate"), .history)
+        XCTAssertEqual(VoiceFunctionTab.storedSelection("missing"), .history)
     }
 
     func testVoiceMainPageHeaderShowsShortcutWithoutInlineStartButton() {
@@ -375,7 +376,7 @@ final class FunctionTabsTests: XCTestCase {
             .aiFileOrganizer,
             .windowLayouts,
             .grabAnywhere,
-            .dockPreviews
+            .windowHub
         ])
         XCTAssertEqual(tiles.map(\.title), [
             "Clipboard",
@@ -386,7 +387,7 @@ final class FunctionTabsTests: XCTestCase {
             "AI File Organizer",
             "Window Layouts",
             "Window Grab",
-            "Dock Hover Previews"
+            "Windows"
         ])
         XCTAssertEqual(tiles.first?.detail, "Capture, search, pin, and paste clipboard history.")
         XCTAssertEqual(tiles.first?.metric, "30")

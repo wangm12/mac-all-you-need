@@ -4,7 +4,7 @@ public enum DownloadState: String, Codable, Sendable {
     case queued, running, paused, completed, failed
 }
 
-public struct DownloadRecord: Codable, Equatable, Sendable {
+public struct DownloadRecord: Codable, Equatable, Sendable, Identifiable {
     public var id: RecordID
     public var url: String
     public var title: String

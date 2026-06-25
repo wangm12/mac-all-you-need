@@ -34,14 +34,17 @@ struct VoiceTranscriptHistoryRowView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(displayText)
                     .font(.callout)
                     .lineLimit(2)
-                Text(metadataLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    StatusPill(text: statusPresentation.label, kind: statusPillKind)
+                    Text(metadataLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -101,7 +104,20 @@ struct VoiceTranscriptHistoryRowView: View {
     }
 
     private var metadataLine: String {
-        VoiceTranscriptHistoryMetadata.line(for: transcript)
+        VoiceTranscriptHistoryMetadata.detailLine(for: transcript)
+    }
+
+    private var statusPresentation: VoiceTranscriptStatusPresentation {
+        VoiceTranscriptHistoryMetadata.statusPresentation(for: transcript)
+    }
+
+    private var statusPillKind: StatusPill.Kind {
+        switch statusPresentation {
+        case .success: .success
+        case .retried: .neutral
+        case .cancelled: .warning
+        case .failed: .danger
+        }
     }
 
     private var rowBackground: Color {

@@ -21,6 +21,9 @@ public struct WindowIdentity: Hashable, Codable, Sendable {
         if let titleHash {
             return .titleHash(pid: pid, hash: titleHash)
         }
+        if let frameFingerprint {
+            return .frameFingerprint(pid: pid, hash: frameFingerprint)
+        }
         return nil
     }
 }
@@ -29,6 +32,7 @@ public final class WindowRestoreHistory {
     fileprivate enum Key: Hashable {
         case cgWindowID(pid: pid_t, id: CGWindowID)
         case titleHash(pid: pid_t, hash: Int)
+        case frameFingerprint(pid: pid_t, hash: Int)
     }
 
     private let capacity: Int

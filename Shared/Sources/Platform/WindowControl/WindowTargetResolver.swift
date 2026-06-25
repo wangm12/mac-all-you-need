@@ -5,6 +5,15 @@ import CoreGraphics
 public protocol WindowTargetElement: WindowMovableElement {
     var processIdentifier: pid_t { get }
     var windowTargetSelectionPriority: Int { get }
+    /// When available, the CGWindowID backing this AX element.
+    var cgWindowID: CGWindowID? { get }
+    /// True when the element exposes standard window chrome (zoom/close).
+    var hasStandardWindowControls: Bool { get }
+}
+
+public extension WindowTargetElement {
+    var cgWindowID: CGWindowID? { nil }
+    var hasStandardWindowControls: Bool { false }
 }
 
 public struct WindowTargetWindowInfo: Equatable, Sendable {
@@ -44,38 +53,67 @@ public struct ResolvedWindowTarget {
     }
 }
 
+public struct WindowTargetResolveOptions: Sendable {
+    /// When false, skips `AXUIElementCopyElementAtPosition` (event-tap safe path).
+    public var useSystemWideAX: Bool
+    /// When false, windows owned by this app are skipped so grabs pass through to apps behind.
+    public var includeOwnApplication: Bool
+
+    public init(useSystemWideAX: Bool = true, includeOwnApplication: Bool = false) {
+        self.useSystemWideAX = useSystemWideAX
+        self.includeOwnApplication = includeOwnApplication
+    }
+
+    public static let full = WindowTargetResolveOptions()
+    public static let eventTap = WindowTargetResolveOptions(useSystemWideAX: false)
+    public static let grabGesture = WindowTargetResolveOptions(useSystemWideAX: false, includeOwnApplication: true)
+}
+
 public struct WindowTargetResolver {
     private let ownBundleIdentifier: String?
-    private let visibleFrames: [CGRect]
+    private let visibleFramesProvider: @Sendable () -> [CGRect]
     private let frameTolerance: CGFloat
 
     public init(
         ownBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        visibleFrames: [CGRect] = WindowScreenDetector.current().screens.map(\.visibleFrame),
+        visibleFrames: [CGRect]? = nil,
         frameTolerance: CGFloat = 6
     ) {
         self.ownBundleIdentifier = ownBundleIdentifier
-        self.visibleFrames = visibleFrames
+        if let visibleFrames {
+            let snapshot = visibleFrames
+            self.visibleFramesProvider = { snapshot }
+        } else {
+            self.visibleFramesProvider = {
+                WindowScreenDetector.current().screens.map(\.visibleFrame)
+            }
+        }
         self.frameTolerance = frameTolerance
     }
 
     public func resolveTopmostWindow<Candidates: Collection>(
         at point: CGPoint,
         windows: [WindowTargetWindowInfo],
-        candidates: Candidates
+        candidates: Candidates,
+        options: WindowTargetResolveOptions = .full
     ) -> ResolvedWindowTarget? where Candidates.Element: WindowTargetElement {
-        guard visibleFrames.isEmpty || visibleFrames.contains(where: { $0.contains(point) }) else {
+        guard liveVisibleFrames.isEmpty || liveVisibleFrames.contains(where: { $0.contains(point) }) else {
             return nil
         }
 
-        for info in windows where isEligible(info, at: point) {
+        for info in windows where isEligible(info, at: point, options: options) {
             let matches = candidates.filter { candidate in
                 candidate.processIdentifier == info.processIdentifier
                     && candidate.isSupportedForWindowControl
                     && frame(candidate.frame, matches: info.bounds)
             }
 
-            guard let element = selectBestCandidate(matches, at: point) else {
+            guard let element = selectBestCandidate(
+                matches,
+                at: point,
+                preferredWindowID: info.windowID,
+                ownerBundleIdentifier: info.ownerBundleIdentifier
+            ) else {
                 continue
             }
 
@@ -85,24 +123,75 @@ public struct WindowTargetResolver {
         return nil
     }
 
-    public func resolveTopmostWindow(at point: CGPoint) -> ResolvedWindowTarget? {
+    public func resolveTopmostWindow(
+        at point: CGPoint,
+        options: WindowTargetResolveOptions = .full
+    ) -> ResolvedWindowTarget? {
         // 1. Ask Accessibility for the element directly under the cursor and
         //    walk up to its enclosing AXWindow. This handles Stage Manager
         //    strips, occluded windows, and full-screen Spaces where the
         //    CGWindowList-based path below routinely picks the wrong window.
-        if let viaSystemWide = resolveViaSystemWideAX(at: point) {
+        if options.useSystemWideAX, let viaSystemWide = resolveViaSystemWideAX(at: point) {
             return viaSystemWide
         }
 
         // 2. Fallback: CGWindowList front-to-back + AX windows matched by frame.
         let windows = Self.currentOnScreenWindows()
-        let processIdentifiers = Set(windows.map(\.processIdentifier))
-        let candidates = processIdentifiers.flatMap { WindowAccessibilityElement.windows(for: $0) }
-        return resolveTopmostWindow(at: point, windows: windows, candidates: candidates)
+        return resolveTopmostWindowViaCGWindowList(at: point, windows: windows, options: options)
+    }
+
+    /// CGWindowList-only hit test for lightweight event-tap pre-checks.
+    public func topmostWindowInfo(
+        at point: CGPoint,
+        options: WindowTargetResolveOptions = .full
+    ) -> WindowTargetWindowInfo? {
+        guard liveVisibleFrames.isEmpty || liveVisibleFrames.contains(where: { $0.contains(point) }) else {
+            return nil
+        }
+        return Self.currentOnScreenWindows().first { isEligible($0, at: point, options: options) }
+    }
+
+    private func resolveTopmostWindowViaCGWindowList(
+        at point: CGPoint,
+        windows: [WindowTargetWindowInfo],
+        options: WindowTargetResolveOptions
+    ) -> ResolvedWindowTarget? {
+        for info in windows where isEligible(info, at: point, options: options) {
+            if let bundleID = info.ownerBundleIdentifier,
+               WindowAXShellResolver.isBrowserBundle(bundleID),
+               let shell = WindowAXShellResolver.shellElement(
+                   processIdentifier: info.processIdentifier,
+                   windowID: info.windowID,
+                   ownerBundleIdentifier: bundleID
+               ),
+               shell.isSupportedForWindowControl
+            {
+                return ResolvedWindowTarget(windowID: info.windowID, windowInfo: info, element: shell)
+            }
+
+            let candidates = WindowAccessibilityElement.windows(for: info.processIdentifier)
+            guard let element = selectBestCandidate(
+                candidates.filter { candidate in
+                    candidate.isSupportedForWindowControl
+                        && frame(candidate.frame, matches: info.bounds)
+                },
+                at: point,
+                preferredWindowID: info.windowID,
+                ownerBundleIdentifier: info.ownerBundleIdentifier
+            ) else {
+                continue
+            }
+            return ResolvedWindowTarget(windowID: info.windowID, windowInfo: info, element: element)
+        }
+        return nil
+    }
+
+    private var liveVisibleFrames: [CGRect] {
+        visibleFramesProvider()
     }
 
     private func resolveViaSystemWideAX(at point: CGPoint) -> ResolvedWindowTarget? {
-        guard visibleFrames.isEmpty || visibleFrames.contains(where: { $0.contains(point) }) else {
+        guard liveVisibleFrames.isEmpty || liveVisibleFrames.contains(where: { $0.contains(point) }) else {
             return nil
         }
 
@@ -179,11 +268,22 @@ public struct WindowTargetResolver {
         return rawWindows.compactMap(WindowTargetWindowInfo.init(dictionary:))
     }
 
-    private func isEligible(_ info: WindowTargetWindowInfo, at point: CGPoint) -> Bool {
+    private func isEligible(
+        _ info: WindowTargetWindowInfo,
+        at point: CGPoint,
+        options: WindowTargetResolveOptions
+    ) -> Bool {
         guard info.layer == 0,
               !info.isDesktopElement,
               info.bounds.contains(point)
         else {
+            return false
+        }
+        if !options.includeOwnApplication,
+           let ownBundleIdentifier,
+           let owner = info.ownerBundleIdentifier,
+           owner.caseInsensitiveCompare(ownBundleIdentifier) == .orderedSame
+        {
             return false
         }
         return true
@@ -196,19 +296,37 @@ public struct WindowTargetResolver {
             && abs(lhs.height - rhs.height) <= frameTolerance
     }
 
-    /// Finder / Notes / iTerm can expose several AXWindow elements for one CG window.
+    /// Tie-breaker when multiple AX windows match one CG window (Finder, Notes, iTerm, Chrome tabs).
     private func selectBestCandidate(
         _ matches: [any WindowTargetElement],
-        at point: CGPoint
+        at point: CGPoint,
+        preferredWindowID: CGWindowID,
+        ownerBundleIdentifier: String?
     ) -> (any WindowTargetElement)? {
         guard !matches.isEmpty else { return nil }
-        if matches.count == 1 { return matches[0] }
 
-        let containingPoint = matches.filter { candidate in
+        var pool = matches
+        let idMatched = pool.filter { $0.cgWindowID == preferredWindowID }
+        if !idMatched.isEmpty {
+            pool = idMatched
+        }
+
+        if pool.count == 1 { return pool[0] }
+
+        if let ownerBundleIdentifier, Self.isBrowserBundle(ownerBundleIdentifier) {
+            let withControls = pool.filter(\.hasStandardWindowControls)
+            if !withControls.isEmpty {
+                pool = withControls
+            }
+        }
+
+        if pool.count == 1 { return pool[0] }
+
+        let containingPoint = pool.filter { candidate in
             let frame = candidate.frame
             return !frame.isNull && !frame.isEmpty && frame.contains(point)
         }
-        let pool = containingPoint.isEmpty ? matches : containingPoint
+        pool = containingPoint.isEmpty ? pool : containingPoint
 
         return pool.max { lhs, rhs in
             let lhsPriority = lhs.windowTargetSelectionPriority
@@ -220,6 +338,12 @@ public struct WindowTargetResolver {
             let rhsArea = rhs.frame.width * rhs.frame.height
             return lhsArea < rhsArea
         }
+    }
+
+    private static let browserBundleIdentifiers: Set<String> = WindowAXShellResolver.browserBundleIdentifiers
+
+    private static func isBrowserBundle(_ bundleIdentifier: String) -> Bool {
+        WindowAXShellResolver.isBrowserBundle(bundleIdentifier)
     }
 }
 

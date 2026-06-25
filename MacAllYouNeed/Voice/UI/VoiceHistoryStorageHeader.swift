@@ -20,7 +20,7 @@ struct VoiceHistoryStorageHeader: View {
             MAYNDivider()
             MAYNSettingsRow(
                 title: "Save audio recordings",
-                subtitle: "Required for Download audio and Retry. Recordings are encrypted locally."
+                subtitle: "On by default. Encrypted locally; powers Retry and Download in history."
             ) {
                 Toggle("", isOn: $settings.saveAudio)
                     .toggleStyle(.switch)

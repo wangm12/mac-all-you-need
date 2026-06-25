@@ -47,7 +47,7 @@ enum CommandCenterFooterPresentation {
             )
         case .reminders:
             CommandCenterFooterModel(
-                shortcutText: "⌘⇧R",
+                shortcutText: VoiceReminderShortcutSettingsStore.load().shortcut.display,
                 label: "spoken reminders",
                 openButtonTitle: "Open Voice",
                 showsCapturePause: false

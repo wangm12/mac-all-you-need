@@ -22,6 +22,7 @@ final class HotkeyOrchestrator {
     private let onBrowseFolder: () -> Void
     private let onWindowAction: (WindowAction) -> Void
     private let onRadialMenu: () -> Void
+    private let onWindowHubToggle: () -> Void
 
     let registry: HotkeyRegistry
     private var fallbackHotkey: GlobalHotkey?
@@ -31,13 +32,15 @@ final class HotkeyOrchestrator {
         onClipboardToggle: @escaping () -> Void,
         onBrowseFolder: @escaping () -> Void,
         onWindowAction: @escaping (WindowAction) -> Void,
-        onRadialMenu: @escaping () -> Void = {}
+        onRadialMenu: @escaping () -> Void = {},
+        onWindowHubToggle: @escaping () -> Void = {}
     ) {
         self.registry = registry ?? HotkeyRegistry()
         self.onClipboardToggle = onClipboardToggle
         self.onBrowseFolder = onBrowseFolder
         self.onWindowAction = onWindowAction
         self.onRadialMenu = onRadialMenu
+        self.onWindowHubToggle = onWindowHubToggle
     }
 
     /// Translate a `HotkeyAction` into its concrete runtime side-effect.
@@ -52,6 +55,8 @@ final class HotkeyOrchestrator {
             onRadialMenu()
         case .finderHistory:
             break
+        case .windowHub:
+            onWindowHubToggle()
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,
@@ -119,7 +124,7 @@ extension HotkeyAction {
         case .windowPreviousDisplay: return .previousDisplay
         case .windowNextSpace: return .nextSpace
         case .windowPreviousSpace: return .previousSpace
-        case .clipboard, .browseFolder, .finderHistory, .radialMenu: return nil
+        case .clipboard, .browseFolder, .finderHistory, .radialMenu, .windowHub: return nil
         }
     }
 }

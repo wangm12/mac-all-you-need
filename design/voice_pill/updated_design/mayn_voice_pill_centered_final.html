@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MAYN Voice Pill - Centered Native Final</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    --ease: cubic-bezier(.22, 1, .36, 1);
+
+    /* HUD surface is intentionally one color across light/dark. */
+    --hud: #1c1c1e;
+    --hud-border: rgba(255,255,255,.13);
+    --hud-text: rgba(255,255,255,.96);
+    --hud-muted: rgba(255,255,255,.60);
+    --hud-wipe: rgba(255,255,255,.145);
+    --hud-shadow: 0 14px 36px rgba(0,0,0,.26), 0 2px 8px rgba(0,0,0,.18);
+
+    --page: #f5f5f7;
+    --stage: #ebebef;
+    --stage-border: rgba(0,0,0,.07);
+    --window: #ffffff;
+    --window-border: rgba(0,0,0,.09);
+    --text: #1d1d1f;
+    --muted: rgba(29,29,31,.52);
+    --line: rgba(0,0,0,.085);
+    --control: #ffffff;
+    --control-border: rgba(0,0,0,.10);
+    --helper: rgba(28,28,30,.58);
+  }
+
+  body[data-theme="dark"] {
+    --page: #101013;
+    --stage: #18181c;
+    --stage-border: rgba(255,255,255,.08);
+    --window: #242429;
+    --window-border: rgba(255,255,255,.08);
+    --text: rgba(255,255,255,.92);
+    --muted: rgba(255,255,255,.50);
+    --line: rgba(255,255,255,.10);
+    --control: #242429;
+    --control-border: rgba(255,255,255,.11);
+    --helper: rgba(255,255,255,.50);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    background: var(--page);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    transition: background .28s var(--ease), color .28s var(--ease);
+  }
+
+  .page {
+    min-height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 18px;
+    padding: 28px;
+  }
+
+  .topbar {
+    width: min(980px, 100%);
+    margin: 0 auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  .title h1 {
+    margin: 0 0 6px;
+    font-size: 16px;
+    line-height: 1.1;
+    letter-spacing: -.025em;
+    font-weight: 650;
+  }
+
+  .title p {
+    margin: 0;
+    max-width: 550px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: wrap;
+    max-width: 460px;
+  }
+
+  button {
+    appearance: none;
+    border: 1px solid var(--control-border);
+    background: var(--control);
+    color: var(--text);
+    height: 28px;
+    border-radius: 999px;
+    padding: 0 12px;
+    font: 590 11px/1 var(--font);
+    letter-spacing: -.004em;
+    cursor: pointer;
+    transition: background .18s var(--ease), border-color .18s var(--ease), transform .18s var(--ease), color .18s var(--ease);
+  }
+
+  button:hover { transform: translateY(-1px); }
+  button.active {
+    background: var(--hud);
+    border-color: var(--hud-border);
+    color: var(--hud-text);
+  }
+
+  .stage-wrap {
+    width: min(980px, 100%);
+    margin: 0 auto;
+    align-self: center;
+  }
+
+  .stage {
+    position: relative;
+    min-height: 560px;
+    border-radius: 28px;
+    border: 1px solid var(--stage-border);
+    background: var(--stage);
+    overflow: hidden;
+    transition: background .28s var(--ease), border-color .28s var(--ease);
+  }
+
+  .mock-window {
+    position: absolute;
+    left: 50%;
+    top: 66px;
+    width: min(640px, calc(100% - 72px));
+    height: 304px;
+    transform: translateX(-50%);
+    border-radius: 18px;
+    border: 1px solid var(--window-border);
+    background: var(--window);
+    overflow: hidden;
+    box-shadow: 0 18px 44px rgba(0,0,0,.08);
+    transition: background .28s var(--ease), border-color .28s var(--ease), box-shadow .28s var(--ease);
+  }
+
+  body[data-theme="dark"] .mock-window { box-shadow: 0 20px 52px rgba(0,0,0,.24); }
+
+  .chrome {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 15px;
+    border-bottom: 1px solid var(--window-border);
+  }
+
+  .traffic { width: 11px; height: 11px; border-radius: 50%; }
+  .traffic:nth-child(1) { background: #ff5f57; }
+  .traffic:nth-child(2) { background: #ffbd2e; }
+  .traffic:nth-child(3) { background: #28c840; }
+
+  .doc { padding: 32px 42px; }
+  .line {
+    height: 10px;
+    border-radius: 999px;
+    background: var(--line);
+    margin-bottom: 13px;
+  }
+  .line:nth-child(1) { width: 48%; height: 14px; opacity: .95; }
+  .line:nth-child(2) { width: 76%; }
+  .line:nth-child(3) { width: 63%; }
+  .line:nth-child(4) { width: 84%; }
+  .line:nth-child(5) { width: 54%; }
+  .line:nth-child(6) { width: 70%; }
+
+  .insertion {
+    margin-top: 30px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .cursor {
+    width: 2px;
+    height: 19px;
+    border-radius: 1px;
+    background: #007aff;
+    animation: caret 1.05s steps(1) infinite;
+  }
+  .typed { width: 180px; height: 10px; border-radius: 999px; background: var(--line); }
+  @keyframes caret { 50% { opacity: .2; } }
+
+  .hud-zone {
+    position: absolute;
+    left: 50%;
+    bottom: 84px;
+    transform: translateX(-50%);
+    display: grid;
+    justify-items: center;
+    align-items: center;
+    row-gap: 5px;
+  }
+
+  .voice-pill {
+    background: var(--hud);
+    border: 1px solid var(--hud-border);
+    color: var(--hud-text);
+    box-shadow: var(--hud-shadow);
+  }
+
+  /* Not a second pill: this is a caption helper with no surface, border, blur, or shadow. */
+  .indicator {
+    height: 16px;
+    min-width: 260px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--helper);
+    font: 560 10.5px/1 var(--font);
+    letter-spacing: -.004em;
+    opacity: 0;
+    transform: translateY(2px);
+    pointer-events: none;
+    transition: opacity .20s var(--ease), transform .20s var(--ease), color .28s var(--ease);
+    white-space: nowrap;
+  }
+
+  .indicator.show { opacity: 1; transform: translateY(0); }
+
+  .voice-pill {
+    position: relative;
+    width: 144px;
+    height: 32px;
+    border-radius: 999px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: width .24s var(--ease), transform .18s var(--ease), opacity .18s var(--ease);
+  }
+
+  .voice-pill.enter { animation: enter .28s var(--ease) both; }
+  @keyframes enter {
+    from { opacity: 0; transform: translateY(4px) scale(.94); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .voice-pill.hidden { opacity: 0; transform: translateY(4px) scale(.96); }
+
+  .wipe {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0%;
+    border-radius: inherit;
+    background: var(--hud-wipe);
+    transition: width .18s linear;
+  }
+
+  .pill-content {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 16px;
+  }
+
+  .label {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--hud-text);
+    font: 610 11.5px/1 var(--font);
+    letter-spacing: -.012em;
+    text-align: center;
+  }
+
+  canvas#wave {
+    width: 108px;
+    height: 26px;
+    display: block;
+  }
+
+  .caption {
+    width: min(980px, 100%);
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .rule {
+    border: 1px solid var(--stage-border);
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+  .rule b { color: var(--text); font-weight: 650; }
+
+  @media (max-width: 760px) {
+    .page { padding: 18px; }
+    .topbar { flex-direction: column; }
+    .controls { justify-content: flex-start; }
+    .stage { min-height: 500px; }
+    .mock-window { width: calc(100% - 36px); top: 48px; }
+    .caption { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body data-theme="light">
+  <main class="page">
+    <header class="topbar">
+      <div class="title">
+        <h1>MAYN Voice Pill</h1>
+        <p>Centered final direction. One real surface, text-free recording, caption-style helper, graphite HUD across light and dark.</p>
+      </div>
+      <nav class="controls" aria-label="Demo controls">
+        <button data-action="auto" class="active">Auto</button>
+        <button data-action="wave">Wave</button>
+        <button data-action="process">Process</button>
+        <button data-action="slow">Slow</button>
+        <button data-action="paste">Paste</button>
+        <button data-action="error">Error</button>
+        <button data-theme-btn="light" class="active">Light</button>
+        <button data-theme-btn="dark">Dark</button>
+      </nav>
+    </header>
+
+    <section class="stage-wrap" aria-label="Voice HUD preview">
+      <div class="stage">
+        <div class="mock-window" aria-hidden="true">
+          <div class="chrome">
+            <span class="traffic"></span><span class="traffic"></span><span class="traffic"></span>
+          </div>
+          <div class="doc">
+            <div class="line"></div>
+            <div class="line"></div>
+            <div class="line"></div>
+            <div class="line"></div>
+            <div class="line"></div>
+            <div class="line"></div>
+            <div class="insertion">
+              <span class="typed"></span>
+              <span class="cursor"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-zone">
+          <div class="indicator" id="indicator"></div>
+          <div class="voice-pill enter" id="pill">
+            <div class="wipe" id="wipe"></div>
+            <div class="pill-content" id="content">
+              <canvas id="wave" width="216" height="52"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="caption">
+      <div class="rule"><b>One real surface.</b><br />The upper message is now a caption, not a second pill. No background, border, blur, or shadow.</div>
+      <div class="rule"><b>Everything is centered.</b><br />Pill content uses a single centered flex layer. Text, waveform, and wipe sit on the same axis.</div>
+      <div class="rule"><b>Light and dark stay simple.</b><br />The environment switches; the HUD remains the same graphite system overlay.</div>
+    </footer>
+  </main>
+
+<script>
+(() => {
+  const pill = document.getElementById('pill');
+  const content = document.getElementById('content');
+  const wipe = document.getElementById('wipe');
+  const indicator = document.getElementById('indicator');
+  const canvas = document.getElementById('wave');
+  const ctx = canvas.getContext('2d');
+  const actionButtons = [...document.querySelectorAll('[data-action]')];
+  const themeButtons = [...document.querySelectorAll('[data-theme-btn]')];
+
+  let state = 'wave';
+  let processingStart = performance.now();
+  let autoTimers = [];
+  let lastAuto = false;
+  let waveLevel = 0.78;
+
+  const bars = [0.42, 0.62, 0.82, 0.96, 0.96, 0.82, 0.62, 0.42];
+  const keyframes = [[0,0],[1,0.50],[2,0.58],[3,0.61],[4,0.62],[5,0.62],[10,0.63]];
+
+  function bootProgress(seconds) {
+    if (seconds <= 0) return 0;
+    const last = keyframes[keyframes.length - 1];
+    if (seconds >= last[0]) return last[1];
+    for (let i = 1; i < keyframes.length; i++) {
+      const a = keyframes[i - 1];
+      const b = keyframes[i];
+      if (seconds <= b[0]) {
+        const t = (seconds - a[0]) / (b[0] - a[0]);
+        return a[1] + (b[1] - a[1]) * t;
+      }
+    }
+    return last[1];
+  }
+
+  function setActive(action) {
+    actionButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.action === action));
+  }
+
+  function setIndicator(text) {
+    if (!text) {
+      indicator.classList.remove('show');
+      indicator.textContent = '';
+      return;
+    }
+    indicator.textContent = text;
+    indicator.classList.add('show');
+  }
+
+  function label(html) {
+    content.innerHTML = '<div class="label">' + html + '</div>';
+  }
+
+  function waveCanvas() {
+    content.innerHTML = '';
+    content.appendChild(canvas);
+  }
+
+  function setState(next, options = {}) {
+    state = next;
+    pill.classList.remove('enter');
+    void pill.offsetWidth;
+    pill.classList.add('enter');
+    wipe.style.width = '0%';
+
+    if (next === 'hidden') {
+      pill.classList.add('hidden');
+      setIndicator('');
+      return;
+    }
+
+    pill.classList.remove('hidden');
+
+    if (next === 'wave') {
+      pill.style.width = '144px';
+      waveLevel = options.dim ? 0.28 : 0.78;
+      waveCanvas();
+      setIndicator(options.indicator || '');
+      return;
+    }
+
+    if (next === 'process') {
+      pill.style.width = '164px';
+      processingStart = performance.now();
+      label('Transcribing');
+      setIndicator(options.indicator || '');
+      return;
+    }
+
+    if (next === 'slow') {
+      pill.style.width = '172px';
+      processingStart = performance.now() - 3600;
+      label('Still working...');
+      setIndicator('Taking longer than usual...');
+      return;
+    }
+
+    if (next === 'paste') {
+      pill.style.width = '144px';
+      label('&#8984;V to paste');
+      wipe.style.width = '0%';
+      setIndicator('Text copied to clipboard');
+      return;
+    }
+
+    if (next === 'error') {
+      pill.style.width = '166px';
+      label('Mic unavailable');
+      wipe.style.width = '0%';
+      setIndicator('Check microphone access');
+    }
+  }
+
+  function drawWave(now) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const w = canvas.width;
+    const h = canvas.height;
+    const center = h / 2;
+    const gap = 4.4;
+    const bw = 4.8;
+    const total = bars.length * bw + (bars.length - 1) * gap;
+    let x = (w - total) / 2;
+
+    ctx.fillStyle = 'rgba(255,255,255,.96)';
+    for (let i = 0; i < bars.length; i++) {
+      const phase = now / (115 + i * 8) + i * .55;
+      const pulse = .72 + Math.sin(phase) * .28;
+      const target = 6 + bars[i] * waveLevel * pulse * 46;
+      const bh = Math.max(6, Math.min(50, target));
+      const y = center - bh / 2;
+      roundRect(ctx, x, y, bw, bh, bw / 2);
+      ctx.fill();
+      x += bw + gap;
+    }
+  }
+
+  function roundRect(context, x, y, w, h, r) {
+    context.beginPath();
+    context.moveTo(x + r, y);
+    context.arcTo(x + w, y, x + w, y + h, r);
+    context.arcTo(x + w, y + h, x, y + h, r);
+    context.arcTo(x, y + h, x, y, r);
+    context.arcTo(x, y, x + w, y, r);
+    context.closePath();
+  }
+
+  function tick(now) {
+    if (state === 'wave') drawWave(now);
+    if (state === 'process' || state === 'slow') {
+      const elapsed = (now - processingStart) / 1000;
+      const boot = bootProgress(elapsed);
+      const floor = state === 'slow' ? 0.58 : 0;
+      const width = Math.max(boot, floor) * 100;
+      wipe.style.width = width.toFixed(1) + '%';
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function clearAuto() {
+    autoTimers.forEach(id => clearTimeout(id));
+    autoTimers = [];
+    lastAuto = false;
+  }
+
+  function auto() {
+    clearAuto();
+    lastAuto = true;
+    setActive('auto');
+    const steps = [
+      [0, () => setState('wave', { dim: true })],
+      [650, () => setState('wave', { indicator: 'Using Built-in Microphone' })],
+      [2500, () => setState('process')],
+      [5600, () => setState('slow')],
+      [8200, () => setState('process', { indicator: '' })],
+      [9800, () => setState('paste')],
+      [11800, () => auto()]
+    ];
+    autoTimers = steps.map(([ms, fn]) => setTimeout(fn, ms));
+  }
+
+  actionButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      clearAuto();
+      const action = btn.dataset.action;
+      setActive(action);
+      if (action === 'auto') auto();
+      if (action === 'wave') setState('wave');
+      if (action === 'process') setState('process');
+      if (action === 'slow') setState('slow');
+      if (action === 'paste') setState('paste');
+      if (action === 'error') setState('error');
+    });
+  });
+
+  themeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.body.dataset.theme = btn.dataset.themeBtn;
+      themeButtons.forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+
+  setState('wave');
+  requestAnimationFrame(tick);
+  auto();
+})();
+</script>
+</body>
+</html>

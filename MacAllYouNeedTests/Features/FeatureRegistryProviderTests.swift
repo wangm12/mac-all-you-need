@@ -11,7 +11,7 @@ final class FeatureRegistryProviderTests: XCTestCase {
             [
                 .clipboard, .clipboardSmartText, .voice, .voiceReminders, .downloader,
                 .folderPreview, .folderHistory, .aiFileOrganizer, .windowLayouts,
-                .windowGrab, .dockPreviews,
+                .windowGrab, .windowHub,
             ],
             "Registry order is contractual; UI iterates this order."
         )

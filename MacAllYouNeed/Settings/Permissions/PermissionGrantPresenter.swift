@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import CoreGraphics
+import Core
 import FeatureCore
 import SwiftUI
 import UI
@@ -147,6 +148,28 @@ struct InlinePermissionInstruction: Equatable {
 }
 
 enum PermissionGrantPresenter {
+    private static let floatingDismissedKeyPrefix = "permission.floating.dismissed."
+
+    private static func floatingDismissedKey(for permission: Permission) -> String {
+        floatingDismissedKeyPrefix + permission.rawValue
+    }
+
+    @MainActor
+    static func resetFloatingDismissal(for permission: Permission? = nil, defaults: UserDefaults = AppGroupSettings.defaults) {
+        if let permission {
+            defaults.removeObject(forKey: floatingDismissedKey(for: permission))
+        } else {
+            for permission in Permission.allCases {
+                defaults.removeObject(forKey: floatingDismissedKey(for: permission))
+            }
+        }
+    }
+
+    @MainActor
+    private static func isFloatingDismissed(for permission: Permission, defaults: UserDefaults = AppGroupSettings.defaults) -> Bool {
+        defaults.bool(forKey: floatingDismissedKey(for: permission))
+    }
+
     static func inlineInstruction(for permission: Permission, appName: String = "Mac All You Need") -> InlinePermissionInstruction {
         if let target = PermissionInstructionTarget.from(permission) {
             let instruction = target.instruction(appName: appName)
@@ -176,7 +199,9 @@ enum PermissionGrantPresenter {
         }
     }
 
+    @MainActor
     static func shouldPresentFloatingPanel(for permission: Permission) -> Bool {
+        guard !isFloatingDismissed(for: permission) else { return false }
         switch permission {
         case .microphone:
             let status = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -216,7 +241,12 @@ enum PermissionGrantPresenter {
         onOpenSettings: @escaping () -> Void
     ) {
         let instruction = target.instruction(appName: appName)
+        let dismissedPermission = permission(for: target)
         guard PermissionFloatingInstructionPresentation.shouldFloat(instruction) else {
+            onOpenSettings()
+            return
+        }
+        guard !isFloatingDismissed(for: dismissedPermission) else {
             onOpenSettings()
             return
         }
@@ -227,6 +257,9 @@ enum PermissionGrantPresenter {
             appURL: Bundle.main.bundleURL,
             sourceWindow: sourceWindow,
             attachToSystemSettings: true,
+            onClose: {
+                AppGroupSettings.defaults.set(true, forKey: floatingDismissedKey(for: dismissedPermission))
+            },
             openSettings: onOpenSettings
         )
         onOpenSettings()
@@ -235,6 +268,22 @@ enum PermissionGrantPresenter {
     @MainActor
     static func dismissFloatingPanel() {
         FloatingPermissionInstructionPanelController.shared.dismiss()
+    }
+
+    @MainActor
+    static func dismissFloatingPanel(for permission: Permission) {
+        AppGroupSettings.defaults.set(true, forKey: floatingDismissedKey(for: permission))
+        FloatingPermissionInstructionPanelController.shared.dismiss()
+    }
+
+    private static func permission(for target: PermissionInstructionTarget) -> Permission {
+        switch target {
+        case .accessibility: .accessibility
+        case .microphone: .microphone
+        case .screenRecording: .screenRecording
+        case .fullDiskAccess: .fullDiskAccess
+        case .notifications: .notifications
+        }
     }
 }
 
@@ -316,6 +365,7 @@ final class FloatingPermissionInstructionPanelController {
         appURL: URL,
         sourceWindow preferredSourceWindow: NSWindow?,
         attachToSystemSettings: Bool = false,
+        onClose: (() -> Void)? = nil,
         openSettings: @escaping () -> Void
     ) {
         guard PermissionFloatingInstructionPresentation.shouldFloat(instruction) else { return }
@@ -337,7 +387,10 @@ final class FloatingPermissionInstructionPanelController {
             appName: appName,
             appURL: appURL,
             openSettings: openSettings,
-            close: { [weak self] in self?.dismiss() }
+            close: { [weak self] in
+                onClose?()
+                self?.dismiss()
+            }
         )
 
         let initialFrame = computeInitialFrame(

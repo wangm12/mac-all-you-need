@@ -14,6 +14,7 @@ final class MainAppDestinationTests: XCTestCase {
         XCTAssertEqual(MainAppDestination.storedSelection("windowLayouts"), .windowLayouts)
         XCTAssertEqual(MainAppDestination.storedSelection("grabAnywhere"), .grabAnywhere)
         XCTAssertEqual(MainAppDestination.storedSelection("settings"), .settings)
+        XCTAssertEqual(MainAppDestination.storedSelection("voiceReminders"), .voice)
     }
 
     func testLegacyWindowsSelectionMapsToWindowLayouts() {
@@ -65,13 +66,12 @@ final class MainAppDestinationTests: XCTestCase {
             .dashboard,
             .clipboard,
             .voice,
-            .voiceReminders,
             .downloads,
             .aiFileOrganizer,
             .folderPreview,
             .windowLayouts,
             .grabAnywhere,
-            .dockPreviews
+            .windowHub
         ])
         XCTAssertFalse(MainAppDestination.primarySidebarDestinations.contains(.settings))
     }
@@ -306,6 +306,19 @@ final class MainVoiceTranscriptHistoryPresentationTests: XCTestCase {
             ),
             "Empty transcript"
         )
+        XCTAssertEqual(
+            MainVoiceTranscriptHistoryPresentation.displayText(
+                makeTranscript(
+                    id: "cancelled",
+                    rawText: "",
+                    cleanedText: "",
+                    status: .failed,
+                    failedStage: .cancelled,
+                    failureReason: "user_cancelled"
+                )
+            ),
+            "Cancelled"
+        )
     }
 
     func testClickSelectionMatchesClipboardHistoryRules() {
@@ -382,7 +395,14 @@ final class MainVoiceTranscriptHistoryPresentationTests: XCTestCase {
         XCTAssertEqual(moved.anchorID, "three")
     }
 
-    private func makeTranscript(id: String, rawText: String, cleanedText: String) -> VoiceTranscript {
+    private func makeTranscript(
+        id: String,
+        rawText: String,
+        cleanedText: String,
+        status: VoiceTranscriptStatus = .success,
+        failedStage: VoiceTranscriptFailedStage? = nil,
+        failureReason: String? = nil
+    ) -> VoiceTranscript {
         VoiceTranscript(
             id: id,
             startedAt: Date(timeIntervalSince1970: 1),
@@ -393,7 +413,10 @@ final class MainVoiceTranscriptHistoryPresentationTests: XCTestCase {
             appBundleID: nil,
             language: .mixed,
             modelIdentifier: "qwen3-asr-0.6b-f32",
-            audioPath: nil
+            audioPath: nil,
+            status: status,
+            failedStage: failedStage,
+            failureReason: failureReason
         )
     }
 }

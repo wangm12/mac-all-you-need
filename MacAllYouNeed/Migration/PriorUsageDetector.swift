@@ -103,6 +103,6 @@ struct PriorUsageDetector {
     private func detectWindowGrab() -> PriorUsageLevel {
         guard defaults.data(forKey: WindowControlSettingsStore.key) != nil else { return .none }
         let settings = WindowControlSettingsStore.load(from: defaults)
-        return settings.enabled && settings.dragAnywhereEnabled ? .directEvidence : .none
+        return settings.dragAnywhereEnabled ? .directEvidence : .none
     }
 }

@@ -34,7 +34,7 @@ final class VoiceCoordinatorAudioPolicyTests: XCTestCase {
 
     // MARK: - persistAudio gating
 
-    func testPersistAudio_saves_when_only_saveAudio_isTrue() {
+    func testPersistAudio_saves_when_saveAudio_isTrue() {
         let coordinator = makeCoordinator(saveAudio: true, personalizationSaveExamples: false)
         let id = UUID().uuidString
         let path = coordinator.persistAudio(captured: fakeCaptured(), transcriptID: id)
@@ -43,14 +43,15 @@ final class VoiceCoordinatorAudioPolicyTests: XCTestCase {
         XCTAssertEqual(try? trainingStore.count(), 0)
     }
 
-    func testPersistAudio_saves_when_only_personalization_isTrue() {
-        let coordinator = makeCoordinator(saveAudio: false, personalizationSaveExamples: true)
+    func testPersistAudio_saves_when_forceSave_evenIfSaveAudioOff() {
+        let coordinator = makeCoordinator(saveAudio: false, personalizationSaveExamples: false)
         let id = UUID().uuidString
-        let path = coordinator.persistAudio(captured: fakeCaptured(), transcriptID: id)
+        let path = coordinator.persistAudio(captured: fakeCaptured(), transcriptID: id, forceSave: true)
         XCTAssertNotNil(path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path!))
     }
 
-    func testPersistAudio_returnsNil_when_both_off() {
+    func testPersistAudio_returnsNil_when_saveAudioOff_andNotForced() {
         let coordinator = makeCoordinator(saveAudio: false, personalizationSaveExamples: false)
         let id = UUID().uuidString
         let path = coordinator.persistAudio(captured: fakeCaptured(), transcriptID: id)

@@ -41,6 +41,7 @@ struct WindowLayoutsPopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            popoverHeader
             if !controller.windowControl.windowLayoutsEnabled {
                 unavailableBlock(
                     title: "Window Layouts is off",
@@ -91,6 +92,27 @@ struct WindowLayoutsPopoverView: View {
             layoutSettings = WindowControlSettingsStore.load()
             hotkeyMap = HotkeyMapStore.load()
         }
+    }
+
+    private var popoverHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Window Layouts")
+                    .font(.headline.weight(.semibold))
+                Text("Snap the front window, or open the full Window Layouts page for shortcuts, ignored apps, and diagnostics.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            MAYNButton("Open Window Layouts", role: .primary, height: HotkeyChipPresentation.compactHeight) {
+                openWindowLayoutsInMainApp()
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(MAYNTheme.panel)
     }
 
     @ViewBuilder

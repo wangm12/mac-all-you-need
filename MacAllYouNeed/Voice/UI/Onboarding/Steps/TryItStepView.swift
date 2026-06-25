@@ -6,17 +6,31 @@ struct VoiceTryItStepView: View {
     let controller: AppController
     let markSucceeded: () -> Void
     @State private var text = ""
-    @State private var statusMessage = "Click inside the editor, then use the shortcut or buttons to dictate."
+    @State private var statusMessage = "Ready. Click the editor, then press the voice shortcut or Start recording."
+    @State private var statusKind: StatusPill.Kind = .neutral
     @State private var shouldShowMicPermissionCTA = OnboardingPermissionCTAVisibility.shouldShowMicrophoneCTA()
     private let permissionPoll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Try it now")
-                .font(.title)
-                .bold()
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Try it now")
+                    .font(.title)
+                    .bold()
+                Text("Do these 3 steps: click the editor, dictate once, then stop and insert.")
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                VoiceTryItInstructionRow(number: "1", title: "Click the editor", detail: "Keep the text field focused so the app knows where to paste.")
+                VoiceTryItInstructionRow(number: "2", title: "Dictate one sentence", detail: "Use the shortcut or the Start recording button.")
+                VoiceTryItInstructionRow(number: "3", title: "Stop and insert", detail: "The HUD should turn into a success state and enable Continue.")
+            }
+
             Text("Suggested phrase: 嗨 mingjie, 我们今天 deploy 这个 service 到 production")
+                .font(.callout)
                 .foregroundStyle(.secondary)
+
             TextEditor(text: $text)
                 .font(.body)
                 .frame(minHeight: 150)
@@ -42,6 +56,7 @@ struct VoiceTryItStepView: View {
                 }
                 .disabled(controller.voiceCoordinator.state != .recording)
             }
+            StatusPill(text: statusMessage, kind: statusKind)
             HStack(spacing: 10) {
                 MAYNButton("Open Notes") {
                     NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Notes.app"))
@@ -70,9 +85,6 @@ struct VoiceTryItStepView: View {
                 .background(Color(nsColor: .controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            Text(statusMessage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
             Text("Continue unlocks automatically after a successful transcript insert. You can also use Skip for now.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -81,6 +93,7 @@ struct VoiceTryItStepView: View {
         .onChange(of: controller.voiceCoordinator.lastTranscript) { _, transcript in
             guard transcript != nil else { return }
             statusMessage = "Transcript inserted. Continue is now enabled."
+            statusKind = .success
             markSucceeded()
         }
         .onAppear {
@@ -96,5 +109,34 @@ struct VoiceTryItStepView: View {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+}
+
+private struct VoiceTryItInstructionRow: View {
+    let number: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(number)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+                .frame(width: 24, height: 24)
+                .background(Color.primary.opacity(0.08), in: Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

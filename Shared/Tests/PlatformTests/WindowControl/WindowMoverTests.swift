@@ -18,7 +18,7 @@ final class WindowMoverTests: XCTestCase {
         ])
     }
 
-    func testFixedSizeWindowDoesNotResizeForResizeAction() {
+    func testFixedSizeWindowCentersWithinResizeActionRegion() {
         let element = FakeWindowElement(
             frame: CGRect(x: 100, y: 100, width: 800, height: 600),
             isResizable: false
@@ -27,9 +27,9 @@ final class WindowMoverTests: XCTestCase {
 
         let result = mover.move(element, action: .leftHalf)
 
-        XCTAssertEqual(result.status, .fixedSizeWindow)
-        XCTAssertEqual(element.operations, [])
-        XCTAssertEqual(element.frame, CGRect(x: 100, y: 100, width: 800, height: 600))
+        XCTAssertEqual(result.status, .moved)
+        XCTAssertEqual(result.proposedFrame?.size, CGSize(width: 800, height: 600))
+        XCTAssertTrue(element.operations.contains(.position(CGPoint(x: 0, y: 150))))
     }
 
     func testFixedSizeWindowCanMoveWhenSizeIsUnchanged() {
@@ -308,6 +308,101 @@ final class WindowMoverTests: XCTestCase {
         XCTAssertEqual(element.frame, CGRect(x: 0, y: -450, width: 1000, height: 450))
     }
 
+    func testRightHalfStaysRightWhenResizeLagsAfterPositionWrite() {
+        let element = ResizeLagFakeWindowElement(
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            laggingResizeCount: 1
+        )
+        let mover = WindowMover(screenDetector: fixedDetector())
+
+        let result = mover.move(element, action: .rightHalf)
+
+        XCTAssertEqual(result.proposedFrame, CGRect(x: 720, y: 0, width: 720, height: 900))
+        XCTAssertEqual(result.status, .moved)
+        XCTAssertEqual(element.frame.origin.x, 720, accuracy: 0.5)
+        XCTAssertEqual(element.frame.width, 720, accuracy: 0.5)
+    }
+
+    func testBottomHalfStaysBottomWhenResizeLagsAfterPositionWrite() {
+        let element = ResizeLagFakeWindowElement(
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            laggingResizeCount: 1
+        )
+        let mover = WindowMover(screenDetector: fixedDetector())
+
+        let result = mover.move(element, action: .bottomHalf)
+
+        XCTAssertEqual(result.proposedFrame, CGRect(x: 0, y: 450, width: 1440, height: 450))
+        XCTAssertEqual(result.status, .moved)
+        XCTAssertEqual(element.frame.origin.y, 450, accuracy: 0.5)
+        XCTAssertEqual(element.frame.height, 450, accuracy: 0.5)
+    }
+
+    func testRightHalfAsyncRetryWhenResizeStillWrongAfterImmediateRetry() {
+        let element = ResizeLagFakeWindowElement(
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            laggingResizeCount: 6
+        )
+        let mover = WindowMover(screenDetector: fixedDetector())
+        var scheduledRetries = 0
+        mover.crossDisplayRetryScheduler = { work in
+            scheduledRetries += 1
+            work()
+        }
+
+        let result = mover.move(element, action: .rightHalf)
+
+        XCTAssertEqual(result.status, .moved)
+        XCTAssertEqual(scheduledRetries, 1)
+        XCTAssertEqual(element.frame.origin.x, 720, accuracy: 0.5)
+        XCTAssertEqual(element.frame.width, 720, accuracy: 0.5)
+    }
+
+    func testRightHalfStaysRightWhenPositionLagsAfterResizeWrite() {
+        let element = PositionLagFakeWindowElement(
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            laggingPositionCount: 1
+        )
+        let mover = WindowMover(screenDetector: fixedDetector())
+
+        let result = mover.move(element, action: .rightHalf)
+
+        XCTAssertEqual(result.proposedFrame, CGRect(x: 720, y: 0, width: 720, height: 900))
+        XCTAssertEqual(result.status, .moved)
+        XCTAssertEqual(element.frame.origin.x, 720, accuracy: 0.5)
+        XCTAssertEqual(element.frame.width, 720, accuracy: 0.5)
+    }
+
+    func testBottomHalfStaysBottomWhenPositionLagsAfterResizeWrite() {
+        let element = PositionLagFakeWindowElement(
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            laggingPositionCount: 1
+        )
+        let mover = WindowMover(screenDetector: fixedDetector())
+
+        let result = mover.move(element, action: .bottomHalf)
+
+        XCTAssertEqual(result.proposedFrame, CGRect(x: 0, y: 450, width: 1440, height: 450))
+        XCTAssertEqual(result.status, .moved)
+        XCTAssertEqual(element.frame.origin.y, 450, accuracy: 0.5)
+        XCTAssertEqual(element.frame.height, 450, accuracy: 0.5)
+    }
+
+    func testLeftHalfUnchangedWhenResizeLagsAfterPositionWrite() {
+        let element = ResizeLagFakeWindowElement(
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            laggingResizeCount: 1
+        )
+        let mover = WindowMover(screenDetector: fixedDetector())
+
+        let result = mover.move(element, action: .leftHalf)
+
+        XCTAssertEqual(result.proposedFrame, CGRect(x: 0, y: 0, width: 720, height: 900))
+        XCTAssertEqual(result.status, .moved)
+        XCTAssertEqual(element.frame.origin.x, 0, accuracy: 0.5)
+        XCTAssertEqual(element.frame.width, 720, accuracy: 0.5)
+    }
+
     func testMoveUsesSingleSnapshotAndBoundedFrameReads() {
         let element = FakeWindowElement(frame: CGRect(x: 100, y: 100, width: 800, height: 600))
         let mover = WindowMover(screenDetector: fixedDetector())
@@ -503,5 +598,95 @@ private final class FakeWindowElement: WindowMovableElement {
         storedFrame.size = size
         operations.append(.size(size))
         return setSizeSucceeds
+    }
+}
+
+private final class ResizeLagFakeWindowElement: WindowMovableElement {
+    enum Operation: Equatable {
+        case position(CGPoint)
+        case size(CGSize)
+    }
+
+    var frame: CGRect { storedFrame }
+    let isResizable = true
+    let isMovable = true
+    let isSupportedForWindowControl = true
+    var enhancedUserInterfaceEnabled: Bool?
+    private var storedFrame: CGRect
+    private var laggingResizeCount: Int
+    private(set) var operations: [Operation] = []
+
+    init(frame: CGRect, laggingResizeCount: Int) {
+        storedFrame = frame
+        self.laggingResizeCount = laggingResizeCount
+    }
+
+    func snapshot() -> WindowSnapshot {
+        WindowSnapshot(
+            frame: storedFrame,
+            isResizable: isResizable,
+            isMovable: isMovable,
+            isSupportedForWindowControl: isSupportedForWindowControl,
+            enhancedUserInterfaceEnabled: enhancedUserInterfaceEnabled
+        )
+    }
+
+    func setEnhancedUserInterfaceEnabled(_: Bool) -> Bool { true }
+
+    func setPosition(_ position: CGPoint) -> Bool {
+        storedFrame.origin = position
+        operations.append(.position(position))
+        return true
+    }
+
+    func setSize(_ size: CGSize) -> Bool {
+        operations.append(.size(size))
+        if laggingResizeCount > 0 {
+            laggingResizeCount -= 1
+            return true
+        }
+        storedFrame.size = size
+        return true
+    }
+}
+
+private final class PositionLagFakeWindowElement: WindowMovableElement {
+    var frame: CGRect { storedFrame }
+    let isResizable = true
+    let isMovable = true
+    let isSupportedForWindowControl = true
+    var enhancedUserInterfaceEnabled: Bool?
+    private var storedFrame: CGRect
+    private var laggingPositionCount: Int
+
+    init(frame: CGRect, laggingPositionCount: Int) {
+        storedFrame = frame
+        self.laggingPositionCount = laggingPositionCount
+    }
+
+    func snapshot() -> WindowSnapshot {
+        WindowSnapshot(
+            frame: storedFrame,
+            isResizable: isResizable,
+            isMovable: isMovable,
+            isSupportedForWindowControl: isSupportedForWindowControl,
+            enhancedUserInterfaceEnabled: enhancedUserInterfaceEnabled
+        )
+    }
+
+    func setEnhancedUserInterfaceEnabled(_: Bool) -> Bool { true }
+
+    func setPosition(_ position: CGPoint) -> Bool {
+        if laggingPositionCount > 0 {
+            laggingPositionCount -= 1
+            return true
+        }
+        storedFrame.origin = position
+        return true
+    }
+
+    func setSize(_ size: CGSize) -> Bool {
+        storedFrame.size = size
+        return true
     }
 }

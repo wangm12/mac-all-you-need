@@ -68,6 +68,19 @@ final class WindowCrossDisplayRetryTests: XCTestCase {
         XCTAssertTrue(WindowCrossDisplayRetry.needsSizeCorrection(actual: actual, proposed: proposed))
     }
 
+    func testNeedsFrameCorrectionDetectsPositionMismatch() {
+        let proposed = CGRect(x: 720, y: 0, width: 720, height: 900)
+        let actual = CGRect(x: 0, y: 0, width: 720, height: 900)
+        XCTAssertFalse(WindowCrossDisplayRetry.needsSizeCorrection(actual: actual, proposed: proposed))
+        XCTAssertTrue(WindowCrossDisplayRetry.needsFrameCorrection(actual: actual, proposed: proposed))
+    }
+
+    func testNeedsFrameCorrectionDetectsSizeMismatch() {
+        let proposed = CGRect(x: 720, y: 0, width: 720, height: 900)
+        let actual = CGRect(x: 720, y: 0, width: 1440, height: 900)
+        XCTAssertTrue(WindowCrossDisplayRetry.needsFrameCorrection(actual: actual, proposed: proposed))
+    }
+
     func testIsCrossDisplayMoveForNextDisplayAction() {
         let detector = WindowScreenDetector(screens: [
             WindowControlScreen(

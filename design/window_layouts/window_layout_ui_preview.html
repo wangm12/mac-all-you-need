@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Window Layouts — UI & Preview Color Review</title>
+<style>
+  :root {
+    --page: #1c1c1e;
+    --panel: rgba(38,38,40,.94);
+    --panel-2: rgba(48,48,50,.88);
+    --bar: rgba(28,28,30,.72);
+    --surface: rgba(58,58,60,.72);
+    --line: rgba(255,255,255,.12);
+    --line-soft: rgba(255,255,255,.07);
+    --text: #f2f2f7;
+    --muted: #98989d;
+    --muted-2: #636366;
+    --blue: #0a84ff;
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --hover: rgba(255,255,255,.06);
+    --selected: rgba(10,132,255,.16);
+    --radius: 14px;
+    --ease: cubic-bezier(.22,.74,.2,1);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--page);
+    color: var(--text);
+    padding: 20px;
+  }
+
+  .page-header {
+    max-width: 1440px;
+    margin: 0 auto 18px;
+  }
+  .page-header h1 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    letter-spacing: -.02em;
+  }
+  .page-header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .grid {
+    max-width: 1440px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 300px 1fr 420px;
+    gap: 18px;
+    align-items: start;
+  }
+
+  @media (max-width: 1180px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    background: var(--panel-2);
+    overflow: hidden;
+  }
+  .card-head {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .card-head h2 {
+    margin: 0;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+  }
+  .card-head p {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: var(--muted-2);
+    line-height: 1.45;
+  }
+  .card-body { padding: 14px 16px 16px; }
+
+  .swatch-grid {
+    display: grid;
+    gap: 10px;
+  }
+  .swatch {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 8px;
+    border-radius: 10px;
+    background: var(--hover);
+    border: 1px solid var(--line-soft);
+  }
+  .swatch-chip {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.14);
+    position: relative;
+    overflow: hidden;
+  }
+  .swatch-chip::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, transparent 50%, rgba(0,0,0,.18) 50%);
+  }
+  .swatch-title { font-size: 12px; font-weight: 600; }
+  .swatch-meta { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .control {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line-soft);
+  }
+  .control label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 6px;
+    color: var(--muted);
+  }
+  .control label strong { color: var(--text); font-weight: 600; }
+  input[type="range"] { width: 100%; accent-color: var(--blue); }
+  .preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .preset-btn {
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .preset-btn.active {
+    border-color: rgba(10,132,255,.45);
+    background: var(--selected);
+    color: #fff;
+  }
+
+  .stage-wrap {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    background: #111113;
+    min-height: 520px;
+  }
+  #runtimeCanvas {
+    width: 100%;
+    height: 520px;
+    display: block;
+    cursor: crosshair;
+  }
+  .stage-hint {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,.36);
+    font-size: 12px;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  /* Settings UI mock */
+  .app-shell {
+    background: #111113;
+    border-radius: 12px;
+    border: 1px solid var(--line-soft);
+    overflow: hidden;
+    min-height: 520px;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-titlebar {
+    height: 52px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 10px;
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(24,24,26,.92);
+  }
+  .traffic { display: flex; gap: 7px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; opacity: .85; }
+  .dot.r { background: #ff5f57; }
+  .dot.y { background: #febc2e; }
+  .dot.g { background: #28c840; }
+  .app-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+  .app-sub { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+  .page-chrome { padding: 16px 16px 0; }
+  .page-chrome h3 {
+    margin: 0;
+    font-size: 20px;
+    letter-spacing: -.02em;
+  }
+  .page-chrome p {
+    margin: 4px 0 12px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .tab-strip {
+    display: flex;
+    gap: 4px;
+    padding: 0 16px 12px;
+    overflow-x: auto;
+  }
+  .tab {
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .tab.active {
+    background: var(--selected);
+    border-color: rgba(10,132,255,.28);
+    color: #fff;
+  }
+
+  .settings-scroll {
+    flex: 1;
+    overflow: auto;
+    padding: 0 16px 16px;
+    max-height: 380px;
+  }
+  .section {
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    background: rgba(31,31,33,.72);
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .section-head {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .section-head h4 { margin: 0; font-size: 12px; font-weight: 600; }
+  .section-head p { margin: 4px 0 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 12px;
+    font-size: 12px;
+    border-top: 1px solid var(--line-soft);
+  }
+  .row:first-of-type { border-top: none; }
+  .row-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .toggle {
+    width: 36px; height: 20px; border-radius: 10px;
+    background: var(--blue); position: relative; flex-shrink: 0;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute; top: 2px; right: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff;
+  }
+  .mini-preview {
+    margin: 8px 12px 12px;
+    height: 148px;
+    border-radius: 10px;
+    border: 1px solid var(--line-soft);
+    background: linear-gradient(180deg, #111113, #171719 52%, #101011);
+    position: relative;
+    overflow: hidden;
+  }
+  .mini-preview iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    pointer-events: none;
+    transform: scale(1);
+    transform-origin: top left;
+  }
+
+  .compare-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .compare-box {
+    height: 72px;
+    border-radius: 10px;
+    border: 1px solid var(--line-soft);
+    position: relative;
+    overflow: hidden;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,.04) 25%, transparent 25% 50%, rgba(255,255,255,.04) 50% 75%, transparent 75%),
+      #242426;
+    background-size: 16px 16px;
+  }
+  .compare-box .overlay {
+    position: absolute;
+    inset: 12px 12px 12px 42%;
+    border-radius: 8px;
+  }
+  .compare-label {
+    position: absolute;
+    left: 8px; bottom: 6px;
+    font-size: 10px;
+    color: var(--muted);
+    background: rgba(0,0,0,.45);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .legend {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .legend code {
+    font-size: 10px;
+    background: var(--hover);
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+  <div class="page-header">
+    <h1>Window Layouts — UI & Preview 颜色预览</h1>
+    <p>
+      左侧调节 preview 透明度 token；中间是<strong>运行时桌面 HUD</strong>（蓝层 + Puck）；右侧是<strong>Settings → Window Layouts → Radial</strong> 页面结构 mock。
+      打开方式：<code>open design/window_layouts/window_layout_ui_preview.html</code>
+    </p>
+  </div>
+
+  <div class="grid">
+    <!-- Tokens -->
+    <div class="card">
+      <div class="card-head">
+        <h2>Preview 颜色 Token</h2>
+        <p>来自 <code>RadialPuckVisualTokens.swift</code>，与运行时蓝层一致。</p>
+      </div>
+      <div class="card-body">
+        <div class="swatch-grid">
+          <div class="swatch">
+            <div class="swatch-chip" id="chipBase" style="background:#0A84FF"></div>
+            <div>
+              <div class="swatch-title">focusPreviewFill / Stroke</div>
+              <div class="swatch-meta">#0A84FF · rgb(10,132,255)</div>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-chip" id="chipFill"></div>
+            <div>
+              <div class="swatch-title">Fill 层（半屏）</div>
+              <div class="swatch-meta" id="fillMeta">28% opacity</div>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-chip" id="chipStroke"></div>
+            <div>
+              <div class="swatch-title">Stroke 描边（半屏）</div>
+              <div class="swatch-meta" id="strokeMeta">88% · 1.85pt</div>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="swatch-chip" id="chipShadow"></div>
+            <div>
+              <div class="swatch-title">Shadow 光晕</div>
+              <div class="swatch-meta" id="shadowMeta">38% · blur 22</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="control">
+          <label><strong>Fill opacity</strong><span id="fillVal">0.28</span></label>
+          <input id="fillSlider" type="range" min="0.02" max="0.45" step="0.01" value="0.28" />
+        </div>
+        <div class="control">
+          <label><strong>Stroke opacity</strong><span id="strokeVal">0.88</span></label>
+          <input id="strokeSlider" type="range" min="0.20" max="1" step="0.01" value="0.88" />
+        </div>
+        <div class="control">
+          <label><strong>Full-screen boost</strong><span id="fullVal">0.10</span></label>
+          <input id="fullSlider" type="range" min="0" max="0.20" step="0.01" value="0.10" />
+        </div>
+
+        <div class="preset-row">
+          <button class="preset-btn" data-preset="old">旧版 (太淡)</button>
+          <button class="preset-btn" data-preset="current">上一版</button>
+          <button class="preset-btn active" data-preset="strong">更强对比</button>
+        </div>
+
+        <div class="compare-row">
+          <div class="compare-box">
+            <div class="overlay" id="compareOld"></div>
+            <div class="compare-label">旧 fill 4.5%</div>
+          </div>
+          <div class="compare-box">
+            <div class="overlay" id="compareNew"></div>
+            <div class="compare-label">更强对比 fill 28%</div>
+          </div>
+        </div>
+
+        <div class="legend">
+          Puck 材质：<code>ambient #262628 70%</code> ·
+          <code>active #2E2E30 82%</code> ·
+          标签 pill <code>#1F1F21 78%</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- Runtime stage -->
+    <div class="card" style="padding:0;background:transparent;border:none">
+      <div class="stage-wrap">
+        <canvas id="runtimeCanvas"></canvas>
+        <div class="stage-hint">在画布上拖动 — 任意方向拉过圆环即 Fill Screen</div>
+      </div>
+    </div>
+
+    <!-- Settings mock -->
+    <div class="app-shell">
+      <div class="app-titlebar">
+        <div class="traffic"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="app-title">Mac All You Need</div>
+        <div class="app-sub">Window Layouts</div>
+      </div>
+      <div class="page-chrome">
+        <h3>Window Layouts</h3>
+        <p>Arrange, snap, and restore windows.</p>
+      </div>
+      <div class="tab-strip" id="tabStrip">
+        <button class="tab" data-tab="shortcuts">Shortcuts</button>
+        <button class="tab active" data-tab="radial">Radial</button>
+        <button class="tab" data-tab="snap">Snap</button>
+        <button class="tab" data-tab="apps">Ignored Apps</button>
+        <button class="tab" data-tab="rules">Rules</button>
+        <button class="tab" data-tab="diagnostics">Diagnostics</button>
+      </div>
+      <div class="settings-scroll" id="settingsContent"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const PRESETS = {
+    old:     { fill: 0.045, stroke: 0.48, fullBoost: 0.018, strokeW: 1.25 },
+    current: { fill: 0.20,  stroke: 0.64, fullBoost: 0.08,  strokeW: 1.5 },
+    strong:  { fill: 0.28,  stroke: 0.88, fullBoost: 0.10,  strokeW: 1.85 },
+  };
+
+  let tokens = { ...PRESETS.strong };
+  let fullA = 0;
+
+  const fillSlider = document.getElementById('fillSlider');
+  const strokeSlider = document.getElementById('strokeSlider');
+  const fullSlider = document.getElementById('fullSlider');
+  const fillVal = document.getElementById('fillVal');
+  const strokeVal = document.getElementById('strokeVal');
+  const fullVal = document.getElementById('fullVal');
+  const chipFill = document.getElementById('chipFill');
+  const chipStroke = document.getElementById('chipStroke');
+  const chipShadow = document.getElementById('chipShadow');
+  const fillMeta = document.getElementById('fillMeta');
+  const strokeMeta = document.getElementById('strokeMeta');
+  const compareOld = document.getElementById('compareOld');
+  const compareNew = document.getElementById('compareNew');
+
+  function fillOpacity(fullBlend = 0) {
+    return tokens.fill + tokens.fullBoost * fullBlend;
+  }
+  function strokeOpacity(fullBlend = 0) {
+    return tokens.stroke + (tokens.fullBoost * 3) * fullBlend;
+  }
+  function strokeWidth(fullBlend = 0) {
+    return tokens.strokeW + 0.35 * fullBlend;
+  }
+
+  function rgbaBlue(a) {
+    return `rgba(10,132,255,${a})`;
+  }
+
+  function applyTokenUI() {
+    const f = fillOpacity(0);
+    const s = strokeOpacity(0);
+    chipFill.style.background = rgbaBlue(f);
+    chipStroke.style.background = `linear-gradient(180deg, transparent 62%, ${rgbaBlue(s)} 62%)`;
+    chipShadow.style.background = `radial-gradient(circle at 50% 55%, ${rgbaBlue(0.32)}, transparent 70%)`;
+    fillMeta.textContent = `${Math.round(f * 100)}% opacity`;
+    strokeMeta.textContent = `${Math.round(s * 100)}% · ${strokeWidth(0).toFixed(2)}pt`;
+    fillVal.textContent = tokens.fill.toFixed(2);
+    strokeVal.textContent = tokens.stroke.toFixed(2);
+    fullVal.textContent = tokens.fullBoost.toFixed(2);
+    fillSlider.value = tokens.fill;
+    strokeSlider.value = tokens.stroke;
+    fullSlider.value = tokens.fullBoost;
+    compareOld.style.background = rgbaBlue(0.045);
+    compareOld.style.boxShadow = `0 0 18px ${rgbaBlue(0.18 * 0.32)}`;
+    compareOld.style.border = `1.25px solid ${rgbaBlue(0.48)}`;
+    compareNew.style.background = rgbaBlue(fillOpacity(0));
+    compareNew.style.boxShadow = `0 0 22px ${rgbaBlue(0.32)}`;
+    compareNew.style.border = `${strokeWidth(0)}px solid ${rgbaBlue(strokeOpacity(0))}`;
+  }
+
+  function setPreset(name) {
+    tokens = { ...PRESETS[name] };
+    document.querySelectorAll('.preset-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.preset === name);
+    });
+    applyTokenUI();
+  }
+
+  fillSlider.addEventListener('input', () => {
+    tokens.fill = +fillSlider.value;
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    applyTokenUI();
+  });
+  strokeSlider.addEventListener('input', () => {
+    tokens.stroke = +strokeSlider.value;
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    applyTokenUI();
+  });
+  fullSlider.addEventListener('input', () => {
+    tokens.fullBoost = +fullSlider.value;
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    applyTokenUI();
+  });
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => setPreset(btn.dataset.preset));
+  });
+
+  // ---- Runtime canvas (radial HUD) ----
+  const canvas = document.getElementById('runtimeCanvas');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const TAU = Math.PI * 2;
+  const HALF_PI = Math.PI / 2;
+  let W = 0, H = 0, DPR = 1;
+  let anchor = { x: 0, y: 0 };
+  let pointer = { x: 0, y: 0 };
+  let hasPointer = false;
+  let pointerMovedOnce = false;
+
+  const state = {
+    canonicalAngle: 0,
+    radius: 0,
+    active: 0,
+    preview: { x: 0, y: 0, w: 0, h: 0, a: 0 },
+    label: '',
+    labelA: 0,
+    fullA: 0,
+  };
+
+  const ARMED_ENTER = 30;
+  const ARMED_EXIT = 24;
+  const FS_ENTER = 130;
+  const FS_EXIT = 115;
+  const FS_DWELL_MS = 180;
+  const RING_COUNT = 8;
+
+  const ringActions = [
+    { label: 'Top Half', type: 'top' },
+    { label: 'Top Right', type: 'topRight' },
+    { label: 'Right Half', type: 'right' },
+    { label: 'Bottom Right', type: 'bottomRight' },
+    { label: 'Bottom Half', type: 'bottom' },
+    { label: 'Bottom Left', type: 'bottomLeft' },
+    { label: 'Left Half', type: 'left' },
+    { label: 'Top Left', type: 'topLeft' },
+  ];
+  const fullScreenAction = { label: 'Fill Screen', type: 'full' };
+  let selectionState = { isArmed: false, lastRingIndex: null, isFullScreen: false, fullScreenArmingStartedAt: null };
+
+  function aimAngleRadians(dx, dy) {
+    let angle = Math.atan2(dx, -dy);
+    if (angle < 0) angle += TAU;
+    return angle;
+  }
+
+  function rawRingIndex(dx, dy) {
+    const angle = aimAngleRadians(dx, dy);
+    const segmentWidth = TAU / RING_COUNT;
+    const shifted = (angle + segmentWidth / 2) % TAU;
+    return Math.floor(shifted / segmentWidth) % RING_COUNT;
+  }
+
+  function canonicalAngleForRing(ringIndex) {
+    return ringIndex * (TAU / RING_COUNT);
+  }
+
+  function selectFromDelta(dx, dy, nowMs = performance.now()) {
+    const dist = Math.hypot(dx, dy);
+    if (selectionState.isArmed) {
+      if (dist < ARMED_EXIT) {
+        selectionState = { isArmed: false, lastRingIndex: null, isFullScreen: false, fullScreenArmingStartedAt: null };
+        return null;
+      }
+    } else if (dist < ARMED_ENTER) {
+      return null;
+    } else {
+      selectionState.isArmed = true;
+    }
+
+    const ringIndex = rawRingIndex(dx, dy);
+    selectionState.lastRingIndex = ringIndex;
+
+    if (selectionState.isFullScreen) {
+      if (dist < FS_EXIT) {
+        selectionState.isFullScreen = false;
+        selectionState.fullScreenArmingStartedAt = null;
+        return ringActions[ringIndex];
+      }
+      return fullScreenAction;
+    }
+
+    if (dist >= FS_ENTER) {
+      if (selectionState.fullScreenArmingStartedAt == null) {
+        selectionState.fullScreenArmingStartedAt = nowMs;
+      }
+      if (nowMs - selectionState.fullScreenArmingStartedAt < FS_DWELL_MS) {
+        selectionState.isFullScreen = false;
+        return ringActions[ringIndex];
+      }
+      selectionState.isFullScreen = true;
+      selectionState.fullScreenArmingStartedAt = null;
+      return fullScreenAction;
+    }
+
+    selectionState.fullScreenArmingStartedAt = null;
+    selectionState.isFullScreen = false;
+    return ringActions[ringIndex];
+  }
+
+  function displayDistance(dist, action) {
+    if (!action) return 0;
+    if (dist >= FS_EXIT) return Math.min(Math.max(dist, ARMED_ENTER), 88);
+    if (action.type === 'full') return Math.min(Math.max(dist, ARMED_ENTER), 88);
+    return Math.min(Math.max(dist, ARMED_ENTER), 55);
+  }
+
+  function canonicalAngleForAction(action, dx, dy) {
+    const dist = Math.hypot(dx, dy);
+    if (!action) return state.canonicalAngle;
+    if (action.type === 'full' || dist >= FS_EXIT) return aimAngleRadians(dx, dy);
+    const index = ringActions.findIndex(item => item.type === action.type);
+    return index >= 0 ? canonicalAngleForRing(index) : 0;
+  }
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = canvas.getBoundingClientRect();
+    W = Math.round(rect.width);
+    H = Math.round(rect.height);
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    anchor.x = W / 2;
+    anchor.y = H / 2;
+    if (!hasPointer) { pointer.x = anchor.x; pointer.y = anchor.y; }
+  }
+
+  function displayRect() {
+    const mx = Math.max(36, Math.min(72, W * 0.06));
+    const top = 36, bottom = 36;
+    return { x: mx, y: top, w: W - mx * 2, h: H - top - bottom };
+  }
+  function activeWindowRect() {
+    const d = displayRect();
+    const w = Math.min(560, d.w * 0.58);
+    const h = Math.min(340, d.h * 0.55);
+    return { x: d.x + (d.w - w) / 2, y: d.y + (d.h - h) / 2, w, h };
+  }
+  function targetRect(type) {
+    const d = displayRect();
+    const hw = d.w / 2, hh = d.h / 2;
+    const m = {
+      left: { x: d.x, y: d.y, w: hw, h: d.h },
+      right: { x: d.x + hw, y: d.y, w: hw, h: d.h },
+      top: { x: d.x, y: d.y, w: d.w, h: hh },
+      bottom: { x: d.x, y: d.y + hh, w: d.w, h: hh },
+      topLeft: { x: d.x, y: d.y, w: hw, h: hh },
+      topRight: { x: d.x + hw, y: d.y, w: hw, h: hh },
+      bottomLeft: { x: d.x, y: d.y + hh, w: hw, h: hh },
+      bottomRight: { x: d.x + hw, y: d.y + hh, w: hw, h: hh },
+      full: { x: d.x, y: d.y, w: d.w, h: d.h },
+    };
+    return m[type] || d;
+  }
+
+  function shortestAngleDelta(from, to) {
+    return Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  }
+  function dampAngle(current, target, lambda, dt) {
+    const tau = 1 - Math.exp(-lambda * dt);
+    const delta = shortestAngleDelta(current, target);
+    let next = current + delta * tau;
+    if (next < 0) next += TAU;
+    if (next >= TAU) next -= TAU;
+    return next;
+  }
+  function shortestAngle(from, to) {
+    return from + shortestAngleDelta(from, to);
+  }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function damp(c, t, lambda, dt) { return lerp(c, t, 1 - Math.exp(-lambda * dt)); }
+  function rrPath(x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+  function fillR(x, y, w, h, r, fill) { rrPath(x, y, w, h, r); ctx.fillStyle = fill; ctx.fill(); }
+  function strokeR(x, y, w, h, r, stroke, lw = 1) {
+    rrPath(x, y, w, h, r); ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke();
+  }
+
+  function selectedAction() {
+    const dx = pointer.x - anchor.x;
+    const dy = pointer.y - anchor.y;
+    const dist = Math.hypot(dx, dy);
+    const action = selectFromDelta(dx, dy);
+    if (!action) return { action: null, canonicalAngle: state.canonicalAngle, dist };
+    return {
+      action,
+      canonicalAngle: canonicalAngleForAction(action, dx, dy),
+      dist,
+    };
+  }
+
+  function update(dt) {
+    const pick = selectedAction();
+    const has = !!pick.action;
+    state.active = damp(state.active, has ? 1 : 0, 14, dt);
+    state.labelA = damp(state.labelA, has ? 1 : 0, 12, dt);
+    state.fullA = damp(state.fullA, pick.action?.type === 'full' ? 1 : 0, 12, dt);
+    fullA = state.fullA;
+    state.radius = damp(state.radius, displayDistance(pick.dist, pick.action), 16, dt);
+    if (has) {
+      const aimLambda = (pick.dist >= FS_EXIT || pick.action?.type === 'full') ? 20 : 14;
+      state.canonicalAngle = dampAngle(state.canonicalAngle, pick.canonicalAngle, aimLambda, dt);
+      state.label = pick.action.label;
+      const tr = targetRect(pick.action.type);
+      state.preview.x = damp(state.preview.x, tr.x, 15, dt);
+      state.preview.y = damp(state.preview.y, tr.y, 15, dt);
+      state.preview.w = damp(state.preview.w, tr.w, 15, dt);
+      state.preview.h = damp(state.preview.h, tr.h, 15, dt);
+      state.preview.a = damp(state.preview.a, 1, 14, dt);
+    } else {
+      state.preview.a = damp(state.preview.a, 0, 10, dt);
+    }
+    applyTokenUI();
+  }
+
+  function drawBg() {
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#3a4a5c');
+    g.addColorStop(0.45, '#4a5d72');
+    g.addColorStop(1, '#2f3d4d');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // wallpaper noise
+    for (let i = 0; i < 40; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.012 + Math.random() * 0.02})`;
+      ctx.fillRect(Math.random() * W, Math.random() * H, 2 + Math.random() * 80, 1);
+    }
+
+    const win = activeWindowRect();
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.42)';
+    ctx.shadowBlur = 36;
+    ctx.shadowOffsetY = 18;
+    fillR(win.x, win.y, win.w, win.h, 14, '#ececee');
+    ctx.restore();
+    fillR(win.x, win.y, win.w, 32, 14, '#f5f5f7');
+    [['#ff5f57', win.x + 16], ['#febc2e', win.x + 34], ['#28c840', win.x + 52]].forEach(([c, x]) => {
+      ctx.beginPath(); ctx.arc(x, win.y + 16, 5, 0, TAU);
+      ctx.fillStyle = c; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+    });
+    strokeR(win.x, win.y, win.w, win.h, 14, 'rgba(0,0,0,0.08)', 1);
+    fillR(win.x + 24, win.y + 58, win.w - 48, 10, 5, 'rgba(0,0,0,0.08)');
+    fillR(win.x + 24, win.y + 78, win.w * 0.45, 10, 5, 'rgba(0,0,0,0.06)');
+    fillR(win.x + 24, win.y + 108, win.w - 48, 120, 8, 'rgba(0,0,0,0.04)');
+  }
+
+  function drawPreview() {
+    const a = state.preview.a;
+    if (a < 0.01) return;
+    const p = state.preview;
+    const radius = state.fullA > 0.5 ? 15 : 13;
+    const fo = fillOpacity(state.fullA);
+    const so = strokeOpacity(state.fullA);
+    const sw = strokeWidth(state.fullA);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.shadowColor = rgbaBlue(0.32 * a);
+    ctx.shadowBlur = 22;
+    fillR(p.x, p.y, p.w, p.h, radius, rgbaBlue(fo));
+    ctx.shadowBlur = 0;
+    strokeR(p.x + 0.5, p.y + 0.5, p.w - 1, p.h - 1, radius, rgbaBlue(so), sw);
+    ctx.restore();
+  }
+
+  function drawGlyph(type, cx, cy, s, alpha) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(s, s);
+    ctx.globalAlpha = alpha;
+    const x = -9, y = -6, w = 18, h = 12, r = 2.5;
+    strokeR(x, y, w, h, r, 'rgba(255,255,255,0.86)', 1.25);
+    let fx = x + 2.1, fy = y + 2.1, fw = w - 4.2, fh = h - 4.2;
+    if (type.includes('left') && !type.includes('Right')) fw /= 2;
+    if (type.includes('right') || type === 'right') { fx += fw / (type === 'right' ? 1 : 2); fw /= 2; }
+    if (type === 'top') fh /= 2;
+    if (type === 'bottom') { fy += fh / 2; fh /= 2; }
+    if (type === 'topLeft') { fw /= 2; fh /= 2; }
+    if (type === 'topRight') { fx += fw / 2; fw /= 2; fh /= 2; }
+    if (type === 'bottomLeft') { fw /= 2; fy += fh / 2; fh /= 2; }
+    if (type === 'bottomRight') { fx += fw / 2; fw /= 2; fy += fh / 2; fh /= 2; }
+    if (type === 'full') { fx = x + 2.1; fy = y + 2.1; fw = w - 4.2; fh = h - 4.2; }
+    fillR(fx, fy, fw, fh, 1.3, 'rgba(255,255,255,0.78)');
+    ctx.restore();
+  }
+
+  function drawPuck() {
+    const active = state.active;
+    const px = anchor.x + Math.sin(state.canonicalAngle) * state.radius;
+    const py = anchor.y - Math.cos(state.canonicalAngle) * state.radius;
+    const puckR = 46;
+    const fill = active > 0.1
+      ? `rgba(${state.fullA > 0.4 ? '56,56,58' : '46,46,48'},${0.82 + active * 0.04})`
+      : 'rgba(38,38,40,0.70)';
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.36)';
+    ctx.shadowBlur = 22;
+    ctx.beginPath(); ctx.arc(anchor.x, anchor.y, puckR, 0, TAU);
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `rgba(255,255,255,${0.105 + active * 0.12})`;
+    ctx.lineWidth = 1; ctx.stroke();
+
+    if (active > 0.05) {
+      ctx.beginPath(); ctx.arc(px, py, 5.5, 0, TAU);
+      ctx.fillStyle = 'rgba(255,255,255,0.48)'; ctx.fill();
+      const pick = selectedAction();
+      if (pick.action) {
+        const off = 34;
+        const gx = anchor.x + Math.sin(pick.canonicalAngle) * off;
+        const gy = anchor.y - Math.cos(pick.canonicalAngle) * off;
+        drawGlyph(pick.action.type, gx, gy, 1, 0.55 + active * 0.4);
+      }
+    }
+    ctx.restore();
+
+    if (state.labelA > 0.02 && state.label) {
+      const tw = Math.max(92, state.label.length * 7.2 + 28);
+      const lx = anchor.x - tw / 2;
+      const ly = anchor.y + puckR + 14;
+      const la = state.labelA;
+      ctx.save();
+      ctx.globalAlpha = la;
+      fillR(lx, ly, tw, 28, 14, 'rgba(31,31,33,0.78)');
+      strokeR(lx, ly, tw, 28, 14, 'rgba(255,255,255,0.10)', 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.82)';
+      ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(state.label, anchor.x, ly + 18);
+      ctx.restore();
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    update(dt);
+    drawBg();
+    drawPreview();
+    drawPuck();
+    requestAnimationFrame(frame);
+  }
+
+  canvas.addEventListener('pointermove', e => {
+    const r = canvas.getBoundingClientRect();
+    pointer.x = e.clientX - r.left;
+    pointer.y = e.clientY - r.top;
+    hasPointer = true;
+    pointerMovedOnce = true;
+  });
+  canvas.addEventListener('pointerleave', () => {
+    hasPointer = false;
+    pointerMovedOnce = false;
+    pointer.x = anchor.x;
+    pointer.y = anchor.y;
+  });
+
+  // ---- Settings tab content ----
+  const TAB_HTML = {
+    radial: `
+      <div class="section">
+        <div class="section-head"><h4>Radial Puck</h4><p>Hold trigger · drag from center · release to apply</p></div>
+        <div class="row"><div>Layout puck<div class="row-sub">Gesture-based layout HUD</div></div><div class="toggle"></div></div>
+      </div>
+      <div class="section">
+        <div class="section-head"><h4>Preview</h4><p>Drag in demo below — blue layer = destination frame</p></div>
+        <div class="mini-preview" id="miniEmbed"></div>
+      </div>
+      <div class="section">
+        <div class="section-head"><h4>Target Highlight</h4><p>Glow on focused window (optional)</p></div>
+        <div class="row"><div>Highlight window</div><div class="toggle"></div></div>
+        <div class="row"><div>Border color</div><span style="width:18px;height:18px;border-radius:50%;background:#0A84FF;border:1px solid rgba(255,255,255,.2)"></span></div>
+      </div>
+      <div class="section">
+        <div class="section-head"><h4>Layout Actions</h4><p>Keyboard bindings while puck is open</p></div>
+        ${['Left Half','Right Half','Top Half','Bottom Half','Fill Screen'].map(t =>
+          `<div class="row"><div>${t}</div><code style="font-size:11px;color:var(--muted)">${t[0]}</code></div>`
+        ).join('')}
+      </div>`,
+    shortcuts: `<div class="section"><div class="section-head"><h4>Keyboard Shortcuts</h4><p>Global hotkeys for halves, corners, displays</p></div><div class="row"><div>Left Half</div><code>⌃⌥←</code></div><div class="row"><div>Right Half</div><code>⌃⌥→</code></div><div class="row"><div>Maximize</div><code>⌃⌥↩</code></div></div>`,
+    snap: `<div class="section"><div class="section-head"><h4>Edge Snap</h4><p>Drag windows to screen edges</p></div><div class="row"><div>Snap while dragging</div><div class="toggle"></div></div><div class="row"><div>Snap Assist zones</div><div class="toggle"></div></div></div>`,
+    apps: `<div class="section"><div class="section-head"><h4>Ignored Apps</h4><p>Exclude apps from window control</p></div><div class="row"><div style="color:var(--muted)">No ignored apps</div></div></div>`,
+    rules: `<div class="section"><div class="section-head"><h4>Window Rules</h4><p>Per-app layout behavior</p></div><div class="row"><div style="color:var(--muted)">No rules configured</div></div></div>`,
+    diagnostics: `<div class="section"><div class="section-head"><h4>Diagnostics</h4><p>Event tap and AX status</p></div><div class="row"><div>Accessibility</div><span style="color:var(--green);font-size:11px">Trusted</span></div></div>`,
+  };
+
+  const settingsContent = document.getElementById('settingsContent');
+  function showTab(tab) {
+    settingsContent.innerHTML = TAB_HTML[tab] || TAB_HTML.radial;
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    if (tab === 'radial') {
+      const mini = document.getElementById('miniEmbed');
+      if (mini && !mini.dataset.loaded) {
+        mini.dataset.loaded = '1';
+        mini.innerHTML = '<div style="position:absolute;inset:0;display:grid;place-items:center;color:rgba(255,255,255,.35);font-size:11px">↖ 见左侧运行时画布</div>';
+      }
+    }
+  }
+  document.getElementById('tabStrip').addEventListener('click', e => {
+    const tab = e.target.closest('.tab');
+    if (tab) showTab(tab.dataset.tab);
+  });
+
+  window.addEventListener('resize', resize);
+  resize();
+  applyTokenUI();
+  setPreset('strong');
+  showTab('radial');
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

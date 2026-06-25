@@ -19,6 +19,10 @@ final class RadialMenuLayoutTests: XCTestCase {
         XCTAssertNil(RadialMenuLayout.action(forRingIndex: -1))
     }
 
+    func testFillScreenActionIsMaximize() {
+        XCTAssertEqual(RadialMenuLayout.fillScreenAction, .maximize)
+    }
+
     func testCenterActionIsMaximize() {
         XCTAssertEqual(RadialMenuLayout.centerAction, .maximize)
     }

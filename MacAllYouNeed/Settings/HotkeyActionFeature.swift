@@ -8,6 +8,7 @@ extension HotkeyAction {
         case .clipboard: return .clipboard
         case .browseFolder: return .folderPreview
         case .finderHistory: return .folderHistory
+        case .windowHub: return .windowHub
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
              .windowMaximize, .windowAlmostMaximize, .windowCenter, .windowRestore,

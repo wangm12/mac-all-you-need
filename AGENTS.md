@@ -101,8 +101,8 @@ Current first-class tool surfaces (11 total):
   (`voiceReminders`).
 - **AI File Organizer** - AI-assisted file organization suggestions
   (`aiFileOrganizer`).
-- **Dock Previews** - rich Dock icon previews for clipboard and file content
-  (`dockPreviews`).
+- **Window Hub** - search-first AX window/tab hub with cleanup and AI organize
+  (`windowHub`).
 
 ## UI Rules
 

@@ -56,20 +56,28 @@ final class AudioCaptureServiceTests: XCTestCase {
         )
     }
 
-    func testLivePeakLevelTracksCurrentPeakWithFastDecay() {
-        XCTAssertEqual(
-            AudioCaptureService.livePeakLevel(previous: 0.2, incomingPeak: 0.7),
-            1,
-            accuracy: 0.0001
-        )
+    func testRMSLevelFromSamples() {
+        XCTAssertEqual(AudioCaptureService.rmsLevel(from: [0.3, 0.4]), 0.3536, accuracy: 0.001)
+        XCTAssertEqual(AudioCaptureService.rmsLevel(from: []), 0)
+    }
+
+    func testLivePeakLevelUsesAttackAndNoiseGate() {
         XCTAssertGreaterThan(
-            AudioCaptureService.livePeakLevel(previous: 0.05, incomingPeak: 0.03),
-            0.25
+            AudioCaptureService.livePeakLevel(previous: 0, incomingEnvelope: 0.05),
+            0.18
         )
-        XCTAssertEqual(
-            AudioCaptureService.livePeakLevel(previous: 0.8, incomingPeak: 0),
-            0.496,
-            accuracy: 0.0001
+        XCTAssertLessThan(
+            AudioCaptureService.livePeakLevel(previous: 0.5, incomingEnvelope: 0.001),
+            0.5
+        )
+    }
+
+    func testSpeechWaveformEnvelopePrefersPeakForSyllableAttacks() {
+        let envelope = AudioCaptureService.speechWaveformEnvelope(rms: 0.02, peak: 0.12)
+        XCTAssertGreaterThan(envelope, 0.05)
+        XCTAssertGreaterThan(
+            envelope,
+            AudioCaptureService.speechWaveformEnvelope(rms: 0.02, peak: 0.02)
         )
     }
 

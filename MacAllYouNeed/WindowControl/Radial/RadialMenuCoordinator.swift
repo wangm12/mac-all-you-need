@@ -25,9 +25,18 @@ final class RadialMenuCoordinator {
         case cancelled
     }
 
+    enum Unavailability: Equatable {
+        case noMovableWindow
+        case accessibilityRequired
+        case cannotResize
+    }
+
     private(set) var state: State = .idle
     private(set) var selection: RadialSelectionMath.Selection = .none
+    private(set) var selectionState = RadialSelectionMath.SelectionState()
     private(set) var proposedFrame: CGRect?
+    private(set) var unavailability: Unavailability?
+    private(set) var lastCursorDelta: CGPoint = .zero
 
     private let actionPerformer: any RadialActionPerforming
     private let frameResolver: any ProposedFrameResolving
@@ -42,8 +51,11 @@ final class RadialMenuCoordinator {
     func open(at point: CGPoint, desktopBounds: CGRect? = nil) {
         state = .open(menuCenter: point)
         selection = .none
+        selectionState = RadialSelectionMath.SelectionState()
         proposedFrame = nil
+        unavailability = nil
         lastCursor = nil
+        lastCursorDelta = .zero
         if let desktopBounds, !desktopBounds.isNull, !desktopBounds.isEmpty {
             edgeClamp = RadialSelectionMath.EdgeClamp(initial: point, desktopBounds: desktopBounds)
         } else {
@@ -52,11 +64,19 @@ final class RadialMenuCoordinator {
     }
 
     func select(action: WindowAction) {
-        guard case let .open(center) = state else { return }
-        if let index = RadialMenuLayout.ringActions.firstIndex(of: action) {
+        guard case .open = state else { return }
+        if action == RadialMenuLayout.fillScreenAction {
+            selection = .fullScreen
+            selectionState.isArmed = true
+            selectionState.isFullScreen = true
+            selectionState.lastRingIndex = 0
+            lastCursorDelta = RadialSelectionMath.syntheticDelta(for: .fullScreen)
+        } else if let index = RadialMenuLayout.ringIndex(for: action) {
             selection = .ring(index)
-        } else if action == RadialMenuLayout.centerAction {
-            selection = .center
+            selectionState.isArmed = true
+            selectionState.isFullScreen = false
+            selectionState.lastRingIndex = index
+            lastCursorDelta = RadialSelectionMath.syntheticDelta(for: .ring(index))
         } else {
             return
         }
@@ -77,36 +97,40 @@ final class RadialMenuCoordinator {
         }
         lastCursor = resolved
         let delta = CGPoint(x: resolved.x - center.x, y: resolved.y - center.y)
-        selection = RadialSelectionMath.selection(from: delta, cursor: resolved, menuCenter: center)
+        lastCursorDelta = delta
+        selection = RadialSelectionMath.selection(
+            from: delta,
+            state: &selectionState,
+            now: ProcessInfo.processInfo.systemUptime
+        )
         applySelectionFrame()
     }
 
-    /// Selects the close pill without dismissing; commit or Esc dismisses.
-    func selectClose() {
-        guard case .open = state else { return }
-        selection = .cancel
-        proposedFrame = nil
+    func setUnavailability(_ reason: Unavailability?) {
+        unavailability = reason
+        if reason != nil {
+            proposedFrame = nil
+        }
     }
 
     func clearSelection() {
         guard case .open = state else { return }
         selection = .none
+        selectionState = RadialSelectionMath.SelectionState()
         proposedFrame = nil
+        lastCursorDelta = .zero
     }
 
     private func applySelectionFrame() {
-        switch selection {
-        case let .ring(index):
-            if let action = RadialMenuLayout.action(forRingIndex: index) {
-                proposedFrame = frameResolver.proposedFrame(for: action)
-            } else {
-                proposedFrame = nil
-            }
-        case .center:
-            proposedFrame = frameResolver.proposedFrame(for: RadialMenuLayout.centerAction)
-        case .none, .cancel:
+        if unavailability != nil {
             proposedFrame = nil
+            return
         }
+        guard let action = RadialSelectionMath.action(for: selection) else {
+            proposedFrame = nil
+            return
+        }
+        proposedFrame = frameResolver.proposedFrame(for: action)
     }
 
     func commit() {
@@ -114,16 +138,11 @@ final class RadialMenuCoordinator {
             cancel()
             return
         }
-        let action: WindowAction?
-        switch selection {
-        case let .ring(index):
-            action = RadialMenuLayout.action(forRingIndex: index)
-        case .center:
-            action = RadialMenuLayout.centerAction
-        case .none, .cancel:
-            action = nil
+        guard unavailability == nil else {
+            cancel()
+            return
         }
-        if let action {
+        if let action = RadialSelectionMath.action(for: selection) {
             state = .committed(action: action)
             actionPerformer.perform(action: action)
         } else {
@@ -134,14 +153,20 @@ final class RadialMenuCoordinator {
     func cancel() {
         state = .cancelled
         selection = .none
+        selectionState = RadialSelectionMath.SelectionState()
         proposedFrame = nil
+        unavailability = nil
+        lastCursorDelta = .zero
     }
 
     func reset() {
         state = .idle
         selection = .none
+        selectionState = RadialSelectionMath.SelectionState()
         proposedFrame = nil
+        unavailability = nil
         edgeClamp = nil
         lastCursor = nil
+        lastCursorDelta = .zero
     }
 }

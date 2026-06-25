@@ -2,25 +2,61 @@ import Foundation
 import Network
 
 public actor DispatchServer {
+    public enum Action: String, Codable, Sendable {
+        case enqueue
+        case pause
+        case resume
+        case delete
+        case retry
+        case bulkEnqueue
+        case pauseCollection
+        case resumeCollection
+        case deleteCollection
+    }
+
     public struct Request: Equatable, Sendable {
+        public let action: Action
         public let url: String
         public let title: String?
         public let mediaType: String?
         public let referer: String?
         public let headers: [String: String]?
+        public let douyinAwemeID: String?
+        public let pageURL: String?
+        public let recordID: String?
+        public let collectionID: String?
+        public let deleteFiles: Bool
+        public let urls: [String]?
+        public let entries: [BulkEnqueueEntry]?
 
         public init(
+            action: Action = .enqueue,
             url: String,
             title: String? = nil,
             mediaType: String? = nil,
             referer: String? = nil,
-            headers: [String: String]? = nil
+            headers: [String: String]? = nil,
+            douyinAwemeID: String? = nil,
+            pageURL: String? = nil,
+            recordID: String? = nil,
+            collectionID: String? = nil,
+            deleteFiles: Bool = false,
+            urls: [String]? = nil,
+            entries: [BulkEnqueueEntry]? = nil
         ) {
+            self.action = action
             self.url = url
             self.title = title
             self.mediaType = mediaType
             self.referer = referer
             self.headers = headers
+            self.douyinAwemeID = douyinAwemeID
+            self.pageURL = pageURL
+            self.recordID = recordID
+            self.collectionID = collectionID
+            self.deleteFiles = deleteFiles
+            self.urls = urls
+            self.entries = entries
         }
     }
 
@@ -98,6 +134,13 @@ public actor DispatchServer {
         cookieSyncPending = true
     }
 
+    /// Clears persisted and in-memory extension registration so the next `/ping`
+    /// from the Companion can register a fresh token (e.g. after reload).
+    public func resetExtensionToken() {
+        extensionToken = nil
+        try? FileManager.default.removeItem(at: extensionTokenURL)
+    }
+
     private var extensionTokenURL: URL {
         AppGroup.containerURL().appendingPathComponent("extension.token")
     }
@@ -156,16 +199,29 @@ public actor DispatchServer {
             return await respond(conn, status: 200, body: #"{"ok":true,"app":"MacAllYouNeed"}"#, contentType: "application/json")
         }
 
+        // Browser navigation to the sync landing page cannot attach X-MAYN-Token;
+        // the content script triggers FORCE_COOKIE_SYNC after load.
+        if method == "GET", path == "/cookie-sync-landing" {
+            return await respond(conn, status: 200, body: Self.cookieSyncLandingHTML, contentType: "text/html; charset=utf-8")
+        }
+
+        // Loopback-only companion reset (listener is bound to loopback). Clears stale
+        // registration so the next extension /ping can register its token.
+        if method == "POST", path == "/companion-reset" {
+            resetExtensionToken()
+            return await respond(conn, status: 200, body: #"{"ok":true}"#, contentType: "application/json")
+        }
+
         // The /dispatch route authenticates with its own bearer token (below) and
         // is for external callers that do not hold the extension token. It must
         // bypass the extension-token guard.
         let isBearerDispatch = (method == "POST" && path == "/dispatch")
 
-        // FAIL CLOSED: every non-/ping endpoint (other than bearer /dispatch)
-        // requires a registered token, and the incoming request must carry a
-        // matching X-MAYN-Token. Before any token has been registered, all of
-        // these endpoints are rejected so a local process can never read/poison
-        // cookies or inject jobs.
+        // FAIL CLOSED: every non-/ping endpoint (other than bearer /dispatch and
+        // the landing page above) requires a registered token, and the incoming
+        // request must carry a matching X-MAYN-Token. Before any token has been
+        // registered, all of these endpoints are rejected so a local process can
+        // never read/poison cookies or inject jobs.
         if !isBearerDispatch {
             guard let registered = extensionToken else {
                 return await respond(conn, status: 401, body: #"{"error":"not registered"}"#, contentType: "application/json")
@@ -179,13 +235,6 @@ public actor DispatchServer {
         if method == "GET", path == "/cookie-sync-poll" {
             let body = #"{"pending":\#(cookieSyncPending ? "true" : "false")}"#
             return await respond(conn, status: 200, body: body, contentType: "application/json")
-        }
-
-        if method == "GET", path == "/cookie-sync-landing" {
-            let html = """
-            <!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>Cookie sync requested. Keep this page open in Chrome with extension installed.</body></html>
-            """
-            return await respond(conn, status: 200, body: html, contentType: "text/html; charset=utf-8")
         }
 
         if method == "POST", path == "/cookies" {
@@ -220,6 +269,7 @@ public actor DispatchServer {
             guard let parsed = try? JSONDecoder().decode(DownloadBody.self, from: bodyData) else {
                 return await respond(conn, status: 400, body: "invalid json", contentType: "text/plain")
             }
+            let action = parsed.action ?? .enqueue
             let urlList: [String] = if let urls = parsed.urls, !urls.isEmpty {
                 urls
             } else if let url = parsed.url {
@@ -227,21 +277,69 @@ public actor DispatchServer {
             } else {
                 []
             }
-            guard !urlList.isEmpty else {
-                return await respond(conn, status: 400, body: "missing url", contentType: "text/plain")
-            }
-            for url in urlList {
-                guard let parsedURL = URL(string: url),
-                      ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
-                else {
-                    return await respond(conn, status: 400, body: "unsupported url", contentType: "text/plain")
+            switch action {
+            case .enqueue, .bulkEnqueue:
+                if action == .bulkEnqueue, let entries = parsed.entries, !entries.isEmpty {
+                    Task { [handler] in
+                        await handler(.init(
+                            action: action,
+                            url: parsed.url ?? "",
+                            title: parsed.title,
+                            mediaType: parsed.type?.nilIfEmpty,
+                            referer: parsed.referer?.nilIfEmpty,
+                            headers: parsed.headers,
+                            douyinAwemeID: parsed.awemeId?.nilIfEmpty,
+                            pageURL: parsed.pageURL?.nilIfEmpty,
+                            recordID: parsed.recordID?.nilIfEmpty,
+                            collectionID: parsed.collectionID?.nilIfEmpty,
+                            deleteFiles: parsed.deleteFiles ?? false,
+                            urls: parsed.urls,
+                            entries: entries
+                        ))
+                    }
+                    return await respond(conn, status: 200, body: #"{"ok":true}"#, contentType: "application/json")
+                } else {
+                    guard !urlList.isEmpty else {
+                        return await respond(conn, status: 400, body: "missing url", contentType: "text/plain")
+                    }
+                    for url in urlList {
+                        guard let parsedURL = URL(string: url),
+                              ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
+                        else {
+                            return await respond(conn, status: 400, body: "unsupported url", contentType: "text/plain")
+                        }
+                        await handler(.init(
+                            action: action,
+                            url: url,
+                            title: parsed.title,
+                            mediaType: parsed.type?.nilIfEmpty,
+                            referer: parsed.referer?.nilIfEmpty,
+                            headers: parsed.headers,
+                            douyinAwemeID: parsed.awemeId?.nilIfEmpty,
+                            pageURL: parsed.pageURL?.nilIfEmpty,
+                            recordID: parsed.recordID?.nilIfEmpty,
+                            collectionID: parsed.collectionID?.nilIfEmpty,
+                            deleteFiles: parsed.deleteFiles ?? false,
+                            urls: parsed.urls,
+                            entries: parsed.entries
+                        ))
+                    }
                 }
+            default:
                 await handler(.init(
-                    url: url,
+                    action: action,
+                    url: parsed.url ?? "",
                     title: parsed.title,
                     mediaType: parsed.type?.nilIfEmpty,
                     referer: parsed.referer?.nilIfEmpty,
-                    headers: parsed.headers
+                    headers: parsed.headers,
+                    douyinAwemeID: parsed.awemeId?.nilIfEmpty,
+                    pageURL: parsed.pageURL?.nilIfEmpty,
+                    recordID: parsed.recordID?.nilIfEmpty,
+                    collectionID: parsed.collectionID?.nilIfEmpty,
+                    deleteFiles: parsed.deleteFiles ?? false,
+                    urls: parsed.urls,
+                    entries: parsed.entries
                 ))
             }
             return await respond(conn, status: 200, body: #"{"ok":true}"#, contentType: "application/json")
@@ -260,6 +358,31 @@ public actor DispatchServer {
         guard let line = lines.first(where: { $0.lowercased().hasPrefix(prefix) }) else { return nil }
         return String(line).dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
     }
+
+    private static let cookieSyncLandingHTML = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>Mac All You Need — Cookie Sync</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f5f5f7; color: #1d1d1f; }
+        main { max-width: 420px; padding: 32px 28px; background: #fff; border-radius: 14px; box-shadow: 0 8px 28px rgba(0,0,0,.08); text-align: center; }
+        h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+        p { font-size: 14px; line-height: 1.45; color: #6e6e73; margin: 0 0 16px; }
+        #status { font-size: 14px; font-weight: 500; color: #1d1d1f; min-height: 1.4em; }
+      </style>
+    </head>
+    <body>
+      <main>
+        <h1>Mac All You Need Companion</h1>
+        <p>Keep this tab open in Chrome with the Companion extension installed.</p>
+        <div id="status">Preparing cookie sync…</div>
+      </main>
+    </body>
+    </html>
+    """
 
     private func respond(_ conn: NWConnection, status: Int, body: String, contentType: String) async {
         let payload = """
@@ -280,12 +403,19 @@ public actor DispatchServer {
 }
 
 private struct DownloadBody: Codable {
+    let action: DispatchServer.Action?
     let url: String?
     let urls: [String]?
+    let entries: [BulkEnqueueEntry]?
     let title: String?
     let type: String?
     let referer: String?
     let headers: [String: String]?
+    let awemeId: String?
+    let pageURL: String?
+    let recordID: String?
+    let collectionID: String?
+    let deleteFiles: Bool?
 }
 
 private struct ChromeSyncCookie: Codable {

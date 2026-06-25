@@ -26,36 +26,49 @@ extension WindowControlCoordinator {
             let appKitCenter = Self.appKitPoint(fromCG: menuCenterCG)
             let detector = WindowScreenDetector.current()
             let desktopBounds = WindowScreenDetector.desktopBounds(for: detector.screens)
+            radialMenuViewModel.resetSessionMotion()
             radialMenuCoordinator.open(at: menuCenterCG, desktopBounds: desktopBounds)
+            refreshRadialSessionTargetWindow()
+            refreshRadialAvailability()
             refreshRadialOverlays(appKitMenuCenter: appKitCenter)
             installRadialEscMonitor()
         case let .update(cursor):
+            refreshRadialSessionTargetWindow()
             if settings.radialCursorSelectionEnabled {
                 radialMenuCoordinator.update(cursorAt: cursor)
-            } else if let center = radialMenuCoordinatorOpenCenter(),
-                      RadialSelectionMath.closeZoneContains(cursor: cursor, menuCenter: center) {
-                radialMenuCoordinator.selectClose()
+                radialMenuViewModel.notePointerMoved()
             } else {
                 radialMenuCoordinator.clearSelection()
             }
+            refreshRadialAvailability()
             refreshRadialOverlays(appKitMenuCenter: radialMenuAppKitCenter())
         case let .selectAction(action):
             radialMenuCoordinator.select(action: action)
+            refreshRadialSessionTargetWindow()
+            radialMenuViewModel.noteUserEngaged()
+            refreshRadialAvailability()
             refreshRadialOverlays(appKitMenuCenter: radialMenuAppKitCenter())
         case .commit:
+            let wasFullScreen = radialMenuCoordinator.selection == .fullScreen
+            radialMenuViewModel.snapPreviewToCommittedFrame(radialMenuCoordinator.proposedFrame)
             switch radialMenuCoordinator.selection {
-            case .cancel, .none:
+            case .none:
                 radialMenuCoordinator.cancel()
             default:
                 radialMenuCoordinator.commit()
+                if wasFullScreen {
+                    noteRadialFillScreenSuccess()
+                }
             }
             dismissRadialUI()
             radialMenuCoordinator.reset()
+            clearRadialSessionTargetWindow()
             (tap as? WindowControlEventTap)?.radialActive = false
         case .cancel:
             radialMenuCoordinator.cancel()
             dismissRadialUI()
             radialMenuCoordinator.reset()
+            clearRadialSessionTargetWindow()
             removeRadialEscMonitor()
         }
     }
@@ -81,30 +94,69 @@ extension WindowControlCoordinator {
     }
 
     private func refreshRadialOverlays(appKitMenuCenter: NSPoint) {
-        radialMenuViewModel.update(from: radialMenuCoordinator, hasTargetWindow: radialTargetWindow() != nil)
+        let axTrusted = AXIsProcessTrusted()
+        radialMenuViewModel.update(
+            from: radialMenuCoordinator,
+            axTrusted: axTrusted,
+            hasTargetWindow: radialSessionTargetWindow != nil,
+            fillScreenHintDismissed: radialFillScreenHintDismissed
+        )
         radialMenuController.show(at: appKitMenuCenter)
-        refreshRadialLayoutPreview(appKitAnchor: appKitMenuCenter)
+        refreshRadialLayoutPreview()
         refreshRadialTargetHighlight()
     }
 
-    /// Gray proposed-frame overlay (snap-style) for the armed ring/center action.
-    private func refreshRadialLayoutPreview(appKitAnchor: NSPoint) {
-        radialPreviewViewModel.update(from: radialMenuCoordinator, host: self)
-        guard radialMenuCoordinator.proposedFrame != nil else {
+    private var radialFillScreenHintDismissed: Bool {
+        AppGroupSettings.defaults.bool(forKey: RadialPuckUserDefaults.fillScreenHintDismissed)
+    }
+
+    private func refreshRadialAvailability() {
+        guard case .open = radialMenuCoordinator.state else { return }
+        if !AXIsProcessTrusted() {
+            radialMenuCoordinator.setUnavailability(.accessibilityRequired)
+            return
+        }
+        guard let element = radialSessionTargetWindow else {
+            radialMenuCoordinator.setUnavailability(.noMovableWindow)
+            return
+        }
+        if radialMenuCoordinator.selection != .none, !element.isResizable {
+            radialMenuCoordinator.setUnavailability(.cannotResize)
+            return
+        }
+        radialMenuCoordinator.setUnavailability(nil)
+    }
+
+    func refreshRadialSessionTargetWindow() {
+        radialSessionTargetWindow = queryRadialTargetWindow()
+    }
+
+    func clearRadialSessionTargetWindow() {
+        radialSessionTargetWindow = nil
+    }
+
+    func noteRadialFillScreenSuccess() {
+        AppGroupSettings.defaults.set(true, forKey: RadialPuckUserDefaults.fillScreenHintDismissed)
+    }
+
+    /// Focus-colored proposed-frame overlay for the armed puck action.
+    private func refreshRadialLayoutPreview() {
+        radialPreviewViewModel.update(
+            from: radialMenuCoordinator,
+            menuViewModel: radialMenuViewModel,
+            host: self
+        )
+        guard radialMenuCoordinator.proposedFrame != nil,
+              radialMenuViewModel.renderState.previewOpacity > 0.02
+        else {
             radialPreviewController.dismiss()
             return
         }
-        let screenPoint: NSPoint
-        if let frame = radialPreviewViewModel.proposedFrame {
-            screenPoint = NSPoint(x: frame.midX, y: frame.midY)
-        } else {
-            screenPoint = appKitAnchor
-        }
-        guard let screen = Self.screen(containingAppKit: screenPoint) else {
+        guard let targetScreen = radialTargetWindowScreen() else {
             radialPreviewController.dismiss()
             return
         }
-        radialPreviewController.show(on: screen)
+        radialPreviewController.show(on: targetScreen)
     }
 
     private func dismissRadialUI() {
@@ -119,11 +171,13 @@ extension WindowControlCoordinator {
         guard radialMenuCoordinator.state != .idle else { return }
         dismissRadialUI()
         radialMenuCoordinator.reset()
+        clearRadialSessionTargetWindow()
         (tap as? WindowControlEventTap)?.radialActive = false
     }
 
     private func refreshRadialTargetHighlight() {
         guard settings.radialTargetHighlightEnabled,
+              radialMenuViewModel.renderState.previewOpacity > 0.02,
               let frame = radialTargetWindowAppKitFrame()
         else {
             radialTargetHighlightController.dismiss()
@@ -133,6 +187,16 @@ extension WindowControlCoordinator {
             frame: frame,
             color: settings.radialTargetHighlightColor.swiftUIColor
         )
+    }
+
+    /// Screen containing the active window for radial preview (not cursor screen).
+    private func radialTargetWindowScreen() -> NSScreen? {
+        guard let element = radialTargetWindow() else { return nil }
+        let cgFrame = element.frame
+        guard !cgFrame.isNull, !cgFrame.isEmpty else { return nil }
+        let appKitFrame = appKitOverlayFrame(for: cgFrame) ?? .zero
+        let point = NSPoint(x: appKitFrame.midX, y: appKitFrame.midY)
+        return Self.screen(containingAppKit: point)
     }
 
     // MARK: Esc monitor
@@ -228,9 +292,16 @@ extension WindowControlCoordinator {
 
     /// Focused window for radial preview, highlight, and commit (single source of truth).
     func radialTargetWindow() -> WindowAccessibilityElement? {
+        if case .open = radialMenuCoordinator.state {
+            return radialSessionTargetWindow
+        }
+        return queryRadialTargetWindow()
+    }
+
+    private func queryRadialTargetWindow() -> WindowAccessibilityElement? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let bundleID = app.bundleIdentifier ?? ""
-        if settings.ignoredBundleIDs.contains(bundleID) { return nil }
+        let bundleID = app.bundleIdentifier
+        if let bundleID, settings.ignoredBundleIDs.contains(bundleID) { return nil }
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
@@ -242,6 +313,12 @@ extension WindowControlCoordinator {
         let axElement = axWindow as! AXUIElement
         let element = WindowAccessibilityElement(axElement)
         guard element.isSupportedForWindowControl else { return nil }
+        let title = element.windowTitle
+        guard WindowRulesEngine(rules: settings.windowRules)
+            .allowsWindowControl(bundleID: bundleID, title: title)
+        else {
+            return nil
+        }
         return element
     }
 

@@ -3,14 +3,35 @@ import Foundation
 
 enum VoiceTranscriptHistoryMetadata {
     static func line(for transcript: VoiceTranscript, now: Date = Date()) -> String {
+        detailLine(for: transcript, now: now)
+    }
+
+    /// Metadata without the status label — status is shown as a row tag.
+    static func detailLine(for transcript: VoiceTranscript, now: Date = Date()) -> String {
         let parts = [
-            statusLabel(transcript),
             clockTime(transcript.endedAt, now: now),
             languageLabel(transcript.language),
             modelLabel(transcript.modelIdentifier),
             durationLabel(ms: transcript.durationMs)
         ]
         return parts.joined(separator: " · ")
+    }
+
+    static func statusPresentation(for transcript: VoiceTranscript) -> VoiceTranscriptStatusPresentation {
+        switch transcript.status {
+        case .success:
+            return .success
+        case .retriedFrom:
+            return .retried
+        case .failed:
+            if transcript.failedStage == .cancelled {
+                return .cancelled
+            }
+            if let stage = transcript.failedStage {
+                return .failed(stage: stage.rawValue)
+            }
+            return .failed(stage: nil)
+        }
     }
 
     /// Wall-clock time for history rows, e.g. `11:45 AM` today or `May 28, 11:45 AM` for older entries.
@@ -62,17 +83,7 @@ enum VoiceTranscriptHistoryMetadata {
     }
 
     static func statusLabel(_ transcript: VoiceTranscript) -> String {
-        switch transcript.status {
-        case .success:
-            return "Success"
-        case .retriedFrom:
-            return "Retried"
-        case .failed:
-            if let stage = transcript.failedStage {
-                return "Failed (\(stage.rawValue))"
-            }
-            return "Failed"
-        }
+        statusPresentation(for: transcript).label
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -83,4 +94,22 @@ enum VoiceTranscriptHistoryMetadata {
         formatter.timeStyle = .short
         return formatter
     }()
+}
+
+enum VoiceTranscriptStatusPresentation: Equatable {
+    case success
+    case retried
+    case cancelled
+    case failed(stage: String?)
+
+    var label: String {
+        switch self {
+        case .success: return "Success"
+        case .retried: return "Retried"
+        case .cancelled: return "Cancelled"
+        case let .failed(stage):
+            if let stage { return "Failed (\(stage))" }
+            return "Failed"
+        }
+    }
 }

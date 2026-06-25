@@ -14,7 +14,7 @@ enum OnboardingFeaturePickerOrdering {
         .aiFileOrganizer,
         .windowLayouts,
         .windowGrab,
-        .dockPreviews,
+        .windowHub,
     ]
 
     static func descriptors(in registry: FeatureRegistry) -> [FeatureDescriptor] {

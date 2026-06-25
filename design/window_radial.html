@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Native Minimal Radial Window HUD</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #111113;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  }
+  canvas {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+  }
+  .hint {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,.36);
+    font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    letter-spacing: .01em;
+    pointer-events: none;
+    user-select: none;
+    transition: opacity .45s ease;
+  }
+  .hint.hidden { opacity: 0; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint" class="hint">Move around the puck · pull past the ring for Fill Screen</div>
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const hint = document.getElementById('hint');
+
+  const TAU = Math.PI * 2;
+  const HALF_PI = Math.PI / 2;
+  const DPR_LIMIT = 2;
+
+  let W = 0, H = 0, DPR = 1;
+  let anchor = { x: 0, y: 0 };
+  let pointer = { x: 0, y: 0 };
+  let hasPointer = false;
+  let pointerMovedOnce = false;
+  let lastMoveAt = performance.now();
+
+  const state = {
+    canonicalAngle: 0,
+    radius: 0,
+    active: 0,
+    preview: { x: 0, y: 0, w: 0, h: 0, a: 0 },
+    label: '',
+    labelA: 0,
+    fullA: 0,
+    idleBreath: 0
+  };
+
+  const ARMED_ENTER = 30;
+  const ARMED_EXIT = 24;
+  const FS_ENTER = 130;
+  const FS_EXIT = 115;
+  const FS_DWELL_MS = 180;
+  const RING_COUNT = 8;
+
+  const ringActions = [
+    { label: 'Top Half', type: 'top' },
+    { label: 'Top Right', type: 'topRight' },
+    { label: 'Right Half', type: 'right' },
+    { label: 'Bottom Right', type: 'bottomRight' },
+    { label: 'Bottom Half', type: 'bottom' },
+    { label: 'Bottom Left', type: 'bottomLeft' },
+    { label: 'Left Half', type: 'left' },
+    { label: 'Top Left', type: 'topLeft' }
+  ];
+  const fullScreenAction = { label: 'Fill Screen', type: 'full' };
+
+  let selectionState = {
+    isArmed: false,
+    lastRingIndex: null,
+    isFullScreen: false,
+    fullScreenArmingStartedAt: null
+  };
+
+  function aimAngleRadians(dx, dy) {
+    let angle = Math.atan2(dx, -dy);
+    if (angle < 0) angle += TAU;
+    return angle;
+  }
+
+  function rawRingIndex(dx, dy) {
+    const angle = aimAngleRadians(dx, dy);
+    const segmentWidth = TAU / RING_COUNT;
+    const shifted = (angle + segmentWidth / 2) % TAU;
+    return Math.floor(shifted / segmentWidth) % RING_COUNT;
+  }
+
+  function canonicalAngleForRing(ringIndex) {
+    return ringIndex * (TAU / RING_COUNT);
+  }
+
+  function selectFromDelta(dx, dy, nowMs) {
+    const dist = Math.hypot(dx, dy);
+    if (selectionState.isArmed) {
+      if (dist < ARMED_EXIT) {
+        selectionState = {
+          isArmed: false,
+          lastRingIndex: null,
+          isFullScreen: false,
+          fullScreenArmingStartedAt: null
+        };
+        return null;
+      }
+    } else if (dist < ARMED_ENTER) {
+      return null;
+    } else {
+      selectionState.isArmed = true;
+    }
+
+    const ringIndex = rawRingIndex(dx, dy);
+    selectionState.lastRingIndex = ringIndex;
+
+    if (selectionState.isFullScreen) {
+      if (dist < FS_EXIT) {
+        selectionState.isFullScreen = false;
+        selectionState.fullScreenArmingStartedAt = null;
+        return ringActions[ringIndex];
+      }
+      return fullScreenAction;
+    }
+
+    if (dist >= FS_ENTER) {
+      if (selectionState.fullScreenArmingStartedAt == null) {
+        selectionState.fullScreenArmingStartedAt = nowMs;
+      }
+      if (nowMs - selectionState.fullScreenArmingStartedAt < FS_DWELL_MS) {
+        selectionState.isFullScreen = false;
+        return ringActions[ringIndex];
+      }
+      selectionState.isFullScreen = true;
+      selectionState.fullScreenArmingStartedAt = null;
+      return fullScreenAction;
+    }
+
+    selectionState.fullScreenArmingStartedAt = null;
+    selectionState.isFullScreen = false;
+    return ringActions[ringIndex];
+  }
+
+  function displayDistance(dist, action) {
+    if (!action) return 0;
+    if (dist >= FS_EXIT) return Math.min(Math.max(dist, ARMED_ENTER), 88);
+    if (action.type === 'full') return Math.min(Math.max(dist, ARMED_ENTER), 88);
+    return Math.min(Math.max(dist, ARMED_ENTER), 55);
+  }
+
+  function canonicalAngleForAction(action, dx, dy) {
+    const dist = Math.hypot(dx, dy);
+    if (!action) return state.canonicalAngle;
+    if (action.type === 'full' || dist >= FS_EXIT) return aimAngleRadians(dx, dy);
+    const index = ringActions.findIndex(item => item.type === action.type);
+    return index >= 0 ? canonicalAngleForRing(index) : 0;
+  }
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
+    W = Math.round(window.innerWidth);
+    H = Math.round(window.innerHeight);
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    anchor.x = W / 2;
+    anchor.y = H / 2;
+    if (!hasPointer) {
+      pointer.x = anchor.x;
+      pointer.y = anchor.y;
+    }
+    const r = displayRect();
+    state.preview = { x: r.x, y: r.y, w: r.w, h: r.h, a: 0 };
+  }
+
+  function displayRect() {
+    const marginX = Math.max(46, Math.min(88, W * 0.065));
+    const top = 46;
+    const bottom = 42;
+    return {
+      x: marginX,
+      y: top,
+      w: W - marginX * 2,
+      h: H - top - bottom
+    };
+  }
+
+  function activeWindowRect() {
+    const d = displayRect();
+    const w = Math.min(720, d.w * 0.62);
+    const h = Math.min(430, d.h * 0.58);
+    return {
+      x: d.x + (d.w - w) / 2,
+      y: d.y + (d.h - h) / 2 + 4,
+      w, h
+    };
+  }
+
+  function targetRect(type) {
+    const d = displayRect();
+    const halfW = d.w / 2, halfH = d.h / 2;
+    const map = {
+      left:        { x: d.x,         y: d.y,          w: halfW, h: d.h },
+      right:       { x: d.x+halfW,   y: d.y,          w: halfW, h: d.h },
+      top:         { x: d.x,         y: d.y,          w: d.w,   h: halfH },
+      bottom:      { x: d.x,         y: d.y+halfH,    w: d.w,   h: halfH },
+      topLeft:     { x: d.x,         y: d.y,          w: halfW, h: halfH },
+      topRight:    { x: d.x+halfW,   y: d.y,          w: halfW, h: halfH },
+      bottomLeft:  { x: d.x,         y: d.y+halfH,    w: halfW, h: halfH },
+      bottomRight: { x: d.x+halfW,   y: d.y+halfH,    w: halfW, h: halfH },
+      full:        { x: d.x,         y: d.y,          w: d.w,   h: d.h }
+    };
+    return map[type] || d;
+  }
+
+  function shortestAngleDelta(from, to) {
+    return Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  }
+  function dampAngle(current, target, lambda, dt) {
+    const tau = 1 - Math.exp(-lambda * dt);
+    const delta = shortestAngleDelta(current, target);
+    let next = current + delta * tau;
+    if (next < 0) next += TAU;
+    if (next >= TAU) next -= TAU;
+    return next;
+  }
+  function shortestAngle(from, to) {
+    return from + shortestAngleDelta(from, to);
+  }
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function damp(current, target, lambda, dt) {
+    return lerp(current, target, 1 - Math.exp(-lambda * dt));
+  }
+  function roundedRectPath(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+  function fillRounded(ctx, x, y, w, h, r, fill) {
+    roundedRectPath(ctx, x, y, w, h, r);
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  function strokeRounded(ctx, x, y, w, h, r, stroke, lineWidth = 1) {
+    roundedRectPath(ctx, x, y, w, h, r);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+
+  function selectedAction(now) {
+    let dx, dy;
+    if (!pointerMovedOnce) {
+      const t = now * 0.00035;
+      const demoRings = [0, 2, 3, 4, 6, 7];
+      const idx = Math.floor(t * 2) % demoRings.length;
+      const next = demoRings[(idx + 1) % demoRings.length];
+      const phase = (t * 2) % 1;
+      const smooth = phase * phase * (3 - 2 * phase);
+      const from = canonicalAngleForRing(demoRings[idx]);
+      const to = canonicalAngleForRing(next);
+      const canonical = lerp(from, to, smooth);
+      dx = Math.sin(canonical) * 70;
+      dy = -Math.cos(canonical) * 70;
+    } else {
+      dx = pointer.x - anchor.x;
+      dy = pointer.y - anchor.y;
+    }
+
+    const dist = Math.hypot(dx, dy);
+    const action = selectFromDelta(dx, dy, now);
+    if (!action) return { action: null, canonicalAngle: state.canonicalAngle, dist };
+
+    return {
+      action,
+      canonicalAngle: canonicalAngleForAction(action, dx, dy),
+      dist
+    };
+  }
+
+  function update(dt, now) {
+    const pick = selectedAction(now);
+    const has = !!pick.action;
+    const targetA = has ? 1 : 0;
+    state.active = damp(state.active, targetA, 14, dt);
+    state.labelA = damp(state.labelA, targetA, 12, dt);
+    state.fullA = damp(state.fullA, pick.action && pick.action.type === 'full' ? 1 : 0, 12, dt);
+    state.radius = damp(
+      state.radius,
+      displayDistance(pick.dist, pick.action),
+      16,
+      dt
+    );
+
+    if (has) {
+      const aimLambda = (pick.dist >= FS_EXIT || pick.action?.type === 'full') ? 20 : 14;
+      state.canonicalAngle = dampAngle(state.canonicalAngle, pick.canonicalAngle, aimLambda, dt);
+      state.label = pick.action.label;
+      const tr = targetRect(pick.action.type);
+      state.preview.x = damp(state.preview.x, tr.x, 15, dt);
+      state.preview.y = damp(state.preview.y, tr.y, 15, dt);
+      state.preview.w = damp(state.preview.w, tr.w, 15, dt);
+      state.preview.h = damp(state.preview.h, tr.h, 15, dt);
+      state.preview.a = damp(state.preview.a, 1, 14, dt);
+    } else {
+      state.preview.a = damp(state.preview.a, 0, 10, dt);
+    }
+    state.idleBreath = Math.sin(now * 0.0017) * 0.5 + 0.5;
+  }
+
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#111113');
+    g.addColorStop(0.52, '#171719');
+    g.addColorStop(1, '#101011');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // menu bar / native dark context
+    ctx.fillStyle = 'rgba(255,255,255,0.035)';
+    ctx.fillRect(0, 0, W, 28);
+    ctx.fillStyle = 'rgba(255,255,255,0.13)';
+    ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+    ctx.fillText('Window', 18, 18);
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+    ctx.fillText('View', 78, 18);
+    ctx.fillText('Arrange', 118, 18);
+
+    const win = activeWindowRect();
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = 42;
+    ctx.shadowOffsetY = 22;
+    fillRounded(ctx, win.x, win.y, win.w, win.h, 16, '#242426');
+    ctx.restore();
+
+    fillRounded(ctx, win.x, win.y, win.w, 38, 16, '#2A2A2D');
+    ctx.save();
+    roundedRectPath(ctx, win.x, win.y + 20, win.w, 18, 0);
+    ctx.clip();
+    ctx.fillStyle = '#2A2A2D';
+    ctx.fillRect(win.x, win.y + 18, win.w, 24);
+    ctx.restore();
+
+    const dots = [
+      ['#ff5f57', win.x + 19],
+      ['#febc2e', win.x + 39],
+      ['#28c840', win.x + 59]
+    ];
+    for (const [color, x] of dots) {
+      ctx.beginPath();
+      ctx.arc(x, win.y + 19, 5, 0, TAU);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.72;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    strokeRounded(ctx, win.x, win.y, win.w, win.h, 16, 'rgba(255,255,255,0.07)', 1);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.055)';
+    fillRounded(ctx, win.x + 34, win.y + 74, win.w - 68, 13, 6.5, 'rgba(255,255,255,0.055)');
+    fillRounded(ctx, win.x + 34, win.y + 102, win.w * 0.52, 13, 6.5, 'rgba(255,255,255,0.045)');
+    fillRounded(ctx, win.x + 34, win.y + 152, win.w - 68, 170, 12, 'rgba(255,255,255,0.026)');
+  }
+
+  function drawPreview() {
+    const a = state.preview.a;
+    if (a < 0.01) return;
+    const p = state.preview;
+    const isFull = state.fullA > 0.5;
+    const radius = isFull ? 15 : 13;
+
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.shadowColor = `rgba(10,132,255,${0.32 * a})`;
+    ctx.shadowBlur = 22;
+    fillRounded(ctx, p.x, p.y, p.w, p.h, radius, `rgba(10,132,255,${0.20 + 0.08 * state.fullA})`);
+    ctx.shadowBlur = 0;
+    strokeRounded(ctx, p.x + 0.5, p.y + 0.5, p.w - 1, p.h - 1, radius, `rgba(10,132,255,${0.64 + 0.24 * state.fullA})`, 1.5 + 0.35 * state.fullA);
+    ctx.restore();
+  }
+
+  function drawGlyph(type, cx, cy, s, alpha) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(s, s);
+    ctx.globalAlpha = alpha;
+    const x = -9, y = -6, w = 18, h = 12, r = 2.5;
+
+    strokeRounded(ctx, x, y, w, h, r, 'rgba(255,255,255,0.86)', 1.25);
+    const inset = 2.1;
+    let fx = x + inset, fy = y + inset, fw = w - inset * 2, fh = h - inset * 2;
+    if (type === 'left') fw /= 2;
+    if (type === 'right') { fx += fw / 2; fw /= 2; }
+    if (type === 'top') fh /= 2;
+    if (type === 'bottom') { fy += fh / 2; fh /= 2; }
+    if (type === 'topLeft') { fw /= 2; fh /= 2; }
+    if (type === 'topRight') { fx += fw/2; fw /= 2; fh /= 2; }
+    if (type === 'bottomLeft') { fw /= 2; fy += fh/2; fh /= 2; }
+    if (type === 'bottomRight') { fx += fw/2; fw /= 2; fy += fh/2; fh /= 2; }
+    if (type === 'full') { fx = x + inset; fy = y + inset; fw = w - inset * 2; fh = h - inset * 2; }
+    fillRounded(ctx, fx, fy, fw, fh, 1.3, 'rgba(255,255,255,0.78)');
+    ctx.restore();
+  }
+
+  function drawLabel() {
+    const a = state.labelA;
+    if (a < 0.01 || !state.label) return;
+    const text = state.label;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+    const tw = ctx.measureText(text).width;
+    const w = Math.ceil(tw + 26);
+    const h = 28;
+    const x = anchor.x - w / 2;
+    const y = anchor.y + 76;
+
+    ctx.shadowColor = 'rgba(0,0,0,0.22)';
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 8;
+    fillRounded(ctx, x, y, w, h, 14, 'rgba(31,31,33,0.78)');
+    ctx.shadowBlur = 0;
+    strokeRounded(ctx, x + 0.5, y + 0.5, w - 1, h - 1, 14, 'rgba(255,255,255,0.10)', 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, anchor.x, y + h / 2 + 0.5);
+    ctx.restore();
+  }
+
+  function drawHud() {
+    const cx = anchor.x, cy = anchor.y;
+    const active = state.active;
+    const full = state.fullA;
+    const breath = state.idleBreath;
+
+    ctx.save();
+
+    // Ambient material puck, intentionally compact and quiet.
+    const baseR = 38 + active * 3 + breath * 0.6;
+    ctx.shadowColor = 'rgba(0,0,0,0.36)';
+    ctx.shadowBlur = 26;
+    ctx.shadowOffsetY = 14;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseR, 0, TAU);
+    ctx.fillStyle = 'rgba(38,38,40,0.70)';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.105)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Thin guide ring. Not a menu, just a gesture boundary.
+    ctx.beginPath();
+    ctx.arc(cx, cy, 55, 0, TAU);
+    ctx.strokeStyle = `rgba(255,255,255,${0.055 + active * 0.045})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Full-screen long-pull marker above the ring.
+    ctx.save();
+    ctx.globalAlpha = 0.14 + full * 0.55;
+    ctx.beginPath();
+    ctx.moveTo(cx - 7, cy - 82);
+    ctx.lineTo(cx, cy - 90);
+    ctx.lineTo(cx + 7, cy - 82);
+    ctx.strokeStyle = full > 0.3 ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.42)';
+    ctx.lineWidth = 1.3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+
+    // Center: safe/cancel, not a command.
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3.2, 0, TAU);
+    ctx.fillStyle = 'rgba(255,255,255,0.48)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 18, 0, TAU);
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    if (active > 0.02) {
+      const a = state.canonicalAngle;
+      const ex = cx + Math.sin(a) * state.radius;
+      const ey = cy - Math.cos(a) * state.radius;
+
+      // Direction ray.
+      ctx.save();
+      ctx.globalAlpha = active;
+      const grad = ctx.createLinearGradient(cx, cy, ex, ey);
+      grad.addColorStop(0, 'rgba(255,255,255,0.00)');
+      grad.addColorStop(0.58, 'rgba(255,255,255,0.14)');
+      grad.addColorStop(1, full > 0.4 ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.24)');
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(ex, ey);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.2;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.restore();
+
+      // Active puck with single glyph only.
+      const puckR = 16 + full * 1.5;
+      ctx.save();
+      ctx.globalAlpha = active;
+      ctx.shadowColor = full > 0.4 ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.20)';
+      ctx.shadowBlur = full > 0.4 ? 20 : 14;
+      ctx.beginPath();
+      ctx.arc(ex, ey, puckR, 0, TAU);
+      ctx.fillStyle = full > 0.4 ? 'rgba(56,56,58,0.86)' : 'rgba(46,46,48,0.82)';
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = full > 0.4 ? 'rgba(255,255,255,0.24)' : 'rgba(255,255,255,0.14)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+
+      // Determine current type from label/full. Use pick again for exact glyph.
+      const pick = selectedAction(performance.now());
+      const type = pick.action ? pick.action.type : 'right';
+      drawGlyph(type, ex, ey, 0.76 + active * 0.10 + full * 0.03, active);
+    }
+
+    ctx.restore();
+    drawLabel();
+  }
+
+  let lastT = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.033, Math.max(0.001, (now - lastT) / 1000));
+    lastT = now;
+    update(dt, now);
+    drawBackground();
+    drawPreview();
+    drawHud();
+    if (pointerMovedOnce && now - lastMoveAt > 2400) hint.classList.add('hidden');
+    requestAnimationFrame(frame);
+  }
+
+  function move(clientX, clientY) {
+    pointer.x = clientX;
+    pointer.y = clientY;
+    hasPointer = true;
+    pointerMovedOnce = true;
+    lastMoveAt = performance.now();
+    hint.classList.remove('hidden');
+  }
+
+  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('mousemove', e => move(e.clientX, e.clientY), { passive: true });
+  window.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    if (t) move(t.clientX, t.clientY);
+  }, { passive: true });
+  window.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    if (t) move(t.clientX, t.clientY);
+  }, { passive: true });
+
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

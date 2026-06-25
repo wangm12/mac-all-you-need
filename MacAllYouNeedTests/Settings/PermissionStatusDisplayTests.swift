@@ -1,6 +1,7 @@
 @testable import MacAllYouNeed
 import AppKit
 import AVFoundation
+import EventKit
 import UserNotifications
 import XCTest
 
@@ -50,6 +51,14 @@ final class PermissionStatusDisplayTests: XCTestCase {
         XCTAssertEqual(PermissionActionPresentation.notificationActionTitle(for: .granted), "Granted")
         XCTAssertEqual(PermissionActionPresentation.notificationActionTitle(for: .denied), "Open")
         XCTAssertEqual(PermissionActionPresentation.notificationActionTitle(for: .optional), "Request")
+    }
+
+    func testRemindersAuthorizationMapsLegacyAuthorizedToGranted() {
+        XCTAssertEqual(PermissionStatusProvider.remindersStatus(.fullAccess), .granted)
+        XCTAssertEqual(PermissionStatusProvider.remindersStatus(.authorized), .granted)
+        XCTAssertEqual(PermissionStatusProvider.remindersStatus(.notDetermined), .notRequested)
+        XCTAssertEqual(PermissionStatusProvider.remindersStatus(.denied), .denied)
+        XCTAssertEqual(PermissionStatusProvider.remindersStatus(.writeOnly), .needsAction)
     }
 
     func testFullDiskAccessIsOptionalUntilExplicitlyChecked() {

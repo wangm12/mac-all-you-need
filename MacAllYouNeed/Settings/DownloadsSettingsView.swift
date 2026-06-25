@@ -72,12 +72,19 @@ enum DownloadFilenameTemplatePreset: String, CaseIterable, Identifiable {
 enum DownloadsSettingsPresentation {
     static let bundledAssetsTitle = "Bundled downloader assets"
     static let bundledAssetsSubtitle = "yt-dlp, ffmpeg, manifest, architecture, and SHA-256 verification."
+    static let interruptedRecoveryTitle = "Resume interrupted downloads on launch"
+    static let interruptedRecoveryStatusText = "Automatic"
+    static let filenameExampleActionTitle = "Copy"
+    static let cookieProfileTitle = "Cookie profiles"
+    static let cookieProfileSubtitle = "Import browser cookies or use the Companion extension for authenticated downloads."
 }
 
 enum DownloadConcurrencyControlPresentation {
     static let range = 1...10
     static let options = Array(range)
     static let width: CGFloat = 78
+    static let usesDropdown = true
+    static let allowsFreeformInput = false
 
     static func normalized(_ value: Int) -> Int {
         min(max(value, range.lowerBound), range.upperBound)
@@ -246,7 +253,7 @@ struct DownloadsSettingsView: View {
                                 .id(DownloadSettingsSection.general)
                             DownloadNamingSection(template: $template)
                                 .id(DownloadSettingsSection.naming)
-                            DownloadBrowserSection()
+                            DownloadBrowserSection(controller: controller)
                                 .id(DownloadSettingsSection.browser)
                             DownloadAdvancedSection()
                                 .id(DownloadSettingsSection.advanced)
@@ -429,6 +436,7 @@ private struct DownloadNamingSection: View {
 // MARK: - Browser & Cookies
 
 private struct DownloadBrowserSection: View {
+    let controller: AppController
     @AppStorage("downloadCookieMode", store: AppGroupSettings.defaults) private var cookieMode = DownloadCookieMode.browserAuto.rawValue
     @AppStorage("downloadCookieBrowserProfile", store: AppGroupSettings.defaults) private var cookieBrowserProfile = DownloadCookieBrowserProfile.chrome.rawValue
     @AppStorage("downloadExtensionState", store: AppGroupSettings.defaults) private var extensionStateRaw = DownloadExtensionState.notInstalled.rawValue
@@ -474,7 +482,7 @@ private struct DownloadBrowserSection: View {
                 browserSettingsRow(
                     icon: "cookie",
                     title: "Cookie source",
-                    subtitle: "Use Automatic for most sites. Choose Mac All You Need Companion for exact tab-session sync."
+                    subtitle: "Use Automatic for most sites. Browser is chosen in the Companion section below."
                 ) {
                     MAYNDropdown(
                         selection: $cookieMode,
@@ -482,24 +490,6 @@ private struct DownloadBrowserSection: View {
                         title: { DownloadCookieMode(rawValue: $0)?.title ?? $0 },
                         width: 180
                     )
-                }
-                MAYNDivider()
-                browserSettingsRow(
-                    icon: "person",
-                    title: "Browser profile",
-                    subtitle: "Used when importing login cookies automatically."
-                ) {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        MAYNDropdown(
-                            selection: $cookieBrowserProfile,
-                            options: DownloadCookieBrowserProfile.allCases.map(\.rawValue),
-                            title: { DownloadCookieBrowserProfile(rawValue: $0)?.title ?? $0 },
-                            width: 170
-                        )
-                        Text("Matches your normal browser when available.")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
                 }
                 MAYNDivider()
                 companionCard
@@ -515,11 +505,34 @@ private struct DownloadBrowserSection: View {
         }
         .onAppear {
             refreshState()
-            let installed = Self.installedBrowserOptions
-            if !installed.contains(companionBrowser), let first = installed.first {
-                companionBrowser = first
-            }
+            syncInstalledCompanionBrowser()
+            syncCookieProfileFromCompanionBrowser()
         }
+        .onChange(of: companionBrowser) { _, _ in
+            syncCookieProfileFromCompanionBrowser()
+        }
+    }
+
+    /// Picks the first installed Chromium browser for Companion setup/sync.
+    private func syncInstalledCompanionBrowser() {
+        let installed = Self.installedBrowserOptions
+        if !installed.contains(companionBrowser), let first = installed.first {
+            companionBrowser = first
+        }
+    }
+
+    /// Browser Auto import follows the Companion browser selection (no separate profile row).
+    private func syncCookieProfileFromCompanionBrowser() {
+        cookieBrowserProfile = Self.cookieProfileKey(forCompanionBrowser: companionBrowser)
+    }
+
+    private static func cookieProfileKey(forCompanionBrowser browser: String) -> String {
+        let lower = browser.lowercased()
+        if lower.contains("edge") { return DownloadCookieBrowserProfile.edge.rawValue }
+        if lower.contains("brave") { return DownloadCookieBrowserProfile.brave.rawValue }
+        if lower == "chromium" { return DownloadCookieBrowserProfile.chromium.rawValue }
+        if lower.contains("safari") { return DownloadCookieBrowserProfile.safari.rawValue }
+        return DownloadCookieBrowserProfile.chrome.rawValue
     }
 
     private func browserSettingsRow<T: View>(
@@ -598,7 +611,7 @@ private struct DownloadBrowserSection: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Browser")
                             .font(.callout.weight(.semibold))
-                        Text("Used for cookie sync and extension setup.")
+                        Text("Auto-detected for cookie import, extension setup, and sync.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -611,7 +624,7 @@ private struct DownloadBrowserSection: View {
                     Spacer(minLength: 0)
                 }
 
-                HStack(spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
                     companionActionCard(
                         icon: "arrow.triangle.2.circlepath",
                         title: "Sync Now",
@@ -625,10 +638,18 @@ private struct DownloadBrowserSection: View {
                     companionActionCard(
                         icon: "puzzlepiece.extension",
                         title: "Manage Extension",
-                        subtitle: "Open the bundled extension folder"
+                        subtitle: "Open extension folder"
                     ) { openExtensionsPage() }
-                    Spacer(minLength: 0)
-                    MAYNButton("Refresh Status") { refreshState() }
+                    companionActionCard(
+                        icon: "arrow.counterclockwise",
+                        title: "Reset Registration",
+                        subtitle: "Clear stale token"
+                    ) { Task { await resetCompanionRegistration() } }
+                    companionActionCard(
+                        icon: "arrow.clockwise",
+                        title: "Refresh Status",
+                        subtitle: "Update sync state"
+                    ) { refreshState() }
                 }
             }
             .padding(14)
@@ -695,16 +716,21 @@ private struct DownloadBrowserSection: View {
                     Text(title)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
                     Text(subtitle)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 54, maxHeight: 54, alignment: .leading)
             .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
@@ -756,6 +782,13 @@ private struct DownloadBrowserSection: View {
         } else {
             note = "Could not open \(companionBrowser). Open http://127.0.0.1:18765/cookie-sync-landing manually."
         }
+    }
+
+    private func resetCompanionRegistration() async {
+        await controller.downloader.resetCompanionRegistration()
+        extensionStateRaw = DownloadExtensionState.installedNotSynced.rawValue
+        note = "Companion registration cleared. Click Sync Now to re-register and sync cookies."
+        pingResult = ""
     }
 
     private func refreshState() {
@@ -901,6 +934,7 @@ struct DownloadConcurrencyDropdown: View {
 
 // Compatibility shim — used by DownloadsDestinationView as an embedded settings panel.
 struct DownloadsSettingsContent: View {
+    let controller: AppController
     @Binding var concurrency: Int
     @Binding var template: String
     @Binding var downloadDir: String
@@ -908,7 +942,7 @@ struct DownloadsSettingsContent: View {
     var body: some View {
         DownloadGeneralSection(concurrency: $concurrency, downloadDir: $downloadDir)
         DownloadNamingSection(template: $template)
-        DownloadBrowserSection()
+        DownloadBrowserSection(controller: controller)
         DownloadAdvancedSection()
     }
 }

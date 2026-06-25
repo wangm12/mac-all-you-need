@@ -1,5 +1,4 @@
 import Core
-import CryptoKit
 import Foundation
 import os
 
@@ -131,7 +130,7 @@ enum DouyinProfileLister {
             forHTTPHeaderField: "User-Agent"
         )
         request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
-        if let cookieHeader = cookieHeader(from: cookieFile), !cookieHeader.isEmpty {
+        if let cookieHeader = DouyinAPISupport.cookieHeader(from: cookieFile), !cookieHeader.isEmpty {
             request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
             log.info("listFromHTML sending cookies count=\(cookieHeader.split(separator: ";").count)")
         } else {
@@ -372,70 +371,50 @@ enum DouyinProfileLister {
     }
 
     private static func signedAwemePostURL(secUid: String, cookieFile: URL?) -> URL? {
-        signedAwemePostURL(secUid: secUid, maxCursor: nil, cookieFile: cookieFile)
+        let msToken = DouyinAPISupport.resolveMsToken(cookieMap: DouyinAPISupport.cookieMap(from: cookieFile))
+        return signedAwemePostURL(secUid: secUid, maxCursor: nil, cookieFile: cookieFile, msToken: msToken)
     }
 
-    private static func signedAwemePostURL(secUid: String, maxCursor: String?, cookieFile: URL?) -> URL? {
-        let cookieMap = cookieMap(from: cookieFile)
-        let msToken = resolveMsToken(cookieMap: cookieMap)
+    private static func signedAwemePostURL(
+        secUid: String,
+        maxCursor: String?,
+        cookieFile: URL?,
+        msToken: String
+    ) -> URL? {
         let requestedCursor = (maxCursor ?? "0").trimmingCharacters(in: .whitespacesAndNewlines)
-        var query: [URLQueryItem] = [
-            .init(name: "device_platform", value: "webapp"),
-            .init(name: "aid", value: "6383"),
-            .init(name: "channel", value: "channel_pc_web"),
-            .init(name: "update_version_code", value: "170400"),
-            .init(name: "pc_client_type", value: "1"),
-            .init(name: "pc_libra_divert", value: "Windows"),
-            .init(name: "version_code", value: "290100"),
-            .init(name: "version_name", value: "29.1.0"),
-            .init(name: "cookie_enabled", value: "true"),
-            .init(name: "screen_width", value: "1536"),
-            .init(name: "screen_height", value: "864"),
-            .init(name: "browser_language", value: "zh-CN"),
-            .init(name: "browser_platform", value: "Win32"),
-            .init(name: "browser_name", value: "Chrome"),
-            .init(name: "browser_version", value: "139.0.0.0"),
-            .init(name: "browser_online", value: "true"),
-            .init(name: "engine_name", value: "Blink"),
-            .init(name: "engine_version", value: "139.0.0.0"),
-            .init(name: "os_name", value: "Windows"),
-            .init(name: "os_version", value: "10"),
-            .init(name: "cpu_core_num", value: "16"),
-            .init(name: "device_memory", value: "8"),
-            .init(name: "platform", value: "PC"),
-            .init(name: "downlink", value: "10"),
-            .init(name: "effective_type", value: "4g"),
-            .init(name: "round_trip_time", value: "200"),
-            .init(name: "support_h265", value: "1"),
-            .init(name: "support_dash", value: "1"),
-            .init(name: "uifid", value: ""),
-            .init(name: "msToken", value: msToken),
-            .init(name: "sec_user_id", value: secUid),
-            .init(name: "max_cursor", value: requestedCursor.isEmpty ? "0" : requestedCursor),
-            .init(name: "count", value: "35"),
-            .init(name: "locate_query", value: "false"),
-            .init(name: "show_live_replay_strategy", value: "1"),
-            .init(name: "need_time_list", value: "1"),
-            .init(name: "time_list_query", value: "0"),
-            .init(name: "whale_cut_token", value: ""),
-            .init(name: "cut_version", value: "1"),
-            .init(name: "publish_video_strategy_type", value: "2")
-        ]
-        var components = URLComponents(string: "https://www.douyin.com/aweme/v1/web/aweme/post/")
-        components?.queryItems = query
-        guard let base = components?.url?.absoluteString else { return nil }
-        let signed = signDouyinURLWithXBogus(base)
-        return URL(string: signed)
+        let query = DouyinAPISupport.defaultWebQueryItems(
+            msToken: msToken,
+            extra: [
+                .init(name: "sec_user_id", value: secUid),
+                .init(name: "max_cursor", value: requestedCursor.isEmpty ? "0" : requestedCursor),
+                .init(name: "count", value: "35"),
+                .init(name: "locate_query", value: "false"),
+                .init(name: "show_live_replay_strategy", value: "1"),
+                .init(name: "need_time_list", value: "1"),
+                .init(name: "time_list_query", value: "0"),
+                .init(name: "whale_cut_token", value: ""),
+                .init(name: "cut_version", value: "1"),
+                .init(name: "publish_video_strategy_type", value: "2")
+            ]
+        )
+        return DouyinAPISupport.signedURLWithABogus(path: "/aweme/v1/web/aweme/post/", queryItems: query)
     }
 
     private static func fetchSignedPage(secUid: String, maxCursor: String?, cookieFile: URL?) async throws -> SignedPage {
+        let cookieMap = DouyinAPISupport.cookieMap(from: cookieFile)
+        let msToken = DouyinAPISupport.resolveMsToken(cookieMap: cookieMap)
         let retryDelays: [TimeInterval] = [1, 2, 5]
         var lastData = Data()
         var lastRoot: [String: Any] = [:]
         var awemeList: [[String: Any]] = []
 
         for attempt in 0 ..< 3 {
-            guard let requestURL = signedAwemePostURL(secUid: secUid, maxCursor: maxCursor, cookieFile: cookieFile)
+            guard let requestURL = signedAwemePostURL(
+                secUid: secUid,
+                maxCursor: maxCursor,
+                cookieFile: cookieFile,
+                msToken: msToken
+            )
             else { throw PlaylistListError.noEntries }
 
             var request = URLRequest(url: requestURL)
@@ -446,7 +425,9 @@ enum DouyinProfileLister {
             request.setValue("https://www.douyin.com/?recommend=1", forHTTPHeaderField: "Referer")
             request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
             request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
-            if let cookieHeader = cookieHeader(from: cookieFile), !cookieHeader.isEmpty {
+            if let cookieHeader = DouyinAPISupport.cookieHeader(cookieMap: cookieMap, msToken: msToken),
+               !cookieHeader.isEmpty
+            {
                 request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
             }
 
@@ -535,122 +516,4 @@ enum DouyinProfileLister {
         return mc
     }
 
-    private static func cookieMap(from cookieFile: URL?) -> [String: String] {
-        guard let cookieFile, let text = try? String(contentsOf: cookieFile, encoding: .utf8) else { return [:] }
-        var out: [String: String] = [:]
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            let raw = String(line)
-            if raw.hasPrefix("#") { continue }
-            let parts = raw.split(separator: "\t", omittingEmptySubsequences: false)
-            guard parts.count >= 7 else { continue }
-            let domain = String(parts[0]).lowercased()
-            guard domain.contains("douyin")
-                || domain.contains("iesdouyin")
-                || domain.contains("bytedance")
-                || domain.contains("toutiao")
-                || domain.contains("snssdk")
-                || domain.contains("amemv")
-            else { continue }
-            out[String(parts[5])] = String(parts[6])
-        }
-        return out
-    }
-
-    private static func cookieHeader(from cookieFile: URL?) -> String? {
-        let map = cookieMap(from: cookieFile)
-        guard !map.isEmpty else { return nil }
-        return map.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
-    }
-
-    private static func resolveMsToken(cookieMap: [String: String]) -> String {
-        if let token = cookieMap["msToken"]?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
-            return token
-        }
-        let chars = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
-        let body = (0 ..< 182).map { _ in String(chars.randomElement() ?? "A") }.joined()
-        return body + "=="
-    }
-
-    private static func signDouyinURLWithXBogus(_ fullURLWithQuery: String) -> String {
-        let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        let uaKey: [UInt8] = [0, 1, 12]
-        let character = Array("Dkdpgh4ZKsQB80/Mfvw36XI1R25-WUAlEi7NLboqYTOPuzmFjJnryx9HVGcaStCe=")
-
-        func md5Hex(_ bytes: [UInt8]) -> String {
-            Insecure.MD5.hash(data: Data(bytes)).map { String(format: "%02x", $0) }.joined()
-        }
-        func md5Hex(_ string: String) -> String {
-            md5Hex(Array(string.utf8))
-        }
-        func hexToBytes(_ hex: String) -> [UInt8] {
-            stride(from: 0, to: hex.count, by: 2).compactMap { idx in
-                let start = hex.index(hex.startIndex, offsetBy: idx)
-                let end = hex.index(start, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
-                return UInt8(hex[start ..< end], radix: 16)
-            }
-        }
-        func rc4(key: [UInt8], data: [UInt8]) -> [UInt8] {
-            var s = Array(0 ... 255)
-            var j = 0
-            for i in 0 ..< 256 {
-                j = (j + s[i] + Int(key[i % key.count])) % 256
-                s.swapAt(i, j)
-            }
-            var i = 0
-            j = 0
-            var out: [UInt8] = []
-            out.reserveCapacity(data.count)
-            for byte in data {
-                i = (i + 1) % 256
-                j = (j + s[i]) % 256
-                s.swapAt(i, j)
-                out.append(byte ^ UInt8(s[(s[i] + s[j]) % 256]))
-            }
-            return out
-        }
-
-        let uaRC4 = rc4(key: uaKey, data: Array(ua.utf8))
-        let uaBase64 = Data(uaRC4).base64EncodedString()
-        let uaMd5Array = hexToBytes(md5Hex(uaBase64))
-
-        let emptyMd5 = md5Hex(hexToBytes(md5Hex("d41d8cd98f00b204e9800998ecf8427e")))
-        let emptyMd5Array = hexToBytes(emptyMd5)
-
-        let urlMd5 = md5Hex(hexToBytes(md5Hex(fullURLWithQuery)))
-        let urlMd5Array = hexToBytes(urlMd5)
-
-        let timer = Int(Date().timeIntervalSince1970)
-        let ct = 536_919_696
-        var newArray: [UInt8] = [
-            64, 0, 1, 12,
-            urlMd5Array[14], urlMd5Array[15],
-            emptyMd5Array[14], emptyMd5Array[15],
-            uaMd5Array[14], uaMd5Array[15],
-            UInt8((timer >> 24) & 255), UInt8((timer >> 16) & 255), UInt8((timer >> 8) & 255), UInt8(timer & 255),
-            UInt8((ct >> 24) & 255), UInt8((ct >> 16) & 255), UInt8((ct >> 8) & 255), UInt8(ct & 255)
-        ]
-        var xor = newArray[0]
-        for v in newArray.dropFirst() { xor ^= v }
-        newArray.append(xor)
-
-        var merged: [UInt8] = []
-        merged.reserveCapacity(newArray.count)
-        for i in stride(from: 0, to: newArray.count, by: 2) { merged.append(newArray[i]) }
-        for i in stride(from: 1, to: newArray.count, by: 2) { merged.append(newArray[i]) }
-
-        let rc4Data = rc4(key: [255], data: merged)
-        let garbled = [2, 255] + rc4Data
-        var xbogus = ""
-        for i in stride(from: 0, to: garbled.count, by: 3) {
-            let a = Int(garbled[i])
-            let b = Int(i + 1 < garbled.count ? garbled[i + 1] : 0)
-            let c = Int(i + 2 < garbled.count ? garbled[i + 2] : 0)
-            let x = ((a & 255) << 16) | ((b & 255) << 8) | (c & 255)
-            xbogus.append(character[(x & 0xFC0000) >> 18])
-            xbogus.append(character[(x & 0x03F000) >> 12])
-            xbogus.append(character[(x & 0x000FC0) >> 6])
-            xbogus.append(character[x & 0x00003F])
-        }
-        return fullURLWithQuery + "&X-Bogus=" + xbogus
-    }
 }

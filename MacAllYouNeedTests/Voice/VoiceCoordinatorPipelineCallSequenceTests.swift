@@ -184,6 +184,13 @@ final class VoiceCoordinatorPipelineCallSequenceTests: XCTestCase {
         XCTAssertEqual(undo?.appBundleID, "com.apple.TextEdit",
                        "undo must retain the dictation's target bundle id")
 
+        let saved = try transcriptStore.listRecent(limit: 10)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(saved.first?.status, .failed)
+        XCTAssertEqual(saved.first?.failedStage, .cancelled)
+        XCTAssertEqual(saved.first?.failureReason, "user_cancelled")
+        XCTAssertNotNil(saved.first?.audioPath)
+
         engine.resume(throwing: CancellationError())
         _ = await processTask.value
     }

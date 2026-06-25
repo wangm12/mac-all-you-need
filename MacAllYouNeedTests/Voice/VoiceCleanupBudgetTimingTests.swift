@@ -30,6 +30,7 @@ final class VoiceCleanupBudgetTimingTests: XCTestCase {
 
         var elapsedPassedToFactory: TimeInterval?
         let phase = CleanupPhase(
+            voiceIntent: .dictation,
             makePipeline: { elapsed in
                 elapsedPassedToFactory = elapsed
                 return VoiceCleanupPipeline()

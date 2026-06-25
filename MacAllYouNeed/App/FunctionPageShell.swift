@@ -245,7 +245,7 @@ struct FunctionSegmentedTabStrip<Tab: SegmentedTabDestination>: View {
     /// Fixed width when segments share space equally but the strip does not fill the row.
     private var intrinsicEqualWidthStripWidth: CGFloat? {
         guard equalSegmentWidths, !fillsAvailableWidth else { return nil }
-        let segmentWidth: CGFloat = size == .header ? 88 : 76
+        let segmentWidth: CGFloat = size == .header ? 88 : 100
         let spacing = CGFloat(max(0, tabs.count - 1)) * 4
         return CGFloat(tabs.count) * segmentWidth + spacing + size.outerPadding * 2
     }

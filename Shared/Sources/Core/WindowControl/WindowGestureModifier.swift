@@ -116,6 +116,35 @@ public struct WindowGestureModifier: OptionSet, Codable, Hashable, Sendable {
         return activeModifiers.normalizedForMatching.isSuperset(of: self)
     }
 
+    /// Option/control/command/shift family bits, folding left/right hardware variants.
+    public var primaryModifierFamily: WindowGestureModifier {
+        var result: WindowGestureModifier = []
+        if contains(.option) || contains(.leftOption) || contains(.rightOption) { result.insert(.option) }
+        if contains(.control) || contains(.leftControl) || contains(.rightControl) { result.insert(.control) }
+        if contains(.command) || contains(.leftCommand) || contains(.rightCommand) { result.insert(.command) }
+        if contains(.shift) || contains(.leftShift) || contains(.rightShift) { result.insert(.shift) }
+        return result
+    }
+
+    /// Matches a configured grab/snap modifier against flags from a mouse event.
+    ///
+    /// Generic requirements (e.g. `.control`) accept either side. Side-specific
+    /// requirements (e.g. `.leftControl`) still reject the opposite side, but also
+    /// accept the generic family bit when macOS omits device bits on mouse events.
+    public func matchesGestureHold(_ held: WindowGestureModifier) -> Bool {
+        guard !isEmpty else { return false }
+        if isSatisfied(by: held) { return true }
+
+        let requiredFamily = primaryModifierFamily
+        guard !requiredFamily.isEmpty, held.primaryModifierFamily == requiredFamily else { return false }
+
+        let requiredSides = subtracting(requiredFamily)
+        guard !requiredSides.isEmpty else { return false }
+
+        let heldSides = held.subtracting(held.primaryModifierFamily)
+        return heldSides.isEmpty
+    }
+
     private static let knownRawValue =
         (1 << 0)
         | (1 << 1)

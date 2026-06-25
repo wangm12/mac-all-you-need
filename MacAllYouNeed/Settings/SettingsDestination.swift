@@ -123,7 +123,7 @@ struct SettingsSidebarGroup: Identifiable {
         SettingsSidebarGroup(
             id: "system",
             title: "System",
-            destinations: [.permissions, .general, .advanced]
+            destinations: [.general, .permissions, .advanced]
         )
     ]
 

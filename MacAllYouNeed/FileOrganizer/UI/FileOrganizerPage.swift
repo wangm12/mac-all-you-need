@@ -21,6 +21,17 @@ struct FileOrganizerPage: View {
 
     var body: some View {
         MAYNSettingsPage(title: "AI File Organizer", subtitle: "Rename and re-file messy folders using on-device content extraction.") {
+                MAYNSection(title: "Overview") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("One folder at a time")
+                            .font(.headline.weight(.semibold))
+                        Text("Scan a folder, review the proposed renames and moves, then apply only the changes you want. Configure the AI provider first for the smoothest setup.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
                 // Scan actions
                 MAYNSection(title: "Organize") {
                     MAYNSettingsRow(
@@ -44,7 +55,9 @@ struct FileOrganizerPage: View {
                             title: "LLM not configured",
                             subtitle: "Configure an AI provider in Voice → Recognition → AI Cleanup to enable the organizer."
                         ) {
-                            EmptyView()
+                            MAYNButton("Open Voice", role: .secondary) {
+                                controller?.showMainWindow(destination: .voice)
+                            }
                         }
                     }
                 }
@@ -99,6 +112,15 @@ struct FileOrganizerPage: View {
                             Spacer()
                         }
                         .padding(.vertical, 4)
+                    }
+                } else {
+                    MAYNSection(title: "Proposed Changes") {
+                        MAYNSettingsRow(
+                            title: "Nothing to review yet",
+                            subtitle: "Choose a folder to generate a proposal. The review sheet shows the full rename and move plan before anything is applied."
+                        ) {
+                            EmptyView()
+                        }
                     }
                 }
 

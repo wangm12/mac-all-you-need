@@ -37,6 +37,13 @@ final class WindowControlSettingsTests: XCTestCase {
         XCTAssertFalse(WindowGestureModifier.leftOption.isSatisfied(by: .option))
     }
 
+    func testSideSpecificGestureModifierMatchesGenericMouseFlags() {
+        XCTAssertTrue(WindowGestureModifier.leftControl.matchesGestureHold(.control))
+        XCTAssertTrue(WindowGestureModifier.leftControl.matchesGestureHold([.control, .leftControl]))
+        XCTAssertFalse(WindowGestureModifier.leftControl.matchesGestureHold([.control, .rightControl]))
+        XCTAssertFalse(WindowGestureModifier.leftControl.matchesGestureHold(.option))
+    }
+
     func testGestureModifierDropsUnsupportedRawBits() {
         let modifier = WindowGestureModifier(rawValue: 1 << 20)
 

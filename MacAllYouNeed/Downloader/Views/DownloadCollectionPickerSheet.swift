@@ -50,7 +50,13 @@ struct DownloadCollectionPickerSheet: View {
                 if selected.count == items.count {
                     selected.removeAll()
                 } else {
-                    selected = Set(items.map(rowKey))
+                    let snapshot = items
+                    Task.detached(priority: .userInitiated) { [snapshot] in
+                        let ids = Set(snapshot.map { $0.pageURL.isEmpty ? $0.id : $0.pageURL })
+                        await MainActor.run {
+                            selected = ids
+                        }
+                    }
                 }
             }
             DownloadPickerToolbarButton(title: "Open in browser", symbol: "safari") {
@@ -107,7 +113,7 @@ struct DownloadCollectionPickerSheet: View {
                             DownloadPickerEntryRow(
                                 title: row.title,
                                 subtitle: entrySubtitle(row),
-                                thumbnailURL: row.thumbnail.isEmpty ? nil : URL(string: row.thumbnail),
+                                thumbnailURL: items.count > 100 ? nil : (row.thumbnail.isEmpty ? nil : URL(string: row.thumbnail)),
                                 trailingID: row.id,
                                 isSelected: selected.contains(key),
                                 onToggle: { toggle(key) }
@@ -172,31 +178,46 @@ struct DownloadCollectionPickerSheet: View {
         guard let list, !selected.isEmpty else { return }
         busy = true
         error = ""
-        let rows = list.items.filter { selected.contains(rowKey($0)) }
-        let entries = rows.map { row in
-            BulkEnqueueEntry(
-                pageURL: row.pageURL.isEmpty ? sourceURL : row.pageURL,
-                title: String(row.title.prefix(200)),
-                channel: row.channel.isEmpty ? list.channel : row.channel,
-                thumbnailURL: row.thumbnail.nilIfEmpty,
-                durationSeconds: row.durationSeconds > 0 ? row.durationSeconds : nil,
-                playlistIndex: row.playlistIndex
-            )
-        }
+        let selectionCount = selected.count
+        let snapshotItems = list.items
+        let snapshotSelected = selected
+        let selection = await Task.detached(priority: .userInitiated) { [snapshotItems, snapshotSelected, sourceURL, channel = list.channel] in
+            let rows = snapshotItems.filter { snapshotSelected.contains($0.pageURL.isEmpty ? $0.id : $0.pageURL) }
+            let entries = rows.map { row in
+                BulkEnqueueEntry(
+                    pageURL: row.pageURL.isEmpty ? sourceURL : row.pageURL,
+                    title: String(row.title.prefix(200)),
+                    channel: row.channel.isEmpty ? channel : row.channel,
+                    thumbnailURL: row.thumbnail.nilIfEmpty,
+                    durationSeconds: row.durationSeconds > 0 ? row.durationSeconds : nil,
+                    playlistIndex: row.playlistIndex
+                )
+            }
+            let title = channel.nilIfEmpty ?? "Downloads"
+            return (title, entries)
+        }.value
         let quality = AppGroupSettings.defaults.integer(forKey: "downloadDefaultVideoQuality")
         let preset = DownloadFormatPreset.fromDefaultQualitySetting(quality == 0 ? 1080 : quality)
-        do {
-            try await vm.enqueueBulk(
-                entries: entries,
-                collectionTitle: list.collectionTitle,
-                kind: .playlist,
-                formatArgs: preset.ytdlpArgs()
-            )
-            onClose()
-        } catch {
-            self.error = error.localizedDescription
+        Task.detached(priority: .userInitiated) { [selection, preset, vm] in
+            do {
+                try await vm.enqueueBulk(
+                    entries: selection.1,
+                    collectionTitle: selection.0,
+                    kind: .playlist,
+                    formatArgs: preset.ytdlpArgs()
+                )
+            } catch {
+                await MainActor.run {
+                    self.error = error.localizedDescription
+                    self.busy = false
+                }
+            }
         }
-        busy = false
+        await MainActor.run {
+            onClose()
+            busy = false
+            CopyHUD.show(selectionCount == 1 ? "Added to Downloads" : "Added \(selectionCount) to queue", symbol: "arrow.down.circle.fill")
+        }
     }
 }
 

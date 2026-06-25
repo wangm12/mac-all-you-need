@@ -108,7 +108,13 @@ private struct RadialPreviewHost: View {
     var body: some View {
         Group {
             if let frame = viewModel.proposedFrame {
-                RadialPreviewView(frame: frame, screenFrame: screenFrame)
+                RadialPreviewView(
+                    frame: frame,
+                    screenFrame: screenFrame,
+                    fullScreenBlend: viewModel.fullScreenBlend,
+                    previewOpacity: viewModel.previewOpacity,
+                    cornerRadius: viewModel.previewCornerRadius
+                )
             } else {
                 Color.clear
             }

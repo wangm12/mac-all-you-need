@@ -4,116 +4,124 @@ import SwiftUI
 import XCTest
 
 final class MiniVoiceHUDTests: XCTestCase {
-    func testV8UniversalPillSize() {
+    func testMinimumPillSize() {
         XCTAssertEqual(MiniVoiceHUDLayout.pillWidth, 144)
         XCTAssertEqual(MiniVoiceHUDLayout.pillHeight, 32)
-        XCTAssertEqual(MiniVoiceHUDLayout.iconSize, 14)
-        XCTAssertEqual(MiniVoiceHUDLayout.leftSlotCenter, 20)
-        XCTAssertEqual(MiniVoiceHUDLayout.rightSlotCenter, 124)
+        XCTAssertEqual(MiniVoiceHUDLayout.maxPillWidth, 180)
     }
 
-    func testAllDefaultStatesShareUniversalPillSize() {
-        let expected = CGSize(width: 144, height: 32)
-        for state in [
-            MiniVoiceHUD.State.recording(level: 0.4),
-            .transcribing(.asr),
-            .transcribing(.cleanup(progress: 0)),
-            .cancelled,
-            .noSpeech("x"),
-            .error("y"),
-            .idlePreview
-        ] {
-            XCTAssertEqual(MiniVoiceHUDLayout.size(for: state), expected,
-                           "state \(state) must use universal v8 pill size")
-        }
+    func testDefaultStatesUseCenteredNativeWidths() {
+        let recordingSize = CGSize(width: 144, height: 32)
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .startingMic), recordingSize)
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .recording(level: 0.4)), recordingSize)
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .transcribing(.asr)), CGSize(width: 164, height: 32))
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .transcribing(.asr, isSlow: true)), CGSize(width: 172, height: 32))
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .clipboardFallback), recordingSize)
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .cancelled), CGSize(width: 184, height: 32))
     }
 
-    func testRecordingMapsToListeningWithWaveformAndStopAction() {
+    func testStartingMicMapsToWaveformOnlyWithoutLabel() {
+        let pill = MiniVoiceHUDPill(state: .startingMic)
+
+        XCTAssertEqual(pill.label, "")
+        XCTAssertEqual(pill.leading, .waveformBars)
+        XCTAssertEqual(pill.actionAvailability, .none)
+    }
+
+    func testRecordingMapsToWaveformOnlyWithoutCenterLabel() {
         let pill = MiniVoiceHUDPill(state: .recording(level: 0.4))
 
-        XCTAssertEqual(pill.label, "Listening")
+        XCTAssertEqual(pill.label, "")
         XCTAssertEqual(pill.leading, .waveformBars)
-        XCTAssertEqual(pill.actionAvailability, .stop)
-        XCTAssertTrue(pill.isStoppable)
-        XCTAssertFalse(pill.isTerminal)
+        XCTAssertEqual(pill.actionAvailability, .none)
+        XCTAssertEqual(pill.secondaryAction, .none)
     }
 
-    func testTranscribingPillUsesAISparkleAndIsStoppable() {
+    func testToggleRecordingHasNoVisibleFinishChrome() {
+        let pill = MiniVoiceHUDPill(
+            state: .recording(level: 0.4),
+            chrome: .init(activationMode: .toggle)
+        )
+
+        XCTAssertEqual(pill.actionAvailability, .none)
+        XCTAssertEqual(pill.secondaryAction, .none)
+    }
+
+    func testTranscribingPillUsesCenteredTextWithoutSparkle() {
         let pill = MiniVoiceHUDPill(state: .transcribing(.asr))
 
-        XCTAssertEqual(pill.label, "Transcribing")
-        XCTAssertEqual(pill.leading, .aiSparkle)
-        XCTAssertEqual(pill.actionAvailability, .stop)
-        XCTAssertTrue(pill.isStoppable)
-        XCTAssertFalse(pill.isTerminal)
+        XCTAssertEqual(pill.label, VoiceHUDCopy.Pill.transcribing)
+        XCTAssertEqual(pill.leading, .none)
+        XCTAssertEqual(pill.actionAvailability, .none)
+        XCTAssertFalse(pill.isCancellable)
     }
 
-    func testTranscribingCleanupPillMatchesAsrChrome() {
-        let pill = MiniVoiceHUDPill(state: .transcribing(.cleanup(progress: 0.3)))
+    func testPastingSubphaseStillShowsTranscribingLabel() {
+        let pill = MiniVoiceHUDPill(state: .transcribing(.pasting))
 
-        XCTAssertEqual(pill.label, "Transcribing")
-        XCTAssertEqual(pill.leading, .aiSparkle)
-        XCTAssertTrue(pill.isStoppable)
-        XCTAssertFalse(pill.isTerminal)
+        XCTAssertEqual(pill.label, VoiceHUDCopy.Pill.transcribing)
     }
 
-    func testThinkingTrackIsLighterThanBlackFill() {
-        let track = rgbComponents(MiniVoiceHUDPalette.pillThinkingTrack)
-        let black = rgbComponents(MiniVoiceHUDPalette.pillBlack)
-        XCTAssertGreaterThan(track.r + track.g + track.b, black.r + black.g + black.b)
+    func testSlowTranscribingUsesStillWorkingLabel() {
+        let pill = MiniVoiceHUDPill(state: .transcribing(.asr, isSlow: true))
+
+        XCTAssertEqual(pill.label, VoiceHUDCopy.Pill.stillWorking)
     }
 
-    func testNoSpeechPillUsesWarningTriangle() {
+    func testWipeOverlayIsLighterThanGraphiteBase() {
+        let wipe = rgbComponents(MiniVoiceHUDPalette.pillWipeOverlay)
+        let graphite = rgbComponents(MiniVoiceHUDPalette.pillGraphite)
+        XCTAssertGreaterThan(wipe.r + wipe.g + wipe.b, graphite.r + graphite.g + graphite.b)
+    }
+
+    func testNoSpeechPillUsesDetectedCopy() {
         let pill = MiniVoiceHUDPill(state: .noSpeech("anything"))
 
-        XCTAssertEqual(pill.label, "No speech")
-        XCTAssertEqual(pill.leading, .warningTriangle)
+        XCTAssertEqual(pill.label, VoiceHUDCopy.Pill.noSpeech)
+        XCTAssertEqual(pill.leading, .none)
         XCTAssertEqual(pill.actionAvailability, .dismissTerminal)
-        XCTAssertFalse(pill.isStoppable)
-        XCTAssertTrue(pill.isTerminal)
     }
 
-    func testErrorPillMapsToFailedWithWarningTriangle() {
-        let pill = MiniVoiceHUDPill(state: .error("some api blew up"))
+    func testErrorPillUsesSpecificPermissionCopy() {
+        let pill = MiniVoiceHUDPill(state: .error("Microphone permission denied"))
 
-        XCTAssertEqual(pill.label, "Failed")
-        XCTAssertEqual(pill.leading, .warningTriangle)
-        XCTAssertEqual(pill.actionAvailability, .dismissTerminal)
-        XCTAssertFalse(pill.isStoppable)
-        XCTAssertTrue(pill.isTerminal)
+        XCTAssertEqual(pill.label, VoiceHUDCopy.Pill.micPermission)
+        XCTAssertEqual(pill.leading, .none)
     }
 
-    func testNoUsableAudioErrorMessageDemotesToNoSpeechPill() {
-        let pill = MiniVoiceHUDPill(state: .error("No usable audio captured"))
-
-        XCTAssertEqual(pill.label, "No speech")
-        XCTAssertEqual(pill.leading, .warningTriangle)
+    func testPasteTimeoutUsesTerminalCopyNotStillWorking() {
+        let pill = MiniVoiceHUDPill(state: .error("Paste timed out"))
+        XCTAssertEqual(pill.label, VoiceHUDCopy.Pill.couldntPaste)
     }
 
-    func testTranscriptWasEmptyErrorMessageDemotesToNoSpeechPill() {
-        let pill = MiniVoiceHUDPill(state: .error("Transcript was empty"))
-
-        XCTAssertEqual(pill.label, "No speech")
-        XCTAssertEqual(pill.leading, .warningTriangle)
-    }
-
-    func testCancelledPillUsesXInCircleAndOffersUndo() {
+    func testCancelledPillOffersRestore() {
         let pill = MiniVoiceHUDPill(state: .cancelled)
 
-        XCTAssertEqual(pill.label, "Cancelled")
-        XCTAssertEqual(pill.leading, .xInCircle)
-        XCTAssertEqual(pill.actionAvailability, .undo)
-        XCTAssertFalse(pill.isStoppable)
-        XCTAssertFalse(pill.isTerminal)
-        XCTAssertTrue(pill.isUndoable)
+        XCTAssertEqual(pill.label, VoiceHUDCopy.Pill.cancelled)
+        XCTAssertEqual(pill.actionAvailability, .restore)
+        XCTAssertTrue(pill.isRestorable)
     }
 
-    func testPreviewAndRuntimeUseSameContentModel() {
-        let runtime = MiniVoiceHUDPill(state: .transcribing(.cleanup(progress: 0.1)))
-        let preview = VoicePillContentModel(state: .transcribing(.cleanup(progress: 0.9)))
-        XCTAssertEqual(runtime.label, preview.label)
-        XCTAssertEqual(runtime.leading, preview.leading)
-        XCTAssertEqual(runtime.actionAvailability, preview.actionAvailability)
+    func testClipboardFallbackUsesCenteredCopy() {
+        let pill = MiniVoiceHUDPill(state: .clipboardFallback)
+        XCTAssertEqual(pill.label, VoiceHUDCopy.Pill.clipboardFallback)
+
+        let reminderPill = MiniVoiceHUDPill(state: .reminderAdded)
+        XCTAssertEqual(reminderPill.label, VoiceHUDCopy.Pill.reminderAdded)
+        XCTAssertEqual(reminderPill.leading, .checkInCircle)
+        XCTAssertEqual(pill.leading, .none)
+    }
+
+    @MainActor
+    func testBootCurveReachesFiftyPercentAtOneSecond() {
+        let progress = MiniVoiceThinkingProgressBridge.bootProgress(at: 1.0)
+        XCTAssertEqual(progress, 0.50, accuracy: 0.02)
+    }
+
+    @MainActor
+    func testBootCurveCapsNearSixtyThreePercentAtTenSeconds() {
+        let progress = MiniVoiceThinkingProgressBridge.bootProgress(at: 10.0)
+        XCTAssertEqual(progress, 0.63, accuracy: 0.01)
     }
 
     @MainActor
@@ -127,11 +135,6 @@ final class MiniVoiceHUDTests: XCTestCase {
         XCTAssertEqual(bridge.displayWipe, 1.0, accuracy: 0.0001)
     }
 
-    func testCancelledStateSharesUniversalPillSize() {
-        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .cancelled),
-                       CGSize(width: 144, height: 32))
-    }
-
     @MainActor
     func testVisibleLevelUpdatesReuseContentView() {
         let hud = MiniVoiceHUD()
@@ -142,6 +145,12 @@ final class MiniVoiceHUDTests: XCTestCase {
 
         XCTAssertTrue(hud.testingContentView === firstContentView)
         hud.dismiss()
+    }
+
+    func testVoiceHUDCopyEllipsisPolicy() {
+        XCTAssertTrue(VoiceHUDCopy.Pill.stillWorking.hasSuffix("..."))
+        XCTAssertFalse(VoiceHUDCopy.Pill.cancelled.hasSuffix("..."))
+        XCTAssertFalse(VoiceHUDCopy.Pill.clipboardFallback.hasSuffix("..."))
     }
 }
 

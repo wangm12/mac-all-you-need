@@ -21,11 +21,8 @@ final class RadialMenuController {
     /// `point` is the menu center in AppKit (bottom-left origin) coordinates.
     func show(at point: NSPoint) {
         dismissGeneration += 1
-        let layout = RadialMenuMetrics.panelLayout(for: RadialMenuMetrics.menuRadius)
-        let size = layout.size
-        let originPoint = RadialMenuMetrics.panelOriginAppKit(
-            menuCenter: CGPoint(x: point.x, y: point.y)
-        )
+        let size = RadialPuckMetrics.panelSize
+        let originPoint = RadialPuckMetrics.panelOriginAppKit(menuCenter: CGPoint(x: point.x, y: point.y))
         let origin = NSPoint(x: originPoint.x, y: originPoint.y)
         let frame = NSRect(origin: origin, size: size)
 
@@ -34,7 +31,7 @@ final class RadialMenuController {
                 styleMask: WindowSnapOverlayPresentation.styleMask,
                 level: Self.panelLevel,
                 collectionBehavior: FloatingHUDWindowLayering.collectionBehavior,
-                hasShadow: true,
+                hasShadow: false,
                 backgroundColor: .clear,
                 showAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastIn),
                 hideAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastOut)
@@ -110,12 +107,6 @@ private struct RadialMenuHost: View {
     @ObservedObject var viewModel: RadialMenuViewModel
 
     var body: some View {
-        RadialMenuView(
-            actions: RadialMenuLayout.ringActions,
-            selectedIndex: viewModel.selectedRingIndex,
-            isCenterSelected: viewModel.isCenterSelected,
-            isCloseZoneSelected: viewModel.isCloseZoneSelected,
-            showsNoTargetWarning: viewModel.showsNoTargetWarning
-        )
+        RadialMenuView(viewModel: viewModel)
     }
 }

@@ -4,7 +4,7 @@ import os
 /// Append-only feature worklogs under the App Group for debugging user-visible behavior.
 public enum FeatureWorklog {
     public enum Feature: String, CaseIterable, Sendable {
-        case dockPreviews = "dock-previews"
+        case windowHub = "window-hub"
         case voice = "voice"
         case clipboard = "clipboard"
         case windowControl = "window-control"

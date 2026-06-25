@@ -57,11 +57,14 @@ struct VoiceMicrophoneOptionDescriptor: Identifiable, Equatable {
 
 enum AudioCaptureServiceError: LocalizedError {
     case microphoneSelectionFailed(OSStatus)
+    case preferredMicrophoneUnavailable(String)
 
     var errorDescription: String? {
         switch self {
         case let .microphoneSelectionFailed(status):
             "Could not switch to the selected microphone. AudioUnit status: \(status)."
+        case let .preferredMicrophoneUnavailable(deviceID):
+            "The selected microphone is unavailable (\(deviceID)). Plug it in or choose another input in Voice settings."
         }
     }
 }
@@ -134,10 +137,12 @@ final class AudioCaptureService {
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             let mono = Self.floatMonoSamples(from: buffer)
             let peak = mono.map(abs).max() ?? 0
+            let rms = Self.rmsLevel(from: mono)
             self?.accumulator.append(mono, peak: peak)
             Task { @MainActor [weak self] in
                 guard let self, self.captureID == captureID else { return }
-                peakLevel = Self.livePeakLevel(previous: peakLevel, incomingPeak: peak)
+                let envelope = Self.speechWaveformEnvelope(rms: rms, peak: peak)
+                peakLevel = Self.livePeakLevel(previous: peakLevel, incomingEnvelope: envelope)
             }
         }
         engine.prepare()
@@ -208,15 +213,36 @@ final class AudioCaptureService {
         }
     }
 
-    nonisolated static func livePeakLevel(previous: Float, incomingPeak: Float) -> Float {
-        max(normalizedLivePeak(incomingPeak), previous * 0.62)
+    nonisolated static func rmsLevel(from samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        let sum = samples.reduce(0) { $0 + $1 * $1 }
+        return sqrt(sum / Float(samples.count))
     }
 
-    nonisolated static func normalizedLivePeak(_ incomingPeak: Float) -> Float {
-        let floor: Float = 0.012
-        let ceiling: Float = 0.18
-        let clamped = min(max(incomingPeak - floor, 0), ceiling - floor) / (ceiling - floor)
-        return Float(pow(Double(clamped), 0.55))
+    /// Blends RMS with short-term peak so syllable attacks read on the HUD.
+    /// Speech has a high crest factor; RMS alone stays visually quiet.
+    nonisolated static func speechWaveformEnvelope(rms: Float, peak: Float) -> Float {
+        max(rms, peak * 0.52)
+    }
+
+    nonisolated static func livePeakLevel(previous: Float, incomingEnvelope: Float) -> Float {
+        let noiseGate: Float = 0.008
+        let gain: Float = 5.0
+        let attack: Float = 0.46
+        let release: Float = 0.13
+        let gated = max(0, incomingEnvelope - noiseGate)
+        let target = min(1, gated * gain)
+        let smoothing = target > previous ? attack : release
+        return previous + (target - previous) * smoothing
+    }
+
+    /// Legacy peak-based helper retained for tests comparing decay behavior.
+    nonisolated static func livePeakLevel(previous: Float, incomingRMS: Float) -> Float {
+        livePeakLevel(previous: previous, incomingEnvelope: incomingRMS)
+    }
+
+    nonisolated static func livePeakLevel(previous: Float, incomingPeak: Float) -> Float {
+        livePeakLevel(previous: previous, incomingEnvelope: incomingPeak)
     }
 
     private func stopWithoutResult() {
@@ -230,15 +256,35 @@ final class AudioCaptureService {
 
     private func applyPreferredInputDevice(to input: AVAudioInputNode) throws {
         let preferredID = VoiceAudioSettings.preferredMicrophoneID()
-        guard preferredID != VoiceAudioSettings.systemMicrophoneID,
-              let deviceID = CoreAudioInputDeviceResolver.deviceID(forUID: preferredID),
-              let audioUnit = input.audioUnit
-        else {
-            log.info("mic selection — using system default (preferredID: \(preferredID, privacy: .public))")
+        guard let audioUnit = input.audioUnit else {
+            log.warning("mic selection — input node has no audio unit; using HAL default")
             return
         }
 
-        log.info("mic selection — applying deviceID: \(deviceID, privacy: .public) for uid: \(preferredID, privacy: .public)")
+        let deviceID: AudioDeviceID?
+        if preferredID == VoiceAudioSettings.systemMicrophoneID {
+            deviceID = CoreAudioInputDeviceResolver.defaultInputDeviceID()
+            log.info("mic selection — applying system default input device")
+        } else if let resolved = CoreAudioInputDeviceResolver.deviceID(forUID: preferredID) {
+            deviceID = resolved
+            log.info("mic selection — applying deviceID: \(resolved, privacy: .public) for uid: \(preferredID, privacy: .public)")
+        } else {
+            log.error("mic selection — preferred uid not found: \(preferredID, privacy: .public)")
+            throw AudioCaptureServiceError.preferredMicrophoneUnavailable(preferredID)
+        }
+
+        guard let deviceID else {
+            log.error("mic selection — no default input device available")
+            throw AudioCaptureServiceError.microphoneSelectionFailed(-1)
+        }
+
+        try setInputDevice(deviceID, on: audioUnit)
+        if let activeUID = CoreAudioInputDeviceResolver.deviceUID(for: deviceID) {
+            log.info("mic selection succeeded — active uid: \(activeUID, privacy: .public)")
+        }
+    }
+
+    private func setInputDevice(_ deviceID: AudioDeviceID, on audioUnit: AudioUnit) throws {
         var selectedDeviceID = deviceID
         let status = AudioUnitSetProperty(
             audioUnit,
@@ -252,11 +298,30 @@ final class AudioCaptureService {
             log.error("mic selection failed — deviceID: \(deviceID, privacy: .public) status: \(status, privacy: .public)")
             throw AudioCaptureServiceError.microphoneSelectionFailed(status)
         }
-        log.info("mic selection succeeded — deviceID: \(deviceID, privacy: .public)")
     }
 }
 
 private enum CoreAudioInputDeviceResolver {
+    static func defaultInputDeviceID() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID = AudioDeviceID(0)
+        var dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &dataSize,
+            &deviceID
+        )
+        guard status == noErr, deviceID != kAudioObjectUnknown else { return nil }
+        return deviceID
+    }
+
     static func deviceID(forUID uid: String) -> AudioDeviceID? {
         guard !uid.isEmpty else { return nil }
         return allDeviceIDs().first { deviceUID(for: $0) == uid }
@@ -295,7 +360,7 @@ private enum CoreAudioInputDeviceResolver {
         return devices
     }
 
-    private static func deviceUID(for deviceID: AudioDeviceID) -> String? {
+    static func deviceUID(for deviceID: AudioDeviceID) -> String? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceUID,
             mScope: kAudioObjectPropertyScopeGlobal,

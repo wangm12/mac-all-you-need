@@ -15,21 +15,32 @@ struct RemindersPopoverView: View {
     }
 
     var body: some View {
-        Group {
-            if model.authorizationStatus != .fullAccess {
-                permissionView
-            } else if model.isLoading {
-                ProgressView()
+        VStack(spacing: 0) {
+            popoverHeader
+            Group {
+                if model.authorizationStatus != .fullAccess {
+                    permissionView
+                } else if model.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if model.reminders.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "checklist")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.secondary)
+                        Text("No reminders yet")
+                            .font(.headline)
+                        StatusPill(text: "Ready", kind: .neutral)
+                        Text("Say \u{201C}remind me to\u{2026}\u{201D} or use the reminder shortcut.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(24)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.reminders.isEmpty {
-                ContentUnavailableView(
-                    "No reminders yet",
-                    systemImage: "checklist",
-                    description: Text("Say \u{201C}remind me to\u{2026}\u{201D} or use the reminder shortcut.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                remindersList
+                } else {
+                    remindersList
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -42,6 +53,27 @@ struct RemindersPopoverView: View {
         }
     }
 
+    private var popoverHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Reminders")
+                    .font(.headline.weight(.semibold))
+                Text("Voice-created reminders live here. Open the full Voice page for setup, dictation, and reminders flow.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            MAYNButton("Open Voice", role: .primary, height: HotkeyChipPresentation.compactHeight) {
+                controller.showMainWindow(destination: .voice)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(MAYNTheme.panel)
+    }
+
     @ViewBuilder
     private var permissionView: some View {
         VStack(spacing: 12) {
@@ -50,6 +82,7 @@ struct RemindersPopoverView: View {
                 .foregroundStyle(.secondary)
             Text("Reminders Access")
                 .font(.headline)
+            StatusPill(text: "Needs access", kind: .warning)
             Text("Allow access to save spoken reminders to Apple Reminders.")
                 .font(.callout)
                 .foregroundStyle(.secondary)

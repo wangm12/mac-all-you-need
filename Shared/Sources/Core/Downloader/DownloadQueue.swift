@@ -37,6 +37,36 @@ private final class UnmatchedLineCollector: @unchecked Sendable {
     func snapshot() -> [String] { lock.lock(); defer { lock.unlock() }; return lines }
 }
 
+private final class ProgressThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastNotify: [RecordID: Date] = [:]
+    private var lastFraction: [RecordID: Double] = [:]
+
+    func shouldNotify(recordID: RecordID, progress: DownloadProgress, interval: TimeInterval) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let now = Date()
+        let previousNotify = lastNotify[recordID] ?? .distantPast
+        let previousFraction = lastFraction[recordID] ?? -1
+        let fraction = progress.fraction
+        let isTerminalLike = fraction >= 0.999 || (progress.downloadedBytes != nil && progress.totalBytes != nil)
+        if isTerminalLike || now.timeIntervalSince(previousNotify) >= interval || abs(fraction - previousFraction) >= 0.05 {
+            lastNotify[recordID] = now
+            lastFraction[recordID] = fraction
+            return true
+        }
+        return false
+    }
+
+    func clear(recordID: RecordID) {
+        lock.lock()
+        defer { lock.unlock() }
+        lastNotify.removeValue(forKey: recordID)
+        lastFraction.removeValue(forKey: recordID)
+    }
+}
+
 /// Retains the last N non-progress lines from yt-dlp so a failed job can surface
 /// its actual error instead of a bare non-zero exit code.
 struct StderrRing {
@@ -80,6 +110,9 @@ public actor DownloadQueue {
     private let progress: ProgressHandler
     private let completion: CompletionHandler
     private var asyncContinuations: [RecordID: CheckedContinuation<Void, Error>] = [:]
+    private let progressThrottle = ProgressThrottle()
+    private static let progressNotifyInterval: TimeInterval = 0.25
+    private var startTask: Task<Void, Never>?
 
     public init(
         maxConcurrent: Int,
@@ -93,29 +126,69 @@ public actor DownloadQueue {
         self.completion = completion
     }
 
-    public func enqueue(_ job: DownloadJob) {
+    public func enqueue(_ job: DownloadJob) async {
         // Keep only the latest pending job per record so resume retries do not
         // pile up duplicate queue entries.
         queued.removeAll { $0.recordID == job.recordID }
         queued.append(job)
-        sortQueuedJobs()
-        Task { await self.tryStart() }
+        queued.sort(by: Self.compareJobs)
+        scheduleStart()
     }
 
-    private func sortQueuedJobs() {
-        queued.sort { lhs, rhs in
-            if let leftCollection = lhs.collectionID, let rightCollection = rhs.collectionID,
-               leftCollection == rightCollection
-            {
-                let leftIndex = lhs.collectionIndex ?? Int.max
-                let rightIndex = rhs.collectionIndex ?? Int.max
-                if leftIndex != rightIndex { return leftIndex < rightIndex }
-            }
-            if lhs.enqueuedAt != rhs.enqueuedAt {
-                return lhs.enqueuedAt < rhs.enqueuedAt
-            }
-            return lhs.recordID.rawValue < rhs.recordID.rawValue
+    public func enqueueBatch(_ jobs: [DownloadJob]) async {
+        guard !jobs.isEmpty else { return }
+        var seenIDs: Set<RecordID> = []
+        let uniqueJobs = jobs.filter { seenIDs.insert($0.recordID).inserted }
+        let incomingIDs = Set(uniqueJobs.map(\.recordID))
+        queued.removeAll { incomingIDs.contains($0.recordID) }
+
+        let sortedIncoming = uniqueJobs.sorted(by: Self.compareJobs)
+        queued = mergeSortedJobs(existing: queued, incoming: sortedIncoming)
+        if queued.count >= 64 {
+            await Task.yield()
         }
+        scheduleStart()
+    }
+
+    private static func compareJobs(_ lhs: DownloadJob, _ rhs: DownloadJob) -> Bool {
+        if let leftCollection = lhs.collectionID, let rightCollection = rhs.collectionID,
+           leftCollection == rightCollection
+        {
+            let leftIndex = lhs.collectionIndex ?? Int.max
+            let rightIndex = rhs.collectionIndex ?? Int.max
+            if leftIndex != rightIndex { return leftIndex < rightIndex }
+        }
+        if lhs.enqueuedAt != rhs.enqueuedAt {
+            return lhs.enqueuedAt < rhs.enqueuedAt
+        }
+        return lhs.recordID.rawValue < rhs.recordID.rawValue
+    }
+
+    private func mergeSortedJobs(existing: [DownloadJob], incoming: [DownloadJob]) -> [DownloadJob] {
+        guard !existing.isEmpty else { return incoming }
+        guard !incoming.isEmpty else { return existing }
+
+        var merged: [DownloadJob] = []
+        merged.reserveCapacity(existing.count + incoming.count)
+        var left = 0
+        var right = 0
+
+        while left < existing.count, right < incoming.count {
+            if Self.compareJobs(incoming[right], existing[left]) {
+                merged.append(incoming[right])
+                right += 1
+            } else {
+                merged.append(existing[left])
+                left += 1
+            }
+        }
+        if left < existing.count {
+            merged.append(contentsOf: existing[left...])
+        }
+        if right < incoming.count {
+            merged.append(contentsOf: incoming[right...])
+        }
+        return merged
     }
 
     /// Async/await overload. Suspends until the job finishes (success) or fails
@@ -131,7 +204,7 @@ public actor DownloadQueue {
                 prior.resume(throwing: CocoaError(.userCancelled))
             }
             asyncContinuations[job.recordID] = continuation
-            enqueue(job)
+            Task { await self.enqueue(job) }
         }
     }
 
@@ -165,9 +238,36 @@ public actor DownloadQueue {
         }
     }
 
+    public func cancelMany(_ ids: [RecordID]) {
+        guard !ids.isEmpty else { return }
+        let idSet = Set(ids)
+        for id in idSet {
+            if let job = running[id] {
+                job.cancel()
+            }
+        }
+        queued.removeAll { idSet.contains($0.recordID) }
+    }
+
     public func setMaxConcurrent(_ n: Int) {
         slots = n
-        Task { await tryStart() }
+        scheduleStart()
+    }
+
+    private func scheduleStart() {
+        guard startTask == nil else { return }
+        startTask = Task { [weak self] in
+            guard let self else { return }
+            await self.tryStart()
+            await self.finishScheduledStart()
+        }
+    }
+
+    private func finishScheduledStart() {
+        startTask = nil
+        if !queued.isEmpty, running.count < slots {
+            scheduleStart()
+        }
     }
 
     private func tryStart() async {
@@ -197,20 +297,33 @@ public actor DownloadQueue {
         let readQueue = DispatchQueue(label: "com.maycoin.downloader.read.\(recordID.rawValue)")
         @Sendable func route(_ s: String) {
             if let p = ProgressParser.parse(line: s) {
-                progress(recordID, p)
+                if progressThrottle.shouldNotify(recordID: recordID, progress: p, interval: Self.progressNotifyInterval) {
+                    progress(recordID, p)
+                }
             } else if let dest = ProgressParser.extractDestination(line: s) {
-                NotificationCenter.default.post(
-                    name: Notification.Name("downloadDestinationPath"), object: nil,
-                    userInfo: ["id": recordID.rawValue, "path": dest]
-                )
-                NotificationCenter.default.post(
-                    name: Notification.Name("downloadPhase"), object: nil,
+                Self.postDestinationPath(recordID: recordID, path: dest)
+                let phaseNotification = Notification(
+                    name: Notification.Name("downloadPhase"),
+                    object: nil,
                     userInfo: ["id": recordID.rawValue, "phase": "Downloading..."]
                 )
+                NotificationCenter.default.post(phaseNotification)
+                DistributedNotificationCenter.default().postNotificationName(
+                    phaseNotification.name,
+                    object: nil,
+                    userInfo: phaseNotification.userInfo
+                )
             } else if let phase = ProgressParser.detectPhase(line: s) {
-                NotificationCenter.default.post(
-                    name: Notification.Name("downloadPhase"), object: nil,
+                let notification = Notification(
+                    name: Notification.Name("downloadPhase"),
+                    object: nil,
                     userInfo: ["id": recordID.rawValue, "phase": phase]
+                )
+                NotificationCenter.default.post(notification)
+                DistributedNotificationCenter.default().postNotificationName(
+                    notification.name,
+                    object: nil,
+                    userInfo: notification.userInfo
                 )
             } else {
                 // Preserve everything else (especially `ERROR: ...` lines from
@@ -223,7 +336,9 @@ public actor DownloadQueue {
             // serial queue guarantees the loop has finished draining first.
             readQueue.async {
                 let snapshot = unmatched.snapshot()
-                Task { await self?.completed(recordID: recordID, status: proc.terminationStatus, unmatched: snapshot) }
+                guard let self else { return }
+                let actor = self
+                Task { await actor.completed(recordID: recordID, status: proc.terminationStatus, unmatched: snapshot) }
             }
         }
         do {
@@ -247,7 +362,9 @@ public actor DownloadQueue {
     }
 
     private func completed(recordID: RecordID, status: Int32, unmatched: [String]) async {
+        let completedJob = running[recordID]
         running.removeValue(forKey: recordID)
+        progressThrottle.clear(recordID: recordID)
         if pausedIDs.contains(recordID) {
             // Job was terminated for pause — don't fire failure completion
             pausedIDs.remove(recordID)
@@ -257,6 +374,11 @@ public actor DownloadQueue {
             return
         }
         if status == 0 {
+            if let path = completedJob?.destination.path,
+               DownloadDiskCleanup.isConcretePath(path)
+            {
+                Self.postDestinationPath(recordID: recordID, path: path)
+            }
             completion(recordID, .success(()))
             asyncContinuations.removeValue(forKey: recordID)?.resume(returning: ())
         } else {
@@ -271,5 +393,19 @@ public actor DownloadQueue {
             asyncContinuations.removeValue(forKey: recordID)?.resume(throwing: error)
         }
         await tryStart()
+    }
+
+    private static func postDestinationPath(recordID: RecordID, path: String) {
+        let destinationNotification = Notification(
+            name: Notification.Name("downloadDestinationPath"),
+            object: nil,
+            userInfo: ["id": recordID.rawValue, "path": path]
+        )
+        NotificationCenter.default.post(destinationNotification)
+        DistributedNotificationCenter.default().postNotificationName(
+            destinationNotification.name,
+            object: nil,
+            userInfo: destinationNotification.userInfo
+        )
     }
 }

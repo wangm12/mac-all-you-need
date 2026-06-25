@@ -36,8 +36,8 @@ Native macOS productivity app (LSUIElement / menu-bar resident) that bundles
   (`voiceReminders`).
 - **AI File Organizer** - AI-assisted file organization suggestions
   (`aiFileOrganizer`).
-- **Dock Previews** - rich Dock icon previews for clipboard and file content
-  (`dockPreviews`).
+- **Window Hub** - search-first AX window/tab hub with cleanup and AI organize
+  (`windowHub`).
 
 Built with Swift 5.9+, SwiftUI + AppKit, GRDB, libarchive, FluidAudio, and
 Sparkle integration scaffolding. The composition root is `AppController`; all

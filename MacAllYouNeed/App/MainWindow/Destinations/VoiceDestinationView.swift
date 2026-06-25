@@ -8,28 +8,6 @@ import UniformTypeIdentifiers
 
 // MARK: - Shared local types
 
-private enum VoiceHistoryFilter: String, SegmentedTabDestination {
-    case all
-    case failed
-    case success
-
-    var title: String {
-        switch self {
-        case .all: return "All"
-        case .failed: return "Failed"
-        case .success: return "Success"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .all: return "line.3.horizontal.decrease.circle"
-        case .failed: return "exclamationmark.triangle"
-        case .success: return "checkmark.circle"
-        }
-    }
-}
-
 private struct VoiceTranscriptPageState {
     let visible: [VoiceTranscript]
     let pagination: MAYNListPaginationState
@@ -38,12 +16,13 @@ private struct VoiceTranscriptPageState {
 
 struct VoiceDestinationView: View {
     let controller: AppController
-    @AppStorage(VoiceFunctionTab.storageKey, store: AppGroupSettings.defaults) private var selectedTabRaw = VoiceFunctionTab.dictate.rawValue
+    @AppStorage(VoiceFunctionTab.storageKey, store: AppGroupSettings.defaults) private var selectedTabRaw = VoiceFunctionTab.history.rawValue
     @AppStorage(VoiceAudioSettings.microphoneIDKey, store: AppGroupSettings.defaults) private var preferredMicrophoneID = VoiceAudioSettings.systemMicrophoneID
     @AppStorage("voice.audio.interactionSounds", store: AppGroupSettings.defaults) private var interactionSounds = true
     @AppStorage("voice.audio.muteWhenDictating", store: AppGroupSettings.defaults) private var muteWhenDictating = false
     @AppStorage("voice.asr.groq.apiSetupExpanded", store: AppGroupSettings.defaults) private var isCloudAPISetupExpanded = false
     @State private var shortcut: Platform.HotkeyDescriptor
+    @State private var reminderShortcut: Platform.HotkeyDescriptor
     @State private var mode: VoiceActivationMode
     @State private var selectedASRModelID: VoiceASRModelID
     @State private var languageHint: VoiceASRLanguageHint
@@ -79,7 +58,6 @@ struct VoiceDestinationView: View {
     @State private var selectedTranscriptIDs: Set<String> = []
     @State private var retryingTranscriptIDs: Set<String> = []
     @State private var voiceHistorySettings = VoiceHistorySettings()
-    @State private var historyFilter: VoiceHistoryFilter = .all
     @State private var historyToast: VoiceHistoryUndoToken?
     @State private var toastClearTask: Task<Void, Never>?
     @State private var transcriptAnchorID: String?
@@ -103,6 +81,7 @@ struct VoiceDestinationView: View {
             ? cloudSettings.languageHint
             : asrSettings.languageHint
         _shortcut = State(initialValue: activationSettings.shortcut)
+        _reminderShortcut = State(initialValue: VoiceReminderShortcutSettingsStore.load().shortcut)
         _mode = State(initialValue: activationSettings.mode)
         _selectedASRModelID = State(initialValue: asrSettings.modelID)
         _languageHint = State(initialValue: recognitionLanguageHint)
@@ -165,21 +144,29 @@ struct VoiceDestinationView: View {
             }
         ) {
             switch VoiceFunctionTab.storedSelection(selectedTabRaw) {
-            case .dictate:
+            case .history:
                 FunctionPageScrollContent {
-                    VoiceDictateSection(
-                        voiceStateTitle: voiceStateTitle,
-                        voiceStatusText: voiceStatusText,
-                        voiceStatusKind: voiceStatusKind,
-                        onboardingProgress: onboardingProgress,
-                        onOpenSetup: {
-                            controller.showVoiceOnboarding()
+                    VoiceHistorySection(
+                        transcripts: transcripts,
+                        transcriptPage: $transcriptPage,
+                        selectedTranscriptIDs: selectedTranscriptIDs,
+                        retryingTranscriptIDs: retryingTranscriptIDs,
+                        historyToast: historyToast,
+                        voiceHistorySettings: $voiceHistorySettings,
+                        voiceTranscriptPageState: voiceTranscriptPageState,
+                        onSelect: { selectVoiceTranscript($0) },
+                        onCopy: { copyVoiceTranscripts(ids: [$0.id]) },
+                        onRetry: { retryTranscript($0) },
+                        onDownload: { downloadTranscript($0) },
+                        onDelete: { deleteTranscriptWithUndo($0) },
+                        onSaveHistorySettings: { controller.saveVoiceHistorySettings($0) },
+                        onUndoToast: {
+                            historyToast?.undo()
+                            toastClearTask?.cancel()
+                            historyToast = nil
                             reload()
                         },
-                        onRestartSetup: {
-                            controller.restartVoiceOnboarding()
-                            reload()
-                        }
+                        onKeyPress: { handleVoiceHistoryKeyPress($0) }
                     )
                 }
             case .models:
@@ -205,32 +192,6 @@ struct VoiceDestinationView: View {
                         onOpenCleanupPicker: { openCleanupPicker() }
                     )
                 }
-            case .history:
-                FunctionPageScrollContent {
-                    VoiceHistorySection(
-                        transcripts: transcripts,
-                        transcriptPage: $transcriptPage,
-                        selectedTranscriptIDs: selectedTranscriptIDs,
-                        retryingTranscriptIDs: retryingTranscriptIDs,
-                        historyFilter: $historyFilter,
-                        historyToast: historyToast,
-                        voiceHistorySettings: $voiceHistorySettings,
-                        voiceTranscriptPageState: voiceTranscriptPageState,
-                        onSelect: { selectVoiceTranscript($0) },
-                        onCopy: { copyVoiceTranscripts(ids: [$0.id]) },
-                        onRetry: { retryTranscript($0) },
-                        onDownload: { downloadTranscript($0) },
-                        onDelete: { deleteTranscriptWithUndo($0) },
-                        onSaveHistorySettings: { controller.saveVoiceHistorySettings($0) },
-                        onUndoToast: {
-                            historyToast?.undo()
-                            toastClearTask?.cancel()
-                            historyToast = nil
-                            reload()
-                        },
-                        onKeyPress: { handleVoiceHistoryKeyPress($0) }
-                    )
-                }
             case .dictionary:
                 VoiceDictionaryPage(controller: controller, showsHeader: false)
             case .personalization:
@@ -239,6 +200,17 @@ struct VoiceDestinationView: View {
                 }
             case .settings:
                 FunctionPageScrollContent {
+                    MAYNSection(title: "Quick Start") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Keep the default shortcut, confirm one recognition engine, then only adjust cleanup if you actually want it.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("The rest of this page is for reminders, audio input, and setup replay.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     VoiceActivationSection(
                         mode: activationModeBinding.wrappedValue,
                         onModeChange: { activationModeBinding.wrappedValue = $0 },
@@ -247,6 +219,14 @@ struct VoiceDestinationView: View {
                         candidateIssueMessage: { shortcutCandidateIssue($0)?.message },
                         onResetShortcut: { applyActivationShortcut(VoiceActivationSettings.default.shortcut) },
                         errorMessage: errorMessage
+                    )
+                    VoiceReminderShortcutSection(
+                        shortcutBinding: reminderShortcutBinding,
+                        shortcutIssue: reminderShortcutIssue,
+                        candidateIssueMessage: { reminderShortcutCandidateIssue($0)?.message },
+                        onResetShortcut: {
+                            applyReminderShortcut(HotkeyDescriptor.defaultVoiceReminder)
+                        }
                     )
                     VoiceModelSummarySection(
                         asrProviderKind: asrProviderKind,
@@ -268,10 +248,24 @@ struct VoiceDestinationView: View {
                         microphoneOptions: microphoneOptions,
                         microphoneTitle: microphoneTitle
                     )
+                    VoiceOnboardingSection(
+                        onboardingProgress: onboardingProgress,
+                        onOpenSetup: {
+                            controller.showVoiceOnboarding()
+                            reload()
+                        },
+                        onRestartSetup: {
+                            controller.restartVoiceOnboarding()
+                            reload()
+                        }
+                    )
                 }
             }
         }
         .onAppear(perform: reload)
+        .onReceive(NotificationCenter.default.publisher(for: .voiceTranscriptAppended)) { _ in
+            reloadVoiceTranscripts()
+        }
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
             refreshMicrophoneOptions()
         }
@@ -485,36 +479,40 @@ struct VoiceDestinationView: View {
         cleanupAPIKey = controller.voiceCleanupAPIKey(for: cleanupSettings.provider)
         cleanupTimeoutSeconds = cleanupSettings.timeoutSeconds
         cleanupLatencyPolicy = cleanupSettings.latencyPolicy
-        transcripts = controller.listRecentVoiceTranscripts(limit: 500)
-        transcriptPage = 0
-        pruneVoiceTranscriptSelection()
+        reloadVoiceTranscripts(resetPage: true)
         refreshMicrophoneOptions()
         voiceHistorySettings = controller.loadVoiceHistorySettings()
     }
 
+    private func reloadVoiceTranscripts(resetPage: Bool = false) {
+        transcripts = controller.listRecentVoiceTranscripts(limit: 500)
+        if resetPage {
+            transcriptPage = 0
+        } else {
+            let pagination = MAYNListPagination.make(
+                totalItems: transcripts.count,
+                requestedPage: transcriptPage,
+                pageSize: Self.voiceTranscriptPageSize
+            )
+            transcriptPage = pagination.currentPage
+        }
+        pruneVoiceTranscriptSelection()
+    }
+
     private var voiceTranscriptIDs: [String] {
-        voiceTranscriptPageState.filtered.map(\.id)
+        transcripts.map(\.id)
     }
 
     private static let voiceTranscriptPageSize = 15
 
     private var voiceTranscriptPageState: VoiceTranscriptPageState {
-        let filtered: [VoiceTranscript]
-        switch historyFilter {
-        case .all:
-            filtered = transcripts
-        case .failed:
-            filtered = transcripts.filter { $0.status == .failed }
-        case .success:
-            filtered = transcripts.filter { $0.status != .failed }
-        }
         let pagination = MAYNListPagination.make(
-            totalItems: filtered.count,
+            totalItems: transcripts.count,
             requestedPage: transcriptPage,
             pageSize: Self.voiceTranscriptPageSize
         )
-        let visible = MAYNListPagination.slice(filtered, pagination: pagination)
-        return VoiceTranscriptPageState(visible: visible, pagination: pagination, filtered: filtered)
+        let visible = MAYNListPagination.slice(transcripts, pagination: pagination)
+        return VoiceTranscriptPageState(visible: visible, pagination: pagination, filtered: transcripts)
     }
 
     private func selectVoiceTranscript(_ transcript: VoiceTranscript) {
@@ -964,7 +962,8 @@ struct VoiceDestinationView: View {
         HotkeyValidation.issue(
             forVoiceShortcut: shortcut,
             appHotkeys: HotkeyMapStore.load(),
-            dockShortcuts: HotkeyValidation.liveDockShortcuts()
+            dockShortcuts: HotkeyValidation.liveDockShortcuts(),
+            voiceReminderShortcut: reminderShortcut
         )
     }
 
@@ -972,40 +971,51 @@ struct VoiceDestinationView: View {
         HotkeyValidation.issue(
             forVoiceShortcut: descriptor,
             appHotkeys: HotkeyMapStore.load(),
+            dockShortcuts: HotkeyValidation.liveDockShortcuts(),
+            voiceReminderShortcut: reminderShortcut
+        )
+    }
+
+    private var reminderShortcutIssue: HotkeyValidationIssue? {
+        HotkeyValidation.issue(
+            forVoiceReminderShortcut: reminderShortcut,
+            voiceDictationShortcut: shortcut,
+            appHotkeys: HotkeyMapStore.load(),
             dockShortcuts: HotkeyValidation.liveDockShortcuts()
         )
     }
 
-    private var voiceStateTitle: String {
-        switch controller.voiceCoordinator.state {
-        case .idle:
-            "Ready for local dictation."
-        case .recording:
-            "Listening. Stop to transcribe and paste."
-        case .transcribing:
-            "Transcribing audio."
-        case .pasting:
-            "Pasting into the focused app."
-        case let .error(message):
-            message
-        }
+    private func reminderShortcutCandidateIssue(_ descriptor: Platform.HotkeyDescriptor) -> HotkeyValidationIssue? {
+        HotkeyValidation.issue(
+            forVoiceReminderShortcut: descriptor,
+            voiceDictationShortcut: shortcut,
+            appHotkeys: HotkeyMapStore.load(),
+            dockShortcuts: HotkeyValidation.liveDockShortcuts()
+        )
     }
 
-    private var voiceStatusText: String {
-        switch controller.voiceCoordinator.state {
-        case .idle: "Ready"
-        case .recording: "Listening"
-        case .transcribing: "Transcribing"
-        case .pasting: "Pasting"
-        case .error: "Error"
-        }
+    private var reminderShortcutBinding: Binding<Platform.HotkeyDescriptor> {
+        Binding(
+            get: { reminderShortcut },
+            set: { applyReminderShortcut($0) }
+        )
     }
 
-    private var voiceStatusKind: StatusPill.Kind {
-        switch controller.voiceCoordinator.state {
-        case .idle: .success
-        case .recording, .transcribing, .pasting: .progress
-        case .error: .warning
+    private func applyReminderShortcut(_ descriptor: Platform.HotkeyDescriptor) {
+        reminderShortcut = descriptor
+        applyReminderShortcutSettingsIfValid()
+    }
+
+    private func applyReminderShortcutSettingsIfValid() {
+        if let reminderShortcutIssue {
+            errorMessage = reminderShortcutIssue.message
+            return
+        }
+        controller.applyVoiceReminderShortcutSettings(
+            VoiceReminderShortcutSettings(shortcut: reminderShortcut)
+        )
+        if shortcutIssue == nil {
+            errorMessage = nil
         }
     }
 
@@ -1116,26 +1126,14 @@ struct VoiceDestinationView: View {
     }
 }
 
-// MARK: - VoiceDictateSection
+// MARK: - VoiceOnboardingSection
 
-private struct VoiceDictateSection: View {
-    let voiceStateTitle: String
-    let voiceStatusText: String
-    let voiceStatusKind: StatusPill.Kind
+private struct VoiceOnboardingSection: View {
     let onboardingProgress: VoiceOnboardingProgress
     let onOpenSetup: () -> Void
     let onRestartSetup: () -> Void
 
     var body: some View {
-        MAYNSection(title: "Dictate") {
-            MAYNSettingsRow(
-                title: "State",
-                subtitle: voiceStateTitle
-            ) {
-                StatusPill(text: voiceStatusText, kind: voiceStatusKind)
-            }
-        }
-
         MAYNSection(title: "Setup") {
             MAYNSettingsRow(
                 title: "Voice onboarding",
@@ -1156,6 +1154,43 @@ private struct VoiceDictateSection: View {
                         onRestartSetup()
                     }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - VoiceReminderShortcutSection
+
+private struct VoiceReminderShortcutSection: View {
+    let shortcutBinding: Binding<Platform.HotkeyDescriptor>
+    let shortcutIssue: HotkeyValidationIssue?
+    let candidateIssueMessage: (Platform.HotkeyDescriptor) -> String?
+    let onResetShortcut: () -> Void
+
+    var body: some View {
+        MAYNSection(title: "Voice Reminder") {
+            MAYNSettingsRow(
+                title: "Trigger phrase",
+                subtitle: "Start any dictation with \u{201C}remind me to\u{2026}\u{201D} to route it to Reminders automatically."
+            ) {
+                EmptyView()
+            }
+            MAYNDivider()
+            MAYNSettingsRow(
+                title: "Reminder shortcut",
+                subtitle: "Hold this shortcut, speak your reminder, then release to save it.",
+                minHeight: shortcutIssue == nil ? 46 : 72
+            ) {
+                HotkeyRecorderControl(
+                    descriptor: shortcutBinding,
+                    issueMessage: shortcutIssue?.message,
+                    candidateIssueMessage: { candidateIssueMessage($0) },
+                    defaultDescriptor: HotkeyDescriptor.defaultVoiceReminder,
+                    recorderWidth: 160,
+                    recorderHeight: 26,
+                    errorWidth: 230,
+                    reset: onResetShortcut
+                )
             }
         }
     }
@@ -1265,7 +1300,6 @@ private struct VoiceHistorySection: View {
     @Binding var transcriptPage: Int
     let selectedTranscriptIDs: Set<String>
     let retryingTranscriptIDs: Set<String>
-    @Binding var historyFilter: VoiceHistoryFilter
     let historyToast: VoiceHistoryUndoToken?
     @Binding var voiceHistorySettings: VoiceHistorySettings
     let voiceTranscriptPageState: VoiceTranscriptPageState
@@ -1282,21 +1316,10 @@ private struct VoiceHistorySection: View {
         let page = voiceTranscriptPageState
         VStack(spacing: 12) {
             MAYNSection(title: "Recent transcripts") {
-                MAYNSettingsRow(title: "Filter") {
-                    FunctionSegmentedTabStrip(
-                        tabs: Array(VoiceHistoryFilter.allCases),
-                        selection: historyFilter,
-                        fillsAvailableWidth: false,
-                        size: .control
-                    ) { historyFilter = $0 }
-                }
-                MAYNDivider()
                 if page.filtered.isEmpty {
                     MAYNSettingsRow(
-                        title: transcripts.isEmpty ? "No transcripts yet" : "No matching transcripts",
-                        subtitle: transcripts.isEmpty
-                            ? "Completed voice dictations appear here after transcription and paste."
-                            : "Try a different history filter."
+                        title: "No transcripts yet",
+                        subtitle: "Completed voice dictations appear here after transcription and paste."
                     ) {
                         EmptyView()
                     }

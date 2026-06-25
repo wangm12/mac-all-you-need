@@ -148,6 +148,7 @@ final class VoiceCoordinatorReminderIntentTests: XCTestCase {
         )
 
         XCTAssertEqual(writer.created.count, 1, "spoken prefix must promote to reminder write")
+        XCTAssertEqual(writer.created.first?.title, "call the dentist")
         XCTAssertTrue(paste.pasted.isEmpty, "promoted reminder must not paste")
     }
 
@@ -155,7 +156,7 @@ final class VoiceCoordinatorReminderIntentTests: XCTestCase {
         let paste = PasteSpy()
         let writer = MockReminderWriter()
         let disabled = ReminderSettings(
-            isEnabled: true, defaultListID: nil, spokenPrefixEnabled: false, upcomingIntervalDays: 7
+            defaultListID: nil, spokenPrefixEnabled: false, upcomingIntervalDays: 7
         )
         let coordinator = makeCoordinator(
             text: "remind me to call the dentist", paste: paste, reminderSettings: { disabled }
@@ -170,5 +171,43 @@ final class VoiceCoordinatorReminderIntentTests: XCTestCase {
 
         XCTAssertTrue(writer.created.isEmpty, "prefix detection off → no reminder")
         XCTAssertEqual(paste.pasted.count, 1, "falls back to normal dictation paste")
+    }
+
+    func testSpokenPrefixIgnoredWhenRemindersFeatureDisabled() async throws {
+        let paste = PasteSpy()
+        let writer = MockReminderWriter()
+        let coordinator = makeCoordinator(text: "remind me to call the dentist", paste: paste)
+        coordinator.voiceRemindersEnabled = { false }
+        coordinator.reminderWriterOverride = writer
+
+        await coordinator.processCapturedAudio(
+            captured: makeCaptured(),
+            presetASRResult: nil,
+            presetAppBundleID: "com.apple.TextEdit"
+        )
+
+        XCTAssertTrue(writer.created.isEmpty, "feature off → no reminder write")
+        XCTAssertEqual(paste.pasted.count, 1, "falls back to dictation paste")
+    }
+
+    func testReminderWriteFailureShowsErrorAndResetsIntent() async throws {
+        let paste = PasteSpy()
+        let coordinator = makeCoordinator(text: "buy milk", paste: paste)
+        coordinator.activeIntent = .reminder
+        coordinator.reminderWriterOverride = FailingReminderWriter(message: "EventKit denied")
+
+        await coordinator.processCapturedAudio(
+            captured: makeCaptured(),
+            presetASRResult: nil,
+            presetAppBundleID: "com.apple.TextEdit"
+        )
+
+        XCTAssertTrue(paste.pasted.isEmpty)
+        if case let .error(message) = coordinator.state {
+            XCTAssertEqual(message, "EventKit denied")
+        } else {
+            XCTFail("expected error state, got \(coordinator.state)")
+        }
+        XCTAssertEqual(coordinator.activeIntent, .dictation)
     }
 }

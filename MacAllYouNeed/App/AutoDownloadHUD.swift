@@ -105,7 +105,7 @@ private struct AutoDownloadChip: View {
                 )
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Video link copied")
+                Text("Ready to download")
                     .font(.system(size: CGFloat(MAYNNotificationPillPresentation.titleFontSize), weight: .semibold))
                     .foregroundStyle(.white)
                 Text(displayHost)
@@ -128,6 +128,8 @@ private struct AutoDownloadChip: View {
                     .background(Color.white, in: Capsule())
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("Download video")
+            .accessibilityHint("Starts downloading the copied video URL now")
 
             Button {
                 AutoDownloadHUD.dismiss()
@@ -138,6 +140,7 @@ private struct AutoDownloadChip: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("Dismiss download prompt")
         }
         .padding(.horizontal, CGFloat(MAYNNotificationPillPresentation.horizontalPadding))
         .padding(.vertical, CGFloat(MAYNNotificationPillPresentation.verticalPadding))
@@ -147,6 +150,9 @@ private struct AutoDownloadChip: View {
                 Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ready to download")
+        .accessibilityValue(displayHost)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

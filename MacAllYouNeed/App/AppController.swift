@@ -52,6 +52,7 @@ final class AppController {
     var voiceDictionaryStore: VoiceDictionaryStore { stores.voiceDictionary }
     var voicePersonalizationStore: VoicePersonalizationStore { stores.voicePersonalization }
     var voiceTrainingExampleStore: VoiceTrainingExampleStore { stores.voiceTrainingExamples }
+    var voiceDictionarySuggestionStore: VoiceDictionarySuggestionStore { stores.voiceDictionarySuggestions }
 
     let voiceCoordinator: VoiceCoordinator
     let voiceRetentionRunner: VoiceTranscriptRetentionRunner
@@ -77,8 +78,8 @@ final class AppController {
     // Nil only if the folder-history database cannot be opened.
     private let folderHistory: FolderHistoryRuntime?
 
-    // Plan 06: Dock-Hover Window Previews runtime (AX hover observer + panel).
-    private let dockPreviews: DockHubRuntime
+    // Window Hub runtime (AX-only window/tab hub; no background worker).
+    private let windowHub: WindowHubRuntime
 
     // AI File Organizer coordinator. Stored as optional; initialized once on first access.
     // Cannot use `lazy` with @Observable, so we use a private backing var + nonisolated storage.
@@ -214,7 +215,23 @@ final class AppController {
             Logging.logger(for: "folder-history", category: "runtime")
                 .error("Folder history database could not be opened; feature unavailable.")
         }
-        dockPreviews = DockHubRuntime(dockWorker: featureWorkerHost.dockPreviews)
+        windowHub = WindowHubRuntime(
+            llmGenerate: { systemPrompt, userText in
+                guard let provider = try? VoiceCleanupProviderFactory.makeTextGenerationProvider(
+                    settings: VoiceCleanupSettingsStore.load(),
+                    keyStore: cleanupKeyStore
+                ) else {
+                    throw CocoaError(.coderInvalidValue)
+                }
+                return try await provider.generate(systemPrompt: systemPrompt, userText: userText)
+            }
+        )
+        if let data = AppGroupSettings.defaults.data(forKey: FeatureManager.persistKey(for: .windowHub)),
+           let state = try? JSONDecoder().decode(FeatureRuntimeState.self, from: data),
+           state.activationState == .enabled
+        {
+            windowHub.applyEnabled(true)
+        }
 
         let coordinator = BrowseFolderCoordinator()
         let browser = BrowseFolderWindowController { action in coordinator.perform(action) }
@@ -234,8 +251,7 @@ final class AppController {
         AppAppearanceMode.applyStoredPreference()
         ClipboardExcludedAppsPruner.migrateIfNeeded()
         ClipboardLegacySettingsMigration.mergeClipboardMaxItemsIntoRetentionIfNeeded()
-
-        // Feature system (Phase 04) — initialized before first self-method calls
+        VoiceASRLanguageLocaleMigration.migrateIfNeeded()
         let featureRegistry = FeatureRegistryProvider.makeRegistry()
         let fm = FeatureManager(registry: featureRegistry, defaults: AppGroupSettings.defaults)
         let rt = FeatureRuntime(registry: featureRegistry, manager: fm, workerHost: featureWorkerHost)
@@ -261,7 +277,8 @@ final class AppController {
             onClipboardToggle: { [weak clipboardDock] in clipboardDock?.toggle() },
             onBrowseFolder: { [weak browser] in browser?.openPanelAndBrowse() },
             onWindowAction: { [weak windowControl] action in windowControl?.perform(action: action) },
-            onRadialMenu: { [weak windowControl] in windowControl?.openRadialMenu() }
+            onRadialMenu: { [weak windowControl] in windowControl?.openRadialMenu() },
+            onWindowHubToggle: { [windowHub] in windowHub.togglePanel() }
         )
 
         // Notification adapter — registers all 9 NC observers and surfaces
@@ -273,10 +290,13 @@ final class AppController {
         }
 
         startDownloadTasks(coordinator: coord, viewModel: dlVM)
+        voiceCoordinator.voiceRemindersEnabled = { [weak self] in
+            guard let self else { return false }
+            return self.featureStatePublisher.state(for: .voiceReminders).activationState == .enabled
+        }
         voiceCoordinator.start()
         voiceCoordinator.reminderWriterOverride = RemindersServiceWriter(service: remindersService)
         voiceCoordinator.remindersWorker = featureWorkerHost.reminders
-        registerReminderHotkey()
 
         enrichmentCoordinator = ClipboardEnrichmentCoordinator(
             clip: stores.clipboard,
@@ -325,6 +345,14 @@ final class AppController {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.folderHistory?.reloadHotkey() }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .windowHubHotkeyDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.registerConfiguredHotkeys() }
         }
 
         NotificationCenter.default.addObserver(
@@ -388,6 +416,8 @@ final class AppController {
                     manager: fm, loader: manifestLoader
                 )
             }
+            try? await WindowHubFeatureStateMigration.migrateIfNeeded(manager: fm)
+            WindowHubSettingsMigration.migrateIfNeeded()
             if let self {
                 await self.refreshWindowControlFeatureAvailability()
             }
@@ -396,7 +426,7 @@ final class AppController {
                 await self.refreshClipboardFeatureAvailability()
                 await self.refreshFinderPreviewFeatureAvailability()
                 await self.refreshFolderHistoryFeatureAvailability()
-                await self.refreshDockPreviewsFeatureAvailability()
+                await self.refreshWindowHubFeatureAvailability()
                 await self.refreshVoiceFeatureAvailability()
                 await self.refreshClipboardSmartTextFeatureAvailability()
                 await self.refreshDownloaderFeatureAvailability()
@@ -505,6 +535,7 @@ final class AppController {
 
     private func registerConfiguredHotkeys() {
         let map = HotkeyMapStore.load()
+        var layoutHotkeysOnGlobalHotkey = false
         do {
             try hotkeys.applyMap(
                 map,
@@ -512,6 +543,7 @@ final class AppController {
                 registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable,
                 isFeatureEnabled: featureEnabledForHotkeyRegistration
             )
+            layoutHotkeysOnGlobalHotkey = windowControl.windowLayoutHotkeysRegisterable
         } catch {
             if featureEnabledForHotkeyRegistration(.clipboard) {
                 let hk = GlobalHotkey(descriptor: .defaultClipboard) { [weak clipboardDock] in
@@ -520,8 +552,9 @@ final class AppController {
                 try? hk.register()
                 hotkeys.installFallbackHotkey(hk)
             }
+            layoutHotkeysOnGlobalHotkey = false
         }
-        syncLayoutHotkeysToEventTap(from: map)
+        syncLayoutHotkeysToEventTap(from: map, layoutHotkeysOnGlobalHotkey: layoutHotkeysOnGlobalHotkey)
         folderHistory?.reloadHotkey()
     }
 
@@ -529,13 +562,22 @@ final class AppController {
         featureStatePublisher.state(for: featureID).activationState == .enabled
     }
 
-    private func syncLayoutHotkeysToEventTap(from map: [HotkeyAction: [Platform.HotkeyDescriptor]]) {
-        let activeMap = HotkeyRegistryRegistrationPlan.activeMap(
-            from: map,
-            registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable,
-            isFeatureEnabled: featureEnabledForHotkeyRegistration
-        )
-        windowControl.syncLayoutHotkeyBindings(LayoutHotkeyBindings.from(activeMap))
+    private func syncLayoutHotkeysToEventTap(
+        from map: [HotkeyAction: [Platform.HotkeyDescriptor]],
+        layoutHotkeysOnGlobalHotkey: Bool
+    ) {
+        if layoutHotkeysOnGlobalHotkey {
+            // Layout shortcuts are registered via GlobalHotkey → performHotkeyAction.
+            // Binding the same shortcuts in the CGEvent tap caused double-fires (HK-01).
+            windowControl.syncLayoutHotkeyBindings([])
+        } else {
+            let activeMap = HotkeyRegistryRegistrationPlan.activeMap(
+                from: map,
+                registerWindowLayoutHotkeys: windowControl.windowLayoutHotkeysRegisterable,
+                isFeatureEnabled: featureEnabledForHotkeyRegistration
+            )
+            windowControl.syncLayoutHotkeyBindings(LayoutHotkeyBindings.from(activeMap))
+        }
     }
 
     private func startDownloadTasks(coordinator: DownloadCoordinator, viewModel: DownloaderViewModel) {
@@ -590,7 +632,7 @@ final class AppController {
         await refreshFinderPreviewFeatureAvailability()
         await refreshWindowControlFeatureAvailability()
         await refreshFolderHistoryFeatureAvailability()
-        await refreshDockPreviewsFeatureAvailability()
+        await refreshWindowHubFeatureAvailability()
         await refreshVoiceFeatureAvailability()
         await refreshDownloaderFeatureAvailability()
         await refreshClipboardSmartTextFeatureAvailability()
@@ -637,9 +679,23 @@ final class AppController {
         folderHistory?.applyEnabled(coupledEnabled)
     }
 
-    private func refreshDockPreviewsFeatureAvailability() async {
-        let state = await featureManager.state(for: .dockPreviews)
-        dockPreviews.applyEnabled(state.activationState == .enabled)
+    private func refreshWindowHubFeatureAvailability() async {
+        let state = await featureManager.state(for: .windowHub)
+        windowHub.applyEnabled(state.activationState == .enabled)
+        registerConfiguredHotkeys()
+    }
+
+    var windowHubCoordinator: WindowHubCoordinator {
+        windowHub.hubCoordinator
+    }
+
+    func windowHubTogglePanel() {
+        windowHub.togglePanel()
+    }
+
+    func windowHubReloadSettings() {
+        windowHub.reloadSettings()
+        registerConfiguredHotkeys()
     }
 
     private func refreshClipboardSmartTextFeatureAvailability() async {
@@ -673,12 +729,8 @@ final class AppController {
         }
     }
 
-    func dockPreviewsReloadSettings() {
-        dockPreviews.reloadSettings()
-    }
-
-    func dockPreviewsRefreshPermissions() {
-        dockPreviews.refreshPermissions()
+    func windowHubRefreshPermissions() {
+        windowHub.reloadSettings()
     }
 
     private func suspendShortcutTriggersForHotkeyRecording() {
@@ -687,7 +739,7 @@ final class AppController {
         hotkeys.unregisterAll()
         voiceCoordinator.suspendActivationMonitoring()
         windowControl.suspendForHotkeyRecording()
-        dockPreviews.suspendForHotkeyRecording()
+        windowHub.suspendForHotkeyRecording()
     }
 
     private func resumeShortcutTriggersAfterHotkeyRecording() {
@@ -696,13 +748,14 @@ final class AppController {
         guard activeHotkeyRecorderCount == 0 else { return }
         voiceCoordinator.resumeActivationMonitoring()
         windowControl.resumeAfterHotkeyRecording()
-        dockPreviews.resumeAfterHotkeyRecording()
+        windowHub.resumeAfterHotkeyRecording()
         registerConfiguredHotkeys()
     }
 
     private func refreshDownloaderFeatureAvailability() async {
         let state = await featureManager.state(for: .downloader)
         if state.activationState == .enabled {
+            ensureDownloadDaemonRunning()
             await downloader.startDispatchServer()
             downloaderDock.start()
             guard autoDownloadLoopTask == nil else { return }
@@ -743,6 +796,22 @@ final class AppController {
             await downloader.stopDispatchServer()
             downloaderDock.stop()
         }
+    }
+
+    private func ensureDownloadDaemonRunning() {
+        let bundleID = LoginItemController.downloadDaemonIdentifier
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty {
+            return
+        }
+        guard let helperURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Library/LoginItems/DownloadDaemon.app")
+            as URL?
+        else { return }
+        NSWorkspace.shared.openApplication(
+            at: helperURL,
+            configuration: NSWorkspace.OpenConfiguration(),
+            completionHandler: nil
+        )
     }
 
     private static func downloadableURLFromPasteboard(_ pasteboard: NSPasteboard) -> URL? {
@@ -855,6 +924,13 @@ private func makeVoiceCoordinator(
             return try VoiceCleanupProviderFactory.makeTextGenerationProvider(settings: settings, keyStore: cleanupKeyStore)
         }
     )
+    let miner = VoiceDictionarySuggestionMiner(
+        samplesStore: stores.voicePersonalization,
+        suggestionStore: stores.voiceDictionarySuggestions,
+        dictionary: stores.voiceDictionary,
+        transcripts: stores.voiceTranscripts,
+        settings: { VoicePersonalizationSettingsStore.load() }
+    )
 
     let asrSettings = VoiceASRSettingsStore.load()
     let cloudKeyStore = VoiceCloudASRKeyStore(keychain: keychain)
@@ -896,6 +972,7 @@ private func makeVoiceCoordinator(
         engine: engine,
         cleanupKeyStore: cleanupKeyStore,
         summarizer: summarizer,
+        miner: miner,
         historySettings: { VoiceHistorySettings.load(from: AppGroupSettings.defaults) },
         reminderSettings: { ReminderSettingsStore.load() }
     )

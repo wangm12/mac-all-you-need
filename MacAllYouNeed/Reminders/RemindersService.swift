@@ -29,10 +29,23 @@ final class RemindersService {
         return granted
     }
 
+    /// Requests Reminders access when status is still undetermined, then re-checks.
+    @discardableResult
+    func ensureAuthorized() async throws -> Bool {
+        if isAuthorized { return true }
+        let granted = try await requestAccess()
+        return granted && isAuthorized
+    }
+
     var isAuthorized: Bool {
         // Re-read the live status — the cached authStatus may lag after the user
         // grants or revokes permission in System Settings.
-        EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
+        switch EKEventStore.authorizationStatus(for: .reminder) {
+        case .fullAccess, .authorized:
+            true
+        default:
+            false
+        }
     }
 
     func availableLists() -> [ReminderListInfo] {
@@ -92,6 +105,9 @@ final class RemindersServiceWriter: RemindersWriter {
     }
 
     func write(title: String, dueDate: ReminderDueDate?, listID: String?) async throws -> CreatedReminder {
-        try service.createReminder(title: title, dueDate: dueDate, listID: listID)
+        guard try await service.ensureAuthorized() else {
+            throw RemindersServiceError.notAuthorized
+        }
+        return try service.createReminder(title: title, dueDate: dueDate, listID: listID)
     }
 }

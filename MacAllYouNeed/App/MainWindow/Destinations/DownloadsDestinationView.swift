@@ -14,6 +14,7 @@ struct DownloadsDestinationView: View {
     @State private var showingAddURL = false
     @State private var addURL = ""
     @State private var detectedClipboardURL: String?
+    @State private var dismissedClipboardURL: String?
 
     private var selectedTab: Binding<DownloadsFunctionTab> {
         Binding {
@@ -47,6 +48,9 @@ struct DownloadsDestinationView: View {
             case .downloads:
                 FunctionPageScrollContent {
                     clipboardURLDetectedSection
+                    #if DEBUG
+                    debugStressSeedSection
+                    #endif
                     downloadsSection
                 }
             case .settings:
@@ -86,25 +90,46 @@ struct DownloadsDestinationView: View {
     @ViewBuilder
     private var clipboardURLDetectedSection: some View {
         if let detectedClipboardURL {
-            DownloadClipboardURLDetectedBanner(urlString: detectedClipboardURL) {
-                enqueueURL(detectedClipboardURL)
-            }
-        }
-    }
-
-    private var downloadsSection: some View {
-        MAYNSection(title: "Downloads") {
-            DownloadsListView(
-                vm: controller.downloaderVM,
-                filter: .all,
-                onPasteURL: enqueueClipboardURL,
-                onAddURL: { presentAddURLSheet(prefill: DownloaderViewModel.clipboardVideoURL()) }
+            DownloadClipboardURLDetectedBanner(
+                urlString: detectedClipboardURL,
+                onEnqueue: { enqueueURL(detectedClipboardURL) },
+                onDismiss: { dismissClipboardBanner(for: detectedClipboardURL) }
             )
         }
     }
 
+    private var downloadsSection: some View {
+        DownloadsListView(
+            vm: controller.downloaderVM,
+            filter: .all,
+            onPasteURL: enqueueClipboardURL,
+            onAddURL: { presentAddURLSheet(prefill: DownloaderViewModel.clipboardVideoURL()) }
+        )
+    }
+
+    #if DEBUG
+    private var debugStressSeedSection: some View {
+        MAYNSection(title: "Debug Stress") {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Seed a synthetic 200-item download batch.")
+                        .font(.callout.weight(.medium))
+                    Text("This is for responsiveness validation only.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                MAYNButton("Seed 200") {
+                    Task { await controller.downloaderVM.seedSyntheticDownloads(count: 200) }
+                }
+            }
+        }
+    }
+    #endif
+
     private var downloadsSettingsSection: some View {
         DownloadsSettingsContent(
+            controller: controller,
             concurrency: $concurrency,
             template: $template,
             downloadDir: $downloadDir
@@ -125,10 +150,12 @@ struct DownloadsDestinationView: View {
     }
 
     private func enqueueClipboardURL() {
+        let url = detectedClipboardURL ?? DownloaderViewModel.clipboardVideoURL()
         Task {
             await controller.downloaderVM.enqueueClipboardURL()
             await MainActor.run {
-                refreshDetectedClipboardURL()
+                if let url { dismissClipboardBanner(for: url) }
+                else { refreshDetectedClipboardURL() }
             }
         }
     }
@@ -137,13 +164,27 @@ struct DownloadsDestinationView: View {
         Task {
             await controller.downloaderVM.add(url: url)
             await MainActor.run {
-                refreshDetectedClipboardURL()
+                dismissClipboardBanner(for: url)
             }
         }
     }
 
+    private func dismissClipboardBanner(for url: String) {
+        dismissedClipboardURL = url
+        detectedClipboardURL = nil
+    }
+
     private func refreshDetectedClipboardURL() {
-        detectedClipboardURL = DownloaderViewModel.clipboardVideoURL()
+        guard let detected = DownloaderViewModel.clipboardVideoURL() else {
+            detectedClipboardURL = nil
+            return
+        }
+        if detected == dismissedClipboardURL {
+            detectedClipboardURL = nil
+            return
+        }
+        dismissedClipboardURL = nil
+        detectedClipboardURL = detected
     }
 
     private func hotkeyBinding(for action: HotkeyAction) -> Binding<Platform.HotkeyDescriptor> {
@@ -218,6 +259,7 @@ struct DownloadsDestinationView: View {
 private struct DownloadClipboardURLDetectedBanner: View {
     let urlString: String
     let onEnqueue: () -> Void
+    let onDismiss: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -238,6 +280,15 @@ private struct DownloadClipboardURLDetectedBanner: View {
             }
             Spacer(minLength: 12)
             MAYNButton("Enqueue", action: onEnqueue)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: MAYNControlMetrics.controlHeight, height: MAYNControlMetrics.controlHeight)
+                    .background(MAYNTheme.elevated, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
         .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)

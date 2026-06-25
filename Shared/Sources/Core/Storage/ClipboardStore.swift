@@ -139,6 +139,9 @@ public final class ClipboardStore {
             if !existing.contains("retry_source_transcript_id") {
                 try conn.execute(sql: "ALTER TABLE voice_transcripts ADD COLUMN retry_source_transcript_id TEXT;")
             }
+        },
+        Migration(identifier: "010-voice-dictionary-suggestions") { conn in
+            try conn.execute(sql: VoiceDictionarySuggestionMigration.sql)
         }
     ]
 

@@ -22,12 +22,12 @@ struct RadialMenuSettingsTabView: View {
 
     private var radialMenuSection: some View {
         MAYNSection(
-            title: "Radial Menu",
-            subtitle: "Hold the trigger, aim with the cursor (if enabled), then release the modifier or click to apply."
+            title: "Radial Puck",
+            subtitle: "Hold the trigger, drag from the center puck to aim, then release to apply. Stay in the center to cancel."
         ) {
             MAYNSettingsRow(
-                title: "Radial menu",
-                subtitle: "Show a pie-style window layout picker on the held trigger."
+                title: "Layout puck",
+                subtitle: "Show a gesture-based layout HUD on the held trigger."
             ) {
                 Toggle("", isOn: radialEnabledBinding)
                     .labelsHidden()
@@ -81,7 +81,7 @@ struct RadialMenuSettingsTabView: View {
             MAYNDivider()
             MAYNSettingsRow(
                 title: "Cursor selection",
-                subtitle: "Select a layout by cursor angle while the menu is open."
+                subtitle: "Select a layout by cursor angle while the puck is open. Pull past the ring for Fill Screen."
             ) {
                 Toggle("", isOn: boolBinding(\.radialCursorSelectionEnabled)).labelsHidden()
             }
@@ -106,10 +106,12 @@ struct RadialMenuSettingsTabView: View {
     }
 
     private var previewSection: some View {
-        MAYNSection(title: "Preview") {
-            RadialSettingsPreview()
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, MAYNControlMetrics.rowVerticalPadding * 2)
+        MAYNSection(
+            title: "Preview",
+            subtitle: "Drag in the demo below to see how aiming and Fill Screen work."
+        ) {
+            RadialPuckSettingsPreview()
+                .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
         }
     }
 
@@ -124,7 +126,7 @@ struct RadialMenuSettingsTabView: View {
                 layoutActionRow(action: action)
             }
             MAYNDivider()
-            layoutActionRow(action: RadialMenuLayout.centerAction)
+            fillScreenActionRow()
             MAYNDivider()
             MAYNSettingsRow(title: "Layout keys", subtitle: "Restore default WASD-style bindings.") {
                 MAYNButton("Reset defaults", role: .secondary) {
@@ -134,6 +136,21 @@ struct RadialMenuSettingsTabView: View {
                     onSettingsChange(next)
                 }
             }
+        }
+    }
+
+    private func fillScreenActionRow() -> some View {
+        MAYNSettingsRow(
+            title: "Fill Screen",
+            subtitle: "Long-pull past the ring in any direction, or press the bound key.",
+            leading: {
+                Image(systemName: WindowAction.maximize.symbolName)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(MAYNTheme.muted)
+                    .frame(width: 22, height: 22)
+            }
+        ) {
+            radialKeyField(for: .maximize)
         }
     }
 
@@ -335,13 +352,13 @@ enum RadialMenuSettingsPresentation {
         case .bottomLeft: "Bottom Left"
         case .leftHalf: "Left Half"
         case .topLeft: "Top Left"
-        case .maximize: "Maximize"
+        case .maximize: "Fill Screen"
         default: String(describing: action)
         }
     }
 
     static func sectionTitles(whenEnabled: Bool) -> [String] {
-        var titles = ["Radial Menu"]
+        var titles = ["Radial Puck"]
         guard whenEnabled else { return titles }
         titles += ["Preview", "Trigger", "Selection", "Target Highlight", "Layout Actions"]
         return titles

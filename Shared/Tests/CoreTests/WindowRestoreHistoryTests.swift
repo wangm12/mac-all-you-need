@@ -64,6 +64,17 @@ final class WindowRestoreHistoryTests: XCTestCase {
         XCTAssertEqual(history.restoreFrame(for: movedIdentity), originalFrame)
     }
 
+    func testStoresAndRestoresByFrameFingerprintWhenNoCGWindowIDOrTitle() {
+        let history = WindowRestoreHistory()
+        let identity = WindowIdentity(pid: 123, cgWindowID: nil, titleHash: nil, frameFingerprint: 77)
+        let frame = CGRect(x: 5, y: 5, width: 400, height: 300)
+
+        history.store(frame, for: identity)
+
+        XCTAssertEqual(history.restoreFrame(for: identity), frame)
+        XCTAssertNil(history.restoreFrame(for: WindowIdentity(pid: 123, cgWindowID: nil, titleHash: nil, frameFingerprint: 88)))
+    }
+
     func testHistoryCapsStoredEntries() {
         let history = WindowRestoreHistory(capacity: 2)
 

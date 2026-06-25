@@ -17,27 +17,33 @@ struct VoicePopoverView: View {
     var body: some View {
         Group {
             if transcripts.isEmpty {
-                ContentUnavailableView(
-                    "No transcripts yet",
-                    systemImage: "waveform",
-                    description: Text("Completed dictations appear here after transcription.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 14) {
+                    popoverHeader
+                    ContentUnavailableView(
+                        "No transcripts yet",
+                        systemImage: "waveform",
+                        description: Text("Completed dictations appear here after transcription.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(transcripts, id: \.id) { transcript in
-                            VoiceTranscriptHistoryRowView(
-                                transcript: transcript,
-                                surface: .commandCenter,
-                                isSelected: selectedTranscriptIDs.contains(transcript.id),
-                                isRetrying: false,
-                                onSelect: { selectTranscript(transcript) },
-                                onCopy: { copyTranscripts(ids: [transcript.id]) },
-                                onRetry: { retryTranscript(transcript) },
-                                onDownload: {},
-                                onDelete: {}
-                            )
+                VStack(spacing: 0) {
+                    popoverHeader
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(transcripts, id: \.id) { transcript in
+                                VoiceTranscriptHistoryRowView(
+                                    transcript: transcript,
+                                    surface: .commandCenter,
+                                    isSelected: selectedTranscriptIDs.contains(transcript.id),
+                                    isRetrying: false,
+                                    onSelect: { selectTranscript(transcript) },
+                                    onCopy: { copyTranscripts(ids: [transcript.id]) },
+                                    onRetry: { retryTranscript(transcript) },
+                                    onDownload: {},
+                                    onDelete: {}
+                                )
+                            }
                         }
                     }
                 }
@@ -56,6 +62,27 @@ struct VoicePopoverView: View {
         .onReceive(NotificationCenter.default.publisher(for: .voiceTranscriptAppended)) { _ in
             reloadTranscripts()
         }
+    }
+
+    private var popoverHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Voice History")
+                    .font(.headline.weight(.semibold))
+                Text("Copy a transcript here, or open the full Voice page for dictionary, personalization, and setup.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            MAYNButton("Open Voice", role: .primary, height: HotkeyChipPresentation.compactHeight) {
+                controller.showMainWindow(destination: .voice)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(MAYNTheme.panel)
     }
 
     private var voiceTranscriptIDs: [String] {

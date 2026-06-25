@@ -68,9 +68,31 @@ enum CursorPaster {
         }
     }
 
+    private static let cmdVPasteBundleIDs: Set<String> = [
+        "com.todesktop.230313mzl4w4u92", // Cursor
+        "com.microsoft.VSCode",
+        "com.microsoft.VSCodeInsiders",
+    ]
+
+    private static func prefersCommandVPaste(bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        if cmdVPasteBundleIDs.contains(bundleID) { return true }
+        let lowered = bundleID.lowercased()
+        return lowered.contains("electron") || lowered.hasPrefix("com.todesktop.")
+    }
+
+    private static func bundleID(for preferredTarget: AXTargetSnapshot?) -> String? {
+        if let bundleID = preferredTarget?.metadata.bundleID { return bundleID }
+        guard let pid = pidOfFocusedElement() else { return nil }
+        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+    }
+
     static func paste(_ text: String, preferredTarget: AXTargetSnapshot? = nil) async -> Result {
         let accessibilityTrusted = AXIsProcessTrusted()
-        if accessibilityTrusted {
+        let targetBundleID = bundleID(for: preferredTarget)
+        let useCommandVPaste = prefersCommandVPaste(bundleID: targetBundleID)
+
+        if accessibilityTrusted, !useCommandVPaste {
             if let preferredTarget,
                insertUsingAccessibility(text, element: preferredTarget.element)
             {

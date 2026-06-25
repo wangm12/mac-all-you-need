@@ -20,6 +20,7 @@ enum MacAllYouNeedMain {
 final class MacAllYouNeedApplicationDelegate: NSObject, NSApplicationDelegate {
     var handleReopen: (() -> Void)?
     private var controller: AppController?
+    private var pendingCompanionURLs: [URL] = []
     #if DEBUG
     private var auditController: UIAuditAppController?
     #endif
@@ -50,6 +51,10 @@ final class MacAllYouNeedApplicationDelegate: NSObject, NSApplicationDelegate {
             self.controller = controller
             statusItemController = AppStatusItemController(controller: controller)
             statusItemController?.applyVisibilityFromDefaults()
+            for url in pendingCompanionURLs {
+                controller.handleCompanionURL(url)
+            }
+            pendingCompanionURLs.removeAll()
         } catch {
             presentStartupFailure(error)
             NSApp.terminate(nil)
@@ -79,6 +84,21 @@ final class MacAllYouNeedApplicationDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         // Intentionally empty — cleanup is handled in applicationShouldTerminate.
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard !MAYNIsRunningUnderXCTest() else { return }
+        #if DEBUG
+        if auditController != nil { return }
+        #endif
+        guard !urls.isEmpty else { return }
+        if let controller {
+            for url in urls {
+                controller.handleCompanionURL(url)
+            }
+        } else {
+            pendingCompanionURLs.append(contentsOf: urls)
+        }
     }
 
     func applicationShouldHandleReopen(

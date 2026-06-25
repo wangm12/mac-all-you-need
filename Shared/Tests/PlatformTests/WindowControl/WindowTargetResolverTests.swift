@@ -55,7 +55,25 @@ final class WindowTargetResolverTests: XCTestCase {
         XCTAssertEqual(normalTarget?.windowID, 4)
     }
 
-    func testResolvesOwnBundleStandardWindows() {
+    func testOwnBundleWindowIncludedWhenRequested() {
+        let resolver = WindowTargetResolver(
+            ownBundleIdentifier: "com.macallyouneed",
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1440, height: 875)]
+        )
+        let ownWindow = window(id: 12, pid: 200, ownerBundleIdentifier: "com.macallyouneed")
+        let candidate = FakeTargetElement(processIdentifier: 200, frame: ownWindow.bounds)
+
+        let target = resolver.resolveTopmostWindow(
+            at: CGPoint(x: 50, y: 50),
+            windows: [ownWindow],
+            candidates: [candidate],
+            options: .grabGesture
+        )
+
+        XCTAssertEqual(target?.windowID, 12)
+    }
+
+    func testFiltersOwnBundleWindows() {
         let resolver = WindowTargetResolver(
             ownBundleIdentifier: "com.macallyouneed",
             visibleFrames: [CGRect(x: 0, y: 0, width: 1440, height: 875)]
@@ -69,7 +87,93 @@ final class WindowTargetResolverTests: XCTestCase {
             candidates: [candidate]
         )
 
-        XCTAssertEqual(target?.windowID, 12)
+        XCTAssertNil(target)
+    }
+
+    func testOwnBundleWindowSkippedForNextEligibleWindow() {
+        let resolver = WindowTargetResolver(
+            ownBundleIdentifier: "com.macallyouneed",
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1440, height: 875)]
+        )
+        let ownWindow = window(id: 12, pid: 200, ownerBundleIdentifier: "com.macallyouneed")
+        let otherWindow = window(id: 13, pid: 201, bounds: CGRect(x: 0, y: 0, width: 500, height: 500))
+        let candidate = FakeTargetElement(processIdentifier: 201, frame: otherWindow.bounds)
+
+        let target = resolver.resolveTopmostWindow(
+            at: CGPoint(x: 50, y: 50),
+            windows: [ownWindow, otherWindow],
+            candidates: [candidate]
+        )
+
+        XCTAssertEqual(target?.windowID, 13)
+    }
+
+    func testPrefersCandidateMatchingCGWindowIDOverTabShim() {
+        let resolver = WindowTargetResolver(
+            ownBundleIdentifier: "com.macallyouneed",
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1440, height: 875)]
+        )
+        let chromeWindow = window(
+            id: 42,
+            pid: 200,
+            bounds: CGRect(x: 100, y: 100, width: 900, height: 700),
+            ownerBundleIdentifier: "com.google.Chrome"
+        )
+        let tabShim = FakeTargetElement(
+            processIdentifier: 200,
+            frame: chromeWindow.bounds,
+            selectionPriority: 90,
+            cgWindowID: 99,
+            hasStandardWindowControls: false
+        )
+        let browserFrame = FakeTargetElement(
+            processIdentifier: 200,
+            frame: chromeWindow.bounds,
+            selectionPriority: 100,
+            cgWindowID: 42,
+            hasStandardWindowControls: true
+        )
+
+        let target = resolver.resolveTopmostWindow(
+            at: CGPoint(x: 200, y: 200),
+            windows: [chromeWindow],
+            candidates: [tabShim, browserFrame]
+        )
+
+        XCTAssertTrue(target?.element === browserFrame)
+    }
+
+    func testBrowserCandidatePrefersStandardWindowControlsWhenIDsUnavailable() {
+        let resolver = WindowTargetResolver(
+            ownBundleIdentifier: "com.macallyouneed",
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1440, height: 875)]
+        )
+        let chromeWindow = window(
+            id: 42,
+            pid: 200,
+            bounds: CGRect(x: 100, y: 100, width: 900, height: 700),
+            ownerBundleIdentifier: "com.google.Chrome"
+        )
+        let tabShim = FakeTargetElement(
+            processIdentifier: 200,
+            frame: chromeWindow.bounds,
+            selectionPriority: 100,
+            hasStandardWindowControls: false
+        )
+        let browserFrame = FakeTargetElement(
+            processIdentifier: 200,
+            frame: chromeWindow.bounds,
+            selectionPriority: 90,
+            hasStandardWindowControls: true
+        )
+
+        let target = resolver.resolveTopmostWindow(
+            at: CGPoint(x: 200, y: 200),
+            windows: [chromeWindow],
+            candidates: [tabShim, browserFrame]
+        )
+
+        XCTAssertTrue(target?.element === browserFrame)
     }
 
     func testResolvesAmbiguousFrameMatchesByPreferringHigherPriorityCandidate() {
@@ -147,15 +251,21 @@ private final class FakeTargetElement: WindowTargetElement {
     let isSupportedForWindowControl = true
     let enhancedUserInterfaceEnabled: Bool? = nil
     let windowTargetSelectionPriority: Int
+    let cgWindowID: CGWindowID?
+    let hasStandardWindowControls: Bool
 
     init(
         processIdentifier: pid_t,
         frame: CGRect = CGRect(x: 0, y: 0, width: 500, height: 500),
-        selectionPriority: Int = 50
+        selectionPriority: Int = 50,
+        cgWindowID: CGWindowID? = nil,
+        hasStandardWindowControls: Bool = false
     ) {
         self.processIdentifier = processIdentifier
         self.frame = frame
         self.windowTargetSelectionPriority = selectionPriority
+        self.cgWindowID = cgWindowID
+        self.hasStandardWindowControls = hasStandardWindowControls
     }
 
     func setEnhancedUserInterfaceEnabled(_ enabled: Bool) -> Bool { true }

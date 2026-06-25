@@ -25,6 +25,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     case windowNextSpace
     case windowPreviousSpace
     case radialMenu
+    case windowHub
 
     var id: String { rawValue }
 
@@ -70,6 +71,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
             return "Window Layouts: Previous space"
         case .radialMenu:
             return "Radial Menu"
+        case .windowHub:
+            return "Open Window Hub"
         }
     }
 
@@ -101,6 +104,8 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
             return []
         case .radialMenu:
             return []
+        case .windowHub:
+            return [.defaultWindowHub]
         }
     }
 
@@ -110,7 +115,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 
     var isWindowControlAction: Bool {
         switch self {
-        case .clipboard, .browseFolder, .finderHistory:
+        case .clipboard, .browseFolder, .finderHistory, .windowHub:
             return false
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
@@ -123,7 +128,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 
     fileprivate var usesV2EmptyArrayAsDefault: Bool {
         switch self {
-        case .clipboard, .browseFolder, .finderHistory:
+        case .clipboard, .browseFolder, .finderHistory, .windowHub:
             return true
         case .windowLeftHalf, .windowRightHalf, .windowTopHalf, .windowBottomHalf,
              .windowTopLeft, .windowTopRight, .windowBottomLeft, .windowBottomRight,
@@ -302,12 +307,35 @@ enum HotkeyValidation {
         forVoiceShortcut descriptor: HotkeyDescriptor,
         appHotkeys: [HotkeyAction: [HotkeyDescriptor]],
         dockShortcuts: [ShortcutAction: [HotkeyDescriptor]] = [:],
+        voiceReminderShortcut: HotkeyDescriptor? = nil,
         systemHotkeys: Set<HotkeyDescriptor> = SystemHotkeyConflictDetector.currentEnabledSymbolicHotkeys()
     ) -> HotkeyValidationIssue? {
-        issue(
+        if let voiceReminderShortcut, descriptor == voiceReminderShortcut {
+            return HotkeyValidationIssue(message: "This shortcut is already used by Voice Reminders.")
+        }
+        return issue(
             for: descriptor,
             appHotkeys: appHotkeys,
             voiceShortcut: nil,
+            dockShortcuts: dockShortcuts,
+            systemHotkeys: systemHotkeys
+        )
+    }
+
+    static func issue(
+        forVoiceReminderShortcut descriptor: HotkeyDescriptor,
+        voiceDictationShortcut: HotkeyDescriptor,
+        appHotkeys: [HotkeyAction: [HotkeyDescriptor]],
+        dockShortcuts: [ShortcutAction: [HotkeyDescriptor]] = [:],
+        systemHotkeys: Set<HotkeyDescriptor> = SystemHotkeyConflictDetector.currentEnabledSymbolicHotkeys()
+    ) -> HotkeyValidationIssue? {
+        if descriptor == voiceDictationShortcut {
+            return HotkeyValidationIssue(message: "This shortcut is already used by Voice dictation.")
+        }
+        return issue(
+            for: descriptor,
+            appHotkeys: appHotkeys,
+            voiceShortcut: voiceDictationShortcut,
             dockShortcuts: dockShortcuts,
             systemHotkeys: systemHotkeys
         )

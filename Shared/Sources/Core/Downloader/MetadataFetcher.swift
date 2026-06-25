@@ -64,56 +64,79 @@ public enum MetadataFetcher {
 
     // Full fetch via yt-dlp --dump-json. Returns title, channel, duration,
     // thumbnail, and the actual available video heights for this URL.
-    public static func fetch(url: String, ytdlp: URL, cookieFile: URL? = nil) async -> VideoMetadata? {
+    public static func fetch(
+        url: String,
+        ytdlp: URL,
+        cookieFile: URL? = nil,
+        timeoutSeconds: TimeInterval = 25
+    ) async -> VideoMetadata? {
         await Task.detached(priority: .utility) {
-            let p = Process()
-            p.executableURL = ytdlp
-            var args = [
-                "--no-download",
-                "--no-check-certificate",
-                "--dump-json",
-            ]
-            if let node = findNode() {
-                args += ["--js-runtime", "node:\(node)"]
-            }
-            if let cookieFile {
-                args += ["--cookies", cookieFile.path]
-            }
-            args.append(url)
-            p.arguments = args
-            var env = ProcessInfo.processInfo.environment
-            env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
-            p.environment = env
-            let pipe = Pipe()
-            p.standardOutput = pipe
-            p.standardError = Pipe()
-            do { try p.run() } catch { return nil }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 25) {
-                if p.isRunning { p.terminate() }
-            }
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                p.terminationHandler = { _ in cont.resume() }
-            }
-            guard p.terminationStatus == 0 else { return nil }
-            let raw = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any] else {
-                return nil
-            }
-            let title = json["title"] as? String ?? ""
-            let channel = (json["uploader"] as? String)
-                ?? (json["channel"] as? String)
-                ?? (json["creator"] as? String) ?? ""
-            let duration = Int(json["duration"] as? Double ?? 0)
-            let thumbnail = json["thumbnail"] as? String ?? ""
-            let heights = parseAvailableHeights(from: json)
-            return VideoMetadata(
-                title: title,
-                channelName: channel,
-                durationSeconds: duration,
-                thumbnailURL: thumbnail,
-                availableHeights: heights
-            )
+            runYTDLPJSONFetch(url: url, ytdlp: ytdlp, cookieFile: cookieFile, timeoutSeconds: timeoutSeconds)
         }.value
+    }
+
+    /// Shorter timeout for the format picker — exact heights are optional.
+    public static func fetchFormatHeights(
+        url: String,
+        ytdlp: URL,
+        cookieFile: URL? = nil
+    ) async -> VideoMetadata? {
+        await fetch(url: url, ytdlp: ytdlp, cookieFile: cookieFile, timeoutSeconds: 8)
+    }
+
+    private static func runYTDLPJSONFetch(
+        url: String,
+        ytdlp: URL,
+        cookieFile: URL?,
+        timeoutSeconds: TimeInterval
+    ) -> VideoMetadata? {
+        let p = Process()
+        p.executableURL = ytdlp
+        var args = [
+            "--no-download",
+            "--no-check-certificate",
+            "--dump-json",
+        ]
+        if let node = findNode() {
+            args += ["--js-runtime", "node:\(node)"]
+        }
+        if let cookieFile {
+            args += ["--cookies", cookieFile.path]
+        }
+        args.append(url)
+        p.arguments = args
+        var env = ProcessInfo.processInfo.environment
+        env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+        p.environment = env
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds) {
+            if p.isRunning { p.terminate() }
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in semaphore.signal() }
+        semaphore.wait()
+        guard p.terminationStatus == 0 else { return nil }
+        let raw = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any] else {
+            return nil
+        }
+        let title = json["title"] as? String ?? ""
+        let channel = (json["uploader"] as? String)
+            ?? (json["channel"] as? String)
+            ?? (json["creator"] as? String) ?? ""
+        let duration = Int(json["duration"] as? Double ?? 0)
+        let thumbnail = json["thumbnail"] as? String ?? ""
+        let heights = parseAvailableHeights(from: json)
+        return VideoMetadata(
+            title: title,
+            channelName: channel,
+            durationSeconds: duration,
+            thumbnailURL: thumbnail,
+            availableHeights: heights
+        )
     }
 
     private static func isYouTubeURL(_ url: String) -> Bool {

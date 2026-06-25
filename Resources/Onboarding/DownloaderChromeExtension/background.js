@@ -3,6 +3,7 @@ const COOKIE_SYNC_DOMAINS = globalThis.COOKIE_SYNC_DOMAINS
 const { MEDIA_PATTERNS, MIN_VIDEO_SIZE, SIZE_EXEMPT_TYPES } = globalThis.MAYNMediaPatterns
 
 const APP_URL = 'http://127.0.0.1:18765'
+const COMPANION_WAKE_URL = 'mayn://companion/wake'
 
 async function getAuthToken() {
   const r = await chrome.storage.local.get('maynAuthToken')
@@ -18,14 +19,11 @@ const LAST_DOWNLOAD_ERROR_TTL_MS = 10 * 60 * 1000
 let registeredThisSession = false
 
 /**
- * Idempotent token registration. POSTs (well, GETs) /ping with X-MAYN-Token and
- * awaits success before any cookie sync or download. The app does first-write-wins
- * registration, so this is safe to call repeatedly. Returns true if the app
- * acknowledged our token (200). A 409 means a *different* token is already
- * registered with the app — we cannot proceed, so return false.
+ * Idempotent token registration. GETs /ping with X-MAYN-Token and awaits success
+ * before any cookie sync or download. Returns { ok, error? }.
  */
-async function ensureRegistered() {
-  if (registeredThisSession) return true
+async function ensureRegistered(opts = {}) {
+  if (registeredThisSession && !opts.force) return { ok: true }
   try {
     const token = await getAuthToken()
     const res = await fetch(`${APP_URL}/ping`, {
@@ -33,14 +31,52 @@ async function ensureRegistered() {
     })
     if (res.ok) {
       registeredThisSession = true
-      return true
+      return { ok: true }
     }
     if (res.status === 409) {
       logBg('ensure-registered-conflict', { status: res.status })
+      await fetch(`${APP_URL}/companion-reset`, { method: 'POST' })
+      const retry = await fetch(`${APP_URL}/ping`, {
+        headers: { 'X-MAYN-Token': token }
+      })
+      if (retry.ok) {
+        registeredThisSession = true
+        return { ok: true }
+      }
+      return {
+        ok: false,
+        error: 'Companion token mismatch — click Reset Registration in Downloads settings, reload the extension in chrome://extensions, then sync again.'
+      }
     }
-    return false
-  } catch (e) {
-    return false
+    const serverError = await readServerError(res)
+    return {
+      ok: false,
+      error: serverError || 'Mac All You Need did not accept Companion registration (is the app running?)'
+    }
+  } catch {
+    return {
+      ok: false,
+      error: 'Could not reach Mac All You Need on localhost:18765 (is the app running?)'
+    }
+  }
+}
+
+async function readServerError(res) {
+  try {
+    const data = await res.clone().json()
+    if (!data || typeof data.error !== 'string') return null
+    switch (data.error) {
+      case 'unauthorized':
+        return 'Companion is not authorized — open Downloads settings and click Reset Registration, then sync again.'
+      case 'not registered':
+        return 'Companion is not registered yet — keep this page open with the extension installed.'
+      case 'already registered':
+        return 'Companion token mismatch — open Downloads settings and click Reset Registration, then sync again.'
+      default:
+        return data.error
+    }
+  } catch {
+    return null
   }
 }
 
@@ -50,8 +86,9 @@ async function ensureRegistered() {
  * flag, re-register, and retry the request exactly once.
  */
 async function authedFetch(path, init = {}) {
-  if (!(await ensureRegistered())) {
-    return { ok: false, status: 0, _unregistered: true }
+  const registration = await ensureRegistered()
+  if (!registration.ok) {
+    return { ok: false, status: 0, _unregistered: true, _error: registration.error }
   }
   const token = await getAuthToken()
   const withToken = (extra) => ({
@@ -61,7 +98,8 @@ async function authedFetch(path, init = {}) {
   let res = await fetch(`${APP_URL}${path}`, withToken())
   if (res.status === 401) {
     registeredThisSession = false
-    if (!(await ensureRegistered())) return res
+    const retryRegistration = await ensureRegistered()
+    if (!retryRegistration.ok) return res
     res = await fetch(`${APP_URL}${path}`, withToken())
   }
   return res
@@ -124,6 +162,21 @@ const ICON_ACTIVE = {
 
 const FRAME_BUCKET_MAX = 300
 
+/**
+ * Launch Mac All You Need via the registered mayn:// URL scheme when localhost
+ * is unreachable (app quit or not yet listening on :18765).
+ */
+async function launchMacAppForDownload() {
+  logBg('launch-mac-app', { wakeURL: COMPANION_WAKE_URL })
+  try {
+    await chrome.tabs.create({ url: COMPANION_WAKE_URL, active: false })
+    return true
+  } catch (e) {
+    logBg('launch-mac-app-failed', { err: String(e) })
+    return false
+  }
+}
+
 async function postDownloadsQueueWhenReady(requests, maxAttempts = 48, delayMs = 500) {
   const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
   logBg('post-queue-start', {
@@ -132,14 +185,27 @@ async function postDownloadsQueueWhenReady(requests, maxAttempts = 48, delayMs =
     url0: truncateUrl(requests[0]?.url),
     type0: requests[0]?.type
   })
+  let launchedApp = false
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       // ensureRegistered() replaces the bare /ping: it registers (first-write-wins)
       // and only resolves true once the app has acknowledged our token.
-      const registered = await ensureRegistered()
-      if (registered) {
+      const registration = await ensureRegistered()
+      if (!registration.ok) {
+        if (!launchedApp && requests[0]) {
+          launchedApp = await launchMacAppForDownload()
+          logBg('post-queue-launched-app', { rid, launchedApp, attempt })
+        }
+        if (attempt === 0 || attempt % 10 === 0) {
+          logBg('post-queue-ping-notok', { rid, attempt, launchedApp })
+        }
+        await new Promise((r) => setTimeout(r, delayMs))
+        continue
+      }
+      if (registration.ok) {
         logBg('post-queue-ping-ok', { rid, attempt })
-        await syncCookies()
+        const syncResult = await syncCookies({ forced: true })
+        if (!syncResult.ok) throw new Error(syncResult.error || 'cookie sync failed')
         for (let i = 0; i < requests.length; i++) {
           const req = requests[i]
           const res = await authedFetch('/download', {
@@ -264,10 +330,9 @@ function getAllTabMedia(tabId) {
 
 // --- Action / tab event handlers ---
 
-/** Best-effort: keep the same gesture flow without any legacy external-protocol wake path. */
-function injectPageWakeGesture(tabId) {
-  if (tabId == null) return Promise.resolve()
-  return Promise.resolve(tabId)
+/** Launch the Mac app when localhost is down, then keep polling for /ping. */
+function injectPageWakeGesture(_tabId, _request) {
+  return launchMacAppForDownload()
 }
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -293,7 +358,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     }
 
     if (/[?&]v=/.test(downloadUrl)) {
-      await injectPageWakeGesture(tab.id)
+      await injectPageWakeGesture(tab.id, { url: downloadUrl })
       await sendDownloadRequest({ url: downloadUrl }, tab.id, { surfacedWake: true })
     }
   }
@@ -314,7 +379,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   if (isXUrl(tab.url)) {
     const statusUrl = getXStatusUrl(tab.url)
     if (statusUrl) {
-      await injectPageWakeGesture(tab.id)
+      await injectPageWakeGesture(tab.id, { url: statusUrl })
       await sendDownloadRequest({ url: statusUrl }, tab.id, { surfacedWake: true })
     }
   }
@@ -442,15 +507,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'FORCE_COOKIE_SYNC') {
     ;(async () => {
-      const ok = await syncCookies({ forced: true })
+      registeredThisSession = false
+      const result = await syncCookies({ forced: true })
       sendResponse({
-        ok,
-        error: ok ? undefined : 'App did not accept cookies (is Mac All You Need running on this machine?)',
+        ok: result.ok,
+        error: result.ok
+          ? undefined
+          : (result.error || 'App did not accept cookies (is Mac All You Need running on this machine?)')
       })
       const tabId = sender.tab?.id
       const url = sender.tab?.url ?? ''
       if (
-        ok &&
+        result.ok &&
         tabId !== undefined &&
         url.startsWith(`${APP_URL}/cookie-sync-landing`)
       ) {
@@ -519,9 +587,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return
         }
       } catch {
-        // App not running — fail cleanly; there is no legacy fallback path.
+        // App not running — postDownloadsQueueWhenReady launches via mayn:// and polls.
       }
-      let posted = await postDownloadsQueueWhenReady(requests)
+      const posted = await postDownloadsQueueWhenReady(requests)
       if (!posted) {
         setLastDownloadError(
           'Could not queue download: app unreachable. Check that Mac All You Need is running.'
@@ -590,7 +658,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       url: item.url,
       type: item.type,
       referer: item.initiator || tabUrl,
-      title: (item.title && String(item.title).trim()) || tabTitle
+      title: (item.title && String(item.title).trim()) || tabTitle,
+      awemeId: item.awemeId ? String(item.awemeId) : undefined,
+      pageURL: item.pageURL ? String(item.pageURL) : undefined
     }
 
     logBg('download-from-content-start', {
@@ -632,6 +702,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       try {
         logBg('download-from-content-cold-wake', { tabId, surfacedWake })
+        await launchMacAppForDownload()
         const ok = await postDownloadWhenAppReady(request)
         logBg('download-from-content-after-wake', { ok })
         if (ok) clearLastDownloadError()
@@ -685,6 +756,7 @@ async function sendDownloadRequest(request, tabId, opts = {}) {
   } catch {
     /* app not running */
   }
+  await injectPageWakeGesture(tabId, payload)
   let ok = await postDownloadWhenAppReady(payload)
   if (!ok) {
     setLastDownloadError('Could not reach Mac All You Need from the extension.')
@@ -696,12 +768,14 @@ async function sendDownloadRequest(request, tabId, opts = {}) {
 
 async function syncCookies(opts = {}) {
   const now = Date.now()
-  if (!opts.forced && now - lastCookieSyncAt < 60000) return false
+  if (!opts.forced && now - lastCookieSyncAt < 60000) {
+    return { ok: false, error: 'Cookie sync was skipped (synced recently).' }
+  }
   lastCookieSyncAt = now
-  // Register our token before sending any cookies. If the app has a different
-  // token registered (409) or is unreachable, ensureRegistered() returns false
-  // and we never POST /cookies.
-  if (!(await ensureRegistered())) return false
+  const registration = await ensureRegistered({ force: opts.forced === true })
+  if (!registration.ok) {
+    return { ok: false, error: registration.error }
+  }
   try {
     const allCookies = []
     for (const domain of COOKIE_SYNC_DOMAINS) {
@@ -723,9 +797,17 @@ async function syncCookies(opts = {}) {
       headers: { 'Content-Type': 'application/json' },
       body
     })
-    return appRes.ok
+    if (appRes.ok) return { ok: true }
+    const serverError = await readServerError(appRes)
+    return {
+      ok: false,
+      error: serverError || appRes._error || 'App did not accept cookies (is Mac All You Need running on this machine?)'
+    }
   } catch {
-    return false
+    return {
+      ok: false,
+      error: 'Could not reach Mac All You Need on localhost:18765 (is the app running?)'
+    }
   }
 }
 

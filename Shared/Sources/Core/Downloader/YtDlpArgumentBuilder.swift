@@ -1,12 +1,12 @@
 import Foundation
 
-public enum DownloadSpeedMode: String {
+public enum DownloadSpeedMode: String, Sendable {
     case balanced
     case gentle
     case turbo
 }
 
-public struct YtDlpArgumentOptions {
+public struct YtDlpArgumentOptions: Sendable {
     public var concurrentFragments: Int
     public var sleepInterval: Double
     public var speedMode: DownloadSpeedMode

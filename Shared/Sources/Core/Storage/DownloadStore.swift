@@ -3,6 +3,16 @@ import Foundation
 import GRDB
 
 public final class DownloadStore {
+    public struct SnapshotSummary: Equatable, Sendable {
+        public let count: Int
+        public let modifiedMax: Int?
+
+        public init(count: Int, modifiedMax: Int?) {
+            self.count = count
+            self.modifiedMax = modifiedMax
+        }
+    }
+
     private let db: Database
     private let key: SymmetricKey
     private let log = Logging.logger(for: "downloads", category: "store")
@@ -10,6 +20,7 @@ public final class DownloadStore {
     public init(database: Database, deviceKey: SymmetricKey) throws {
         db = database
         key = deviceKey
+        try backfillCollectionIDsIfNeeded()
     }
 
     public static let migrations: [Migration] = [
@@ -26,8 +37,41 @@ public final class DownloadStore {
                 );
                 CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
             """)
+        },
+        Migration(identifier: "002-downloads-collection-id") { conn in
+            try conn.execute(sql: """
+                ALTER TABLE downloads ADD COLUMN collection_id TEXT;
+            """)
+            try conn.execute(sql: """
+                CREATE INDEX IF NOT EXISTS idx_downloads_collection_id ON downloads(collection_id);
+            """)
         }
     ]
+
+    private func backfillCollectionIDsIfNeeded() throws {
+        try db.queue.write { conn in
+            let columns = try Row.fetchAll(conn, sql: "PRAGMA table_info(downloads)")
+            let hasCollectionColumn = columns.contains { row in
+                (row["name"] as String?) == "collection_id"
+            }
+            guard hasCollectionColumn else { return }
+            let missingRows = try Row.fetchAll(
+                conn,
+                sql: "SELECT id, envelope FROM downloads WHERE collection_id IS NULL"
+            )
+            guard !missingRows.isEmpty else { return }
+            for row in missingRows {
+                guard let idRaw = row["id"] as String? else { continue }
+                let env = Envelope(combined: row["envelope"])
+                let plaintext = try Cipher.open(env, with: key)
+                let record = try JSONDecoder().decode(DownloadRecord.self, from: plaintext)
+                try conn.execute(
+                    sql: "UPDATE downloads SET collection_id = ? WHERE id = ?",
+                    arguments: [record.collectionID, idRaw]
+                )
+            }
+        }
+    }
 
     @discardableResult
     public func insertBulk(_ records: [DownloadRecord]) throws -> [RecordID] {
@@ -45,11 +89,12 @@ public final class DownloadStore {
                 let payload = try JSONEncoder().encode(record)
                 let env = try Cipher.seal(payload, with: key)
                 try conn.execute(sql: """
-                    INSERT INTO downloads (id, state, created, modified, device_id, lamport, envelope) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO downloads (id, state, created, modified, collection_id, device_id, lamport, envelope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     record.id.rawValue, record.state.rawValue,
                     Int(record.created.timeIntervalSince1970 * 1000),
                     Int(record.modified.timeIntervalSince1970 * 1000),
+                    record.collectionID,
                     record.deviceID?.rawValue,
                     Int(record.lamport),
                     env.combined
@@ -61,12 +106,52 @@ public final class DownloadStore {
     }
 
     public func fetchAll() throws -> [DownloadRecord] {
-        let ids = try list()
-        return try ids.compactMap { try? fetch(id: $0) }
+        try db.queue.read { conn in
+            let rows = try Row.fetchAll(conn, sql: "SELECT envelope FROM downloads ORDER BY modified DESC")
+            return try rows.compactMap { row in
+                let env = Envelope(combined: row["envelope"])
+                let plaintext = try Cipher.open(env, with: key)
+                return try JSONDecoder().decode(DownloadRecord.self, from: plaintext)
+            }
+        }
+    }
+
+    public func snapshotSummary() throws -> SnapshotSummary {
+        try db.queue.read { conn in
+            let row = try Row.fetchOne(
+                conn,
+                sql: "SELECT COUNT(*) AS count, MAX(modified) AS modifiedMax FROM downloads"
+            )
+            let count = row?["count"] as Int? ?? 0
+            let modifiedMax = row?["modifiedMax"] as Int?
+            return SnapshotSummary(count: count, modifiedMax: modifiedMax)
+        }
     }
 
     public func records(inCollection collectionID: String) throws -> [DownloadRecord] {
-        try fetchAll().filter { $0.collectionID == collectionID }
+        try db.queue.read { conn in
+            let rows = try Row.fetchAll(
+                conn,
+                sql: "SELECT envelope FROM downloads WHERE collection_id = ? ORDER BY modified DESC",
+                arguments: [collectionID]
+            )
+            return try rows.compactMap { row in
+                let env = Envelope(combined: row["envelope"])
+                let plaintext = try Cipher.open(env, with: key)
+                return try JSONDecoder().decode(DownloadRecord.self, from: plaintext)
+            }
+        }
+    }
+
+    public func count(inCollection collectionID: String) throws -> Int {
+        try db.queue.read { conn in
+            let row = try Row.fetchOne(
+                conn,
+                sql: "SELECT COUNT(*) AS count FROM downloads WHERE collection_id = ?",
+                arguments: [collectionID]
+            )
+            return row?["count"] as Int? ?? 0
+        }
     }
 
     @discardableResult
@@ -75,11 +160,12 @@ public final class DownloadStore {
         let env = try Cipher.seal(payload, with: key)
         try db.queue.write { conn in
             try conn.execute(sql: """
-                INSERT INTO downloads (id, state, created, modified, device_id, lamport, envelope) VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO downloads (id, state, created, modified, collection_id, device_id, lamport, envelope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 record.id.rawValue, record.state.rawValue,
                 Int(record.created.timeIntervalSince1970 * 1000),
                 Int(record.modified.timeIntervalSince1970 * 1000),
+                record.collectionID,
                 record.deviceID?.rawValue,
                 Int(record.lamport),
                 env.combined
@@ -158,14 +244,26 @@ public final class DownloadStore {
         }
     }
 
+    public func delete(ids: [RecordID]) throws {
+        guard !ids.isEmpty else { return }
+        try db.queue.write { conn in
+            let rawIDs = ids.map(\.rawValue)
+            try conn.execute(
+                sql: "DELETE FROM downloads WHERE id IN (\(rawIDs.map { _ in "?" }.joined(separator: ",")))",
+                arguments: StatementArguments(rawIDs)
+            )
+        }
+    }
+
     public func update(_ record: DownloadRecord) throws {
         let env = try Cipher.seal(JSONEncoder().encode(record), with: key)
         try db.queue.write { conn in
             try conn.execute(
-                sql: "UPDATE downloads SET state = ?, modified = ?, device_id = ?, lamport = ?, envelope = ? WHERE id = ?",
+                sql: "UPDATE downloads SET state = ?, modified = ?, collection_id = ?, device_id = ?, lamport = ?, envelope = ? WHERE id = ?",
                 arguments: [
                     record.state.rawValue,
                     Int(record.modified.timeIntervalSince1970 * 1000),
+                    record.collectionID,
                     record.deviceID?.rawValue,
                     Int(record.lamport),
                     env.combined,

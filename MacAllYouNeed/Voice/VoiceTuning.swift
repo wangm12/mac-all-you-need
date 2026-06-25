@@ -30,6 +30,9 @@ struct VoiceTuning {
     /// How long the Undo affordance is shown after a cancel.
     var undoWindowSeconds: TimeInterval = 5.0
 
+    /// Soft maximum recording length before auto-stop (UI countdown uses last 60s).
+    var maxRecordingDurationSeconds: TimeInterval = 600
+
     /// Delay after Cmd+V before restoring clipboard.
     var clipboardRestoreMs: Int = 200
 

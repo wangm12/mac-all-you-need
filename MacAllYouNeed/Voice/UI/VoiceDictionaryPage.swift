@@ -61,6 +61,7 @@ struct VoiceDictionaryPage: View {
     let onBack: (() -> Void)?
 
     @State private var entries: [VoiceDictionaryEntry] = []
+    @State private var suggestions: [VoiceDictionarySuggestion] = []
     @State private var filter: VoiceDictionaryFilter = .all
     @State private var searchText = ""
     @State private var draft = VoiceDictionaryDraft()
@@ -108,7 +109,23 @@ struct VoiceDictionaryPage: View {
                         StatusPill(text: errorMessage, kind: .danger)
                     }
 
-                    if filteredEntries.isEmpty {
+                    if filter == .autoAdded {
+                        if suggestions.isEmpty {
+                            VoiceDictionaryEmptyState(
+                                title: emptyTitle,
+                                subtitle: emptySubtitle,
+                                actionTitle: nil,
+                                action: beginNewWord
+                            )
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            VoiceDictionarySuggestionsSection(
+                                suggestions: suggestions,
+                                onAccept: acceptSuggestion,
+                                onDismiss: dismissSuggestion
+                            )
+                        }
+                    } else if filteredEntries.isEmpty {
                         VoiceDictionaryEmptyState(
                             title: emptyTitle,
                             subtitle: emptySubtitle,
@@ -132,6 +149,7 @@ struct VoiceDictionaryPage: View {
         }
         .background(MAYNTheme.window)
         .onAppear(perform: reload)
+        .onChange(of: filter) { _ in reload() }
         .sheet(isPresented: $isShowingEditor) {
             VoiceDictionaryEditorSheet(
                 draft: $draft,
@@ -148,14 +166,14 @@ struct VoiceDictionaryPage: View {
     }
 
     private var emptyTitle: String {
-        if filter == .autoAdded { return "No auto-added words yet" }
+        if filter == .autoAdded { return "No suggestions yet" }
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "No matching words" }
         return "No words yet"
     }
 
     private var emptySubtitle: String {
         if filter == .autoAdded {
-            return "Automatic learning from edits is not stored yet. Manual dictionary entries are available now."
+            return "Correct misrecognized words and they'll appear here after a few corrections."
         }
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Try a different word, name, or replacement."
@@ -165,6 +183,27 @@ struct VoiceDictionaryPage: View {
 
     private func reload() {
         entries = controller.listVoiceDictionaryEntries()
+        if filter == .autoAdded {
+            suggestions = (try? controller.listVoiceDictionarySuggestions()) ?? []
+        }
+    }
+
+    private func acceptSuggestion(_ suggestion: VoiceDictionarySuggestion) {
+        do {
+            try controller.acceptVoiceDictionarySuggestion(suggestion)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func dismissSuggestion(id: String) {
+        do {
+            try controller.dismissVoiceDictionarySuggestion(id: id)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func beginNewWord() {
@@ -389,6 +428,66 @@ private struct VoiceDictionaryEmptyState: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
         )
+    }
+}
+
+private struct VoiceDictionarySuggestionsSection: View {
+    let suggestions: [VoiceDictionarySuggestion]
+    let onAccept: (VoiceDictionarySuggestion) -> Void
+    let onDismiss: (String) -> Void
+
+    var body: some View {
+        MAYNSection(
+            title: "Suggestions",
+            subtitle: "\(suggestions.count) \(suggestions.count == 1 ? "suggestion" : "suggestions")"
+        ) {
+            ForEach(Array(suggestions.enumerated()), id: \.element.id) { offset, suggestion in
+                if offset > 0 { MAYNDivider() }
+                VoiceDictionarySuggestionRow(
+                    suggestion: suggestion,
+                    onAccept: { onAccept(suggestion) },
+                    onDismiss: { onDismiss(suggestion.id) }
+                )
+            }
+        }
+    }
+}
+
+private struct VoiceDictionarySuggestionRow: View {
+    let suggestion: VoiceDictionarySuggestion
+    let onAccept: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(suggestion.phrase)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+
+                Text(suggestion.replacement)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            StatusPill(text: "×\(suggestion.occurrences)", kind: .neutral)
+
+            HStack(spacing: 8) {
+                MAYNButton("Add to Dictionary", role: .primary, height: MAYNControlMetrics.controlHeight, action: onAccept)
+                MAYNButton("Dismiss", role: .secondary, height: MAYNControlMetrics.controlHeight, action: onDismiss)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .frame(minHeight: 52)
     }
 }
 

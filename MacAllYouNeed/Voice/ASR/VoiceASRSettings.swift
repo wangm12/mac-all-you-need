@@ -41,6 +41,13 @@ enum VoiceASRLanguageHint: String, CaseIterable, Codable, Equatable, Identifiabl
             .english
         }
     }
+
+    static func localeDefault(locale: Locale = .current) -> Self {
+        let lang = locale.language.languageCode?.identifier ?? ""
+        if lang.hasPrefix("zh") { return .chinese }
+        if lang.hasPrefix("en") { return .english }
+        return .automatic
+    }
 }
 
 enum VoiceASRModelID: String, CaseIterable, Codable, Equatable, Identifiable {
@@ -370,6 +377,14 @@ struct VoiceASRSettings: Codable, Equatable {
         providerKind: .local
     )
 
+    static func makeDefault(locale: Locale = .current) -> VoiceASRSettings {
+        VoiceASRSettings(
+            modelID: .qwen3ASR06BF32,
+            languageHint: VoiceASRLanguageHint.localeDefault(locale: locale),
+            providerKind: .local
+        )
+    }
+
     init(
         modelID: VoiceASRModelID = .qwen3ASR06BF32,
         languageHint: VoiceASRLanguageHint = .automatic,
@@ -463,7 +478,7 @@ enum VoiceASRSettingsStore {
         guard let data = defaults.data(forKey: key),
               let decoded = try? JSONDecoder().decode(VoiceASRSettings.self, from: data)
         else {
-            return .default
+            return .makeDefault()
         }
         return decoded
     }

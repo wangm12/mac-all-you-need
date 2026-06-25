@@ -29,11 +29,11 @@ struct OpenAICompatibleVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvi
             "messages": [
                 [
                     "role": "system",
-                    "content": VoicePromptBuilder.systemPrompt(context: request.promptContext)
+                    "content": VoicePromptBuilder.cleanupSystemPrompt(for: request)
                 ],
                 [
                     "role": "user",
-                    "content": VoicePromptBuilder.userPrompt(transcript: request.text)
+                    "content": VoicePromptBuilder.cleanupUserPrompt(for: request)
                 ]
             ]
         ])
@@ -60,11 +60,11 @@ struct OpenAICompatibleVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvi
                         "messages": [
                             [
                                 "role": "system",
-                                "content": VoicePromptBuilder.systemPrompt(context: request.promptContext)
+                                "content": VoicePromptBuilder.cleanupSystemPrompt(for: request)
                             ],
                             [
                                 "role": "user",
-                                "content": VoicePromptBuilder.userPrompt(transcript: request.text)
+                                "content": VoicePromptBuilder.cleanupUserPrompt(for: request)
                             ]
                         ]
                     ])

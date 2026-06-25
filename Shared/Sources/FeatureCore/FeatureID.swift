@@ -11,5 +11,5 @@ public enum FeatureID: String, CaseIterable, Codable, Sendable, Hashable {
     case folderHistory
     case voiceReminders
     case aiFileOrganizer
-    case dockPreviews
+    case windowHub
 }

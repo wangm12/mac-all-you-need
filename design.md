@@ -1,525 +1,1553 @@
-# Mac All You Need — Design System
+---
+version: 1.0
+product: Mayn / MacAllYouNeed
+direction: Monochrome Native Command Layer
+platform: macOS desktop app
+primary_color_system: black-white-grayscale
+intended_readers:
+  - product designers
+  - SwiftUI engineers
+  - AI coding agents
+  - design QA reviewers
+---
 
-Normative UI specification. All new SwiftUI/AppKit code in this repo must follow this document. Older code that predates a rule is grandfathered until touched; once a file is edited, the touched surface conforms.
+# Mayn DESIGN.md
 
-If something here conflicts with a screenshot, the document wins. If something here conflicts with the source of truth files listed in §3, the source files win — open a PR to update this document.
+Mayn is a black-and-white native macOS command layer for clipboard memory, voice input, downloads, Finder workflows, file organization, and window control.
+
+The app should feel like a quiet system utility, not like a colorful SaaS dashboard. It should look native to macOS, feel instant when invoked, and stay visually restrained even though the product has many features.
+
+Core direction:
+
+> Invisible until needed. Precise when invoked. Black, white, native, fast.
 
 ---
 
-## 1. Purpose
+## 1. Design Principles
 
-One visual language across the menu-bar tools popover, dashboard, main tool pages, settings, onboarding wizards, the floating voice HUD, the clipboard dock, the folder browser, and the window-control surfaces. No new ad-hoc colors, fonts, spacings, animations, or controls when a system primitive already exists.
+### 1.1 Monochrome first
 
-The system is calm, native, neutral. Color is for state (success/warning/danger/progress) and for accenting the app icon of a clipboard item — never for decoration.
+Mayn's primary brand system is black, white, and grayscale.
 
----
+Use black-white inversion for primary emphasis:
 
-## 2. Design principles
+- selected sidebar item
+- active command row
+- primary button
+- enabled feature card
+- focused HUD state
+- selected radial target
+- copied / inserted toast
 
-1. **Native first.** This is a macOS productivity tool. Use AppKit-derived `NSColor` system colors so dark/light/contrast/translucency behave correctly. Custom RGB only for branded app-icon accents in clipboard cards.
-2. **Token in, never raw out.** Read from `MAYNTheme`, `MAYNControlMetrics`, `MAYNMotion`. Never write a literal hex or numeric spacing in a leaf view if a token exists.
-3. **One control per job.** There is exactly one button (`MAYNButton`), one text field (`MAYNTextField`), one dropdown (`MAYNDropdown`), one tab strip (`FunctionSegmentedTabStrip`), one row (`MAYNSettingsRow`), one card (`MAYNToolCard`), one status badge (`StatusPill`). Use them. Don't restyle them inline.
-4. **Reduce Motion is a contract, not a polish.** Every spatial animation must funnel through `MAYNMotion.*` helpers that return `nil` (or zero offset) when Reduce Motion is on. This includes AppKit `NSAnimationContext` paths.
-5. **Functional pages share one chrome.** Every tool page in the main window uses `FunctionPageShell` (title + subtitle + optional toolbar + tab strip + content). Every settings page uses `MAYNSettingsPage` + `MAYNSection` + `MAYNSettingsRow`.
-6. **Function pages display shortcuts, they don't edit them.** Hotkey editing lives in the tool's Settings page. Use `ShortcutChip` / `MAYNHotkeyDisplay` to show, `HotkeyRecorder` (in Settings only) to edit.
-7. **No invented tab styles.** If you need a segmented control, use `FunctionSegmentedTabStrip`. Raw SwiftUI `Picker(...).pickerStyle(.segmented)` is banned for product-owned tab switches.
+Do not assign bright colors to features. Clipboard should not be blue, Voice should not be purple, Downloads should not be green, Windows should not be orange. The feature identity should come from icon, label, hierarchy, and motion behavior.
 
----
+### 1.2 Native macOS utility, not web dashboard
 
-## 3. Source of truth
+The app should feel closer to Finder, System Settings, Spotlight, Raycast, Linear, and a premium menu bar utility than a SaaS admin panel.
 
-Read these files before touching UI:
+Use:
 
-| Purpose | File |
-|---|---|
-| Tokens + most components | `MacAllYouNeed/Settings/MAYNSettingsUI.swift` |
-| Function page chrome + tab strip | `MacAllYouNeed/App/FunctionPageShell.swift` |
-| Dashboard feature card wrapper | `MacAllYouNeed/App/Dashboard/FeatureToolCard.swift` |
-| Hotkey recorder (Settings only) | `MacAllYouNeed/Settings/HotkeyRecorder.swift` |
-| Window backdrop helper | `MacAllYouNeed/Settings/SettingsWindowConfig.swift` |
-| Clipboard card accent palette | `MacAllYouNeed/ClipboardDock/Views/Cards/AppIconColor.swift` |
-| Window control pages | `MacAllYouNeed/WindowControl/WindowControlMainPage.swift` |
+- native window chrome
+- system typography
+- sidebar + toolbar structure
+- compact rows
+- subtle hairline borders
+- keyboard shortcuts as first-class UI
+- floating HUDs for runtime actions
 
-When a new generic primitive is needed, it lives in `MAYNSettingsUI.swift` (despite the name, this is the design-system file for the whole app). The name is historical; do not move it without coordinated edits.
+Avoid:
 
----
+- marketing-style hero sections
+- colorful stat cards
+- gradient feature tiles
+- large empty web-app spacing
+- emoji icons
+- confetti or celebratory effects
+- slow decorative animation
 
-## 4. Tokens
+### 1.3 Keyboard-first
 
-### 4.1 Color (`MAYNTheme`)
+Mayn exists to keep users in flow. Every important action should have a shortcut or be reachable from the command palette.
 
-All colors derive from `NSColor` system colors or from `Color.primary`/`Color.secondary` opacity. Never `Color(red:green:blue:)` outside the documented exceptions in §10.
+Primary interaction surfaces:
 
-| Token | Light | Dark | Use |
-|---|---|---|---|
-| `window` | `#ECECEC` | `#323232` | The outermost background of any window/scene. |
-| `panel` | `#FFFFFF` | `#1E1E1E` | Grouped section background (settings sections, capsule strips, dropdowns at rest). |
-| `elevated` | `#FFFFFF` | `#1E1E1E` | Field/control fill (text fields, buttons at rest, dropdown rest). |
-| `elevatedHover` | `.primary @ 4.5%` | `.primary @ 4.5%` | Control hover fill. |
-| `elevatedPressed` | `.primary @ 7.5%` | `.primary @ 7.5%` | Control pressed fill. |
-| `hover` | `.primary @ 5%` | `.primary @ 5%` | Row hover overlay. |
-| `selected` | `.primary @ 8%` | `.primary @ 8%` | Row/item selected overlay. |
-| `divider` | `.secondary @ 16%` | `.secondary @ 16%` | 1pt dividers between rows or sections. |
-| `subtleBorder` | `.primary @ 10%` | `.primary @ 10%` | Default stroke around controls/cards/panels at rest. |
-| `strongBorder` | `.primary @ 18%` | `.primary @ 18%` | Stroke around controls at hover, around capsule tab strips, around instruction strips. |
-| `focusRing` | `.primary @ 70%` | `.primary @ 70%` | Stroke around the focused text field and around the selected clipboard card. |
-| `tabSelectedFill` | `.primary @ 14%` | `.primary @ 14%` | Fill of the selected pill inside `FunctionSegmentedTabStrip` and `DockListTabs`. |
-| `tabSelectedBorder` | `.primary @ 20%` | `.primary @ 20%` | Stroke of the selected tab pill. |
-| `tabSelectedShadow` | `#000 @ 6%` | `#000 @ 6%` | 2pt drop-shadow under the selected tab pill. |
-| `muted` | `.secondary` | `.secondary` | `Color.secondary` alias — for de-emphasized labels. |
-| `controlTint` | `.secondary` | `.secondary` | Tint passed to `NavigationSplitView` so accent stays neutral gray. |
-| `success` | `#28CD41` | `#32D74B` | Green — completed downloads, granted permissions, success toasts. |
-| `warning` | `#FF9500` | `#FF9F0A` | Orange — denied permissions, recoverable problems. |
-| `danger` | `#FF3B30` | `#FF453A` | Red — destructive buttons, error toasts. |
-| `progress` | `#007AFF` | `#0A84FF` | Blue — active downloads, in-flight permission setup, highlighted permission card. |
+1. Global command palette
+2. Runtime HUDs
+3. Sidebar pages
+4. Settings rows
 
-Notation:
-- `.primary` ≈ `NSColor.labelColor` — Light `rgba(0, 0, 0, .85)` / Dark `rgba(255, 255, 255, .85)`.
-- `.secondary` ≈ `NSColor.secondaryLabelColor` — Light `rgba(0, 0, 0, .50)` / Dark `rgba(255, 255, 255, .55)`.
-- `.primary @ N%` means `Color.primary` rendered at opacity `N%` over the surface beneath it; the effective hex depends on the underlying surface and the current appearance.
-- All literal hex values are sRGB. macOS automatically swaps the variant based on the system appearance, so designer comps for both Light and Dark mode use the column that matches the comp.
-- `success` / `warning` / `danger` / `progress` are Apple's `systemGreen` / `systemOrange` / `systemRed` / `systemBlue`; values shown are the standard macOS defaults but may shift by a few units across OS versions and Increase-Contrast modes.
+The main app window is for configuration and review. The runtime experience is the product.
 
-Rules:
-- Semantic only. There is no "brand color." If you want to draw attention, use `progress` or `focusRing`.
-- Text colors come from `.primary` / `.secondary` / `.tertiary`, never from a token. The system handles contrast.
-- `Color(nsColor: .controlBackgroundColor)` is allowed for the foreground of primary buttons and toasts (to flip text on a solid `Color.primary` fill). Do not introduce other `NSColor` system colors directly — go through `MAYNTheme`.
+### 1.4 Dense but calm
 
-### 4.2 Motion (`MAYNMotion` + `MAYNMotionBridge`)
+Mayn handles history lists, files, downloads, windows, tabs, and settings. Density is required, but it must be controlled.
 
-| Token | Duration | Use |
-|---|---|---|
-| `press` | 0.12s | Button press scale, card press scale. |
-| `hover` | 0.16s | Hover-driven bg/border swaps on any control. |
-| `control` | 0.18s | Focus ring, text-field focus state, generic control state. |
-| `tab` | 0.23s | Tab strip selection swap, function-page content transition. |
-| `panel` | 0.28s | NSPanel / floating window resize and fade. |
-| `instruction` | 0.32s | Permission-card highlight pulse, instruction strip emphasis. |
-| `toastIn` | 0.16s | Toast/HUD enter. |
-| `toastOut` | 0.22s | Toast/HUD exit (ease-in via `MAYNMotionBridge.timingFunction(.toastOut)`). |
+Use dense rows for data. Use generous white space only around page headers, onboarding, and permission explanation.
 
-Rules:
-- SwiftUI: call `MAYNMotion.<kind>Animation(reduceMotion:)` and feed the return into `.animation(_:value:)`. Never write `Animation.easeOut(duration: ...)` or `.spring(...)` directly.
-- AppKit / Core Animation: use `MAYNMotionBridge.effectiveDuration(_:)` for `NSAnimationContext.duration` and `MAYNMotionBridge.timingFunction(_:)` for `CAMediaTimingFunction`. Both honor Reduce Motion automatically.
-- Spatial offsets that should collapse under Reduce Motion: wrap with `MAYNMotionBridge.translation(_:reduceMotion:)`.
-- The Reduce Motion read must come from either `@Environment(\.accessibilityReduceMotion)` (SwiftUI) or `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` (AppKit).
+Good density:
 
-### 4.3 Metrics (`MAYNControlMetrics`)
+- 44-56 px history rows
+- 36-40 px sidebar items
+- 34-38 px buttons
+- 18-24 px card padding
+- 12-16 px section gaps
 
-| Token | Value | Use |
-|---|---|---|
-| `controlHeight` | 30 | All single-line interactive controls (buttons, text fields, dropdowns, hotkey chips, in-row tabs). |
-| `controlRadius` | 7 | Controls and the icon background inside `MAYNToolCard`. |
-| `cardRadius` | 8 | Cards (clipboard cards, permission cards, tool cards, instruction strips). |
-| `panelRadius` | 8 | Section panels, dropdown menus, tab-strip capsules background. |
-| `rowMinHeight` | 46 | Settings rows; do not go shorter, even with a tiny control. |
-| `rowHorizontalPadding` | 14 | Left/right padding inside a row. |
-| `rowVerticalPadding` | 9 | Top/bottom padding inside a row. |
-| `rowControlSpacing` | 16 | Gap between row label and trailing control lane. |
-| `trailingLaneMinWidth` | 220 | Minimum width of the trailing control lane in a row (so rows align vertically). |
-| `pickerWidth` | 180 | Default `MAYNDropdown` width. |
-| `widePickerWidth` | 220 | Wide `MAYNDropdown` width. |
-| `textFieldWidth` | 260 | Default `MAYNTextField` width. |
-| `wideTextFieldWidth` | 300 | Wide `MAYNTextField` width. |
+Bad density:
 
-If you find yourself reaching for a number not in this table, ask whether the layout really needs a new dimension, or whether you can compose existing tokens.
-
-### 4.4 Typography
-
-There is no `MAYNFont` enum — SwiftUI's semantic font system already handles dynamic type. Use:
-
-| Where | Font |
-|---|---|
-| Page title (`MAYNSettingsPage`) | `.system(size: 24, weight: .semibold)` |
-| Page title (`FunctionPageShell`) | `.system(size: 26, weight: .semibold)` |
-| Page subtitle | `.callout` + `.foregroundStyle(.secondary)` |
-| Section title (`MAYNSection`) | `.system(size: 13, weight: .semibold)` |
-| Section subtitle | `.caption` + `.foregroundStyle(.secondary)` |
-| Row title | `.callout` |
-| Row subtitle | `.caption` + `.foregroundStyle(.secondary)` |
-| Tool card title (`MAYNToolCard`) | `.system(size: 15, weight: .semibold)` |
-| Tool card subtitle | `.caption` + `.foregroundStyle(.secondary)` |
-| Status pill | `.caption` |
-| Button label | `.callout` (`.semibold` for primary, `.medium` for others) |
-| Numeric monospace (`MAYNNumericStepper`) | `.system(.caption, design: .monospaced)` |
-| Hotkey glyph (full size) | `.system(size: 17, weight: .semibold)` modifier, `.system(size: 15, weight: .semibold, design: .rounded)` key |
-| Hotkey glyph (compact, ≤24pt chip) | `.system(size: 15, weight: .semibold)` modifier, `.system(size: 13, weight: .semibold, design: .rounded)` key |
-
-Do not write `.font(.system(size: 12))` or `.font(.system(size: 14))` in product code. If a label doesn't fit one of the rows above, it is almost certainly a `.caption`, `.callout`, or `.body`.
-
-### 4.5 Feature-identity accents (sRGB literals)
-
-These seven tints identify a function on the dashboard, the main sidebar icons, and feature-card iconography. They are the only literal RGB triples allowed in app chrome and are exempted per §10.4. They MUST NOT appear in settings rows, status indicators, toasts, badges, or any non-iconography surface.
-
-| Feature | sRGB | Hex |
-|---|---|---|
-| Clipboard | `0.10, 0.42, 0.92` | `#1A6BEB` |
-| Voice | `0.64, 0.22, 0.88` | `#A338E0` |
-| Downloads | `0.02, 0.58, 0.42` | `#05946B` |
-| Folder Preview | `0.86, 0.46, 0.12` | `#DB751F` |
-| Snippets | `0.82, 0.18, 0.36` | `#D12E5C` |
-| Window Layouts | `0.20, 0.48, 0.72` | `#337AB8` |
-| Window Grab | `0.24, 0.46, 0.36` | `#3D755C` |
-
-Source of truth: `MainWindowRoot.swift accent(for:)`. Both Light and Dark mode use the same value — these are designed to read on both appearances.
+- huge marketing cards
+- multi-color dashboards
+- oversized icons
+- sparse settings forms with little information
 
 ---
 
-## 5. Layout primitives
+## 2. Visual Identity
 
-### 5.1 Window shells
+### 2.1 Personality
 
-| Window | Shell | Bound size |
-|---|---|---|
-| Settings window | `MAYNSettingsShell { sidebar } detail: { … }` | min 760×520, ideal 900×640 |
-| Main window | Hand-rolled `NavigationSplitView` in `MainWindowRoot` | Uses `MAYNTheme.window` background |
-| Onboarding (main) | `OnboardingWizardView` panel | 760×520 |
-| Onboarding (voice) | `VoiceOnboardingWizardView` panel | 860×640 |
-| Voice HUD | Borderless non-activating `NSPanel`, position-aware | Adaptive |
-| Clipboard dock | `BottomDockWindow`, bottom-screen | 12pt top corners only |
-| Browse folder | Standard titled `NSWindow` | 900×600 |
+Mayn should feel:
 
-### 5.2 Page chrome — main window tools
+- precise
+- quiet
+- trustworthy
+- fast
+- system-level
+- technical but approachable
+- premium without decoration
 
-Use `FunctionPageShell` for every tool page:
+Mayn should not feel:
 
-```
-FunctionPageShell(title:, subtitle:, tabs:, selection:) {
-    // optional toolbar (right side of header)
-} content: {
-    FunctionPageScrollContent {
-        // sections + rows
-    }
+- playful
+- flashy
+- colorful
+- AI-magical
+- web-template-like
+- overloaded
+
+### 2.2 Visual keywords
+
+Use these words when evaluating the UI:
+
+- monochrome
+- native
+- command layer
+- overlay
+- utility
+- compact
+- sharp
+- quiet
+- focused
+- keyboard-first
+
+### 2.3 One-line visual target
+
+> A black-and-white native macOS command center that appears only when needed and disappears without friction.
+
+---
+
+## 3. Color System
+
+### 3.1 Hard rule
+
+The primary palette is black, white, and grayscale only.
+
+Accent colors are not a core part of the visual identity. They may appear only when forced by macOS permissions, external app icons, file thumbnails, media thumbnails, or system status that would be unsafe to hide. Even then, keep them secondary and small.
+
+### 3.2 Light mode tokens
+
+```css
+:root {
+  --mayn-black: #090909;
+  --mayn-white: #ffffff;
+
+  --bg-app: #f5f5f2;
+  --bg-window: #fbfbf8;
+  --bg-sidebar: #f0f0ed;
+  --bg-toolbar: rgba(251, 251, 248, 0.86);
+  --bg-panel: #ffffff;
+  --bg-panel-subtle: #f3f3f1;
+  --bg-inset: #ececea;
+  --bg-hover: rgba(0, 0, 0, 0.045);
+  --bg-active: #090909;
+
+  --text-primary: #0d0d0d;
+  --text-secondary: #4d4d49;
+  --text-tertiary: #81817b;
+  --text-disabled: #b9b9b3;
+  --text-inverse: #ffffff;
+
+  --border-hairline: rgba(0, 0, 0, 0.08);
+  --border-soft: rgba(0, 0, 0, 0.13);
+  --border-strong: rgba(0, 0, 0, 0.24);
+
+  --control-primary-bg: #090909;
+  --control-primary-fg: #ffffff;
+  --control-secondary-bg: #ffffff;
+  --control-secondary-fg: #0d0d0d;
+  --control-secondary-border: rgba(0, 0, 0, 0.12);
+
+  --status-ok-bg: #111111;
+  --status-ok-fg: #ffffff;
+  --status-warn-bg: #f3f3f1;
+  --status-warn-fg: #171717;
+  --status-error-bg: #ffffff;
+  --status-error-fg: #111111;
+  --status-error-border: rgba(0, 0, 0, 0.3);
+
+  --hud-bg: #090909;
+  --hud-fg: #ffffff;
+  --overlay-bg: rgba(0, 0, 0, 0.42);
 }
 ```
 
-It owns the 26pt title, callout subtitle, 32pt horizontal page padding, 28pt top padding, the `FunctionSegmentedTabStrip` underneath, the `MAYNTheme.divider`, and the directional content transition. Don't reimplement this layout.
+### 3.3 Dark mode tokens
 
-### 5.3 Page chrome — Settings
+```css
+[data-theme="dark"] {
+  --mayn-black: #000000;
+  --mayn-white: #ffffff;
 
-Use `MAYNSettingsPage(title:subtitle:) { … }`. It supplies 24pt title, callout subtitle, 32pt horizontal padding, 28pt vertical padding, a 720pt max content width, and a scroll container with `MAYNTheme.window` background.
+  --bg-app: #070707;
+  --bg-window: #0c0c0c;
+  --bg-sidebar: #101010;
+  --bg-toolbar: rgba(12, 12, 12, 0.86);
+  --bg-panel: #141414;
+  --bg-panel-subtle: #1b1b1b;
+  --bg-inset: #242424;
+  --bg-hover: rgba(255, 255, 255, 0.07);
+  --bg-active: #ffffff;
 
-### 5.4 Section + row
+  --text-primary: #f3f3f3;
+  --text-secondary: #b9b9b9;
+  --text-tertiary: #7d7d7d;
+  --text-disabled: #505050;
+  --text-inverse: #090909;
 
-```
-MAYNSection(title: "Capture") {
-    MAYNSettingsRow(title: "Auto-paste", subtitle: "Insert at the active cursor") {
-        Toggle("", isOn: $autoPaste).labelsHidden()
-    }
-    MAYNDivider()
-    MAYNSettingsRow(title: "Excluded apps") {
-        MAYNButton("Manage…") { … }
-    }
+  --border-hairline: rgba(255, 255, 255, 0.08);
+  --border-soft: rgba(255, 255, 255, 0.13);
+  --border-strong: rgba(255, 255, 255, 0.24);
+
+  --control-primary-bg: #ffffff;
+  --control-primary-fg: #090909;
+  --control-secondary-bg: #171717;
+  --control-secondary-fg: #ffffff;
+  --control-secondary-border: rgba(255, 255, 255, 0.13);
+
+  --status-ok-bg: #ffffff;
+  --status-ok-fg: #090909;
+  --status-warn-bg: #1d1d1d;
+  --status-warn-fg: #f3f3f3;
+  --status-error-bg: #121212;
+  --status-error-fg: #ffffff;
+  --status-error-border: rgba(255, 255, 255, 0.28);
+
+  --hud-bg: #f4f4f4;
+  --hud-fg: #050505;
+  --overlay-bg: rgba(0, 0, 0, 0.62);
 }
 ```
 
-- A `MAYNSection` is always a card: `MAYNTheme.panel` fill, 8pt corner, `MAYNTheme.subtleBorder` stroke.
-- Rows are children of the section. The trailing control lane has `MAYNControlMetrics.trailingLaneMinWidth` so rows align vertically across sections.
-- Rows hover-highlight automatically via `MAYNTheme.hover`. Don't add additional hover treatments inside the row.
-- Put a `MAYNDivider()` between consecutive rows. Do not wrap rows in extra `VStack(spacing:)`.
+### 3.4 SwiftUI color tokens
 
-### 5.5 Content width
+Create centralized color tokens. Do not hard-code `.blue`, `.green`, `.purple`, `.orange`, or `.red` for normal UI.
 
-| Surface | Max content width |
+```swift
+enum MaynColor {
+    static let appBackground = Color(nsColor: .windowBackgroundColor)
+    static let panel = Color(nsColor: .controlBackgroundColor)
+    static let panelSubtle = Color.primary.opacity(0.035)
+    static let hairline = Color.primary.opacity(0.08)
+    static let softBorder = Color.primary.opacity(0.13)
+    static let strongBorder = Color.primary.opacity(0.24)
+    static let primaryText = Color.primary
+    static let secondaryText = Color.secondary
+    static let tertiaryText = Color.secondary.opacity(0.72)
+    static let activeFill = Color.primary
+    static let activeText = Color(nsColor: .windowBackgroundColor)
+    static let hoverFill = Color.primary.opacity(0.045)
+}
+```
+
+For toggles and selected controls, use monochrome tint:
+
+```swift
+.tint(Color.primary)
+```
+
+When the control becomes unreadable in dark mode, define a custom toggle style instead of using system green.
+
+### 3.5 Status without color
+
+Use monochrome status language:
+
+| State | Visual |
 |---|---|
-| `MAYNSettingsPage` | 720 |
-| `FunctionPageScrollContent` | 760 |
-| Onboarding wizard panels | Full panel width minus internal padding |
+| Ready | filled black pill in light mode / filled white pill in dark mode |
+| Active | filled pill + small pulsing dot |
+| Idle | outline pill + muted text |
+| Needs permission | outline pill + lock icon |
+| Failed | outlined pill + warning triangle + stronger border |
+| Processing | subtle progress line / pulsing dot |
+| Paused | gray pill + pause icon |
+| Completed | filled monochrome pill only when action just completed; otherwise plain text |
 
-Content wider than 760 inside the main/settings flow is a red flag — break it into columns or sections first.
-
----
-
-## 6. Components catalog
-
-All located in `MacAllYouNeed/Settings/MAYNSettingsUI.swift` unless noted.
-
-### 6.1 Buttons — `MAYNButton`
-- Roles: `.primary` (solid `Color.primary` fill, controlBackgroundColor text), `.secondary` (default), `.destructive` (red text + red border on hover/press).
-- Height defaults to `MAYNControlMetrics.controlHeight`.
-- Has built-in hover/press scale (0.985) gated by Reduce Motion.
-- Convenience init: `MAYNButton("Title", role: .secondary) { … }`.
-- Do not nest `Button(...) { … }` and a custom background — use this.
-
-### 6.2 Text input — `MAYNTextField`, `MAYNSecureField`
-- 260pt default width, 30pt height, 7pt corner, `MAYNTheme.elevated` fill, `MAYNTheme.focusRing` on focus.
-- Always pass `placeholder:` (do not put placeholder text in the label).
-- `MAYNSecureField` is identical for password/API-key entry — never put a raw `SecureField` in a settings row.
-
-### 6.3 Selection — `MAYNDropdown`
-- Use for any one-of-N pick that does not deserve a segmented strip (i.e. options > 4, or labels too long).
-- Always hides the native menu chevron; render the `chevron.up.chevron.down` indicator via the built-in overlay.
-- Default 180pt width; use `MAYNControlMetrics.widePickerWidth` (220) for longer labels.
-
-### 6.4 Tab switching — `FunctionSegmentedTabStrip`
-- The only acceptable segmented control. Use for 2–5 items with short labels and SF Symbol icons.
-- `Size.header` (38pt outer, 30pt inner): use as the primary tab strip directly under a page title.
-- `Size.control` (30pt outer, 24pt inner): use inline inside a row or a card for sub-selections.
-- The `Tab` type must conform to `SegmentedTabDestination` (provides `symbolName`, `title`, `rawValue`, `allCases`).
-- Selected pill uses an internal capsule overlay with `matchedGeometryEffect`. Do not wrap the strip in your own background or border.
-
-### 6.5 Numeric input — `MAYNNumericStepper`
-- Right-aligned monospaced caption inside a 30pt field.
-- Auto-detects suffix from the row's existing text label (e.g. "30 days" → suffix "days").
-- Commits on submit or focus loss via `MAYNNumericInputPresentation.committedValue` (clamps to range).
-
-### 6.6 Hotkey display — `ShortcutChip`, `MAYNHotkeyDisplay`
-- Read-only. Renders modifier glyphs (⌘⇧⌥⌃) at a slightly larger size than the key glyph.
-- `ShortcutChip(text:)` for in-row badges.
-- `MAYNHotkeyDisplay(text:)` adds the accessibility label "Shortcut <text>" — prefer this in product surfaces.
-- For "no shortcut set" pass an empty string; the chip renders "Not set".
-
-### 6.7 Status badge — `StatusPill`
-- Five kinds: `.neutral`, `.success`, `.warning`, `.danger`, `.progress`.
-- 6pt color dot + caption text inside a capsule with matching opacity.
-- Use anywhere you need a one-word state ("Active", "Paused", "Granted", "Blocked", "12 queued").
-
-### 6.8 Cards
-- `MAYNToolCard` — the large interactive home-page card with icon tile, title, subtitle, content slot, optional `action`. Use on dashboards and tool entry points.
-- `FeatureToolCard` (`MacAllYouNeed/App/Dashboard/FeatureToolCard.swift`) — the dashboard wrapper around `MAYNToolCard` that adds feature lifecycle state, install/enable actions, and asset status. Disabled / not-installed cards are dimmed and expose actions instead of navigating.
-- `PermissionCard` — purpose-built for TCC permission rows (granted/needed/denied/optional). Use only on the Permissions settings page and in onboarding.
-- Clipboard `ClipCard` and its variants — domain-specific to the dock; see §10.2 for accepted styling deviations.
-- `SnippetCard` (`MacAllYouNeed/ClipboardDock/Views/Snippets/SnippetCard.swift`) — snippet-library card that intentionally mirrors clipboard card dimensions, background, focused border, and persistent unfocused border.
-
-### 6.9 Instruction surfaces
-- `InstructionStrip` — short instruction with optional drag-target tile and optional action button. Used in onboarding and in error banners that need a CTA.
-- `DraggablePermissionAppTile` — the drag source inside `InstructionStrip` for "drag this app into System Settings" flows. Do not reimplement.
-
-### 6.10 Toasts and HUD pills
-- `MAYNToast(message:symbol:isDestructive:)` — the standard copy-confirmation pill (`MAYNNotificationPillPresentation` provides geometry constants).
-- Solid `Color.primary` fill, `controlBackgroundColor` foreground. Destructive variant uses `MAYNTheme.danger` fill with white text.
-- Sized via `MAYNNotificationPillPresentation.copyPanelSize(message:)` so the pill width tracks the message.
-
-### 6.11 Divider — `MAYNDivider`
-- 1pt `MAYNTheme.divider`, leading inset of 14pt (so it stops at the row label gutter).
-- Use between consecutive `MAYNSettingsRow`s inside a section. Don't use SwiftUI's `Divider()` in product UI.
-
-### 6.12 Text-focus dismissal
-- Every shell that contains a text field should call `.maynDismissTextFocusOnOutsideClick()` (already wired into `MAYNSettingsShell`). This bridges `NSEvent` clicks and clears focus when the user clicks outside a text input.
+Avoid green success pills, red error banners, blue info badges, purple voice badges, and orange warning pills unless the OS component provides them and they cannot be customized.
 
 ---
 
-## 7. Application surfaces
+## 4. Typography
 
-This is the map. When working on any surface, conform to this structure.
+### 4.1 Font family
 
-### 7.1 Menu-bar popover
-- File: `MacAllYouNeed/App/AppMenuBarContent.swift`
-- 500×600 `NSPopover` content.
-- Layout: header (Settings only — no title bar copy) → `FunctionSegmentedTabStrip` (5 tabs: Clipboard / Voice / Downloads / Layouts / Snippets) → tab content → footer.
-- **Layouts** tab: Rectangle-style snap grid for the frontmost window (halves, corners, maximize, center, restore, display cycling). Uses `WindowControlCoordinator.perform`; respects feature enable, per-user “Window Layouts on”, Accessibility trust, and ignored-app rules — same as keyboard shortcuts.
-- Footer is tab-specific: shortcut hint + label + Open button for the active tab + Quit. "Pause 60s" appears only on the Clipboard tab.
-- Snippet rows show the snippet body preview as the primary readable text and keep the trigger visible as metadata.
-- Voice tab (`VoicePopoverView`): recent transcript list only — per-row **Copy** and **Retry** (no download/delete). Same keyboard affordances as the main Voice History list: **Space** previews the selection, **Return** copies, double-click a row copies, arrow keys move selection, **⌘C** / **⌘A** supported.
-- All five tabs must use `FunctionSegmentedTabStrip`.
+Use macOS system type.
 
-### 7.2 Main window
-- File: `MacAllYouNeed/App/MainWindowRoot.swift`
-- `NavigationSplitView` with a vertical sidebar (Dashboard / Clipboard / Voice / Downloads / Folder Preview / Snippets / Window Layouts / Window Grab / Dock / Settings) and a detail pane.
-- Disabled feature destinations remain visible in the sidebar, but are dimmed, show the slash indicator, ignore hover, and are non-clickable.
-- Dashboard uses `FeatureToolCard` for Clipboard, Voice, Downloads, Folder Preview, Snippets, Window Layouts, and Window Grab. Cards show lifecycle status/actions; do not add non-actionable "Ready" pills.
-- Each tool page in the detail pane uses `FunctionPageShell` + `FunctionPageScrollContent`.
-- Current tool tabs:
-  - Clipboard: History / Rules / Settings
-  - Voice: Dictate / Models / History / Dictionary / Personalization / Settings
-  - Downloads: Queue / Completed / Settings
-  - Folder Preview: Settings
-  - Snippets: Library / Settings
-- Window Layouts and Window Grab are separate first-class destinations. They use `WindowControlFeaturePageShell`; see §10.5 for the no-nested-tabs exception.
-- Sidebar badges (e.g. download count) use `StatusPill` or a small numeric badge — no inline NSColor.
+```css
+font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+```
 
-### 7.3 Settings window
-- Files: `MacAllYouNeed/Settings/SettingsRoot.swift`, `SettingsDestination.swift`
-- `MAYNSettingsShell` with the current user-facing System group (`General` / `Permissions` / `Storage` / `Advanced`) and a detail pane.
-- Each settings page uses `MAYNSettingsPage` + `MAYNSection` + `MAYNSettingsRow` + `MAYNDivider`.
-- `SettingsDestination` still owns 11 detail views for route compatibility and reuse: Clipboard, Voice, Downloads, Folder Preview, Snippets, Hotkeys, Search, Permissions, Storage, General, Advanced.
-- Feature/workflow settings are surfaced inside the corresponding main tool pages first; when a route opens a disabled feature's settings, wrap it with `FeatureSettingsContainer` so users see the disabled-feature banner.
-- Hotkey editing belongs in Hotkeys or the tool's Settings tab — use `HotkeyRecorder`.
+SwiftUI:
 
-### 7.4 Onboarding wizards
-- Main: `MacAllYouNeed/Onboarding/OnboardingWizardView.swift` — Welcome → Choose Features → per-feature setup loop → Done. Panel 760×520.
-- Voice: `MacAllYouNeed/Voice/UI/Onboarding/VoiceOnboardingWizardView.swift` — 9 steps (Welcome, Microphone, Accessibility, Speech model, AI cleanup, Shortcut, Languages, Try it, Done). Panel 860×640.
-- Use `SetupWizardShell` for step chrome. Permission steps use `PermissionCard` + `InstructionStrip`. Choice steps use `FunctionSegmentedTabStrip`.
+```swift
+.font(.system(size: size, weight: weight, design: .default))
+```
 
-### 7.5 Voice HUD
-- File: `MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift` (`MiniVoiceHUD` — the floating voice HUD pill, v8 fixed 144×32 chrome).
-- Borderless non-activating `NSPanel`, presented with `MAYNMotion.toastIn/toastOut` timing.
-- Anchored near the bottom of the active screen’s `visibleFrame` (`MiniVoiceHUDLayout.bottomInsetAboveDock`).
-- Happy path: idle (hidden) → **Listening** (recording: waveform + stop) → **Transcribing** (AI sparkle + stop for the whole ASR + LLM cleanup span; during cleanup the pill adds a gray **track** with **black** fill wiping left→right from streamed progress, optional short boot sweep before the first token, then snap to full black when cleanup completes) → dismiss when paste finishes (no Applied/Copied success pill, no inline transcript preview on the HUD).
-- Terminals still used when needed: **Cancelled** (with Undo), **No speech**, **Failed**.
-- Waveform amplitudes must respect Reduce Motion (collapse to a flat bar or static peak).
+Use monospaced only for shortcuts, file paths, technical IDs, durations, and code-like snippets.
 
-### 7.6 Clipboard dock
-- File: `MacAllYouNeed/ClipboardDock/Views/DockRootView.swift`
-- `BottomDockWindow` (custom AppKit) anchored to bottom-of-screen, 12pt top corners.
-- Layout: `DockTopBar` (52pt) → `Divider` → `MultiSelectBar` slot (45pt) → carousel of `ClipCard`s or the Snippets library (220×240 card metrics) → overlays (TransformMenu, QuickLook, Cheatsheet, Snippet editor).
-- Tabs in the top bar use `DockListTabs` — see §10.1 for why this is the only accepted exception to the "no custom tab strip" rule.
-- The built-in Snippets tab accepts clipboard-card drags. A successful drop switches to Snippets and opens a prefilled in-panel `SnippetSheet` draft. The editor is an overlay inside the dock panel, not a native sheet that lifts the entire panel.
-- Snippet cards copy the clipboard card shell: opaque control background, 8pt card radius, focus ring when focused, and a persistent subtle border when unfocused.
+### 4.2 Type scale
 
-### 7.7 Browse folder window
-- Files: `MacAllYouNeed/FolderPreview/BrowseFolderWindowController.swift`, `Shared/Sources/UI/FolderPreview/FolderPreviewView.swift`
-- Standard `NSWindow`, 900×600, titled, resizable.
-- Header: back button + folder icon + breadcrumb + item count/size + mode switch (Files / Grid / Analyze). New work should migrate this switch to `FunctionSegmentedTabStrip`; the current shared view still has the grandfathered raw segmented `Picker` documented in §11.
-- Content swaps with `MAYNMotion.tab` transition.
+| Token | Size | Weight | Line height | Use |
+|---|---:|---:|---:|---|
+| Display | 32 | 600 | 38 | onboarding hero only |
+| Page title | 28 | 650 | 34 | major page header |
+| Section title | 15 | 600 | 21 | section headings |
+| Card title | 14 | 600 | 20 | card headers |
+| Body | 13 | 400 | 19 | primary content |
+| Body strong | 13 | 550 | 19 | row titles |
+| Caption | 12 | 400 | 16 | secondary copy |
+| Micro | 11 | 500 | 14 | labels, metadata |
+| Keycap | 11 | 550 | 14 | shortcuts |
 
-### 7.8 Quick Look extension
-- File: `MacAllYouNeed/FolderPreview/` (extension target)
-- Returns an HTML table for folders, a libarchive entry list for archives.
-- Constrained to `NSTextView + NSAttributedString(html:)` — WKWebView is blocked in the sandboxed extension on macOS 26. Do not try to use SwiftUI here.
+### 4.3 Typography rules
 
-### 7.9 Window control
-- Files: `MacAllYouNeed/WindowControl/WindowControlMainPage.swift`, `WindowControlSettingsView.swift`, `WindowControlCoordinator.swift`
-- Window Layouts and Window Grab are separate main-window destinations, not nested tabs inside one page.
-- Shared settings sections: layout shortcuts, edge snap, window grab modifier, double-click layout, shared ignored apps, and diagnostics.
-- Event-tap and overlay UI must use the MAYN tokens where possible; see §10.6 for the fixed black snap overlay exception.
+Use short, functional text.
+
+Good:
+
+- Clipboard History
+- Search copied text, links, images, and files.
+- Watching `~/Downloads`
+- Accessibility required to switch windows.
+- 3 files organized today.
+
+Bad:
+
+- Supercharge your productivity with AI-powered automations.
+- Unlock your ultimate workflow potential.
+- Your personal intelligent assistant for the future of Mac productivity.
+
+Page titles should be direct nouns:
+
+- Dashboard
+- Clipboard
+- Voice
+- Downloads
+- File Organizer
+- Finder
+- Window Layouts
+- Window Grab
+- Windows Hub
+- Settings
 
 ---
 
-## 8. Forced rules (must / must-not)
+## 5. Layout System
 
-**Must:**
-- Use `MAYNTheme.*` for every fill, stroke, and overlay outside the documented exceptions in §10.
-- Use `MAYNControlMetrics.*` for every padding, height, radius, and width that maps to a token.
-- Use `MAYNMotion.*` / `MAYNMotionBridge.*` for every animation duration and timing function.
-- Use the components in §6 instead of restyling a SwiftUI primitive.
-- Use `FunctionPageShell` for tool pages and `MAYNSettingsPage` for settings pages.
-- Respect Reduce Motion on every spatial animation (including AppKit and Core Animation).
-- Show hotkeys on tool pages with `ShortcutChip` / `MAYNHotkeyDisplay`; edit hotkeys only in Settings using `HotkeyRecorder`.
-- Keep disabled features visible in navigation and dashboards, but make disabled sidebar rows inert. Route users through enable/install actions on dashboard cards or disabled-feature settings banners.
+### 5.1 Window shell
 
-**Must not:**
-- `Picker(...).pickerStyle(.segmented)` for product-owned tab switches. Use `FunctionSegmentedTabStrip`.
-- Raw `TextField(...)` / `SecureField(...)` in product UI. Use `MAYNTextField` / `MAYNSecureField`.
-- Raw `Color(red:, green:, blue:)`, `Color.blue`, `Color.orange` etc. for chrome. State colors come from `MAYNTheme.success/warning/danger/progress`.
-- Raw `Animation.easeOut(duration: …)`, `.spring(…)`, or `NSAnimationContext` with literal durations. Always go through `MAYNMotion` / `MAYNMotionBridge`.
-- Custom `Divider()` styling — use `MAYNDivider`.
-- Inline hotkey recorders on top-level tool pages.
-- Redundant "Ready" pills when the absence of a warning/progress state already communicates readiness.
-- Native macOS form `Picker` (segmented or otherwise) on product surfaces. Exception: a `Picker` with `.menu` style nested inside a SwiftUI `Form` that is part of a system flow not owned by the app (e.g. SwiftUI's built-in `PhotosPicker`).
+Default main window:
+
+- width: 1120 px
+- height: 760 px
+- minimum width: 920 px
+- minimum height: 640 px
+- corner radius: native macOS window radius
+- sidebar width: 220 px
+- toolbar height: 56 px
+- content max width: 920 px
+
+Layout:
+
+```text
+┌────────────────────────────────────────────────────────────┐
+│ traffic lights   Mayn         Search / Command      Status │
+├────────────────┬───────────────────────────────────────────┤
+│ Sidebar        │ Page title / subtitle / primary action    │
+│                │ Segmented controls / filters              │
+│ Dashboard      │ Main panels / dense lists / preview       │
+│ Clipboard      │                                           │
+│ Voice          │                                           │
+│ Downloads      │                                           │
+│ Windows        │                                           │
+│ Settings       │                                           │
+└────────────────┴───────────────────────────────────────────┘
+```
+
+### 5.2 Sidebar
+
+Sidebar width: 220 px.
+
+Sidebar item:
+
+- height: 36 px
+- horizontal padding: 12 px
+- radius: 9 px
+- icon: 16 px stroke-based
+- label: 13 px, medium when selected
+- active state: black fill / white text in light mode; white fill / black text in dark mode
+- hover state: subtle gray fill
+
+Navigation groups:
+
+```text
+Mayn
+
+Core
+  Dashboard
+  Clipboard
+  Voice
+  Downloads
+
+Automation
+  AI File Organizer
+  Enhanced Finder
+
+Windows
+  Window Layouts
+  Window Grab
+  Windows Hub
+
+System
+  Settings
+```
+
+Do not use colorful icons in the sidebar.
+
+### 5.3 Toolbar
+
+Toolbar contents:
+
+- traffic lights
+- optional app title / current workspace
+- global command search
+- active runtime indicator
+- compact settings / theme menu
+
+Command search visual:
+
+```text
+[ Search actions, history, files, windows...        ⌘K ]
+```
+
+Specs:
+
+- height: 34-38 px
+- width: 320-420 px
+- radius: 11 px
+- background: panelSubtle
+- border: hairline
+- icon: magnifying glass, 14 px
+- keycap: right aligned
+
+### 5.4 Page header
+
+Each page should use the same header structure.
+
+```text
+Page Title                                      Primary action / shortcut
+Short functional description.
+```
+
+Specs:
+
+- top padding: 32 px from toolbar
+- title: 28 px / 650
+- subtitle: 13 px / secondary
+- right control: shortcut chip or primary action
+- bottom divider only when content scrolls
+
+### 5.5 Spacing scale
+
+Use a 4 px base grid.
+
+```text
+4, 8, 12, 16, 20, 24, 32, 40, 48, 64
+```
+
+Rules:
+
+- page side padding: 32 px
+- section gap: 24 px
+- card gap: 12-16 px
+- list row vertical padding: 10-14 px
+- settings row height: 48-56 px
+- compact filter bar height: 34-38 px
 
 ---
 
-## 9. Reduce Motion contract
+## 6. Shape, Borders, and Elevation
 
-This is non-optional and the most common regression. A correctly motion-aware view does all of the following:
+### 6.1 Radius tokens
 
-1. Reads `@Environment(\.accessibilityReduceMotion) private var reduceMotion` (SwiftUI) or `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` (AppKit).
-2. Passes that flag through `MAYNMotion.<kind>Animation(reduceMotion:)` so the returned `Animation?` is `nil` under Reduce Motion (SwiftUI drops the animation).
-3. Collapses spatial offsets, scales, and rotations via `MAYNMotionBridge.translation(_:reduceMotion:)` or an explicit ternary (`reduceMotion ? 0 : value`).
-4. AppKit: uses `MAYNMotionBridge.effectiveDuration(_:)` so `NSAnimationContext.duration = 0` under Reduce Motion.
-5. Does not animate continuous wave/particle effects (HUD waveform, loading shimmer) when Reduce Motion is on — show a static representative frame.
+```css
+--radius-xs: 5px;
+--radius-sm: 8px;
+--radius-md: 12px;
+--radius-lg: 16px;
+--radius-xl: 20px;
+--radius-panel: 22px;
+--radius-pill: 9999px;
+```
 
-Reviewers: if you see a `.spring(...)`, a numeric duration, or an `.offset(x: 20)` without a reduce-motion guard, that is a blocking finding.
+Usage:
 
----
+| Component | Radius |
+|---|---:|
+| keycap | 6 px |
+| sidebar item | 9 px |
+| button | 10-12 px |
+| search field | 11-12 px |
+| card | 16 px |
+| large panel | 18-22 px |
+| command palette | 22 px |
+| HUD | 20-24 px |
+| pill | 9999 px |
 
-## 10. Accepted exceptions
+### 6.2 Border usage
 
-These deviations exist for documented reasons. Do not generalize them.
+Use borders for structure, not decoration.
 
-### 10.1 `DockListTabs` (clipboard dock top bar)
-- File: `MacAllYouNeed/ClipboardDock/Views/DockTopBar/DockListTabs.swift`
-- Implements drag-to-reorder list tabs with `matchedGeometryEffect`. `FunctionSegmentedTabStrip` cannot host drag-reorder semantics.
-- Visuals copy the FunctionSegmentedTabStrip language (capsule, panel bg, strong border, primary opacity selected fill) — when in doubt, mirror what the canonical strip does.
+- page section: hairline
+- card: hairline
+- selected card: strong border or inverted fill
+- table row divider: hairline
+- command palette: soft border
+- floating HUD: subtle border only in dark mode if needed
 
-### 10.2 Clipboard card content
-- Files: `MacAllYouNeed/ClipboardDock/Views/Cards/*`
-- Card backgrounds use `Color(NSColor.controlBackgroundColor)` directly because the dock window is a translucent surface and the card needs to be fully opaque against an arbitrary desktop. `MAYNTheme.elevated` is the correct equivalent — prefer it on any new card.
-- App-icon accents (`AppIconColor.swift` / `ClipCardAccentPresentation`) define 12 known per-app sRGB tuples plus a hash-based fallback. This is the only place in the app where literal RGB triples are allowed; they exist because they map to real third-party app brand colors.
+Do not use colored borders for feature cards.
 
-### 10.3 Voice HUD processing background
-- File: `MacAllYouNeed/Voice/UI/MiniVoiceHUD.swift:310`
-- The processing state uses a near-black RGB to read against any window underneath. This is a deliberate visual choice for the floating HUD. If we ever expose a "system match" mode, replace it with `MAYNTheme.elevated` over a `.regularMaterial` background.
+### 6.3 Elevation tokens
 
-### 10.4 Main window function indicator colors
-- File: `MacAllYouNeed/App/MainWindowRoot.swift`
-- Also: `MacAllYouNeed/App/FunctionDestinationRegistry.swift` `accent(for:)` carries the same per-feature brand accents for sidebar/destination iconography; both files are excluded from `mayn_no_raw_color_rgb`.
-- Seven RGB tuples used as iconography accents for the seven feature cards (Clipboard, Voice, Downloads, Folder Preview, Snippets, Window Layouts, Window Grab). These are product affordances, not chrome.
-- Allowed because they identify the function. Do not extend to settings rows, cards, or status indicators.
+```css
+--elevation-0: none;
 
-### 10.5 Window control page shell
-- File: `MacAllYouNeed/WindowControl/WindowControlMainPage.swift`
-- `WindowControlFeaturePageShell` intentionally mirrors `FunctionPageShell` title/subtitle/status spacing but omits a tab strip. Window Layouts and Window Grab are separate sidebar destinations by product decision, so adding nested tabs would be a regression.
-- Do not copy this shell elsewhere. If a future window-control page gains multiple tabs, migrate it to `FunctionPageShell`.
+--elevation-1:
+  0 0 0 1px rgba(0, 0, 0, 0.08);
 
-### 10.6 Window snap overlay
-- File: `MacAllYouNeed/WindowControl/WindowSnapOverlayPanel.swift`
-- Uses fixed black fill and light-gray stroke on an `NSBox` footprint (~52% panel alpha) so the snap target reads darker over arbitrary app content. Corner radius is probed from a transient titled window when possible, else 10pt (macOS 11–25) / 16pt (macOS 26+). This is an OS overlay affordance, not app chrome.
+--elevation-2:
+  0 0 0 1px rgba(0, 0, 0, 0.08),
+  0 1px 2px rgba(0, 0, 0, 0.04);
 
-### 10.7 Context menu separators
-- SwiftUI context menus must use the platform `Divider()` primitive. `MAYNDivider` renders as a rectangle view and is not appropriate inside a menu.
+--elevation-3:
+  0 0 0 1px rgba(0, 0, 0, 0.08),
+  0 8px 24px rgba(0, 0, 0, 0.07);
 
-### 10.8 Radial menu overlays
-- Files: `MacAllYouNeed/WindowControl/Radial/RadialPreviewView.swift`, `RadialTargetHighlightView.swift`
-- **Destination preview** reuses `WindowLayoutPreviewRectView` / `WindowSnapOverlayPresentation` (black fill, light-gray stroke) like edge snap.
-- **Target highlight** uses a user-configurable glow color (`RadialHighlightColor`) on the focused window frame — desktop overlay exception, not `MAYNTheme` chrome.
-- The radial **pie** menu itself stays on `MAYNTheme` / `.regularMaterial` in `RadialMenuView`.
+--elevation-4:
+  0 0 0 1px rgba(0, 0, 0, 0.12),
+  0 16px 48px rgba(0, 0, 0, 0.16);
 
----
+--elevation-5:
+  0 0 0 1px rgba(0, 0, 0, 0.16),
+  0 24px 80px rgba(0, 0, 0, 0.28);
+```
 
-## 11. Known debt to clean up
+Usage:
 
-These pre-date this document. Touch them when you're already in the file; do not file standalone cleanup PRs unless asked.
-
-| File | Issue | Fix |
-|---|---|---|
-| `MacAllYouNeed/App/MainWindowRoot.swift:1074` | `ClipboardHistorySearchBar` uses a bare `TextField` inside a toolbar row. Acceptable today because there is no surrounding pill chrome (a `MAYNTextField` would add an unwanted border). If we later promote search to a chromed pill, swap to a future `MAYNSearchField` primitive. | Defer until a unified search-field primitive exists |
-| `Shared/Sources/UI/FolderPreview/FolderPreviewView.swift` | Browse Folder still uses a raw segmented `Picker` for Files / Grid / Analyze. It is grandfathered by `.swiftlint.yml`. | Migrate to `FunctionSegmentedTabStrip` next time this shared view is touched |
-| Many files (see §11.1) | Raw `.font(.system(size: N))` for N in {10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 22, 24, 26, 28} | Replace with semantic font (`.caption`, `.callout`, `.body`, `.title3`, `.title2`) where possible; if the size is genuinely unique to that surface (page title, large icon glyph), leave it but document at point of use |
-| Many files | Raw `.padding(18)`, `.padding(20)`, `.padding(22)`, `.padding(24)` in sheets and onboarding cards | Funnel sheets through a `MAYNSheetContainer` (to be added) with a single content padding token |
-
-**Resolved in this revision:** `MAYNTheme.tabSelectedFill`/`tabSelectedBorder`/`tabSelectedShadow` tokens promoted from raw `Color.primary.opacity(0.14)`/`0.20` and `Color.black.opacity(0.06)`. Both `FunctionPageShell` and `DockListTabs` now consume the tokens. `FileCard` footer and `CodeCard` language badge now use `MAYNTheme.elevated` instead of raw opacity fills.
-
-### 11.1 Raw font size hotspots
-These files account for most of the raw font-size literals. Prioritize when you touch them: `MainWindowRoot.swift`, `AppMenuBarContent.swift`, `DownloadsListView.swift`, `VoiceDictionaryPage.swift`, `PermissionsSettingsView.swift`, `VoiceSettingsView.swift`, `MiniVoiceHUD.swift`, `VoiceOnboardingWizardView.swift`, `OnboardingWizardView.swift`.
-
-### 11.2 Search-field primitive (planned)
-
-`DockSearchField` and `VoiceDictionarySearchField` independently implement the same composite pattern: magnifying-glass icon + plain `TextField` + optional clear button inside a `MAYNTheme.elevated` pill with `MAYNTheme.focusRing` on focus. Both are correctly tokenized — they are not violations — but they duplicate ~30 lines of identical chrome. The right cleanup is a `MAYNSearchField(query:placeholder:)` primitive in `MAYNSettingsUI.swift` that captures the pattern, then a one-line swap in both call sites and (optionally) `ClipboardHistorySearchBar`. Defer until a third search-field surface appears.
-
----
-
-## 12. Recipes
-
-### 12.1 Add a new settings page
-1. Create `MacAllYouNeed/Settings/<Area>SettingsView.swift` returning a `MAYNSettingsPage(title:subtitle:) { … }`.
-2. Inside, compose `MAYNSection`s, each holding `MAYNSettingsRow`s separated by `MAYNDivider`.
-3. Add the destination to `SettingsDestination.swift` and wire it into `SettingsRoot.swift`'s sidebar group.
-4. No new top-level styling files. If the page needs a control you don't see in §6, add the control to `MAYNSettingsUI.swift` first.
-
-### 12.2 Add a new tool page in the main window
-1. Add a `FunctionTabDestination` case (or new enum) and SF Symbols + titles.
-2. Create the page view returning a `FunctionPageShell(title:subtitle:tabs:selection:)` with an optional toolbar and a `FunctionPageScrollContent { … }`.
-3. Use `MAYNSection` / `MAYNSettingsRow` inside the scroll content. Yes, settings primitives are correct here — they are general purpose, not settings-only.
-
-### 12.3 Add a new component
-1. Justify why it can't be composed from §6.
-2. Implement it in `MacAllYouNeed/Settings/MAYNSettingsUI.swift` (or a sibling file `MAYN<Area>UI.swift` if the component is large).
-3. Read tokens from `MAYNTheme`, `MAYNControlMetrics`, `MAYNMotion`. Take a `reduceMotion: Bool` if you animate anything spatial.
-4. Add a usage line to §6.
-
-### 12.4 Add a new global hotkey
-1. Define the action in `HotkeyMapStore`.
-2. Register in `AppController.applicationDidFinishLaunching` (not `onAppear` — `MenuBarExtra`'s `onAppear` only fires on first popover open).
-3. Expose the recorder row in the Hotkeys settings page (using `HotkeyRecorder`) and a read-only `MAYNHotkeyDisplay` on the tool page that uses it.
+| Elevation | Use |
+|---|---|
+| 0 | page background, list background |
+| 1 | settings groups, flat panels |
+| 2 | normal cards |
+| 3 | active card, sticky toolbar |
+| 4 | dropdown, popover, contextual menu |
+| 5 | command palette, window hub, voice HUD |
 
 ---
 
-## 13. Review checklist
+## 7. Components
 
-Before merging any UI change, verify:
+### 7.1 Buttons
 
-- [ ] Every color comes from `MAYNTheme` (or is a documented §10 exception).
-- [ ] Every padding/height/radius/width either matches a `MAYNControlMetrics` token or is justified inline.
-- [ ] Every font is a semantic SwiftUI font, a `MAYN<Component>` built-in style, or matches the §4.4 table.
-- [ ] Every animation goes through `MAYNMotion` or `MAYNMotionBridge`. Reduce Motion is honored.
-- [ ] Tab switches use `FunctionSegmentedTabStrip`. No `.pickerStyle(.segmented)` anywhere.
-- [ ] Text input uses `MAYNTextField` / `MAYNSecureField`. No raw `TextField` / `SecureField` in product UI.
-- [ ] Settings rows use `MAYNSettingsRow` with the standard trailing lane.
-- [ ] Hotkey display uses `ShortcutChip` / `MAYNHotkeyDisplay`. Editing only lives on a Settings page.
-- [ ] No regression: open the menu bar, open the main window, open Settings, open the dock, trigger a toast, trigger the voice HUD. Visual rhythm matches the rest of the app.
-- [ ] If a new primitive was added, it lives in `MAYNSettingsUI.swift` and §6 has a one-paragraph entry for it.
-- [ ] Reduce Motion test: System Settings → Accessibility → Display → Reduce Motion ON. Re-run the touched flows and confirm no spatial motion remains.
+#### Primary button
 
-If any item fails, the change is not ready. This is the production confidence gate.
+Use for the one main action on a surface.
+
+Visual:
+
+- light mode: black background, white text
+- dark mode: white background, black text
+- height: 36-40 px
+- padding: 12-16 px horizontal
+- radius: 10-12 px
+- no color accents
+
+Examples:
+
+- Grant Permission
+- Open Window Hub
+- Organize Files
+- Start Dictation
+- Run Scan
+
+#### Secondary button
+
+Visual:
+
+- transparent or panel background
+- text primary
+- hairline border
+- height: 34-38 px
+- radius: 10-12 px
+
+Examples:
+
+- Customize
+- Show Failed
+- Retry Failed
+- Open in Finder
+- Change Shortcut
+
+#### Ghost button
+
+Visual:
+
+- transparent background
+- secondary text
+- hover gray fill
+- no border by default
+
+Examples:
+
+- Reset
+- Dismiss
+- Learn more
+- Clear history
+
+### 7.2 Segmented control
+
+Current segmented controls feel too large and generic. Replace with compact monochrome tabs.
+
+Specs:
+
+- height: 34-38 px
+- background: panelSubtle
+- outer border: hairline
+- selected segment: active fill, inverse text
+- radius: pill or 12 px
+- icon optional, 13-14 px
+- text: 12-13 px medium
+
+Avoid system-blue selected states.
+
+### 7.3 Search fields
+
+Search fields are core in Clipboard, Downloads, Windows Hub, Finder history, and command palette.
+
+Specs:
+
+- compact search: 34-38 px height
+- command search: 52-56 px height
+- radius: 11-14 px
+- left icon: 14-16 px
+- right metadata: item count or shortcut keycap
+- focus ring: monochrome, 2 px
+
+For large data surfaces, search should sit directly above the list and remain sticky if scrolling.
+
+### 7.4 Keycaps
+
+Shortcuts should be shown everywhere they matter.
+
+Visual:
+
+```text
+⌘ ⇧ V
+⌥ Space
+⌃ ←
+```
+
+Specs:
+
+- height: 20-22 px
+- padding: 6-8 px horizontal
+- radius: 6 px
+- background: panelSubtle
+- border: soft border
+- text: 11 px / 550
+- monospaced digits only if needed
+
+### 7.5 Cards
+
+Cards should be monochrome control panels, not colorful feature tiles.
+
+Card specs:
+
+- background: panel
+- border: hairline
+- radius: 16 px
+- padding: 18-22 px
+- hover: border slightly stronger + translateY(-1 px)
+- selected / enabled: either black-white inversion or subtle active rail, never colored border
+
+Feature card layout:
+
+```text
+┌────────────────────────────────────┐
+│ [icon] Clipboard          ⌘ ⇧ V    │
+│ Save, search, and reuse copies.    │
+│                                    │
+│ 983 items saved                    │
+│ Last copied 5m ago         [toggle]│
+└────────────────────────────────────┘
+```
+
+### 7.6 Lists
+
+Use list rows for history, transcripts, downloads, windows, tabs, rules, and settings.
+
+Row specs:
+
+- height: 44-64 px depending content
+- border-bottom: hairline
+- hover: subtle gray fill
+- selected: inverted fill
+- primary text: 13 px
+- metadata: 11-12 px secondary
+- actions: hidden until hover/focus unless critical
+
+### 7.7 Status pills
+
+Specs:
+
+- height: 22-24 px
+- padding: 8-10 px horizontal
+- radius: pill
+- font: 11-12 px / 500
+- icons: 8-10 px if used
+
+Monochrome mapping:
+
+- Granted: filled active pill
+- Enabled: filled active pill
+- Ready: filled active pill
+- Needs Setup: outline pill
+- Paused: muted pill
+- Failed: outline pill + warning icon
+- Running: animated dot + text
+
+### 7.8 Empty states
+
+Empty states should be minimal.
+
+Example:
+
+```text
+No clipboard items yet.
+Copy anything on your Mac and it will appear here.
+```
+
+Visual:
+
+- simple line icon, 28-36 px
+- no illustrations
+- no colorful artwork
+- one primary action max
+
+### 7.9 Toasts
+
+Specs:
+
+- position: bottom center or top-right, depending surface
+- height: 34-38 px
+- radius: pill
+- background: black in light mode / white in dark mode
+- text: inverse
+- icon optional, monochrome
+- stay: 1200-1800 ms
+
+Copy:
+
+- Copied
+- Inserted
+- 3 files organized
+- Window moved left
+- Permission granted
+
+### 7.10 HUDs
+
+HUDs are the most Mayn-specific visual language.
+
+Use for:
+
+- Voice dictation
+- Clipboard Dock
+- Window Hub
+- Radial Layout menu
+- Window Grab snap preview
+- Copy confirmation
+- Auto-download prompt
+
+HUD specs:
+
+- background: black in light mode / near-black in dark mode, or inverted if above dark app
+- text: white
+- radius: 20-24 px
+- strong but clean shadow
+- compact layout
+- no web-modal styling
+- no colorful gradients
+
+---
+
+## 8. Feature Surface Guidelines
+
+### 8.1 Dashboard
+
+Dashboard should become a system status board, not a feature catalog.
+
+Visual target:
+
+```text
+Mayn
+Your Mac workflow is ready.
+7 tools active · 983 clipboard items · 4 downloads need attention
+
+┌ Status strip ─────────────────────────────────────────────┐
+│ Permissions OK    Shortcuts active    Watchers running    │
+└───────────────────────────────────────────────────────────┘
+
+Quick Actions
+[Open Clipboard] [Start Dictation] [Open Window Hub] [Organize Downloads]
+
+Active Tools
+[Clipboard] [Voice] [Downloads]
+[Finder]    [Windows] [Layouts]
+```
+
+Dashboard cards should show:
+
+- current state
+- shortcut
+- last activity
+- primary action
+
+Avoid showing large standalone numbers without context.
+
+### 8.2 Clipboard
+
+Clipboard should feel like a fast searchable memory list.
+
+Visual target:
+
+```text
+Clipboard                                      ⌘ ⇧ V
+Search copied text, links, images, and files.
+
+[ Search clipboard...                         983 items ]
+
+Pinned
+Today
+  Text     Design direction for Mayn...       Cursor    5m
+  Link     github.com/...                     Chrome    44m
+  File     invoice.pdf                        Finder    1h
+```
+
+Use dense rows and monochrome source chips. External app icons may keep their original colors but should be small and not dominate.
+
+### 8.3 Clipboard Dock
+
+The Clipboard Dock should feel like a bottom command shelf.
+
+Visual target:
+
+```text
+┌ Clipboard History ─ Snippets ─ Pinned ───────── Search ┐
+│ Text    Design direction for Mayn...       ⌘1   Copy   │
+│ Link    github.com/voltagent/...           ⌘2   Copy   │
+│ File    invoice.pdf                        ⌘3   Reveal │
+└─────────────────────────────────────────────────────────┘
+```
+
+Specs:
+
+- bottom anchored panel
+- height: 260-360 px depending content
+- dark by default if floating over screen content
+- rounded top corners: 18-22 px
+- selected row uses inverted fill
+- Copy button is primary only on selected row
+
+### 8.4 Voice
+
+Voice should feel like system dictation, not an audio dashboard.
+
+Main page visual target:
+
+```text
+Voice                                            ⌥ Space
+Dictate into any app with local speech recognition.
+
+Status
+Ready · Sense Voice Small · Chinese + English
+
+Recent Transcripts
+  Success    帮我看一下...          6.5s    Jun 22
+  Cancelled  Cancelled              1.3s    Jun 20
+  Failed     Could not clean up      14.7s   Jun 19
+```
+
+Runtime HUD visual target:
+
+```text
+┌─────────────────────────────┐
+│ ● Listening                 │
+│ ▂ ▄ ▆ █ ▆ ▄ ▂               │
+│ Release to insert           │
+└─────────────────────────────┘
+```
+
+Use monochrome waveform and a pulsing dot. Avoid purple microphone branding.
+
+### 8.5 Downloads
+
+Downloads should feel like a queue and file pipeline.
+
+Visual target:
+
+```text
+Downloads                                  Open Downloads Folder
+Manage active and completed downloads.
+
+[All 401] [Active 0] [Paused 396] [Failed 4]      [Search]
+
+Attention
+4 downloads failed. Review failed items or retry.
+
+Collections
+  UI Audit Demo Bulk           Paused       0 / 200       [Resume]
+  UI Audit Demo Bulk           Failed       0 / 200       [Retry]
+```
+
+Use monochrome filters. Failed state may use stronger border and warning icon, but avoid pink/red filled banners.
+
+### 8.6 AI File Organizer
+
+The AI File Organizer should be a review-and-approve workspace.
+
+Visual target:
+
+```text
+AI File Organizer                         Scan Folder
+Review file moves and renames before applying.
+
+Source: ~/Downloads
+Rules: screenshots, PDFs, installers, archives
+
+Before                              After
+IMG_4221.png                        Screenshots/2026-06-24.png
+invoice final.pdf                   Documents/Invoices/invoice-final.pdf
+setup.dmg                           Installers/setup.dmg
+
+[Apply 12 changes] [Export plan] [Cancel]
+```
+
+Use a two-column diff-style table. Do not use generic cards for every file.
+
+### 8.7 Enhanced Finder
+
+Enhanced Finder should look like a native Finder history inspector.
+
+Visual target:
+
+```text
+Enhanced Finder
+Switch back to recent folders and clean history.
+
+[ Search folders... ]
+
+Today
+  ~/Downloads/UI Audit Demo Bulk       7 visits
+  ~/Desktop/Screenshots                3 visits
+  ~/Documents/Invoices                 1 visit
+
+Excluded
+  ~/Library
+  ~/.Trash
+```
+
+Use folder path rows with small folder icons and compact metadata.
+
+### 8.8 Window Layouts
+
+Window Layouts should feel precise and geometric.
+
+Visual target:
+
+```text
+Window Layouts                                Active
+Arrange, snap, and restore windows.
+
+Shortcuts
+┌ Left Half ┐ ┌ Right Half ┐ ┌ Top Half ┐ ┌ Center ┐
+│  ⌃ ←      │ │  ⌃ →       │ │  ⌃ ↑     │ │  ⌃ C   │
+└───────────┘ └────────────┘ └──────────┘ └────────┘
+
+Radial Preview
+[monochrome grid with selected region filled]
+```
+
+The radial overlay may use a very subtle translucent blue only if it comes from a legacy system highlight; target design should be black-white fill with 12-18% opacity.
+
+### 8.9 Window Grab
+
+Window Grab should be visualized as a lightweight interaction setup page plus runtime outline.
+
+Main page visual target:
+
+```text
+Window Grab                                  Active
+Move windows by holding a modifier and dragging anywhere.
+
+Trigger: ⌥ + drag
+Ignored apps: 4
+Snap preview: enabled
+
+[Test Grab] [Change Trigger]
+```
+
+Runtime target:
+
+- thin monochrome outline around grabbed window
+- snap target appears as translucent black/white rectangle
+- release flashes target for 80-120 ms
+
+### 8.10 Windows Hub
+
+Windows Hub should become the most polished runtime feature.
+
+Main page visual target:
+
+```text
+Windows Hub                                  ⌥ ⇧ W
+Search apps, windows, and tabs from a floating panel.
+
+[Open Window Hub]
+
+Permissions
+Accessibility       Granted
+Browser tabs        Enabled
+Background apps     Off
+```
+
+Floating panel visual target:
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ Search apps, windows, tabs...                 AI Organize │
+├──────────────────────────────────────────────────────────┤
+│ Chrome                          2 windows · 40 tabs       │
+│   YouTube                       youtube.com               │
+│   Gmail                         mail.google.com           │
+│ Cursor                          2 windows · 2 tabs        │
+│   mac-all-you-need              github.com                │
+└──────────────────────────────────────────────────────────┘
+```
+
+Use masonry only if scanability remains high. Otherwise use grouped list with app sections.
+
+### 8.11 Settings
+
+Settings should be the calmest part of the app.
+
+Visual target:
+
+```text
+Settings
+
+General
+  Launch at login                         [toggle]
+  Show menu bar icon                      [toggle]
+  Play sound feedback                     [toggle]
+
+Permissions
+  Accessibility                           Granted
+  Microphone                              Granted
+  Screen Recording                        Needs permission
+
+Shortcuts
+  Clipboard History                       ⌘ ⇧ V
+  Voice Dictation                         ⌥ Space
+  Window Hub                              ⌥ ⇧ W
+```
+
+Use grouped settings rows, not feature cards.
+
+### 8.12 Onboarding
+
+Onboarding should be clear and premium.
+
+Flow:
+
+1. Welcome
+2. Choose features
+3. Grant permissions
+4. Set shortcuts
+5. Ready
+
+Feature selection visual:
+
+```text
+Choose what Mayn should run.
+
+[✓ Clipboard History] [✓ Voice Dictation]
+[✓ Downloads]         [✓ Windows Hub]
+[  AI File Organizer] [  Enhanced Finder]
+```
+
+Selected tile: black fill / white text. Unselected tile: white/transparent fill / hairline border / black text.
+
+No colorful feature tiles.
+
+---
+
+## 9. Motion System
+
+### 9.1 Motion principle
+
+> Fast in. Calm out. Never decorative.
+
+Motion should communicate state changes and reduce uncertainty. It should not become the focus.
+
+### 9.2 Motion tokens
+
+```css
+:root {
+  --motion-instant: 80ms;
+  --motion-fast: 120ms;
+  --motion-standard: 180ms;
+  --motion-panel: 220ms;
+  --motion-complex: 280ms;
+
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-emphasized: cubic-bezier(0.2, 0.9, 0.1, 1);
+
+  --scale-pressed: 0.985;
+  --scale-panel-start: 0.975;
+  --scale-hud-start: 0.94;
+}
+```
+
+### 9.3 Duration standards
+
+| Interaction | Duration |
+|---|---:|
+| hover | 80-120 ms |
+| button press | 80-100 ms |
+| toggle | 120-160 ms |
+| sidebar active change | 140-180 ms |
+| page transition | 160-220 ms |
+| command palette open | 160-200 ms |
+| command palette close | 120-160 ms |
+| HUD open | 140-180 ms |
+| toast enter | 180-220 ms |
+| toast exit | 120-160 ms |
+| radial menu open | 140-180 ms |
+| row insert | 160-200 ms |
+| progress shimmer cycle | 900-1200 ms |
+
+Hard rule: common UI transitions should not exceed 280 ms.
+
+### 9.4 Page transition
+
+Use opacity and small vertical movement only.
+
+- exiting page: opacity 1 -> 0, y 0 -> -4 px, 100 ms
+- entering page: opacity 0 -> 1, y 8 px -> 0, 180 ms
+
+Do not slide full pages horizontally.
+
+### 9.5 Command palette animation
+
+Open:
+
+- overlay opacity 0 -> 1
+- palette opacity 0 -> 1
+- palette scale 0.975 -> 1
+- palette y -8 px -> 0
+- duration 180 ms
+
+Close:
+
+- opacity 1 -> 0
+- scale 1 -> 0.985
+- duration 120 ms
+
+Result changes:
+
+- rows crossfade within 120 ms
+- active row movement should be immediate
+- stagger max: 12 ms per row, total not over 80 ms
+
+### 9.6 Sidebar animation
+
+- hover fill: 100 ms
+- active background: 160 ms
+- icon/text color: 120 ms crossfade
+- no bounce
+- no glowing indicator
+
+### 9.7 Card hover and press
+
+Hover:
+
+- translateY: -1 px
+- border: hairline -> soft
+- duration: 120 ms
+
+Press:
+
+- scale: 1 -> 0.985
+- duration: 80 ms
+
+### 9.8 Toggle animation
+
+- knob slides: 140 ms
+- track inverts: 120 ms
+- label updates after 40 ms
+- no bounce
+
+### 9.9 Clipboard Dock animation
+
+Enter:
+
+- opacity 0 -> 1
+- translateY 16 px -> 0
+- scale 0.96 -> 1
+- duration 180 ms
+
+Exit:
+
+- opacity 1 -> 0
+- translateY 0 -> 10 px
+- duration 130 ms
+
+Copy feedback:
+
+- selected row flashes inverted for 100 ms
+- toast enters immediately after row flash starts
+
+### 9.10 Voice HUD animation
+
+Idle -> Listening:
+
+- HUD opacity 0 -> 1
+- scale 0.94 -> 1
+- y 8 px -> 0
+- duration 150 ms
+
+Listening:
+
+- dot opacity 0.35 -> 1 -> 0.35
+- dot scale 0.86 -> 1 -> 0.86
+- dot cycle: 900 ms
+- waveform bars cycle: 700-900 ms
+- bar stagger: 60 ms
+
+Listening -> Transcribing:
+
+- waveform opacity drops to 30%
+- label changes to `Transcribing...`
+- pulsing line appears
+- duration 160 ms
+
+Transcribing -> Done:
+
+- label changes to `Inserted`
+- HUD compresses slightly
+- fade out after 600-900 ms
+
+### 9.11 Downloads animation
+
+New file:
+
+- row opacity 0 -> 1
+- x 12 px -> 0
+- duration 180 ms
+
+Progress:
+
+- thin progress line
+- shimmer cycle 1000 ms
+- opacity 0.45
+
+Completed:
+
+- row background inverts at 8% opacity
+- status updates to `Moved` / `Completed`
+- duration 220 ms
+
+Failed:
+
+- no shake
+- border strengthens
+- warning icon appears
+- duration 160 ms
+
+### 9.12 Window Hub animation
+
+Open:
+
+- opacity 0 -> 1
+- scale 0.96 -> 1
+- y -6 px -> 0
+- duration 160 ms
+
+Navigate rows:
+
+- active row changes immediately
+- metadata fades 80 ms
+
+Select:
+
+- selected row flashes inverse for 80 ms
+- panel closes in 120 ms
+
+### 9.13 Radial layout animation
+
+Open:
+
+- center dot appears first
+- options expand from center
+- opacity 0 -> 1
+- scale 0.8 -> 1
+- duration 150 ms
+
+Hover:
+
+- target region fills black/white at 12-18% opacity
+- label appears in 100 ms
+
+Select:
+
+- selected region holds for 80 ms
+- overlay fades 120 ms
+- actual window movement starts immediately
+
+### 9.14 Window Grab animation
+
+Start:
+
+- outline opacity 0 -> 1
+- duration 100 ms
+
+Snap target:
+
+- target rectangle opacity 0 -> 1
+- duration 80 ms
+
+Release:
+
+- target fill flashes 80 ms
+- outline fades 120 ms
+
+No elastic dragging.
+
+### 9.15 Reduced motion
+
+Respect reduced motion.
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+```
+
+Reduced motion behavior:
+
+- keep opacity changes
+- remove transform movement
+- remove shimmer
+- replace waveform with static bars or pulsing dot only
+- disable radial expansion
+
+---
+
+## 10. Iconography
+
+Icon style:
+
+- stroke-based
+- 1.5 px stroke
+- rounded caps
+- rounded joins
+- monochrome
+- 16 px sidebar
+- 18-20 px cards
+- 24-32 px empty states
+
+Recommended icons:
+
+| Feature | Icon |
+|---|---|
+| Dashboard | 2x2 grid |
+| Clipboard | clipboard outline |
+| Voice | waveform or microphone outline |
+| Downloads | arrow down into tray |
+| AI File Organizer | folder with small command mark |
+| Enhanced Finder | folder clock |
+| Window Layouts | split grid |
+| Window Grab | cursor + window outline |
+| Windows Hub | overlapping rectangles |
+| Settings | gear |
+
+Avoid emoji, 3D icons, and colorful symbol fills.
+
+---
+
+## 11. Accessibility
+
+### 11.1 Contrast
+
+- primary text must meet WCAG AA
+- secondary text should remain legible on panel backgrounds
+- tertiary text must not carry critical status
+- selected rows must be readable in both modes
+
+### 11.2 Focus
+
+Every interactive element needs visible focus.
+
+```css
+:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+```
+
+SwiftUI equivalent:
+
+- use focus rings for text fields
+- use `@FocusState` for keyboard navigation
+- keep focus visible inside command palette, clipboard dock, and window hub
+
+### 11.3 Keyboard rules
+
+- `Esc` closes overlays
+- `Enter` confirms selected action
+- arrow keys navigate lists
+- `Space` previews or toggles depending context
+- `Cmd+K` opens command palette
+- command palette should expose all primary actions
+
+---
+
+## 12. Copywriting
+
+Voice:
+
+- direct
+- short
+- utility-like
+- no hype
+- no vague AI promise
+
+Good examples:
+
+- Ready
+- Listening
+- Transcribing...
+- Inserted
+- Needs Accessibility
+- Watching Downloads
+- 4 downloads failed
+- Open Window Hub
+- Retry Failed
+- Run Scan
+- Apply 12 changes
+
+Bad examples:
+
+- Unlock productivity
+- Experience magic
+- Powered by next-generation AI
+- Supercharge your Mac
+- Seamlessly revolutionize your workflow
+
+---
+
+## 13. Do / Don't
+
+### Do
+
+- use black and white as the primary visual identity
+- use monochrome active states
+- make shortcuts visible
+- make runtime overlays polished
+- keep settings native and quiet
+- use dense lists for history and windows
+- use subtle borders and restrained shadows
+- make animation fast and interruptible
+- make command palette central
+
+### Don't
+
+- do not use colorful feature-card borders
+- do not use system green toggles as brand color
+- do not use blue focus rings unless unavoidable
+- do not use gradients
+- do not use emoji icons
+- do not overuse shadows
+- do not create marketing-style dashboard hero sections
+- do not make every feature page visually different
+- do not use slow bounce animations
+- do not require color to understand state
+
+---
+
+## 14. AI / Agent Prompt
+
+When generating Mayn UI, use this prompt:
+
+```text
+Build Mayn as a monochrome native macOS productivity app. The UI should feel like a system-level command layer for clipboard memory, voice dictation, downloads, Finder workflows, file organization, and window management. Use only black, white, and grayscale for core UI. Do not use colorful cards, gradients, emoji icons, or SaaS dashboard styling. Use SF Pro/system typography, compact native spacing, hairline borders, black-white inverted selected states, keyboard shortcut keycaps, dense lists, command palette patterns, and polished floating HUDs. Motion should be fast, quiet, interruptible, and mostly opacity/transform based: hover 80-120ms, panels 160-220ms, overlays under 200ms, no bounce, no decorative animation.
+```
+
+Animation prompt:
+
+```text
+Implement Mayn motion as fast in, calm out. Use opacity, scale, and small translate values only. Use cubic-bezier(0.16, 1, 0.3, 1) for panel entrances, cubic-bezier(0.7, 0, 0.84, 0) for exits, and keep common transitions under 220ms. Command palette opens with opacity + scale 0.975 to 1. Voice HUD opens with scale 0.94 to 1 and uses a monochrome waveform. Clipboard Dock slides up 16px. Window Hub scales from 0.96. Radial menu expands from center in 150ms. Toasts are black/white pills. Respect prefers-reduced-motion.
+```
+
+---
+
+## 15. Design QA Checklist
+
+Before shipping any screen, check:
+
+- Does it work in black and white?
+- Is the active state clear without color?
+- Is the primary action obvious?
+- Is the shortcut visible if the action is frequent?
+- Are icons monochrome and consistent?
+- Is the page using the shared header pattern?
+- Are settings rows native and compact?
+- Are runtime overlays more polished than settings pages?
+- Does the animation finish quickly?
+- Can the surface be operated by keyboard?
+- Does it feel like a macOS utility, not a website?
+

@@ -20,7 +20,7 @@ enum HotkeysSettingsPresentation {
     )
 
     static let groups: [HotkeysSettingsActionGroup] = [
-        HotkeysSettingsActionGroup(title: "Core tools", actions: [.clipboard, .browseFolder, .finderHistory]),
+        HotkeysSettingsActionGroup(title: "Core tools", actions: [.clipboard, .browseFolder, .finderHistory, .windowHub]),
         HotkeysSettingsActionGroup(title: "Window Layouts", actions: [
             .windowLeftHalf,
             .windowRightHalf,

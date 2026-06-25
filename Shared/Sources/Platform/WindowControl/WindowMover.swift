@@ -52,6 +52,9 @@ public final class WindowMover {
     private var pendingCrossDisplayRetry: DispatchWorkItem?
     private var moveAnimationTimer: Timer?
     private var moveAnimationGeneration = 0
+    private var animatedMoveCompletions: [Int: (WindowMovementResult) -> Void] = [:]
+    /// Generation of the most recently started stepped move (for completion wiring).
+    public private(set) var lastAnimatedMoveGeneration = 0
     /// Captured before setting AXEnhancedUserInterface=false; restored by cancelInFlightMoveAnimation.
     private var savedEnhancedUserInterface: (element: any WindowMovableElement, value: Bool)?
     /// Schedules the bounded cross-display retry. Overridable in tests.
@@ -65,6 +68,15 @@ public final class WindowMover {
     public var repeatHalfAcrossDisplays: Bool = false
     /// When true, window moves interpolate over a short stepped AX animation.
     public var animateMoves: Bool = false
+    /// Called after an animated move completes (success or write failure).
+    public var onAnimatedMoveFinished: ((WindowMovementResult) -> Void)?
+
+    public func setAnimatedMoveCompletion(
+        for generation: Int,
+        handler: @escaping (WindowMovementResult) -> Void
+    ) {
+        animatedMoveCompletions[generation] = handler
+    }
 
     public init(
         screenDetector: any WindowScreenDetecting = LiveWindowScreenDetector(),
@@ -191,13 +203,18 @@ public final class WindowMover {
         originalFrame: CGRect,
         proposedFrame: CGRect
     ) -> WindowMovementResult {
-        let sizeChanges = !approximatelyEqual(originalFrame.size, proposedFrame.size)
+        let effectiveProposed = effectiveProposedFrame(
+            originalFrame: originalFrame,
+            proposedFrame: proposedFrame,
+            isResizable: snap.isResizable
+        )
+        let sizeChanges = !approximatelyEqual(originalFrame.size, effectiveProposed.size)
         guard !sizeChanges || snap.isResizable else {
             return result(
                 action: action,
                 status: .fixedSizeWindow,
                 originalFrame: originalFrame,
-                proposedFrame: proposedFrame,
+                proposedFrame: effectiveProposed,
                 element: element
             )
         }
@@ -213,11 +230,12 @@ public final class WindowMover {
             if let previousEnhancedUserInterface {
                 savedEnhancedUserInterface = (element: element, value: previousEnhancedUserInterface)
             }
-            applyAnimatedMoveNonBlocking(
+            var animationGeneration = 0
+            animationGeneration = applyAnimatedMoveNonBlocking(
                 element: element,
                 snap: snap,
                 from: originalFrame,
-                to: proposedFrame
+                to: effectiveProposed
             ) { [self] in
                 PerformanceSignpost.WindowControl.endAXWrite(writeSignpost)
                 savedEnhancedUserInterface = nil
@@ -225,23 +243,38 @@ public final class WindowMover {
                 retryCrossDisplaySizeIfNeeded(
                     element: element,
                     snap: snap,
-                    proposedFrame: proposedFrame,
+                    proposedFrame: effectiveProposed,
                     originalFrame: originalFrame,
                     action: action
                 )
                 if let previousEnhancedUserInterface {
                     _ = element.setEnhancedUserInterfaceEnabled(previousEnhancedUserInterface)
                 }
+                let actualFrame = element.frame
+                let landed = isValid(frame: actualFrame) && enhancedUserInterfaceWriteSucceeded
+                let final = result(
+                    action: action,
+                    status: landed ? .moved : .writeFailed,
+                    originalFrame: originalFrame,
+                    proposedFrame: effectiveProposed,
+                    element: element,
+                    resultingFrame: actualFrame
+                )
+                DispatchQueue.main.async { [self] in
+                    if let handler = animatedMoveCompletions.removeValue(forKey: animationGeneration) {
+                        handler(final)
+                    }
+                    onAnimatedMoveFinished?(final)
+                }
             }
+            lastAnimatedMoveGeneration = animationGeneration
         } else {
-            applyInstantFrameWrite(element: element, snap: snap, proposedFrame: proposedFrame)
+            applyInstantFrameWrite(element: element, snap: snap, proposedFrame: effectiveProposed)
             clampOffscreenWindow(element)
-            retryCrossDisplaySizeIfNeeded(
+            retryFrameWriteIfNeeded(
                 element: element,
                 snap: snap,
-                proposedFrame: proposedFrame,
-                originalFrame: originalFrame,
-                action: action
+                proposedFrame: effectiveProposed
             )
             if let previousEnhancedUserInterface {
                 enhancedUserInterfaceWriteSucceeded = element.setEnhancedUserInterfaceEnabled(previousEnhancedUserInterface)
@@ -253,8 +286,8 @@ public final class WindowMover {
         let actualFrame: CGRect
         let writeLandedSomewhereValid: Bool
         if animationConfiguration.shouldAnimate {
-            actualFrame = proposedFrame
-            writeLandedSomewhereValid = isValid(frame: actualFrame)
+            actualFrame = originalFrame
+            writeLandedSomewhereValid = true
         } else {
             actualFrame = element.frame
             writeLandedSomewhereValid = isValid(frame: actualFrame)
@@ -264,10 +297,31 @@ public final class WindowMover {
             action: action,
             status: writeLandedSomewhereValid && enhancedUserInterfaceWriteSucceeded ? .moved : .writeFailed,
             originalFrame: originalFrame,
-            proposedFrame: proposedFrame,
+            proposedFrame: effectiveProposed,
             element: element,
             resultingFrame: actualFrame
         )
+    }
+
+    private func effectiveProposedFrame(
+        originalFrame: CGRect,
+        proposedFrame: CGRect,
+        isResizable: Bool
+    ) -> CGRect {
+        guard !isResizable, !approximatelyEqual(originalFrame.size, proposedFrame.size) else {
+            return proposedFrame
+        }
+        var centered = CGRect(
+            x: proposedFrame.midX - originalFrame.width / 2,
+            y: proposedFrame.midY - originalFrame.height / 2,
+            width: originalFrame.width,
+            height: originalFrame.height
+        )
+        let maxX = max(proposedFrame.minX, proposedFrame.maxX - centered.width)
+        let maxY = max(proposedFrame.minY, proposedFrame.maxY - centered.height)
+        centered.origin.x = min(max(centered.origin.x, proposedFrame.minX), maxX)
+        centered.origin.y = min(max(centered.origin.y, proposedFrame.minY), maxY)
+        return centered
     }
 
     private func targetFrame(
@@ -310,9 +364,10 @@ public final class WindowMover {
                 targetVisibleFrame: targetScreen.visibleFrame
             ).preservingSize(currentFrame.size, clampedTo: targetScreen.visibleFrame, when: preserveSize)
         default:
+            let workspace = WindowWorkspaceAdjuster.adjustedVisibleFrame(currentScreen.visibleFrame)
             return geometry.rect(
                 for: action,
-                visibleFrame: currentScreen.visibleFrame,
+                visibleFrame: workspace,
                 currentSize: currentFrame.size
             )
         }
@@ -457,13 +512,14 @@ private extension WindowMover {
         }
     }
 
+    @discardableResult
     func applyAnimatedMoveNonBlocking(
         element: any WindowMovableElement,
         snap: WindowSnapshot,
         from originalFrame: CGRect,
         to proposedFrame: CGRect,
         completion: @escaping () -> Void
-    ) {
+    ) -> Int {
         // Cancel any previous timer only — savedEnhancedUserInterface is managed by moveValidated.
         moveAnimationGeneration += 1
         moveAnimationTimer?.invalidate()
@@ -474,7 +530,7 @@ private extension WindowMover {
         guard interval > 0 else {
             applyInstantFrameWrite(element: element, snap: snap, proposedFrame: proposedFrame)
             completion()
-            return
+            return moveAnimationGeneration
         }
 
         moveAnimationGeneration += 1
@@ -512,6 +568,35 @@ private extension WindowMover {
         if let moveAnimationTimer {
             RunLoop.main.add(moveAnimationTimer, forMode: .common)
         }
+        return generation
+    }
+
+    func retryFrameWriteIfNeeded(
+        element: any WindowMovableElement,
+        snap: WindowSnapshot,
+        proposedFrame: CGRect
+    ) {
+        guard WindowCrossDisplayRetry.needsFrameCorrection(
+            actual: element.frame,
+            proposed: proposedFrame
+        ) else {
+            return
+        }
+
+        applyInstantFrameWrite(element: element, snap: snap, proposedFrame: proposedFrame)
+        clampOffscreenWindow(element)
+
+        guard WindowCrossDisplayRetry.needsFrameCorrection(
+            actual: element.frame,
+            proposed: proposedFrame
+        ) else {
+            return
+        }
+
+        scheduleCrossDisplayRetry { [self] in
+            applyInstantFrameWrite(element: element, snap: snap, proposedFrame: proposedFrame)
+            clampOffscreenWindow(element)
+        }
     }
 
     func retryCrossDisplaySizeIfNeeded(
@@ -521,34 +606,7 @@ private extension WindowMover {
         originalFrame: CGRect,
         action: WindowAction
     ) {
-        guard WindowCrossDisplayRetry.isCrossDisplayMove(
-            action: action,
-            originalFrame: originalFrame,
-            proposedFrame: proposedFrame,
-            screenDetector: screenDetector
-        ) else {
-            return
-        }
-
-        guard WindowCrossDisplayRetry.needsSizeCorrection(
-            actual: element.frame,
-            proposed: proposedFrame
-        ) else {
-            return
-        }
-
-        applyInstantFrameWrite(element: element, snap: snap, proposedFrame: proposedFrame)
-
-        guard WindowCrossDisplayRetry.needsSizeCorrection(
-            actual: element.frame,
-            proposed: proposedFrame
-        ) else {
-            return
-        }
-
-        scheduleCrossDisplayRetry { [self] in
-            applyInstantFrameWrite(element: element, snap: snap, proposedFrame: proposedFrame)
-        }
+        retryFrameWriteIfNeeded(element: element, snap: snap, proposedFrame: proposedFrame)
     }
 
     func scheduleCrossDisplayRetry(_ work: @escaping () -> Void) {
@@ -580,17 +638,33 @@ private extension WindowMover {
 
         let visibleFrame = screen.visibleFrame
         var clamped = actual
+
+        if clamped.width > visibleFrame.width {
+            clamped.size.width = visibleFrame.width
+        }
+        if clamped.height > visibleFrame.height {
+            clamped.size.height = visibleFrame.height
+        }
+
         if clamped.maxX > visibleFrame.maxX {
+            let excess = clamped.maxX - visibleFrame.maxX
+            clamped.size.width = max(0, clamped.width - excess)
             clamped.origin.x = max(visibleFrame.minX, visibleFrame.maxX - clamped.width)
         } else if clamped.minX < visibleFrame.minX {
             clamped.origin.x = visibleFrame.minX
         }
+
         if clamped.maxY > visibleFrame.maxY {
+            let excess = clamped.maxY - visibleFrame.maxY
+            clamped.size.height = max(0, clamped.height - excess)
             clamped.origin.y = max(visibleFrame.minY, visibleFrame.maxY - clamped.height)
         } else if clamped.minY < visibleFrame.minY {
             clamped.origin.y = visibleFrame.minY
         }
 
+        if !approximatelyEqual(clamped.size, actual.size) {
+            _ = element.setSize(clamped.size)
+        }
         if clamped.origin != actual.origin {
             _ = element.setPosition(clamped.origin)
         }

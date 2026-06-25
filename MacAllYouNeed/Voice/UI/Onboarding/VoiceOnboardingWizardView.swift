@@ -31,13 +31,17 @@ struct VoiceOnboardingWizardView: View {
             skip: skipCurrentStep,
             primaryAction: step == .done ? finish : advance
         ) {
-            VoiceOnboardingStepContent(
-                controller: controller,
-                step: step,
-                tryItSucceeded: $tryItSucceeded
-            )
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .trailing)))
+            VStack(alignment: .leading, spacing: 18) {
+                VoiceOnboardingStepHeader(step: step)
+
+                VoiceOnboardingStepContent(
+                    controller: controller,
+                    step: step,
+                    tryItSucceeded: $tryItSucceeded
+                )
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .trailing)))
+            }
         }
         .frame(width: 860, height: 640)
         .onAppear { VoiceOnboardingProgressStore.saveStep(step) }

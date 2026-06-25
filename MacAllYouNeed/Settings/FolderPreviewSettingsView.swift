@@ -11,6 +11,19 @@ struct FolderPreviewSettingsView: View {
             title: "Enhanced Finder",
             subtitle: "Tune how much folder and archive content Quick Look indexes before rendering a preview."
         ) {
+            MAYNSection(title: "Quick Start") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Open the bundled sample folder to verify the preview experience before you change defaults.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    MAYNButton("Open sample folder", role: .primary) {
+                        openSampleFolder()
+                    }
+                }
+            }
+
             MAYNSection(title: "Enumeration") {
                 MAYNSettingsRow(
                     title: "Include hidden files",
@@ -44,5 +57,10 @@ struct FolderPreviewSettingsView: View {
                 }
             }
         }
+    }
+
+    private func openSampleFolder() {
+        guard let url = OnboardingSampleResources.folderPreviewSampleURL else { return }
+        controller.folder.show(at: url)
     }
 }

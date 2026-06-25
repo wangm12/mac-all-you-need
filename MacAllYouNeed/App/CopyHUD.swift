@@ -127,6 +127,9 @@ private struct HUDChip: View {
                 Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(message)
+        .accessibilityValue("Copied")
         .frame(width: MAYNNotificationPillPresentation.copyPanelSize(message: message).width,
                height: MAYNNotificationPillPresentation.copyPanelHeight)
     }

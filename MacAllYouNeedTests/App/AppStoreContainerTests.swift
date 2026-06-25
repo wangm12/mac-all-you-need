@@ -22,6 +22,7 @@ final class AppStoreContainerTests: XCTestCase {
         let voiceDictionary: VoiceDictionaryStore
         let voicePersonalization: VoicePersonalizationStore
         let voiceTrainingExamples: VoiceTrainingExampleStore
+        let voiceDictionarySuggestions: VoiceDictionarySuggestionStore
         let blob: BlobStore
         let search: SearchStore
     }
@@ -55,6 +56,7 @@ final class AppStoreContainerTests: XCTestCase {
             voiceDictionary: stores.voiceDictionary,
             voicePersonalization: stores.voicePersonalization,
             voiceTrainingExamples: stores.voiceTrainingExamples,
+            voiceDictionarySuggestions: stores.voiceDictionarySuggestions,
             blob: stores.blob,
             search: stores.search
         )
@@ -83,6 +85,7 @@ final class AppStoreContainerTests: XCTestCase {
             voiceDictionary: stores.voiceDictionary,
             voicePersonalization: stores.voicePersonalization,
             voiceTrainingExamples: stores.voiceTrainingExamples,
+            voiceDictionarySuggestions: stores.voiceDictionarySuggestions,
             blob: stores.blob,
             search: stores.search
         )
@@ -137,6 +140,7 @@ final class AppStoreContainerTests: XCTestCase {
                 deviceKey: key,
                 audioRoot: tempRoot.appendingPathComponent("voice-training-audio", isDirectory: true)
             ),
+            voiceDictionarySuggestions: VoiceDictionarySuggestionStore(database: clipboardDB),
             blob: blob,
             search: search
         )

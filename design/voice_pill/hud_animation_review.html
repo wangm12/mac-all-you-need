@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MAYN Voice HUD — Animation Review (all use cases)</title>
+<style>
+  :root {
+    color-scheme: light;
+    --pill-graphite: #1c1c1e;
+    --pill-border: rgba(255,255,255,.13);
+    --pill-text: rgba(255,255,255,.96);
+    --pill-wipe: rgba(255,255,255,.145);
+    --pill-h: 32px;
+    --pill-min-w: 144px;
+    --pill-max-w: 220px;
+    --radius: 16px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    --helper: rgba(28,28,30,.58);
+    --page-bg: #ffffff;
+    --card-bg: #f5f5f7;
+    --stage-bg: #e8e8ed;
+    --text: #1d1d1f;
+    --muted: rgba(0, 0, 0, 0.5);
+    --accent: #007aff;
+    --border: rgba(0, 0, 0, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(16px);
+    background: rgba(255, 255, 255, 0.92);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+  }
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 18px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+  header p { margin: 0; color: var(--muted); font-size: 12px; }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  button, label.chk {
+    appearance: none;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: #ffffff;
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font: 600 12px var(--font);
+    cursor: pointer;
+  }
+  button:hover { border-color: rgba(0, 0, 0, 0.22); background: #fafafa; }
+  button.primary { background: #1d1d1f; color: #fff; border-color: #1d1d1f; }
+  button.primary:hover { background: #333; }
+  label.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  input[type=range] { width: 140px; accent-color: var(--accent); }
+  main { padding: 20px 24px 80px; max-width: 1200px; margin: 0 auto; }
+  section { margin-bottom: 36px; }
+  section h2 {
+    font-size: 14px;
+    font-weight: 650;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 120px;
+  }
+  .card h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .card .meta {
+    margin: -6px 0 0;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .stage {
+    position: relative;
+    min-height: 88px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 12px 12px 8px;
+    background: var(--stage-bg);
+    border-radius: 10px;
+  }
+  .caption {
+    position: relative;
+    margin-bottom: 5px;
+    max-width: 320px;
+    width: fit-content;
+    margin-inline: auto;
+    text-align: center;
+    color: var(--helper);
+    font: 500 10.5px/1 var(--font);
+    padding: 4px 10px;
+    border-radius: 8px;
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    background: color-mix(in srgb, var(--stage-bg) 72%, transparent);
+    opacity: 0;
+    transform: translateY(2px);
+    transition: opacity .20s ease, transform .20s ease;
+  }
+  .caption.visible { opacity: 1; transform: translateY(0); }
+  .toast {
+    position: relative;
+    margin-bottom: 8px;
+    max-width: 280px;
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--toast-bg);
+    color: var(--toast-fg);
+    border: 1px solid var(--toast-border);
+    font-size: 11px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity .28s ease, transform .28s ease;
+  }
+  .toast.visible { opacity: 1; transform: translateY(0); }
+  .toast svg { flex-shrink: 0; opacity: .85; }
+  .pill-wrap {
+    position: relative;
+    display: inline-flex;
+    justify-content: center;
+  }
+  .pill {
+    position: relative;
+    height: var(--pill-h);
+    min-width: var(--pill-min-w);
+    border-radius: 999px;
+    border: 1px solid var(--pill-border);
+    background: var(--pill-graphite);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 14px 36px rgba(0,0,0,.26), 0 2px 8px rgba(0,0,0,.18);
+    transition: width .24s ease, border-color .15s;
+  }
+  .pill .wipe-fill {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 0%;
+    background: var(--pill-wipe);
+    z-index: 1;
+    border-radius: 999px;
+  }
+  .pill .content {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+  }
+  .slot-label {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--pill-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .waveform {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2.2px;
+    width: 108px;
+    height: 26px;
+  }
+  .waveform .bar {
+    width: 2.4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.96);
+    height: 3px;
+    transform-origin: center center;
+  }
+  .sparkle {
+    width: 14px; height: 14px;
+    position: relative;
+  }
+  .flow-panel {
+    background: #f5f5f7;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 28px;
+  }
+  .flow-panel .stage { min-height: 110px; }
+  .flow-status {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 10px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .tag {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--muted);
+  }
+  .entrance {
+    animation: entrance .32s cubic-bezier(.22, 1, .36, 1) both;
+  }
+  @keyframes entrance {
+    from { opacity: 0; transform: translateY(4px) scale(.82); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .dismiss {
+    animation: dismiss .18s ease both;
+  }
+  @keyframes dismiss {
+    to { opacity: 0; transform: scale(.88); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .entrance, .dismiss { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>MAYN Voice HUD — Animation Review</h1>
+  <p>Centered-native HUD: graphite pill, caption helpers, blocking alerts. Mirrors <code>MiniVoiceHUD.swift</code> centered design.</p>
+  <div class="toolbar">
+    <button class="primary" id="playFlow">▶ Play full E2E flow</button>
+    <button id="stopFlow">■ Stop</button>
+    <label class="chk"><input type="checkbox" id="reduceMotion" /> Reduce Motion</label>
+    <label>Mic level <input type="range" id="micLevel" min="0" max="100" value="55" /></label>
+  </div>
+</header>
+
+<main>
+  <div class="flow-panel">
+    <section style="margin:0">
+      <h2>Live E2E sequence</h2>
+      <div class="stage" id="flowStage">
+        <div class="caption" id="flowCaption"></div>
+        <div class="toast" id="flowToast"></div>
+        <div class="pill-wrap"><div class="pill" id="flowPill"></div></div>
+      </div>
+      <div class="flow-status" id="flowStatus">Press Play to walk through happy path + terminals</div>
+    </section>
+  </div>
+
+  <section>
+    <h2>1 — Session start &amp; recording</h2>
+    <div class="grid" id="grid-recording"></div>
+  </section>
+
+  <section>
+    <h2>2 — Processing (transcribing span)</h2>
+    <div class="grid" id="grid-processing"></div>
+  </section>
+
+  <section>
+    <h2>3 — Success &amp; terminals</h2>
+    <div class="grid" id="grid-terminal"></div>
+  </section>
+
+  <section>
+    <h2>4 — Caption helpers &amp; blocking alerts</h2>
+    <div class="grid" id="grid-alerts"></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const PALETTE = {
+    graphite: '#1c1c1e',
+    wipe: 'rgba(255,255,255,.145)',
+    border: 'rgba(255,255,255,.13)',
+  };
+  const BOOT_KEYFRAMES = [
+    [0, 0], [0.4, 0.30], [1.0, 0.50], [2.0, 0.57], [10.0, 0.63]
+  ];
+  const BAR_WEIGHTS = [0.42, 0.62, 0.82, 0.96, 0.96, 0.82, 0.62, 0.42];
+
+  let micLevel = 0.55;
+  let reduceMotion = false;
+  let rafId = 0;
+  let flowTimer = null;
+  const animators = new Set();
+
+  const $ = (s) => document.querySelector(s);
+  const micSlider = $('#micLevel');
+  const reduceCb = $('#reduceMotion');
+
+  micSlider.addEventListener('input', () => { micLevel = micSlider.value / 100; });
+  reduceCb.addEventListener('change', () => { reduceMotion = reduceCb.checked; });
+
+  function bootProgress(elapsed) {
+    if (elapsed <= 0) return 0;
+    const last = BOOT_KEYFRAMES[BOOT_KEYFRAMES.length - 1];
+    if (elapsed >= last[0]) return last[1];
+    for (let i = 1; i < BOOT_KEYFRAMES.length; i++) {
+      const prev = BOOT_KEYFRAMES[i - 1];
+      const next = BOOT_KEYFRAMES[i];
+      if (elapsed <= next[0]) {
+        const t = (elapsed - prev[0]) / (next[0] - prev[0]);
+        return prev[1] + t * (next[1] - prev[1]);
+      }
+    }
+    return last[1];
+  }
+
+  function iconX() {
+    return `<svg width="8" height="8" viewBox="0 0 14 14"><path d="M3.6 3.6 L10.4 10.4 M10.4 3.6 L3.6 10.4" stroke="#fff" stroke-width="1.55" stroke-linecap="round"/></svg>`;
+  }
+  function iconCheck() {
+    return `<svg width="8" height="8" viewBox="0 0 14 14"><path d="M3 7 L6 10 L11 4" stroke="#fff" stroke-width="1.55" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  function iconRestore() {
+    return `<svg width="9" height="9" viewBox="0 0 14 14"><path d="M4 4 L4 8 L8 8 M4 8 C4 5 7 3 10 4" stroke="#fff" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>`;
+  }
+  function iconWarning() {
+    return `<svg width="12" height="12" viewBox="0 0 14 14"><path d="M7 1 L1 13 H13 Z" stroke="#fff" stroke-width="1.4" fill="none"/><path d="M7 5.5 V9" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="11.2" r=".8" fill="#fff"/></svg>`;
+  }
+  function iconXCircle() {
+    return `<svg width="12" height="12" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" stroke="#fff" stroke-width="1.4" fill="none"/><path d="M4.8 4.8 L9.2 9.2 M9.2 4.8 L4.8 9.2" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+  }
+
+  function waveformHTML(dimmed = false) {
+    return `<div class="waveform" data-waveform data-dim="${dimmed ? '1' : '0'}">${BAR_WEIGHTS.map(() => '<div class="bar"></div>').join('')}</div>`;
+  }
+
+  function sparkleHTML() {
+    return `<svg class="sparkle" data-sparkle viewBox="0 0 14 14" width="14" height="14">
+      <path d="M7 .2 V13.8 M.2 7 H13.8 M3.4 3.4 L10.6 10.6 M10.6 3.4 L3.4 10.6" stroke="#fff" stroke-width="1.55" stroke-linecap="round"/>
+      <path d="M9.8 5.1 L12.6 3.1 M4.2 9.4 L1.4 11.4" stroke="rgba(255,255,255,.55)" stroke-width="1" stroke-linecap="round"/>
+      <circle cx="12.8" cy="2.2" r="1.35" fill="#fff"/>
+      <circle cx="1.2" cy="11.8" r="1.15" fill="rgba(255,255,255,.78)"/>
+    </svg>`;
+  }
+
+  function renderPill(el, spec) {
+    const {
+      label = '', leading = 'none', width = 144,
+      wipe = null, entrance = false,
+    } = spec;
+    const wipeHTML = wipe != null ? `<div class="wipe-fill" data-wipe style="width:${(wipe * 100).toFixed(1)}%"></div>` : '';
+    let center = '';
+    if (leading === 'waveform') center = waveformHTML(spec.dimWaveform);
+    else if (label) center = `<div class="slot-label">${label}</div>`;
+    el.className = 'pill' + (entrance ? ' entrance' : '');
+    el.style.width = width + 'px';
+    el.innerHTML = `${wipeHTML}<div class="content">${center}</div>`;
+    if (wipe != null) animators.add(el);
+  }
+
+  function renderCaption(el, text) {
+    if (!text) { el.className = 'caption'; el.textContent = ''; return; }
+    el.className = 'caption visible';
+    el.textContent = text;
+  }
+
+  function renderToast(el, text, symbol = 'info') {
+    const icons = {
+      mic: '<path d="M7 10c1.5 0 2.5-1 2.5-2.5V4.5C9.5 3 8.5 2 7 2S4.5 3 4.5 4.5V7.5C4.5 9 5.5 10 7 10z M3.5 7H2 M12 7h-1.5 M7 10v2.5" stroke="#fff" stroke-width="1.2" fill="none"/>',
+      clock: '<circle cx="8" cy="8" r="6" stroke="#fff" stroke-width="1.2" fill="none"/><path d="M8 4.5V8l2.5 1.5" stroke="#fff" stroke-width="1.2" stroke-linecap="round"/>',
+      arrow: '<path d="M8 3v10M5 10l3 3 3-3" stroke="#fff" stroke-width="1.2" fill="none" stroke-linecap="round"/>',
+      clip: '<rect x="3" y="4" width="10" height="8" rx="1.2" stroke="#fff" stroke-width="1.2" fill="none"/><path d="M5 4V3h6v1" stroke="#fff" stroke-width="1.2"/>',
+      warn: '<path d="M8 2l6 10H2z" stroke="#fff" stroke-width="1.1" fill="none"/><path d="M8 6v3" stroke="#fff" stroke-width="1.2"/>',
+      wave: '<path d="M2 9c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0" stroke="#fff" stroke-width="1.2" fill="none"/>',
+    };
+    el.className = 'toast visible';
+    el.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16">${icons[symbol] || icons.info}</svg><span>${text}</span>`;
+  }
+
+  function makeCard(title, meta, spec, captionText = null) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<h3>${title}</h3><p class="meta">${meta}</p><div class="stage"></div>`;
+    const stage = card.querySelector('.stage');
+    if (captionText) {
+      const c = document.createElement('div');
+      c.className = 'caption visible';
+      c.textContent = captionText;
+      stage.appendChild(c);
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'pill-wrap';
+    const pill = document.createElement('div');
+    renderPill(pill, spec);
+    wrap.appendChild(pill);
+    stage.appendChild(wrap);
+    if (spec.tags) {
+      const leg = document.createElement('div');
+      leg.className = 'legend';
+      spec.tags.forEach(t => { const s = document.createElement('span'); s.className = 'tag'; s.textContent = t; leg.appendChild(s); });
+      card.appendChild(leg);
+    }
+    return card;
+  }
+
+  const recordingCases = [
+    { title: 'Mic warmup (fast)', meta: 'Centered dim waveform · no caption under 700ms', spec: { label: '', leading: 'waveform', dimWaveform: true, width: 144, tags: ['Base pill'] } },
+    { title: 'Mic warmup (slow)', meta: 'Waveform + caption Starting microphone...', spec: { label: '', leading: 'waveform', dimWaveform: true, width: 144, tags: ['Caption helper'] }, caption: 'Starting microphone...' },
+    { title: 'Hold — recording', meta: 'Centered waveform only · no Listening label', spec: { label: '', leading: 'waveform', width: 144, tags: ['Hold mode'] } },
+    { title: 'Toggle — recording', meta: 'Centered waveform only · finish via second hotkey', spec: { label: '', leading: 'waveform', width: 144, tags: ['Toggle mode'] } },
+    { title: 'Using mic', meta: 'Caption helper above pill', spec: { label: '', leading: 'waveform', width: 144 }, caption: 'Using MacBook Pro Microphone' },
+  ];
+
+  const processingCases = [
+    { title: 'Transcribing (release)', meta: 'Centered text + wipe @0%', spec: { label: 'Transcribing', wipe: 0, width: 164, tags: ['Progress layer'] } },
+    { title: 'Transcribing ~1s', meta: 'Boot ~50%', spec: { label: 'Transcribing', wipe: 0.50, width: 164, tags: ['Boot curve'] } },
+    { title: 'Transcribing + cleanup', meta: 'max(boot, stream)', spec: { label: 'Transcribing', wipe: 0.78, width: 164, tags: ['Cleanup stream'] } },
+    { title: 'Still working...', meta: '>3.5s no progress · pill widens to 172px', spec: { label: 'Still working...', wipe: 0.58, width: 172, tags: ['Slow processing'] }, caption: 'Taking longer than usual...' },
+    { title: 'Success hold', meta: 'Wipe 100% · hold ~300ms · dismiss', spec: { label: 'Transcribing', wipe: 1.0, width: 164, tags: ['Dismiss'] } },
+  ];
+
+  const terminalCases = [
+    { title: 'Cancelled', meta: '× Cancelled + Undo · Esc/Return supported', spec: { label: 'Cancelled', width: 184, tags: ['5s window'] } },
+    { title: 'No speech detected', meta: 'Centered terminal copy', spec: { label: 'No speech detected', width: 160, tags: ['Terminal'] } },
+    { title: 'Mic permission needed', meta: 'Short pill + blocking alert', spec: { label: 'Mic permission needed', width: 160 }, caption: 'Check microphone access' },
+    { title: "Couldn't paste", meta: 'Paste + clipboard failure', spec: { label: "Couldn't paste", width: 160 } },
+    { title: '⌘V to paste', meta: 'Clipboard fallback', spec: { label: '⌘V to paste', width: 144 }, caption: 'Text copied to clipboard' },
+  ];
+
+  const alertCases = [
+    { title: 'Using microphone', meta: 'Caption helper · ~2s', caption: 'Using MacBook Pro Microphone' },
+    { title: 'Paste target', meta: 'Caption · To {app}', caption: 'To Cursor' },
+    { title: 'Previous pending', meta: 'Caption when hotkey during transcribing', caption: 'Still transcribing your last recording' },
+    { title: 'Long recording', meta: 'After 60s', caption: 'Recording 1:12' },
+    { title: 'Education', meta: 'First hold · Release to finish', caption: 'Release to finish' },
+    { title: 'Blocking alert', meta: 'Mic permission required', blocking: true, titleText: 'Microphone permission required', body: 'Allow microphone access to use dictation.' },
+  ];
+
+  function fillGrid(id, cases, withPill = true) {
+    const g = document.getElementById(id);
+    cases.forEach(c => {
+      if (withPill) {
+        g.appendChild(makeCard(c.title, c.meta, c.spec, c.caption));
+      } else {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h3>${c.title}</h3><p class="meta">${c.meta}</p><div class="stage"></div>`;
+        const t = document.createElement('div');
+        if (c.blocking) {
+          renderToast(t, c.titleText + ' — ' + c.body, 'warn');
+        } else {
+          t.className = 'caption visible';
+          t.textContent = c.caption;
+        }
+        card.querySelector('.stage').appendChild(t);
+        g.appendChild(card);
+      }
+    });
+  }
+
+  fillGrid('grid-recording', recordingCases);
+  fillGrid('grid-processing', processingCases);
+  fillGrid('grid-terminal', terminalCases);
+  fillGrid('grid-alerts', alertCases, false);
+
+  // Live animation loop — matches mayn_voice_pill_centered_final.html drawWave at 1×.
+  function animate(now) {
+    document.querySelectorAll('[data-waveform]').forEach(wf => {
+      const waveLevel = wf.dataset.dim === '1' ? 0.28 : micLevel;
+      wf.querySelectorAll('.bar').forEach((bar, i) => {
+        const phase = now / (115 + i * 8) + i * 0.55;
+        const pulse = reduceMotion ? 1 : 0.72 + Math.sin(phase) * 0.28;
+        const target = 3 + BAR_WEIGHTS[i] * waveLevel * pulse * 23;
+        const h = Math.max(3, Math.min(25, target));
+        bar.style.height = h + 'px';
+      });
+    });
+    document.querySelectorAll('[data-sparkle]').forEach(sp => {
+      const phase = reduceMotion ? 0 : (t % 1.2) / 1.2;
+      const sine = (Math.sin(phase * Math.PI * 2) + 1) / 2;
+      const scale = reduceMotion ? 1 : 0.96 + 0.04 * sine;
+      const opacity = reduceMotion ? 0.86 : 0.72 + 0.28 * sine;
+      sp.style.transform = `scale(${scale})`;
+      sp.style.opacity = opacity;
+    });
+    document.querySelectorAll('[data-wipe]').forEach((el, idx) => {
+      const pill = el.closest('.pill');
+      if (!pill || !pill.dataset.boot) return;
+      const start = parseFloat(pill.dataset.bootStart || '0');
+      const elapsed = (now - start) / 1000;
+      const stream = parseFloat(pill.dataset.stream || '0');
+      const boot = bootProgress(elapsed);
+      const w = Math.min(1, Math.max(boot, stream));
+      el.style.width = (w * 100).toFixed(1) + '%';
+    });
+    rafId = requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+
+  // Mark processing cards for live boot on transcribing entries
+  document.querySelectorAll('#grid-processing .pill').forEach((pill, i) => {
+    if (i <= 1) {
+      pill.dataset.boot = '1';
+      pill.dataset.bootStart = String(performance.now());
+    }
+  });
+
+  // E2E flow player
+  const flowPill = $('#flowPill');
+  const flowCaption = $('#flowCaption');
+  const flowToast = $('#flowToast');
+  const flowStatus = $('#flowStatus');
+
+  const FLOW = [
+    { ms: 0, status: 'Hidden → hotkey', caption: null, pill: null },
+    { ms: 400, status: 'Mic warmup — centered dim waveform', caption: null, pill: { label: '', leading: 'waveform', dimWaveform: true, width: 144, entrance: true } },
+    { ms: 1200, status: 'Slow warmup caption', caption: 'Starting microphone...', pill: { label: '', leading: 'waveform', dimWaveform: true, width: 144 } },
+    { ms: 2000, status: 'Recording — waveform only', caption: 'Using MacBook Pro Microphone', pill: { label: '', leading: 'waveform', width: 144 } },
+    { ms: 3200, status: 'Release → Transcribing + wipe@0', caption: null, pill: { label: 'Transcribing', wipe: 0, width: 164, boot: true } },
+    { ms: 4500, status: 'Boot ~50% @1s', caption: null, pill: { label: 'Transcribing', width: 164, boot: true } },
+    { ms: 7000, status: 'Still working... + caption', caption: 'Taking longer than usual...', pill: { label: 'Still working...', width: 172, boot: true, stream: 0.58 } },
+    { ms: 9500, status: 'Cleanup stream overtakes boot', caption: null, pill: { label: 'Transcribing', width: 164, boot: true, stream: 0.82 } },
+    { ms: 11000, status: 'Success — 100% hold then dismiss', caption: null, pill: { label: 'Transcribing', wipe: 1, width: 164 } },
+    { ms: 11800, status: 'Dismissed (happy path)', caption: null, pill: null },
+    { ms: 13000, status: 'Branch: Cancelled', caption: null, pill: { label: 'Cancelled', width: 184, entrance: true } },
+    { ms: 14800, status: 'Branch: Clipboard fallback', caption: 'Text copied to clipboard', pill: { label: '⌘V to paste', width: 144 } },
+    { ms: 16800, status: 'Branch: No speech', caption: null, pill: { label: 'No speech detected', width: 160 } },
+    { ms: 18500, status: 'End of review loop', caption: null, pill: null },
+  ];
+
+  function clearFlowTimers() {
+    if (flowTimer) { clearTimeout(flowTimer); flowTimer = null; }
+  }
+
+  function playFlow() {
+    clearFlowTimers();
+    const tStart = performance.now();
+    FLOW.forEach((step, i) => {
+      setTimeout(() => {
+        flowStatus.textContent = step.status;
+        renderCaption(flowCaption, step.caption);
+        flowToast.className = 'toast';
+        flowToast.innerHTML = '';
+        if (step.pill) {
+          flowPill.parentElement.style.display = '';
+          renderPill(flowPill, step.pill);
+          if (step.pill.boot) {
+            flowPill.dataset.boot = '1';
+            flowPill.dataset.bootStart = String(performance.now());
+            flowPill.dataset.stream = String(step.pill.stream || 0);
+          } else {
+            delete flowPill.dataset.boot;
+            delete flowPill.dataset.stream;
+          }
+          if (step.pill.wipe != null && !step.pill.boot) {
+            const fill = flowPill.querySelector('[data-wipe]');
+            if (fill) fill.style.width = (step.pill.wipe * 100) + '%';
+          }
+        } else {
+          flowPill.parentElement.style.display = 'none';
+        }
+        if (i === FLOW.length - 1) {
+          flowTimer = setTimeout(() => playFlow(), 2500);
+        }
+      }, step.ms);
+    });
+  }
+
+  $('#playFlow').addEventListener('click', playFlow);
+  $('#stopFlow').addEventListener('click', () => {
+    clearFlowTimers();
+    flowStatus.textContent = 'Stopped';
+    flowToast.className = 'toast';
+    flowPill.parentElement.style.display = 'none';
+  });
+})();
+</script>
+</body>
+</html>

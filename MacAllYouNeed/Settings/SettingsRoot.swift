@@ -13,6 +13,17 @@ struct SettingsRoot: View {
             fallback: .general
         )
     }
+
+    static func featureTabs(
+        registry: FeatureRegistry,
+        states: [FeatureID: FeatureRuntimeState]
+    ) -> [(FeatureID, AnyView)] {
+        registry.descriptors.compactMap { descriptor in
+            guard let factory = descriptor.settingsTabFactory else { return nil }
+            _ = states[descriptor.id]
+            return (descriptor.id, factory())
+        }
+    }
 }
 
 struct EmbeddedSettingsView: View {
@@ -252,10 +263,10 @@ private struct SettingsDetailContent: View {
             HotkeysSettingsView(controller: controller)
         case .search:
             SearchSettingsView()
-        case .permissions:
-            PermissionsSettingsView()
         case .general:
             GeneralSettingsView(controller: controller)
+        case .permissions:
+            PermissionsSettingsView(remindersService: controller.remindersService)
         case .advanced:
             AdvancedSettingsView(controller: controller)
         }

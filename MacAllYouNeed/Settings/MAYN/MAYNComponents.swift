@@ -177,15 +177,17 @@ struct MAYNSection<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: showsHeader ? 10 : 0) {
+            if showsHeader {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -201,6 +203,10 @@ struct MAYNSection<Content: View>: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var showsHeader: Bool {
+        !title.isEmpty || subtitle != nil
     }
 }
 
@@ -907,6 +913,9 @@ struct StatusPill: View {
         .padding(.vertical, 4)
         .background(color.opacity(kind == .neutral ? 0.08 : 0.14), in: Capsule())
         .overlay(Capsule().stroke(color.opacity(kind == .neutral ? 0.14 : 0.30), lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
+        .accessibilityValue(accessibilityValue)
     }
 
     private var color: Color {
@@ -916,6 +925,16 @@ struct StatusPill: View {
         case .warning: MAYNTheme.warning
         case .danger: MAYNTheme.danger
         case .progress: MAYNTheme.progress
+        }
+    }
+
+    private var accessibilityValue: String {
+        switch kind {
+        case .neutral: "Status"
+        case .success: "Success"
+        case .warning: "Warning"
+        case .danger: "Error"
+        case .progress: "In progress"
         }
     }
 }
@@ -1146,6 +1165,9 @@ struct MAYNToastContent: View {
                 Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(message)
+        .accessibilityValue(isDestructive ? "Destructive notification" : "Notification")
     }
 }
 

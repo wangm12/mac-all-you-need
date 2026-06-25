@@ -32,7 +32,7 @@ final class PerFeatureWorkerHost {
             }
             clipboardRunning = true
         case .downloader, .folderPreview, .voice, .windowLayouts, .windowGrab,
-             .clipboardSmartText, .folderHistory, .voiceReminders, .aiFileOrganizer, .dockPreviews:
+             .clipboardSmartText, .folderHistory, .voiceReminders, .aiFileOrganizer, .windowHub:
             break // no daemon-side workers for these features
         }
     }
@@ -45,7 +45,7 @@ final class PerFeatureWorkerHost {
             observer.stop()
             clipboardRunning = false
         case .downloader, .folderPreview, .voice, .windowLayouts, .windowGrab,
-             .clipboardSmartText, .folderHistory, .voiceReminders, .aiFileOrganizer, .dockPreviews:
+             .clipboardSmartText, .folderHistory, .voiceReminders, .aiFileOrganizer, .windowHub:
             break
         }
     }

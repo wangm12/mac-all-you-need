@@ -13,6 +13,7 @@ final class SettingsDestinationTests: XCTestCase {
         XCTAssertEqual(SettingsDestination.legacySelection("privacy"), .clipboard)
         XCTAssertEqual(SettingsDestination.legacySelection("storage"), .general)
         XCTAssertEqual(SettingsDestination.legacySelection("search"), .search)
+        XCTAssertEqual(SettingsDestination.legacySelection("permissions"), .permissions)
         XCTAssertEqual(SettingsDestination.legacySelection("appearance"), .general)
         XCTAssertEqual(SettingsDestination.legacySelection("advanced"), .advanced)
         XCTAssertEqual(SettingsDestination.legacySelection("voice"), .voice)

@@ -37,6 +37,14 @@ final class UIAuditAppController {
             manifest: pendingManifest,
             rootDirectory: configuration.appGroupContainerURL
         )
+        // Persist a manifest immediately so a later screenshot/render failure still leaves
+        // a machine-readable record of which scenarios were scheduled.
+        _ = try? UIAuditArtifactWriter.write(
+            manifest: pendingManifest.replacingScenarios(
+                pendingManifest.scenarios.map { $0.withCaptureStatus(.pending) }
+            ),
+            rootDirectory: configuration.appGroupContainerURL
+        )
         let capturedIDs = UIAuditScreenshotRenderer.writeScreenshots(for: pendingManifest, to: directory)
         manifest = pendingManifest.replacingScenarios(
             pendingManifest.scenarios.map { scenario in
@@ -88,7 +96,7 @@ final class UIAuditAppController {
     private static func seed(defaults: UserDefaults) {
         defaults.set(MainAppDestination.dashboard.rawValue, forKey: MainAppDestination.storageKey)
         defaults.set(ClipboardFunctionTab.history.rawValue, forKey: ClipboardFunctionTab.storageKey)
-        defaults.set(VoiceFunctionTab.dictate.rawValue, forKey: VoiceFunctionTab.storageKey)
+        defaults.set(VoiceFunctionTab.history.rawValue, forKey: VoiceFunctionTab.storageKey)
         defaults.set(DownloadsFunctionTab.downloads.rawValue, forKey: DownloadsFunctionTab.storageKey)
         defaults.set(SnippetsFunctionTab.library.rawValue, forKey: SnippetsFunctionTab.storageKey)
         defaults.set(SettingsDestination.general.rawValue, forKey: DockSettingsNavigation.settingsSelectionKey)

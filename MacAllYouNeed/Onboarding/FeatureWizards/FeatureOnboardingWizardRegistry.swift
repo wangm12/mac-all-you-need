@@ -25,8 +25,8 @@ enum FeatureOnboardingWizardRegistry {
             return { AnyView(WindowLayoutsOnboardingWizardView()) }
         case .windowGrab:
             return { AnyView(WindowGrabOnboardingWizardView()) }
-        case .dockPreviews:
-            return { AnyView(DockOnboardingWizardView()) }
+        case .windowHub:
+            return { AnyView(WindowHubOnboardingWizardView()) }
         case .folderPreview:
             return { AnyView(FolderPreviewOnboardingWizardView(controller: controller)) }
         case .folderHistory:

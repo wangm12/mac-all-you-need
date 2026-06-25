@@ -14,7 +14,7 @@ final class FeatureIDTests: XCTestCase {
             .folderHistory,
             .voiceReminders,
             .aiFileOrganizer,
-            .dockPreviews
+            .windowHub
         ]
         XCTAssertEqual(Set(FeatureID.allCases), expected)
     }

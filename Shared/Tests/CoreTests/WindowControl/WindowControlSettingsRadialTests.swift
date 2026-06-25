@@ -7,7 +7,7 @@ final class WindowControlSettingsRadialTests: XCTestCase {
         XCTAssertFalse(s.radialMenuEnabled)
         XCTAssertFalse(s.radialLockToCenter)
         XCTAssertFalse(s.radialCursorSelectionEnabled)
-        XCTAssertTrue(s.radialTargetHighlightEnabled)
+        XCTAssertFalse(s.radialTargetHighlightEnabled)
         XCTAssertEqual(s.radialTargetHighlightColor, .focusRingDefault)
     }
 
@@ -34,7 +34,7 @@ final class WindowControlSettingsRadialTests: XCTestCase {
         XCTAssertFalse(decoded.radialMenuEnabled)
         XCTAssertFalse(decoded.radialLockToCenter)
         XCTAssertFalse(decoded.radialCursorSelectionEnabled)
-        XCTAssertTrue(decoded.radialTargetHighlightEnabled)
+        XCTAssertFalse(decoded.radialTargetHighlightEnabled)
         XCTAssertEqual(decoded.radialTargetHighlightColor, .focusRingDefault)
     }
 

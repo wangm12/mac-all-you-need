@@ -8,11 +8,20 @@ extension AppController {
     /// is saved to Apple Reminders instead of pasted. Best-effort: a conflicting
     /// registration is logged via the coordinator and otherwise ignored.
     func registerReminderHotkey() {
-        let hotkey = GlobalHotkey(descriptor: .defaultVoiceReminder) { [weak self] in
+        let descriptor = VoiceReminderShortcutSettingsStore.load().shortcut
+        let hotkey = GlobalHotkey(descriptor: descriptor) { [weak self] in
             Task { @MainActor in await self?.voiceCoordinator.toggleReminderRecording() }
         }
         try? hotkey.register()
         setReminderHotkey(hotkey)
+    }
+
+    func applyVoiceReminderShortcutSettings(_ settings: VoiceReminderShortcutSettings) {
+        VoiceReminderShortcutSettingsStore.save(settings)
+        setReminderHotkey(nil)
+        if voiceCoordinator.voiceRemindersEnabled() {
+            registerReminderHotkey()
+        }
     }
 
     func applyVoiceActivationSettings(_ settings: VoiceActivationSettings) throws {
@@ -30,6 +39,19 @@ extension AppController {
 
     func deleteVoiceDictionaryEntry(id: String) throws {
         try voiceDictionaryStore.delete(id: id)
+    }
+
+    func listVoiceDictionarySuggestions() throws -> [VoiceDictionarySuggestion] {
+        try voiceDictionarySuggestionStore.listPending()
+    }
+
+    func acceptVoiceDictionarySuggestion(_ suggestion: VoiceDictionarySuggestion) throws {
+        try voiceDictionaryStore.upsert(phrase: suggestion.phrase, replacement: suggestion.replacement)
+        try voiceDictionarySuggestionStore.markAccepted(id: suggestion.id)
+    }
+
+    func dismissVoiceDictionarySuggestion(id: String) throws {
+        try voiceDictionarySuggestionStore.markDismissed(id: id)
     }
 
     func importVoiceDictionaryCSV(_ data: Data) throws -> VoiceDictionaryCSVImportSummary {
@@ -67,6 +89,7 @@ extension AppController {
 
     func clearPersonalizationData() throws {
         try voicePersonalizationStore.clearAll()
+        try? voiceDictionarySuggestionStore.clearAll()
     }
 
     func voiceTrainingExampleCount() -> Int {

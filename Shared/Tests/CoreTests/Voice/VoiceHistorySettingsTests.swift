@@ -16,10 +16,10 @@ final class VoiceHistorySettingsTests: XCTestCase {
         super.tearDown()
     }
 
-    func test_defaults_when_keys_absent_are_forever_and_off() {
+    func test_defaults_when_keys_absent_are_forever_and_saveAudioOn() {
         let loaded = VoiceHistorySettings.load(from: defaults)
         XCTAssertEqual(loaded.retention, .forever)
-        XCTAssertFalse(loaded.saveAudio)
+        XCTAssertTrue(loaded.saveAudio)
     }
 
     func test_save_then_load_roundtrips() {

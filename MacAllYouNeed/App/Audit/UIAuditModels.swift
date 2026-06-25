@@ -139,7 +139,7 @@ enum UIAuditSurfaceCatalog {
     static let requiredPhaseOneScenarioIDs: Set<String> = [
         "dashboard.overview.enabled",
         "main.clipboard.history",
-        "main.voice.dictate",
+        "main.voice.history",
         "main.downloads.queue.running",
         "command-center.clipboard",
         "dock.clipboard.history",
@@ -165,10 +165,10 @@ enum UIAuditSurfaceCatalog {
             expectedRedactions: ["clipboard body text is synthetic"]
         ),
         UIAuditScenario(
-            id: "main.voice.dictate",
+            id: "main.voice.history",
             surface: "Main Window",
-            route: "Voice / Dictate",
-            state: "Ready with local ASR",
+            route: "Voice / History",
+            state: "Transcript list",
             nativeRenderingMode: .simulatedEquivalent
         ),
         UIAuditScenario(

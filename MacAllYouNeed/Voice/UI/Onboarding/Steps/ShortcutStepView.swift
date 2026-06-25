@@ -54,7 +54,7 @@ struct VoiceHotkeyStepView: View {
                         .monospacedDigit()
                 }
                 .disabled(true)
-                Text("Hybrid and Auto-VAD are visible here for the v1 setup catalog; runtime support lands in the multi-engine phase.")
+                Text("Hybrid and Auto-VAD are shown here so you can review the available activation modes before finishing setup.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -192,10 +192,13 @@ struct VoiceHUDPreview: View {
         VStack(alignment: .leading, spacing: 8) {
             MiniVoiceHUDView(
                 state: state,
+                chrome: .init(),
+                pill: MiniVoiceHUDPill(state: state),
                 thinkingProgress: thinkingProgress,
                 audioLevel: MiniVoiceAudioLevelBridge(),
                 onCancel: nil,
-                onPrimary: nil
+                onPrimary: nil,
+                onFinish: nil
             )
             Text("Preview mirrors the live voice invoke pill states.")
                 .font(.caption)

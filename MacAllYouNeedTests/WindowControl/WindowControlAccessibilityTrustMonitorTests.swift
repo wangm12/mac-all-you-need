@@ -37,6 +37,7 @@ final class WindowControlAccessibilityTrustMonitorTests: XCTestCase {
     func testPollingEligibilityRequiresEnabledRecoverableState() {
         XCTAssertTrue(WindowControlAccessibilityTrustMonitor.shouldPoll(runtimeEnabled: true, coordinatorState: .needsAccessibility))
         XCTAssertTrue(WindowControlAccessibilityTrustMonitor.shouldPoll(runtimeEnabled: true, coordinatorState: .active))
+        XCTAssertTrue(WindowControlAccessibilityTrustMonitor.shouldPoll(runtimeEnabled: true, coordinatorState: .error("tap install failed")))
         XCTAssertFalse(WindowControlAccessibilityTrustMonitor.shouldPoll(runtimeEnabled: false, coordinatorState: .needsAccessibility))
         XCTAssertFalse(WindowControlAccessibilityTrustMonitor.shouldPoll(runtimeEnabled: true, coordinatorState: .off))
         XCTAssertFalse(WindowControlAccessibilityTrustMonitor.shouldPoll(runtimeEnabled: true, coordinatorState: .suspended(.hotkeyRecording)))

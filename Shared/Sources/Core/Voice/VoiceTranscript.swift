@@ -10,6 +10,7 @@ public enum VoiceTranscriptFailedStage: String, Sendable, Equatable {
     case asr
     case cleanup
     case paste
+    case cancelled
     case unknown
 }
 

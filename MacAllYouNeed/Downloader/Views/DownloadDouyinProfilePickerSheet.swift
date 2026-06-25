@@ -136,9 +136,10 @@ final class DouyinProfileBrowserRecovery: NSObject, WKNavigationDelegate, WKScri
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard message.name == "douyinApiCapture" else { return }
-        let body = message.body
-        Task { @MainActor [weak self] in self?.handleCapturedResponse(body) }
+        Task { @MainActor [weak self] in
+            guard message.name == "douyinApiCapture" else { return }
+            self?.handleCapturedResponse(message.body)
+        }
     }
 
     private func handleCapturedResponse(_ body: Any) {
@@ -250,9 +251,10 @@ struct DownloadDouyinProfilePickerSheet: View {
     @State private var nextCursor: String?
     @State private var hasMore = false
     @State private var loadAllNote = ""
-    @State private var enrichingIDs = Set<String>()
     @State private var selected = Set<String>()
     @State private var normalizationNotice = ""
+    @State private var seenIDs = Set<String>()
+    @State private var metadataEnrichmentTask: Task<Void, Never>?
 
     private struct DouyinLoadTimeout: Error {}
 
@@ -291,7 +293,13 @@ struct DownloadDouyinProfilePickerSheet: View {
                 if selected.count == items.count {
                     selected.removeAll()
                 } else {
-                    selected = Set(items.map(\.awemeId))
+                    let snapshot = items
+                    Task.detached(priority: .userInitiated) { [snapshot] in
+                        let ids = Set(snapshot.map(\.awemeId))
+                        await MainActor.run {
+                            selected = ids
+                        }
+                    }
                 }
             }
             DownloadPickerToolbarButton(title: "Load in browser", symbol: "globe") {
@@ -377,7 +385,7 @@ struct DownloadDouyinProfilePickerSheet: View {
                             DownloadPickerEntryRow(
                                 title: row.title,
                                 subtitle: row.author,
-                                thumbnailURL: row.thumbnail.isEmpty ? nil : URL(string: row.thumbnail),
+                                thumbnailURL: items.count > 100 ? nil : (row.thumbnail.isEmpty ? nil : URL(string: row.thumbnail)),
                                 trailingID: row.awemeId,
                                 isSelected: selected.contains(row.awemeId),
                                 onToggle: { toggle(row.awemeId) }
@@ -417,6 +425,7 @@ struct DownloadDouyinProfilePickerSheet: View {
         loadAllNote = ""
         items = []
         selected.removeAll()
+        seenIDs.removeAll()
         do {
             let ytdlp: URL
             do {
@@ -457,13 +466,13 @@ struct DownloadDouyinProfilePickerSheet: View {
                 throw error
             }
             items = result.items
+            seenIDs = Set(result.items.map(\.awemeId))
             nextCursor = result.cursor
             hasMore = result.hasMore
             listWarning = result.warnings.joined(separator: " ")
-            await enrichMissingMetadata(limit: 12)
+            scheduleMetadataEnrichment(limit: 4)
             if !hasMore, items.count < 50 {
-                listWarning = "Direct listing returned a small batch. Trying browser-session recovery for more posts…"
-                await loadInBrowser()
+                listWarning = "Direct listing returned a small batch. Use Load in browser to recover more posts."
             }
         } catch is DouyinLoadTimeout {
             listWarning = "Loading posts timed out. Try Load in browser for session-based recovery."
@@ -506,12 +515,9 @@ struct DownloadDouyinProfilePickerSheet: View {
         do {
             let recovery = DouyinProfileBrowserRecovery()
             let rows = try await recovery.load(profileURL: profileURL, cookieFile: cookieFileURL())
-            var seen = Set(items.map(\.awemeId))
-            for row in rows where seen.insert(row.awemeId).inserted {
-                items.append(row)
-            }
+            await mergeRows(rows)
             listWarning = ""
-            await enrichMissingMetadata(limit: 16)
+            scheduleMetadataEnrichment(limit: 8)
         } catch {
             self.error = error.localizedDescription
         }
@@ -536,16 +542,13 @@ struct DownloadDouyinProfilePickerSheet: View {
                 cursor: cursor,
                 cookieFile: cookieFileURL()
             )
-            var seen = Set(items.map(\.awemeId))
-            for row in result.items where seen.insert(row.awemeId).inserted {
-                items.append(row)
-            }
+            await mergeRows(result.items)
             nextCursor = result.cursor
             hasMore = result.hasMore
             if !result.warnings.isEmpty {
                 listWarning = result.warnings.joined(separator: " ")
             }
-            await enrichMissingMetadata(limit: 16)
+            scheduleMetadataEnrichment(limit: 8)
         } catch {
             self.error = error.localizedDescription
         }
@@ -560,64 +563,55 @@ struct DownloadDouyinProfilePickerSheet: View {
         defer { loadAllBusy = false }
 
         if !(hasMore && nextCursor != nil) {
-            // For very small lists without API cursor, try browser-assisted loading:
-            // Douyin API may still truncate aggressively even when profile has many posts.
-            let likelyTruncated = !items.isEmpty && items.count < 50
-            if !likelyTruncated && !items.isEmpty {
-                loadAllNote = "List complete."
-                return
-            }
-
-            var rounds = 0
-            var previousCount = items.count
-            var stagnantRounds = 0
-            while rounds < 8, items.count < DouyinProfileListResult.maxLoadAllItems {
-                rounds += 1
-                loadAllNote = "Loading from browser round \(rounds)…"
-                await loadInBrowser()
-                await enrichMissingMetadata(limit: 20)
-                if items.count == previousCount {
-                    stagnantRounds += 1
-                    if stagnantRounds >= 2 { break }
-                } else {
-                    stagnantRounds = 0
-                }
-                previousCount = items.count
-            }
-            loadAllNote = "Browser-assisted load complete."
+            loadAllNote = items.isEmpty
+                ? "No API cursor available. Use Load in browser to recover more posts."
+                : "List complete."
             return
         }
 
         var pages = 0
+        var pendingRows: [DouyinProfilePostRow] = []
+        pendingRows.reserveCapacity(64)
+        var mergedCount = items.count
         while hasMore,
               let cursor = nextCursor,
               pages < DouyinProfileListResult.maxLoadAllPages,
-              items.count < DouyinProfileListResult.maxLoadAllItems
+              mergedCount < DouyinProfileListResult.maxLoadAllItems
         {
             pages += 1
             loadAllNote = "Loading page \(pages)…"
             do {
-                let result = try await DouyinProfileLister.listNextPage(
-                    profileURL: profileURL,
-                    cursor: cursor,
-                    cookieFile: cookieFileURL()
-                )
-                var seen = Set(items.map(\.awemeId))
-                for row in result.items where seen.insert(row.awemeId).inserted {
-                    items.append(row)
-                }
+                let result = try await Task.detached(priority: .utility) { [profileURL, cursor, cookieFileURL] in
+                    try await DouyinProfileLister.listNextPage(
+                        profileURL: profileURL,
+                        cursor: cursor,
+                        cookieFile: cookieFileURL()
+                    )
+                }.value
+                pendingRows.append(contentsOf: result.items)
                 nextCursor = result.cursor
                 hasMore = result.hasMore
+                mergedCount += result.items.count
                 if !result.warnings.isEmpty {
                     listWarning = result.warnings.joined(separator: " ")
                 }
-                await enrichMissingMetadata(limit: 20)
+                if pendingRows.count >= 256 {
+                    await mergeRows(pendingRows)
+                    pendingRows.removeAll(keepingCapacity: true)
+                }
             } catch {
                 self.error = error.localizedDescription
                 break
             }
-            try? await Task.sleep(nanoseconds: 400_000_000)
+            if pages.isMultiple(of: 3) {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+            } else {
+                await Task.yield()
+            }
         }
+
+        await mergeRows(pendingRows)
+        pendingRows.removeAll(keepingCapacity: true)
 
         if items.count >= DouyinProfileListResult.maxLoadAllItems {
             loadAllNote = "Stopped at \(DouyinProfileListResult.maxLoadAllItems) items (safety cap)."
@@ -626,66 +620,115 @@ struct DownloadDouyinProfilePickerSheet: View {
         } else {
             loadAllNote = "List complete."
         }
+        scheduleMetadataEnrichment(limit: items.count > 100 ? 0 : 4)
     }
 
-    private func enrichMissingMetadata(limit: Int) async {
-        guard let ytdlp = try? vm.coordinator.binaries.ytdlpPath() else { return }
-        let cookieFile = cookieFileURL()
-        let targetIndexes = items.indices.filter { index in
-            let row = items[index]
-            let missingThumbnail = row.thumbnail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            let genericTitle = row.title.hasPrefix("Douyin post ")
-            return (missingThumbnail || genericTitle) && !enrichingIDs.contains(row.awemeId)
-        }
-        .prefix(limit)
+    private func mergeRows(_ incomingRows: [DouyinProfilePostRow]) async {
+        guard !incomingRows.isEmpty else { return }
+        let snapshotItems = items
+        let snapshotSeen = seenIDs
+        let rows = incomingRows
+        let merged = await Task.detached(priority: .userInitiated) { [snapshotItems, snapshotSeen, rows] in
+            var nextItems = snapshotItems
+            var nextSeen = snapshotSeen
+            for row in rows where nextSeen.insert(row.awemeId).inserted {
+                nextItems.append(row)
+            }
+            return (nextItems, nextSeen)
+        }.value
+        items = merged.0
+        seenIDs = merged.1
+    }
 
-        for index in targetIndexes {
-            let row = items[index]
-            enrichingIDs.insert(row.awemeId)
-            defer { enrichingIDs.remove(row.awemeId) }
-            guard let meta = await MetadataFetcher.fetch(url: row.pageURL, ytdlp: ytdlp, cookieFile: cookieFile) else { continue }
-            let current = items[index]
-            let nextTitle = current.title.hasPrefix("Douyin post ") ? meta.title : current.title
-            let nextAuthor = current.author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? meta.channelName : current.author
-            let nextThumb = current.thumbnail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? meta.thumbnailURL : current.thumbnail
-            items[index] = DouyinProfilePostRow(
-                awemeId: current.awemeId,
-                title: nextTitle,
-                author: nextAuthor,
-                thumbnail: nextThumb,
-                pageURL: current.pageURL
-            )
+    private func scheduleMetadataEnrichment(limit: Int) {
+        guard limit > 0 else { return }
+        metadataEnrichmentTask?.cancel()
+        let snapshot = items
+        metadataEnrichmentTask = Task.detached(priority: .utility) { [snapshot, limit, cookieFile = cookieFileURL(), binaries = vm.coordinator.binaries] in
+            guard let ytdlp = try? binaries.ytdlpPath() else { return }
+            let targetRows = snapshot.filter { row in
+                let missingThumbnail = row.thumbnail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let genericTitle = row.title.hasPrefix("Douyin post ")
+                return missingThumbnail || genericTitle
+            }
+            let target = Array(targetRows.prefix(limit))
+            var updates: [String: DouyinProfilePostRow] = [:]
+            for row in target {
+                if Task.isCancelled { break }
+                guard let meta = await MetadataFetcher.fetch(url: row.pageURL, ytdlp: ytdlp, cookieFile: cookieFile) else { continue }
+                let nextTitle = row.title.hasPrefix("Douyin post ") ? meta.title : row.title
+                let nextAuthor = row.author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? meta.channelName : row.author
+                let nextThumb = row.thumbnail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? meta.thumbnailURL : row.thumbnail
+                updates[row.awemeId] = DouyinProfilePostRow(
+                    awemeId: row.awemeId,
+                    title: nextTitle,
+                    author: nextAuthor,
+                    thumbnail: nextThumb,
+                    pageURL: row.pageURL
+                )
+            }
+            let resolvedUpdates = updates
+            let indexByID = Dictionary(uniqueKeysWithValues: snapshot.enumerated().map { ($0.element.awemeId, $0.offset) })
+            await MainActor.run {
+                guard !resolvedUpdates.isEmpty else { return }
+                var nextItems = items
+                var changed = false
+                for (id, updated) in resolvedUpdates {
+                    guard let index = indexByID[id], nextItems.indices.contains(index) else { continue }
+                    if nextItems[index] != updated {
+                        nextItems[index] = updated
+                        changed = true
+                    }
+                }
+                if changed {
+                    items = nextItems
+                }
+            }
         }
     }
 
     private func handleDownload() async {
         guard !selected.isEmpty else { return }
         busy = true
-        let rows = items.filter { selected.contains($0.awemeId) }
-        let title = rows.first?.author.nilIfEmpty ?? "Douyin profile"
-        let entries = rows.enumerated().map { index, row in
-            BulkEnqueueEntry(
-                pageURL: row.pageURL,
-                title: String(row.title.prefix(200)),
-                channel: row.author,
-                thumbnailURL: row.thumbnail.nilIfEmpty,
-                playlistIndex: index + 1
-            )
-        }
+        let selectionCount = selected.count
+        let snapshotItems = items
+        let snapshotSelected = selected
+        let selection = await Task.detached(priority: .userInitiated) { [snapshotItems, snapshotSelected] in
+            let selectedIDs = snapshotSelected
+            let rows = snapshotItems.filter { selectedIDs.contains($0.awemeId) }
+            let title = rows.first?.author.nilIfEmpty ?? "Douyin profile"
+            let entries = rows.enumerated().map { index, row in
+                BulkEnqueueEntry(
+                    pageURL: row.pageURL,
+                    title: String(row.title.prefix(200)),
+                    channel: row.author,
+                    thumbnailURL: row.thumbnail.nilIfEmpty,
+                    playlistIndex: index + 1
+                )
+            }
+            return (title, entries)
+        }.value
         let quality = AppGroupSettings.defaults.integer(forKey: "downloadDefaultVideoQuality")
         let preset = DownloadFormatPreset.fromDefaultQualitySetting(quality == 0 ? 1080 : quality)
-        do {
-            try await vm.enqueueBulk(
-                entries: entries,
-                collectionTitle: title,
-                kind: .douyinProfile,
-                formatArgs: preset.ytdlpArgs()
-            )
-            onClose()
-        } catch {
-            self.error = error.localizedDescription
+        Task.detached(priority: .userInitiated) { [selection, preset, vm] in
+            do {
+                try await vm.enqueueBulk(
+                    entries: selection.1,
+                    collectionTitle: selection.0,
+                    kind: .douyinProfile,
+                    formatArgs: preset.ytdlpArgs()
+                )
+            } catch {
+                await MainActor.run {
+                    self.error = error.localizedDescription
+                }
+            }
         }
-        busy = false
+        await MainActor.run {
+            onClose()
+            busy = false
+            CopyHUD.show(selectionCount == 1 ? "Added to Downloads" : "Added \(selectionCount) to queue", symbol: "arrow.down.circle.fill")
+        }
     }
 
     private func cookieFileURL() -> URL? {

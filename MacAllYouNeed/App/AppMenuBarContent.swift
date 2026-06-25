@@ -125,6 +125,7 @@ struct AppMenuBarContent: View {
         switch tab {
         case .clipboard:
             ClipboardPopoverView(
+                controller: controller,
                 reader: controller.clipboardReader,
                 imageLoader: controller.clipboardDeps.imageLoader,
                 appIcons: controller.clipboardDeps.appIcons,

@@ -21,6 +21,7 @@ final class AppStoreContainer {
     let voiceDictionary: VoiceDictionaryStore
     let voicePersonalization: VoicePersonalizationStore
     let voiceTrainingExamples: VoiceTrainingExampleStore
+    let voiceDictionarySuggestions: VoiceDictionarySuggestionStore
     let blob: BlobStore
     let search: SearchStore
 
@@ -33,6 +34,7 @@ final class AppStoreContainer {
         voiceDictionary: VoiceDictionaryStore,
         voicePersonalization: VoicePersonalizationStore,
         voiceTrainingExamples: VoiceTrainingExampleStore,
+        voiceDictionarySuggestions: VoiceDictionarySuggestionStore,
         blob: BlobStore,
         search: SearchStore
     ) {
@@ -44,6 +46,7 @@ final class AppStoreContainer {
         self.voiceDictionary = voiceDictionary
         self.voicePersonalization = voicePersonalization
         self.voiceTrainingExamples = voiceTrainingExamples
+        self.voiceDictionarySuggestions = voiceDictionarySuggestions
         self.blob = blob
         self.search = search
     }
@@ -87,6 +90,7 @@ final class AppStoreContainer {
                 deviceKey: key,
                 audioRoot: AppGroup.containerURL().appendingPathComponent("voice-training-audio", isDirectory: true)
             ),
+            voiceDictionarySuggestions: VoiceDictionarySuggestionStore(database: clipboardDB),
             blob: blob,
             search: search
         )

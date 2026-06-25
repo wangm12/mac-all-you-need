@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Window Hub — Cleanup Review (Demo)</title>
+<style>
+  :root {
+    --page: #1c1c1e;
+    --panel: rgba(38,38,40,.94);
+    --panel-2: rgba(48,48,50,.88);
+    --bar: rgba(28,28,30,.72);
+    --surface: rgba(58,58,60,.72);
+    --line: rgba(255,255,255,.12);
+    --line-soft: rgba(255,255,255,.07);
+    --text: #f2f2f7;
+    --muted: #98989d;
+    --muted-2: #636366;
+    --blue: #0a84ff;
+    --blue-soft: rgba(10,132,255,.14);
+    --blue-line: rgba(10,132,255,.34);
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --red: #ff453a;
+    --hover: rgba(255,255,255,.06);
+    --selected: rgba(10,132,255,.16);
+    --row-h: 34px;
+    --radius: 14px;
+    --ease: cubic-bezier(.22,.74,.2,1);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    color-scheme: dark;
+  }
+
+  :root[data-theme="light"] {
+    --page: #ececef;
+    --panel: rgba(249,249,250,.94);
+    --panel-2: rgba(255,255,255,.82);
+    --bar: rgba(255,255,255,.56);
+    --surface: rgba(255,255,255,.72);
+    --line: rgba(0,0,0,.115);
+    --line-soft: rgba(0,0,0,.072);
+    --text: #202124;
+    --muted: #6d6f76;
+    --muted-2: #9a9ca3;
+    --blue: #007aff;
+    --blue-soft: rgba(0,122,255,.105);
+    --blue-line: rgba(0,122,255,.32);
+    --hover: rgba(0,0,0,.043);
+    --selected: rgba(0,122,255,.125);
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--page);
+    color: var(--text);
+    display: grid;
+    place-items: center;
+    padding: 20px;
+  }
+
+  .demo-wrap {
+    width: min(1120px, 100%);
+    display: grid;
+    grid-template-columns: 1fr 500px;
+    gap: 20px;
+    align-items: start;
+  }
+
+  @media (max-width: 980px) {
+    .demo-wrap { grid-template-columns: 1fr; }
+    .notes { order: 2; }
+    .stage { order: 1; }
+  }
+
+  .notes {
+    padding: 16px 18px;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    background: var(--panel-2);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .notes h1 { margin: 0 0 8px; font-size: 18px; letter-spacing: -.02em; }
+  .notes h2 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .notes ul { margin: 0; padding-left: 18px; color: var(--muted); }
+  .notes li { margin: 6px 0; }
+  .notes code { font-size: 12px; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+  .theme-toggle {
+    margin-top: 14px;
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    padding: 0 10px;
+    cursor: pointer;
+  }
+
+  .stage {
+    position: relative;
+    height: min(640px, calc(100vh - 40px));
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    box-shadow: 0 18px 54px rgba(0,0,0,.28);
+  }
+
+  .panel-bg {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    filter: blur(0);
+    opacity: .55;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .titlebar {
+    height: 38px;
+    display: grid;
+    grid-template-columns: 84px 1fr 84px;
+    align-items: center;
+    padding: 0 13px;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--bar);
+  }
+  .traffic { display: flex; gap: 8px; }
+  .traffic span { width: 12px; height: 12px; border-radius: 50%; }
+  .red { background: #ff5f57; }
+  .yellow { background: #ffbd2e; }
+  .green { background: #28c840; }
+  .title { text-align: center; font-size: 13px; font-weight: 650; }
+  .shortcut { justify-self: end; font-size: 12px; color: var(--muted-2); }
+
+  .toolbar {
+    height: 52px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .search {
+    flex: 1;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 13px;
+    padding: 0 12px;
+  }
+  .btn {
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+  .btn.primary { background: var(--blue-soft); border-color: var(--blue-line); color: var(--blue); }
+
+  .fake-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 9px;
+    padding: 12px;
+    overflow: hidden;
+  }
+  .fake-card {
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    background: var(--panel-2);
+    min-height: 120px;
+    padding: 8px;
+  }
+  .fake-card strong { font-size: 12px; display: block; margin-bottom: 8px; }
+  .fake-line { height: 28px; border-radius: 7px; background: var(--hover); margin-bottom: 4px; }
+
+  .sheet-overlay {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(0,0,0,.32);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    padding: 16px;
+  }
+
+  .sheet {
+    width: min(500px, 100%);
+    max-height: min(560px, calc(100% - 24px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    box-shadow: 0 22px 62px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+    animation: sheetIn 160ms var(--ease) both;
+  }
+  @keyframes sheetIn {
+    from { opacity: .001; transform: translateY(6px) scale(.99); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .sheet-header {
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .sheet-header h2 { margin: 0 0 6px; font-size: 17px; letter-spacing: -.02em; }
+  .sheet-header p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .sheet-header .meta { margin-top: 8px; font-size: 11.5px; color: var(--muted-2); }
+
+  .sheet-scroll {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+  }
+
+  .group {
+    margin-bottom: 10px;
+  }
+  .group-head {
+    height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .group-head:hover { background: var(--hover); }
+  .chev {
+    width: 12px;
+    font-size: 10px;
+    color: var(--muted);
+    transition: transform 140ms var(--ease);
+  }
+  .group.collapsed .chev { transform: rotate(-90deg); }
+  .group-title { font-size: 13px; font-weight: 600; flex: 1; }
+  .group-count { font-size: 11.5px; color: var(--muted); }
+  .group-toggle {
+    position: relative;
+    width: 36px;
+    height: 22px;
+    flex: none;
+  }
+  .group-toggle input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .group-toggle .track {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 999px;
+    background: rgba(120,120,128,.32);
+    transition: background 140ms var(--ease);
+  }
+  .group-toggle input:checked + .track {
+    background: var(--green);
+  }
+  .group-toggle .thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,.22);
+    transition: transform 140ms var(--ease);
+    pointer-events: none;
+  }
+  .group-toggle input:checked ~ .thumb {
+    transform: translateX(14px);
+  }
+  .group-toggle input:disabled + .track {
+    opacity: .4;
+  }
+
+  .group-body {
+    margin-top: 4px;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .group.collapsed .group-body { display: none; }
+
+  .item {
+    min-height: var(--row-h);
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .item:last-child { border-bottom: 0; }
+  .item:hover { background: var(--hover); }
+  .item input { width: 14px; height: 14px; accent-color: var(--blue); }
+  .item.disabled { opacity: .5; }
+  .item-title {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .item-sub {
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pill {
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 999px;
+    padding: 0 8px;
+    font-size: 11px;
+    white-space: nowrap;
+    border: 1px solid var(--line-soft);
+    background: var(--hover);
+    color: var(--muted);
+  }
+  .pill.danger { color: #ff6961; border-color: rgba(255,69,58,.28); background: rgba(255,69,58,.12); }
+  .pill.warn { color: #ffb340; border-color: rgba(255,159,10,.28); background: rgba(255,159,10,.12); }
+  .pill.neutral::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: .7;
+  }
+
+  .sheet-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-top: 1px solid var(--line-soft);
+    background: var(--bar);
+  }
+  .sheet-footer .spacer { flex: 1; }
+  .sheet-footer .count { font-size: 12px; color: var(--muted); }
+  .sheet-footer .btn-cancel {
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    padding: 0 12px;
+    cursor: pointer;
+  }
+  .sheet-footer .btn-apply {
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--red);
+    color: #fff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 14px;
+    cursor: pointer;
+  }
+  .sheet-footer .btn-apply:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%) translateY(8px);
+    opacity: 0;
+    pointer-events: none;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(20,20,22,.92);
+    color: #fff;
+    font-size: 12px;
+    border: 1px solid rgba(255,255,255,.12);
+    transition: opacity 140ms ease, transform 140ms var(--ease);
+  }
+  :root[data-theme="light"] .toast { background: rgba(30,30,32,.92); }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="demo-wrap">
+    <aside class="notes">
+      <h1>Cleanup Review — Design Demo</h1>
+      <p>Local rule-based review sheet. Nothing closes until the user selects items and taps <strong>Apply selected</strong>.</p>
+      <h2>What Cleanup does</h2>
+      <ul>
+        <li>Scans open tabs/windows on device only (no AI).</li>
+        <li>Groups candidates: exact URL duplicates, stale tabs, empty windows, background apps.</li>
+        <li>Protects active, pinned, audible, and private tabs by default.</li>
+        <li>User confirms each batch — same review pattern as AI Organize.</li>
+      </ul>
+      <h2>Interaction</h2>
+      <ul>
+        <li>Groups with &gt;5 items start collapsed.</li>
+        <li>Checkboxes default <strong>off</strong>.</li>
+        <li>Per-group <strong>toggle</strong> selects or clears the whole group.</li>
+        <li>Protected rows are disabled with a reason pill.</li>
+      </ul>
+      <button class="theme-toggle" id="themeToggle" type="button">Toggle light / dark</button>
+    </aside>
+
+    <div class="stage" aria-label="Window Hub with Cleanup sheet open">
+      <div class="panel-bg" aria-hidden="true">
+        <div class="titlebar">
+          <div class="traffic"><span class="red"></span><span class="yellow"></span><span class="green"></span></div>
+          <div class="title">Window Hub</div>
+          <div class="shortcut">⌥⇧W</div>
+        </div>
+        <div class="toolbar">
+          <div class="search">Search apps, windows, tabs…</div>
+          <button class="btn primary" type="button">AI Organize</button>
+          <button class="btn" type="button">Browse all apps…</button>
+        </div>
+        <div class="fake-grid">
+          <div class="fake-card"><strong>Google Chrome</strong><div class="fake-line"></div><div class="fake-line"></div><div class="fake-line"></div></div>
+          <div class="fake-card"><strong>Cursor</strong><div class="fake-line"></div><div class="fake-line"></div></div>
+          <div class="fake-card"><strong>Finder</strong><div class="fake-line"></div></div>
+          <div class="fake-card"><strong>Slack</strong><div class="fake-line"></div></div>
+          <div class="fake-card"><strong>Chrome Canary</strong><div class="fake-line"></div><div class="fake-line"></div></div>
+          <div class="fake-card"><strong>Notes</strong><div class="fake-line"></div></div>
+        </div>
+      </div>
+
+      <div class="sheet-overlay">
+        <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cleanupTitle">
+          <header class="sheet-header">
+            <h2 id="cleanupTitle">Cleanup review</h2>
+            <p>Found 18 close candidates across 4 groups. Active and protected tabs are excluded by default.</p>
+            <div class="meta">Local rules only · titles + domains · no cloud upload</div>
+          </header>
+
+          <div class="sheet-scroll" id="groups"></div>
+
+          <footer class="sheet-footer">
+            <button class="btn-cancel" type="button" id="cancelBtn">Cancel</button>
+            <span class="spacer"></span>
+            <span class="count" id="selectedCount">0 selected</span>
+            <button class="btn-apply" type="button" id="applyBtn" disabled>Apply selected</button>
+          </footer>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const groupsEl = document.getElementById('groups');
+  const selectedCountEl = document.getElementById('selectedCount');
+  const applyBtn = document.getElementById('applyBtn');
+  const toast = document.getElementById('toast');
+  const themeToggle = document.getElementById('themeToggle');
+
+  const data = [
+    {
+      id: 'dup',
+      title: 'Duplicate tabs (8)',
+      collapsedDefault: true,
+      items: [
+        { id: 'd1', title: 'PR #42 · Actions CI failing', sub: 'Chrome · github.com/mac-all-you-need', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 'd2', title: 'PR #42 · Actions CI failing', sub: 'Chrome · github.com/mac-all-you-need', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 'd3', title: 'Inbox (5,515) — mingjie.wang@uber.com', sub: 'Chrome · mail.google.com', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 'd4', title: 'Memory overview | Mastra', sub: 'Chrome Canary · mastra.ai', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 'd5', title: 'Sign in to medium.com', sub: 'Chrome Canary · medium.com', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 'd6', title: 'Sign in to medium.com', sub: 'Chrome Canary · medium.com', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 'd7', title: 'localhost:3000/dashboard', sub: 'Chrome · localhost', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 'd8', title: 'localhost:3000/dashboard', sub: 'Chrome · localhost', pill: 'Close tab', kind: 'danger', checked: false },
+      ],
+    },
+    {
+      id: 'stale',
+      title: 'Stale tabs (5)',
+      collapsedDefault: false,
+      items: [
+        { id: 's1', title: 'Uber ERD — Window Hub cleanup', sub: 'Chrome · docs.google.com', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 's2', title: 'yt-dlp release notes', sub: 'Chrome · github.com', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 's3', title: 'SF weather next week', sub: 'Chrome · weather.com', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 's4', title: 'Qwen3-ASR model card', sub: 'Chrome · huggingface.co', pill: 'Close tab', kind: 'danger', checked: false },
+        { id: 's5', title: 'Typeless import script', sub: 'Cursor · example.zh.md', pill: 'Close tab', kind: 'danger', checked: false },
+      ],
+    },
+    {
+      id: 'empty',
+      title: 'Empty windows (2)',
+      collapsedDefault: false,
+      items: [
+        { id: 'e1', title: 'Untitled window', sub: 'Notes', pill: 'Close window', kind: 'danger', checked: false },
+        { id: 'e2', title: 'Window', sub: 'Finder · dist', pill: 'Close window', kind: 'danger', checked: false },
+      ],
+    },
+    {
+      id: 'protected',
+      title: 'Protected (not selected)',
+      collapsedDefault: true,
+      items: [
+        { id: 'p1', title: 'AI Memory System Research', sub: 'Chrome · chatgpt.com', pill: 'Active tab', kind: 'warn', disabled: true },
+        { id: 'p2', title: 'Standup notes', sub: 'Chrome · notion.so', pill: 'Pinned', kind: 'warn', disabled: true },
+        { id: 'p3', title: 'Spotify — Daily Mix', sub: 'Chrome · open.spotify.com', pill: 'Playing audio', kind: 'warn', disabled: true },
+      ],
+    },
+  ];
+
+  const state = {
+    collapsed: new Set(data.filter(g => g.collapsedDefault).map(g => g.id)),
+    checked: new Set(),
+  };
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  function selectableItems(group) {
+    return group.items.filter(item => !item.disabled);
+  }
+
+  function updateFooter() {
+    const n = state.checked.size;
+    selectedCountEl.textContent = `${n} selected`;
+    applyBtn.disabled = n === 0;
+    applyBtn.textContent = n ? `Apply selected (${n})` : 'Apply selected';
+  }
+
+  function render() {
+    groupsEl.innerHTML = data.map(group => {
+      const collapsed = state.collapsed.has(group.id);
+      const selectable = selectableItems(group);
+      const selectedInGroup = selectable.filter(item => state.checked.has(item.id)).length;
+      const allSelected = selectable.length > 0 && selectedInGroup === selectable.length;
+      const rows = group.items.map(item => {
+        const disabled = !!item.disabled;
+        const checked = !disabled && state.checked.has(item.id);
+        return `
+          <label class="item${disabled ? ' disabled' : ''}">
+            <input type="checkbox" data-id="${item.id}" data-group="${group.id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
+            <div>
+              <div class="item-title">${item.title}</div>
+              <div class="item-sub">${item.sub}</div>
+            </div>
+            <span class="pill ${item.kind}">${item.pill}</span>
+          </label>`;
+      }).join('');
+      return `
+        <section class="group${collapsed ? ' collapsed' : ''}" data-group="${group.id}">
+          <div class="group-head" data-action="toggle" data-group="${group.id}">
+            <span class="chev">▾</span>
+            <span class="group-title">${group.title}</span>
+            <span class="group-count">${selectedInGroup}/${selectable.length}</span>
+            ${selectable.length ? `
+              <label class="group-toggle" title="Select all in group" onclick="event.stopPropagation()">
+                <input type="checkbox" data-action="all" data-group="${group.id}" ${allSelected ? 'checked' : ''} />
+                <span class="track"></span>
+                <span class="thumb"></span>
+              </label>` : ''}
+          </div>
+          <div class="group-body">${rows}</div>
+        </section>`;
+    }).join('');
+    updateFooter();
+  }
+
+  groupsEl.addEventListener('click', event => {
+    const btn = event.target.closest('[data-action]');
+    if (!btn) return;
+    const groupId = btn.dataset.group;
+    const action = btn.dataset.action;
+    if (action === 'toggle') {
+      if (state.collapsed.has(groupId)) state.collapsed.delete(groupId);
+      else state.collapsed.add(groupId);
+      render();
+    }
+  });
+
+  groupsEl.addEventListener('change', event => {
+    const input = event.target;
+    if (input.type !== 'checkbox' || input.disabled) return;
+    if (input.dataset.action === 'all') {
+      const group = data.find(g => g.id === input.dataset.group);
+      const selectable = selectableItems(group);
+      if (input.checked) selectable.forEach(item => state.checked.add(item.id));
+      else selectable.forEach(item => state.checked.delete(item.id));
+      render();
+      return;
+    }
+    if (input.checked) state.checked.add(input.dataset.id);
+    else state.checked.delete(input.dataset.id);
+    render();
+  });
+
+  document.getElementById('cancelBtn').addEventListener('click', () => {
+    state.checked.clear();
+    render();
+    showToast('Cleanup cancelled — no tabs closed.');
+  });
+
+  applyBtn.addEventListener('click', () => {
+    const n = state.checked.size;
+    if (!n) return;
+    showToast(`Would close ${n} item(s) after confirmation.`);
+    state.checked.clear();
+    render();
+  });
+
+  themeToggle.addEventListener('click', () => {
+    const root = document.documentElement;
+    root.dataset.theme = root.dataset.theme === 'light' ? 'dark' : 'light';
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

@@ -247,16 +247,24 @@
     row.appendChild(info)
 
     const dlBtn = document.createElement('button')
+    dlBtn.type = 'button'
     dlBtn.className = 'dy-dl-format-dl-btn'
     dlBtn.innerHTML = SVG_DOWNLOAD
     dlBtn.setAttribute('aria-label', `Download ${label}`)
     row.appendChild(dlBtn)
 
+    const setRowState = (state) => {
+      row.classList.remove('dy-dl-row-sending', 'dy-dl-row-error', 'dy-dl-row-sent')
+      if (state) row.classList.add(state)
+    }
+
     const handle = (e) => {
       e.preventDefault()
       e.stopPropagation()
-      logCs('format-row-click', { label: row.querySelector('.dy-dl-format-label')?.textContent || '?' })
-      onClick()
+      if (row.classList.contains('dy-dl-row-sending')) return
+      logCs('format-row-click', { label })
+      setRowState('dy-dl-row-sending')
+      onClick(setRowState)
     }
     // Capture phase: Douyin often stops propagation in bubble phase on the player tree.
     row.addEventListener('click', handle, true)
@@ -264,23 +272,31 @@
     row.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
-        onClick()
+        if (row.classList.contains('dy-dl-row-sending')) return
+        setRowState('dy-dl-row-sending')
+        onClick(setRowState)
       }
     })
 
     return row
   }
 
-  function triggerDownload(url, type, rowSuffix) {
+  function douyinPageUrl(awemeId) {
+    const id = String(awemeId || '').trim()
+    return id ? `https://www.douyin.com/video/${id}` : ''
+  }
+
+  function triggerDownload(url, type, rowSuffix, extras, setRowState) {
     if (!url || !String(url).trim()) {
       logCs('trigger-download-skip', { reason: 'empty-url', type })
+      setRowState?.('dy-dl-row-error')
       return
     }
     const downloadTitle = buildDownloadBasename(rowSuffix)
     logCs('trigger-download-start', {
       type,
       url: truncateUrlCs(String(url), 64),
-      awemeId: currentData?.awemeId || null,
+      awemeId: extras?.awemeId || currentData?.awemeId || null,
       downloadTitle: downloadTitle.slice(0, 80)
     })
     flashButton('dy-dl-sending')
@@ -290,39 +306,40 @@
       initiator: 'https://www.douyin.com/',
       title: downloadTitle
     }
-    const done = (ok) => {
-      logCs('trigger-download-finished', { ok, awemeId: currentData?.awemeId || null })
+    if (extras?.awemeId) item.awemeId = String(extras.awemeId)
+    if (extras?.pageURL) item.pageURL = extras.pageURL
+    if (extras?.mediaURL) item.mediaURL = extras.mediaURL
+
+    const done = (ok, errorMessage) => {
+      logCs('trigger-download-finished', {
+        ok,
+        awemeId: extras?.awemeId || currentData?.awemeId || null,
+        error: errorMessage || null
+      })
       if (ok) {
+        setRowState?.('dy-dl-row-sent')
         closePanel()
         flashButton('dy-dl-sent')
       } else {
+        setRowState?.('dy-dl-row-error')
         flashButton(null)
       }
     }
+
     try {
-      const p = chrome.runtime.sendMessage({ type: 'DOWNLOAD_MEDIA_FROM_CONTENT', item, surfacedWake: true })
-      if (p && typeof p.then === 'function') {
-        p.then((resp) => {
-          logCs('trigger-download-reply', { ok: !!(resp && resp.ok), error: resp?.error })
-          done(resp && resp.ok)
-        }).catch((err) => {
-          logCs('trigger-download-promise-reject', { err: String(err) })
-          done(false)
-        })
-      } else {
-        chrome.runtime.sendMessage({ type: 'DOWNLOAD_MEDIA_FROM_CONTENT', item, surfacedWake: true }, (resp) => {
-          if (chrome.runtime.lastError) {
-            logCs('trigger-download-last-error', { message: chrome.runtime.lastError.message })
-            done(false)
-            return
-          }
-          logCs('trigger-download-callback-reply', { ok: !!(resp && resp.ok), error: resp?.error })
-          done(resp && resp.ok)
-        })
-      }
+      // Callback form is more reliable than the Promise wrapper in some MV3 builds.
+      chrome.runtime.sendMessage({ type: 'DOWNLOAD_MEDIA_FROM_CONTENT', item, surfacedWake: true }, (resp) => {
+        if (chrome.runtime.lastError) {
+          logCs('trigger-download-last-error', { message: chrome.runtime.lastError.message })
+          done(false, chrome.runtime.lastError.message)
+          return
+        }
+        logCs('trigger-download-callback-reply', { ok: !!(resp && resp.ok), error: resp?.error })
+        done(!!(resp && resp.ok), resp?.error)
+      })
     } catch (err) {
       logCs('trigger-download-send-throw', { err: String(err) })
-      done(false)
+      done(false, String(err))
     }
   }
 
@@ -358,6 +375,11 @@
     const panel = document.createElement('div')
     panel.id = PANEL_ID
     panel.className = 'dy-dl-panel'
+    // Bubble-only: stop Douyin from seeing completed clicks; do not use capture here
+    // or child row handlers never receive pointerdown/click.
+    panel.addEventListener('click', (e) => {
+      e.stopPropagation()
+    }, false)
 
     // Header
     const header = document.createElement('div')
@@ -389,13 +411,26 @@
       for (const fmt of formats) {
         const typeClass = fmt.isH265 ? 'h265' : 'mp4'
         const codecBadge = fmt.isH265 ? 'H.265' : 'H.264'
+        const awemeId = String(currentData.awemeId || '')
+        const pageUrl = douyinPageUrl(awemeId)
+        const mediaUrl = fmt.url
+        const fmtLabel = fmt.label
         const row = buildRow(
           SVG_VIDEO,
-          fmt.label,
+          fmtLabel,
           formatSize(fmt.size),
           typeClass,
           codecBadge,
-          () => triggerDownload(fmt.url, 'mp4', `${fmt.label} ${codecBadge}`)
+          (setRowState) => {
+            const downloadUrl = pageUrl || mediaUrl
+            triggerDownload(
+              downloadUrl,
+              'mp4',
+              `${fmtLabel} ${codecBadge}`,
+              { awemeId, pageURL: pageUrl || undefined, mediaURL: mediaUrl },
+              setRowState
+            )
+          }
         )
         panel.appendChild(row)
         hasOptions = true
@@ -415,7 +450,7 @@
         '',
         'image',
         'JPEG',
-        () => triggerDownload(currentData.cover.url, 'jpeg', 'cover')
+        (setRowState) => triggerDownload(currentData.cover.url, 'jpeg', 'cover', null, setRowState)
       )
       panel.appendChild(row)
       hasOptions = true
@@ -435,7 +470,7 @@
         '',
         'audio',
         'MP3',
-        () => triggerDownload(currentData.music.url, 'mp3', 'audio')
+        (setRowState) => triggerDownload(currentData.music.url, 'mp3', 'audio', null, setRowState)
       )
       panel.appendChild(row)
       hasOptions = true
@@ -577,9 +612,6 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && activePanel) closePanel()
   })
-
-  // Close panel on scroll but not button (Douyin scroll is the swiper, not window)
-  window.addEventListener('scroll', () => { if (activePanel) closePanel() }, { passive: true })
 
   // ── SPA navigation ─────────────────────────────────────────────────────────
 

@@ -17,10 +17,11 @@ struct DownloadPickerHost: View {
                     DownloadDouyinProfilePickerSheet(profileURL: url, vm: vm) {
                         vm.dismissPicker()
                     }
-                case let .format(url, metadata):
+                case let .format(url, metadata, isRefiningResolutions):
                     DownloadFormatSheet(
                         sourceURL: url,
                         metadata: metadata,
+                        isRefiningResolutions: isRefiningResolutions,
                         onClose: { vm.dismissPicker() },
                         onDownload: { preset in
                             Task { await vm.enqueueFromFormatSheet(url: url, preset: preset) }

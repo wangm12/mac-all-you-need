@@ -4,6 +4,7 @@ import Platform
 import SwiftUI
 
 struct ClipboardPopoverView: View {
+    let controller: AppController
     let reader: LocalClipboardReader
     let imageLoader: ImageBlobLoader
     let appIcons: AppIconResolver
@@ -14,45 +15,48 @@ struct ClipboardPopoverView: View {
     @State private var keyMonitor: NSEventMonitorHandle? = nil
 
     var body: some View {
-        Group {
-            if reader.items.isEmpty {
-                Text("No items yet")
-                    .foregroundStyle(.tertiary).font(.callout)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(reader.items, id: \.id.rawValue) { item in
-                                ClipboardItemRow2(
-                                    item: item,
-                                    imageLoader: imageLoader,
-                                    appIcons: appIcons,
-                                    isSelected: reader.selectedIDs.contains(item.id.rawValue),
-                                    onTap: { handleTap(id: item.id.rawValue) },
-                                    onActivate: {
-                                        reader.selectedIDs = [item.id.rawValue]
-                                        reader.anchorID = item.id.rawValue
-                                        copySelectedAndDismiss()
-                                    },
-                                    onCopy: {
-                                        reader.selectedIDs = [item.id.rawValue]
-                                        reader.anchorID = item.id.rawValue
-                                        copySelectedAndDismiss()
-                                    }
-                                )
-                                .id(item.id.rawValue)
-                                Divider().opacity(0.4)
+        VStack(spacing: 0) {
+            popoverHeader
+            Group {
+                if reader.items.isEmpty {
+                    Text("No items yet")
+                        .foregroundStyle(.tertiary).font(.callout)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(reader.items, id: \.id.rawValue) { item in
+                                    ClipboardItemRow2(
+                                        item: item,
+                                        imageLoader: imageLoader,
+                                        appIcons: appIcons,
+                                        isSelected: reader.selectedIDs.contains(item.id.rawValue),
+                                        onTap: { handleTap(id: item.id.rawValue) },
+                                        onActivate: {
+                                            reader.selectedIDs = [item.id.rawValue]
+                                            reader.anchorID = item.id.rawValue
+                                            copySelectedAndDismiss()
+                                        },
+                                        onCopy: {
+                                            reader.selectedIDs = [item.id.rawValue]
+                                            reader.anchorID = item.id.rawValue
+                                            copySelectedAndDismiss()
+                                        }
+                                    )
+                                    .id(item.id.rawValue)
+                                    Divider().opacity(0.4)
+                                }
                             }
                         }
-                    }
-                    .onChange(of: reader.anchorID) { _, newID in
-                        guard let newID else { return }
-                        if reduceMotion {
-                            proxy.scrollTo(newID, anchor: .center)
-                        } else {
-                            withAnimation(MAYNMotion.animation(.hover, reduceMotion: reduceMotion)) {
+                        .onChange(of: reader.anchorID) { _, newID in
+                            guard let newID else { return }
+                            if reduceMotion {
                                 proxy.scrollTo(newID, anchor: .center)
+                            } else {
+                                withAnimation(MAYNMotion.animation(.hover, reduceMotion: reduceMotion)) {
+                                    proxy.scrollTo(newID, anchor: .center)
+                                }
                             }
                         }
                     }
@@ -87,6 +91,28 @@ struct ClipboardPopoverView: View {
                 reader.anchorID = nil
             }
         }
+    }
+
+    private var popoverHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Clipboard History")
+                    .font(.headline.weight(.semibold))
+                Text("Copy, preview, delete, or jump to the full Clipboard page for snippets and settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            MAYNButton("Open Clipboard", role: .primary, height: HotkeyChipPresentation.compactHeight) {
+                controller.showMainWindow(destination: .clipboard)
+                NotificationCenter.default.post(name: .menuBarPopoverDismissRequested, object: nil)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(MAYNTheme.panel)
     }
 
     // MARK: - Selection

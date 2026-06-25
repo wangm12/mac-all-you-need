@@ -18,8 +18,8 @@ final class ReminderWritePhase {
     /// reminder or throws on failure.
     @discardableResult
     func execute(cleanedText: String) async throws -> CreatedReminder {
-        let (title, dueDate) = ReminderDuePayloadParser.parse(cleanedText)
+        let prepared = ReminderPayloadNormalizer.prepare(cleanedText)
         let config = settings()
-        return try await writer.write(title: title, dueDate: dueDate, listID: config.defaultListID)
+        return try await writer.write(title: prepared.title, dueDate: prepared.dueDate, listID: config.defaultListID)
     }
 }

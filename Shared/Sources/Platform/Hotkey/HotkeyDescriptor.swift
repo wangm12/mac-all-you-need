@@ -40,6 +40,7 @@ public struct HotkeyDescriptor: Hashable, Codable, Sendable {
     public static let defaultFolder = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_F), modifiers: [.command, .shift])
     public static let defaultFolderHistory = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_H), modifiers: [.command, .shift])
     public static let defaultVoiceReminder = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_R), modifiers: [.command, .shift])
+    public static let defaultWindowHub = HotkeyDescriptor(keyCode: UInt32(kVK_ANSI_W), modifiers: [.option, .shift])
 
     public var display: String {
         if let tap = modifierTap {

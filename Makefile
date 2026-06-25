@@ -14,7 +14,10 @@ VOICE_FINETUNE_DIR ?= $(CURDIR)/.build/voice-finetune-pilot
 VOICE_TRAIN_MAX_STEPS ?= 12
 VOICE_PYTHON ?= python3.12
 
-.PHONY: help bootstrap generate test build run dev open-app release dmg provision-extensions clean clean-cache clean-dist import-typeless
+UI_HTML_PORT ?= 8765
+UI_HTML_DIR := design/ui-html
+
+.PHONY: help bootstrap generate test build run dev open-app release dmg provision-extensions clean clean-cache clean-dist import-typeless ui-html
 .PHONY: voice-training-stats voice-training-export voice-training-extract
 .PHONY: voice-training-venv voice-training-prepare voice-training-train-smoke
 .PHONY: voice-training-pilot voice-training-clean
@@ -38,6 +41,7 @@ help:
 	@echo "  make clean-cache Remove local build caches only"
 	@echo "  make clean-dist  Remove dist output only"
 	@echo "  make import-typeless  Import Typeless voice history (quit the app first)"
+	@echo "  make ui-html          Serve the HTML UI replica (http://localhost:$(UI_HTML_PORT))"
 	@echo ""
 	@echo "Voice offline training (see docs/voice-training/README.md):"
 	@echo "  make voice-training-stats        Corpus counts from App Group DB"
@@ -92,6 +96,20 @@ dmg: release
 
 import-typeless:
 	./scripts/import-typeless-history.sh
+
+ui-html:
+	@test -f "$(UI_HTML_DIR)/index.html" || { echo "error: missing $(UI_HTML_DIR)/index.html" >&2; exit 1; }
+	@port="$(UI_HTML_PORT)"; \
+	url="http://localhost:$$port/index.html"; \
+	if lsof -nP -iTCP:$$port -sTCP:LISTEN >/dev/null 2>&1; then \
+	  echo "UI replica (existing server): $$url"; \
+	  open "$$url"; \
+	else \
+	  echo "UI replica: $$url"; \
+	  echo "Press Ctrl+C to stop."; \
+	  (sleep 0.4 && open "$$url") & \
+	  cd "$(UI_HTML_DIR)" && python3 -m http.server "$$port"; \
+	fi
 
 voice-training-stats:
 	./scripts/voice-training/stats.sh

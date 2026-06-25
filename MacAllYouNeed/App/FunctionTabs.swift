@@ -79,22 +79,26 @@ enum ClipboardFunctionTab: String, FunctionTabDestination {
     }
 }
 
-enum VoiceFunctionTab: String, FunctionTabDestination {
-    case dictate
-    case models
+enum VoiceFunctionTab: String, FunctionTabDestination, CaseIterable {
     case history
+    case models
     case dictionary
     case personalization = "profiles"
     case settings
 
     static let storageKey = "main.voice.selectedTab"
-    static let defaultTab = VoiceFunctionTab.dictate
+    static let defaultTab = VoiceFunctionTab.history
+
+    static func storedSelection(_ raw: String?) -> Self {
+        guard let raw else { return defaultTab }
+        if raw == "dictate" { return .history }
+        return Self(rawValue: raw) ?? defaultTab
+    }
 
     var title: String {
         switch self {
-        case .dictate: "Dictate"
-        case .models: "Recognition"
         case .history: "History"
+        case .models: "Recognition"
         case .dictionary: "Dictionary"
         case .personalization: "Personalization"
         case .settings: "Settings"
@@ -103,9 +107,8 @@ enum VoiceFunctionTab: String, FunctionTabDestination {
 
     var symbolName: String {
         switch self {
-        case .dictate: "waveform"
-        case .models: "square.stack.3d.down.right"
         case .history: "clock"
+        case .models: "square.stack.3d.down.right"
         case .dictionary: "text.book.closed"
         case .personalization: "sparkles"
         case .settings: "slider.horizontal.3"
@@ -198,54 +201,6 @@ enum WindowGrabFunctionTab: String, FunctionTabDestination {
         switch self {
         case .gesture: "hand.draw"
         case .apps: "app.badge"
-        }
-    }
-}
-
-enum DockFunctionTab: String, FunctionTabDestination, CaseIterable {
-    case features
-    case previews
-    case switcher
-    case cmdTab
-    case locking
-    case customize
-    case permissions
-
-    static let storageKey = "dockPreviews.mainTab"
-    static let defaultTab = DockFunctionTab.features
-
-    var title: String {
-        switch self {
-        case .permissions: "Permissions"
-        case .features: "Features"
-        case .previews: "Previews"
-        case .switcher: "Switcher"
-        case .cmdTab: "Cmd+Tab"
-        case .locking: "Lock"
-        case .customize: "Customize"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .permissions: "lock.shield"
-        case .features: "dock.rectangle"
-        case .previews: "rectangle.on.rectangle"
-        case .switcher: "square.grid.2x2"
-        case .cmdTab: "command"
-        case .locking: "lock.rectangle"
-        case .customize: "slider.horizontal.3"
-        }
-    }
-
-    static func storedSelection(_ raw: String?) -> Self {
-        guard let raw else { return defaultTab }
-        switch raw {
-        case "overview": return .permissions
-        case "settings", "dock": return .features
-        case "customizations": return .customize
-        default:
-            return Self(rawValue: raw) ?? defaultTab
         }
     }
 }

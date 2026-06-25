@@ -31,6 +31,9 @@ struct UnifiedPermissionsView: View {
                 }
 
                 LoginItemOnboardingCard()
+                Text("You can defer any permission and finish it later in System Settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .onAppear {
@@ -61,7 +64,7 @@ struct UnifiedPermissionsView: View {
             }
             if !granted {
                 HStack(spacing: 8) {
-                    MAYNButton("Later") {
+                    MAYNButton("Later in Settings") {
                         deferredPermissions.insert(permission)
                         DeferredPermissionsStore.markDeferred(permission)
                     }

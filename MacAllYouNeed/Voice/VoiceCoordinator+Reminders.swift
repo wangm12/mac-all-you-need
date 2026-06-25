@@ -11,6 +11,7 @@ extension VoiceCoordinator {
     /// next run, then starts recording exactly like dictation. When a recording
     /// is already in flight, this commits it (the hotkey is a toggle).
     func toggleReminderRecording() async {
+        guard voiceRemindersEnabled() else { return }
         if state == .recording {
             await stopRecordingAndPaste()
             return
@@ -22,9 +23,10 @@ extension VoiceCoordinator {
 
     /// Promotes a `.dictation` run to `.reminder` when the transcript opens with
     /// a spoken reminder prefix. Never demotes a hotkey-forced intent; gated by
-    /// `spokenPrefixEnabled`.
+    /// `spokenPrefixEnabled`, and the Voice Reminders feature runtime state.
     func maybePromoteToReminderIntent(rawText: String?) {
-        guard activeIntent == .dictation,
+        guard voiceRemindersEnabled(),
+              activeIntent == .dictation,
               reminderSettings().spokenPrefixEnabled,
               let rawText,
               SpokenReminderPrefixDetector.isReminder(rawText)
@@ -36,7 +38,8 @@ extension VoiceCoordinator {
     /// The reminder writer for the current run. Tests inject via
     /// `reminderWriterOverride`; production wires `RemindersServiceWriter`.
     func resolveReminderWriter() -> (any RemindersWriter)? {
-        reminderWriterOverride
+        guard voiceRemindersEnabled() else { return nil }
+        return reminderWriterOverride
     }
 
     /// Terminal reminder step: write to Apple Reminders, then tear the run down

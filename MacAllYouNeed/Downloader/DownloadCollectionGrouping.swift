@@ -7,10 +7,8 @@ enum DownloadCollectionGrouping {
         let title: String
         let kind: DownloadCollectionKind?
         let records: [DownloadRecord]
-
-        var completedCount: Int {
-            records.filter { $0.state == .completed }.count
-        }
+        let latestCreated: Date
+        let completedCount: Int
 
         var totalCount: Int { records.count }
     }
@@ -40,28 +38,45 @@ enum DownloadCollectionGrouping {
         }
 
         var output: [ListItem] = []
-        for (collectionID, members) in grouped {
+        let groupedKeys = grouped.keys.sorted()
+        for collectionID in groupedKeys {
+            guard let members = grouped[collectionID] else { continue }
             let sorted = members.sorted {
-                ($0.collectionIndex ?? Int.max) < ($1.collectionIndex ?? Int.max)
+                let lhs = $0.collectionIndex ?? Int.max
+                let rhs = $1.collectionIndex ?? Int.max
+                if lhs != rhs { return lhs < rhs }
+                return $0.created < $1.created
             }
+            let summary = summary(for: sorted)
             let title = sorted.first?.collectionTitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 ?? "Collection"
             output.append(.group(Group(
                 id: collectionID,
                 title: title,
                 kind: sorted.first?.collectionKind,
-                records: sorted
+                records: sorted,
+                latestCreated: summary.latestCreated,
+                completedCount: summary.completed
             )))
         }
 
-        output.sort { lhs, rhs in
-            latestCreated(lhs) > latestCreated(rhs)
-        }
+        output.sort { lhs, rhs in latestCreated(lhs) > latestCreated(rhs) }
 
         for record in ungrouped.sorted(by: { $0.created > $1.created }) {
             output.append(.single(record))
         }
         return output
+    }
+
+    static func summary(for records: [DownloadRecord]) -> (completed: Int, total: Int, latestCreated: Date) {
+        guard let first = records.first else { return (0, 0, .distantPast) }
+        var completed = 0
+        var latestCreated = first.created
+        for record in records {
+            if record.state == .completed { completed += 1 }
+            if record.created > latestCreated { latestCreated = record.created }
+        }
+        return (completed, records.count, latestCreated)
     }
 
     static func aggregateProgress(
@@ -101,7 +116,7 @@ enum DownloadCollectionGrouping {
     private static func latestCreated(_ item: ListItem) -> Date {
         switch item {
         case let .group(group):
-            group.records.map(\.created).max() ?? .distantPast
+            group.latestCreated
         case let .single(record):
             record.created
         }

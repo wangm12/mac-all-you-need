@@ -105,7 +105,7 @@ enum DashboardToolTilePresentation {
             (.aiFileOrganizer, .aiFileOrganizer),
             (.windowLayouts, .windowLayouts),
             (.grabAnywhere, .windowGrab),
-            (.dockPreviews, .dockPreviews)
+            (.windowHub, .windowHub)
         ]
 
         return orderedDestinations.compactMap { (destination, featureID) in
@@ -132,7 +132,10 @@ enum DashboardToolTilePresentation {
         hotkeys: [HotkeyAction: [Platform.HotkeyDescriptor]] = [:],
         voiceSettings: VoiceActivationSettings = .default,
         windowControlSettings: WindowControlSettings = WindowControlSettingsStore.load(),
-        windowControlAXTrusted: Bool = AXIsProcessTrusted()
+        windowControlAXTrusted: Bool = AXIsProcessTrusted(),
+        windowControlState: WindowControlCoordinator.State = .active,
+        windowLayoutsFeatureEnabled: Bool = true,
+        windowGrabFeatureEnabled: Bool = true
     ) -> [DashboardToolTileItem] {
         [
             DashboardToolTileItem(
@@ -209,8 +212,18 @@ enum DashboardToolTilePresentation {
                 detail: "Arrange, snap, and restore windows.",
                 symbolName: "rectangle.3.group",
                 shortcutDisplay: nil,
-                statusText: windowLayoutsStatusText(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
-                statusKind: windowLayoutsStatusKind(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
+                statusText: WindowControlActionPresentation.dashboardStatusText(
+                    for: windowControlState,
+                    featureEnabled: windowLayoutsFeatureEnabled,
+                    gestureEnabled: windowControlSettings.enabled,
+                    axTrusted: windowControlAXTrusted
+                ),
+                statusKind: WindowControlActionPresentation.dashboardStatusKind(
+                    for: windowControlState,
+                    featureEnabled: windowLayoutsFeatureEnabled,
+                    gestureEnabled: windowControlSettings.enabled,
+                    axTrusted: windowControlAXTrusted
+                ),
                 featureID: .windowLayouts
             ),
             DashboardToolTileItem(
@@ -220,20 +233,30 @@ enum DashboardToolTilePresentation {
                 detail: "Move windows by holding a modifier and dragging.",
                 symbolName: "hand.draw",
                 shortcutDisplay: nil,
-                statusText: grabAnywhereStatusText(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
-                statusKind: grabAnywhereStatusKind(settings: windowControlSettings, axTrusted: windowControlAXTrusted),
+                statusText: WindowControlActionPresentation.dashboardStatusText(
+                    for: windowControlState,
+                    featureEnabled: windowGrabFeatureEnabled,
+                    gestureEnabled: windowControlSettings.dragAnywhereEnabled,
+                    axTrusted: windowControlAXTrusted
+                ),
+                statusKind: WindowControlActionPresentation.dashboardStatusKind(
+                    for: windowControlState,
+                    featureEnabled: windowGrabFeatureEnabled,
+                    gestureEnabled: windowControlSettings.dragAnywhereEnabled,
+                    axTrusted: windowControlAXTrusted
+                ),
                 featureID: .windowGrab
             ),
             DashboardToolTileItem(
-                destination: .dockPreviews,
-                title: "Dock Hover Previews",
+                destination: .windowHub,
+                title: "Windows",
                 metric: nil,
-                detail: "See window thumbnails when hovering an app's Dock icon.",
-                symbolName: "dock.rectangle",
-                shortcutDisplay: nil,
-                statusText: nil,
-                statusKind: nil,
-                featureID: .dockPreviews
+                detail: "Search apps, windows, and tabs. Switch, clean up, or organize with AI.",
+                symbolName: "macwindow.on.rectangle",
+                shortcutDisplay: MainHotkeyPresentation.display(for: .windowHub, in: hotkeys),
+                statusText: windowHubStatusText(axTrusted: windowControlAXTrusted),
+                statusKind: windowHubStatusKind(axTrusted: windowControlAXTrusted),
+                featureID: .windowHub
             )
         ]
     }
@@ -260,7 +283,7 @@ enum DashboardToolTilePresentation {
             Color(red: 0.20, green: 0.48, blue: 0.72)
         case .grabAnywhere:
             Color(red: 0.24, green: 0.46, blue: 0.36)
-        case .dockPreviews:
+        case .windowHub:
             Color(red: 0.10, green: 0.42, blue: 0.92)
         case .finderHistory:
             Color(red: 0.86, green: 0.46, blue: 0.12)
@@ -286,17 +309,25 @@ enum DashboardToolTilePresentation {
     }
 
     private static func grabAnywhereStatusText(settings: WindowControlSettings, axTrusted: Bool) -> String? {
-        guard settings.enabled, settings.dragAnywhereEnabled else {
+        guard settings.dragAnywhereEnabled else {
             return "Off"
         }
         return axTrusted ? nil : "Needs Accessibility"
     }
 
     private static func grabAnywhereStatusKind(settings: WindowControlSettings, axTrusted: Bool) -> StatusPill.Kind? {
-        guard settings.enabled, settings.dragAnywhereEnabled else {
+        guard settings.dragAnywhereEnabled else {
             return .neutral
         }
         return axTrusted ? nil : .warning
+    }
+
+    private static func windowHubStatusText(axTrusted: Bool) -> String? {
+        axTrusted ? nil : "Needs Accessibility"
+    }
+
+    private static func windowHubStatusKind(axTrusted: Bool) -> StatusPill.Kind? {
+        axTrusted ? nil : .warning
     }
 }
 
@@ -339,7 +370,7 @@ enum MainSidebarBadgePresentation {
             let count = inProgressDownloadCount(in: records)
             return count > 0 ? "\(count)" : nil
         case .dashboard, .clipboard, .voice, .voiceReminders, .folderPreview, .finderHistory,
-             .snippets, .windowLayouts, .grabAnywhere, .dockPreviews, .aiFileOrganizer, .settings:
+             .snippets, .windowLayouts, .grabAnywhere, .windowHub, .aiFileOrganizer, .settings:
             return nil
         }
     }
@@ -361,7 +392,7 @@ enum MainSidebarDestinationPresentation {
         .finderHistory: .folderHistory,
         .windowLayouts: .windowLayouts,
         .grabAnywhere: .windowGrab,
-        .dockPreviews: .dockPreviews
+        .windowHub: .windowHub
     ]
 
     static func featureID(for destination: MainAppDestination) -> FeatureID? {
@@ -429,7 +460,7 @@ enum DashboardToolSettingsNavigation {
                 tabRawValue: ClipboardFunctionTab.snippets.rawValue
             )
         case .windowLayouts, .grabAnywhere, .dashboard, .settings,
-             .voiceReminders, .finderHistory, .aiFileOrganizer, .dockPreviews:
+             .voiceReminders, .finderHistory, .aiFileOrganizer, .windowHub:
             DashboardToolSettingsRoute(
                 destination: destination,
                 tabStorageKey: nil,
@@ -443,7 +474,7 @@ enum DashboardToolOpenNavigation {
     static func route(for destination: MainAppDestination) -> DashboardToolSettingsRoute {
         switch destination {
         case .dashboard, .clipboard, .voice, .voiceReminders, .downloads, .aiFileOrganizer,
-             .folderPreview, .finderHistory, .snippets, .windowLayouts, .grabAnywhere, .dockPreviews, .settings:
+             .folderPreview, .finderHistory, .snippets, .windowLayouts, .grabAnywhere, .windowHub, .settings:
             DashboardToolSettingsRoute(destination: destination, tabStorageKey: nil, tabRawValue: nil)
         }
     }
@@ -493,8 +524,10 @@ enum MainToolHeaderShortcutModel {
             voiceSettings.shortcut.display
         case .folderPreview:
             "Space"
+        case .windowHub:
+            MainHotkeyPresentation.display(for: .windowHub, in: hotkeys)
         case .windowLayouts, .grabAnywhere, .dashboard, .settings,
-             .voiceReminders, .finderHistory, .aiFileOrganizer, .dockPreviews:
+             .voiceReminders, .finderHistory, .aiFileOrganizer:
             nil
         }
     }
@@ -522,8 +555,15 @@ enum MainToolHeaderShortcutModel {
                 systemHotkeys: systemHotkeys
             )?.message
         case .folderPreview, .snippets, .windowLayouts, .grabAnywhere, .dashboard, .settings,
-             .voiceReminders, .finderHistory, .aiFileOrganizer, .dockPreviews:
+             .voiceReminders, .finderHistory, .aiFileOrganizer:
             return nil
+        case .windowHub:
+            return appHotkeyIssue(
+                for: .windowHub,
+                hotkeys: hotkeys,
+                voiceSettings: voiceSettings,
+                systemHotkeys: systemHotkeys
+            )
         }
     }
 

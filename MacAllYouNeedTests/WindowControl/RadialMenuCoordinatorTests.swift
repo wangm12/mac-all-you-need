@@ -27,14 +27,42 @@ final class RadialMenuCoordinatorTests: XCTestCase {
         }
     }
 
-    @MainActor func testCommitCallsPerformer() {
+    @MainActor func testCommitCallsPerformerForTopHalf() {
         let performer = FakeRadialActionPerformer()
         let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
         coord.open(at: .zero)
-        coord.update(cursorAt: CGPoint(x: 0, y: -100)) // top = ring 0
+        coord.update(cursorAt: CGPoint(x: 0, y: -50))
         coord.commit()
         XCTAssertEqual(performer.performed.count, 1)
         XCTAssertEqual(performer.performed.first, .topHalf)
+    }
+
+    @MainActor func testCommitCallsPerformerForFillScreen() async {
+        let performer = FakeRadialActionPerformer()
+        let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
+        coord.open(at: .zero)
+        let far = CGPoint(x: 0, y: -140)
+        coord.update(cursorAt: far)
+        try? await Task.sleep(for: .milliseconds(200))
+        coord.update(cursorAt: far)
+        coord.commit()
+        XCTAssertEqual(performer.performed.count, 1)
+        XCTAssertEqual(performer.performed.first, .maximize)
+        XCTAssertEqual(coord.selection, .fullScreen)
+    }
+
+    @MainActor func testCommitCallsPerformerForFillScreenLongPullRight() async {
+        let performer = FakeRadialActionPerformer()
+        let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
+        coord.open(at: .zero)
+        let far = CGPoint(x: 140, y: 0)
+        coord.update(cursorAt: far)
+        try? await Task.sleep(for: .milliseconds(200))
+        coord.update(cursorAt: far)
+        coord.commit()
+        XCTAssertEqual(performer.performed.count, 1)
+        XCTAssertEqual(performer.performed.first, .maximize)
+        XCTAssertEqual(coord.selection, .fullScreen)
     }
 
     @MainActor func testCancelProducesNoAction() {
@@ -46,40 +74,48 @@ final class RadialMenuCoordinatorTests: XCTestCase {
         if case .cancelled = coord.state {} else { XCTFail("expected cancelled state") }
     }
 
-    @MainActor func testCloseZoneHighlightsThenCommitDismisses() {
-        let performer = FakeRadialActionPerformer()
-        let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
-        let center = CGPoint(x: 200, y: 200)
-        coord.open(at: center)
-        let closeCursor = CGPoint(
-            x: center.x + RadialMenuMetrics.closePillCenterOffset.x,
-            y: center.y + RadialMenuMetrics.closePillCenterOffset.y
-        )
-        coord.update(cursorAt: closeCursor)
-        XCTAssertEqual(coord.selection, .cancel)
-        if case .open = coord.state {} else {
-            XCTFail("expected menu to stay open while hovering close")
-        }
-        coord.commit()
-        XCTAssertEqual(performer.performed.count, 0)
-        if case .cancelled = coord.state {} else {
-            XCTFail("expected cancelled state after commit")
-        }
-    }
-
     @MainActor func testNoSelectionCancelCommit() {
         let performer = FakeRadialActionPerformer()
         let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
         coord.open(at: .zero)
-        // No cursor update: selection stays .none; commit should cancel, not maximize.
         coord.commit()
         XCTAssertEqual(performer.performed.count, 0)
+    }
+
+    @MainActor func testKeyboardSelectFillScreen() {
+        let performer = FakeRadialActionPerformer()
+        let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
+        coord.open(at: .zero)
+        coord.select(action: .maximize)
+        XCTAssertEqual(coord.selection, .fullScreen)
+        coord.commit()
+        XCTAssertEqual(performer.performed.first, .maximize)
     }
 
     @MainActor func testUpdateResolvesProposedFrame() {
         let coord = RadialMenuCoordinator(actionPerformer: FakeRadialActionPerformer(), frameResolver: FakeRadialFrameResolver())
         coord.open(at: .zero)
-        coord.update(cursorAt: CGPoint(x: 0, y: -100))
+        coord.update(cursorAt: CGPoint(x: 0, y: -50))
         XCTAssertEqual(coord.proposedFrame, CGRect(x: 0, y: 0, width: 800, height: 600))
+    }
+
+    @MainActor func testUnavailabilityBlocksCommit() {
+        let performer = FakeRadialActionPerformer()
+        let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
+        coord.open(at: .zero)
+        coord.update(cursorAt: CGPoint(x: 0, y: -50))
+        coord.setUnavailability(.noMovableWindow)
+        coord.commit()
+        XCTAssertEqual(performer.performed.count, 0)
+    }
+
+    @MainActor func testCannotResizeBlocksCommit() {
+        let performer = FakeRadialActionPerformer()
+        let coord = RadialMenuCoordinator(actionPerformer: performer, frameResolver: FakeRadialFrameResolver())
+        coord.open(at: .zero)
+        coord.update(cursorAt: CGPoint(x: 0, y: -50))
+        coord.setUnavailability(.cannotResize)
+        coord.commit()
+        XCTAssertEqual(performer.performed.count, 0)
     }
 }

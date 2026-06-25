@@ -100,6 +100,8 @@ final class WindowControlCoordinator {
     @ObservationIgnored lazy var radialPreviewController = RadialPreviewController(viewModel: radialPreviewViewModel)
     @ObservationIgnored lazy var radialTargetHighlightController = RadialTargetHighlightController()
     @ObservationIgnored var radialEscMonitor: Any?
+    /// Cached AX target for the open radial session (refreshed on open / keyboard select only).
+    @ObservationIgnored var radialSessionTargetWindow: WindowAccessibilityElement?
     @ObservationIgnored private let activeWindowBorder = ActiveWindowBorderController()
     @ObservationIgnored private let spaceMover = WindowSpaceMover()
 
@@ -121,16 +123,16 @@ final class WindowControlCoordinator {
         } else {
             self.actionPerformer = WindowKeyboardActionPerformer()
         }
-        if let keyboardPerformer = self.actionPerformer as? WindowKeyboardActionPerformer {
-            keyboardPerformer.repeatHalfAcrossDisplays = settings.repeatHalfAcrossDisplays
-        }
         self.restoreHistory = restoreHistory
         self.accessibilityTrust = accessibilityTrust
         self.frontmostBundleID = frontmostBundleID
         self.onHotkeyRegistrationNeedsRefresh = onHotkeyRegistrationNeedsRefresh
         axTrusted = accessibilityTrust()
+        if let keyboardPerformer = self.actionPerformer as? WindowKeyboardActionPerformer {
+            keyboardPerformer.repeatHalfAcrossDisplays = settings.repeatHalfAcrossDisplays
+        }
         (self.tap as? WindowControlMovementReportingTap)?.setMovementHandler { [weak self] action, result, identity in
-            self?.recordMovement(action: action, result: result, identity: identity)
+            self?.handleMovementResult(action: action, result: result, identity: identity)
         }
         if let eventTap = self.tap as? WindowControlEventTap {
             let snapOverlay = WindowSnapOverlayPanel()
@@ -207,6 +209,7 @@ final class WindowControlCoordinator {
         if let eventTap = tap as? WindowControlEventTap {
             eventTap.updateRuntime(radialMenuEnabled: settings.radialMenuEnabled)
         }
+        retryAfterRecoverableErrorIfNeeded()
         reconcileLifecycle()
         onHotkeyRegistrationNeedsRefresh()
     }
@@ -237,6 +240,8 @@ final class WindowControlCoordinator {
         radialFrameMover.animationConfiguration = animationConfig
         if next.disableSequoiaTilingHotkeys {
             WindowControlPrivateAPI.applySequoiaTilingMitigation(disabled: true)
+        } else {
+            WindowControlPrivateAPI.applySequoiaTilingMitigation(disabled: false)
         }
         activeWindowBorder.apply(settings: next, runtimeEnabled: layoutsRuntimeEnabled)
         if radialChanged {
@@ -245,6 +250,7 @@ final class WindowControlCoordinator {
             // reconcileLifecycle restart it with the updated mask.
             (tap as? WindowControlEventTap)?.updateRuntime(radialMenuEnabled: next.radialMenuEnabled)
         }
+        retryAfterRecoverableErrorIfNeeded()
         reconcileLifecycle()
         if layoutsRuntimeChanged || wasAvailable != windowActionPerformerAvailable {
             onHotkeyRegistrationNeedsRefresh()
@@ -266,6 +272,7 @@ final class WindowControlCoordinator {
         let wasAvailable = windowActionPerformerAvailable
         let wasRegisterable = windowLayoutHotkeysRegisterable
         axTrusted = trusted ?? accessibilityTrust()
+        retryAfterRecoverableErrorIfNeeded()
         reconcileLifecycle()
         if wasAvailable != windowActionPerformerAvailable || wasRegisterable != windowLayoutHotkeysRegisterable {
             onHotkeyRegistrationNeedsRefresh()
@@ -299,8 +306,7 @@ final class WindowControlCoordinator {
             return
         }
         if let bundleID = frontmostBundleID(),
-           settings.ignoredBundleIDs.contains(bundleID)
-            || WindowRulesEngine(rules: settings.windowRules).shouldIgnore(bundleID: bundleID, title: nil)
+           shouldIgnoreFrontmost(bundleID: bundleID)
         {
             state = .suspended(.ignoredApp)
             return
@@ -311,6 +317,8 @@ final class WindowControlCoordinator {
             return
         }
 
+        let identity = actionPerformer.currentIdentity
+
         switch action {
         case .nextSpace, .previousSpace:
             performSpaceMove(action)
@@ -319,11 +327,13 @@ final class WindowControlCoordinator {
             break
         }
 
-        let identity = actionPerformer.currentIdentity
         let restoreFrame = action == .restore ? identity.flatMap { restoreHistory.restoreFrame(for: $0) } : nil
         let result = actionPerformer.perform(action, restoreFrame: restoreFrame)
         if let result {
-            recordMovement(action: action, result: result, identity: identity)
+            handleMovementResult(action: action, result: result, identity: identity)
+            if settings.animateWindowMoves {
+                wireAnimatedMoveCompletionIfNeeded(action: action)
+            }
         } else {
             lastAction = action
             lastMovementResult = nil
@@ -378,7 +388,7 @@ final class WindowControlCoordinator {
     }
 
     private var grabRuntimeEnabled: Bool {
-        featureAvailability.windowGrabEnabled && settings.enabled && settings.dragAnywhereEnabled
+        featureAvailability.windowGrabEnabled && settings.dragAnywhereEnabled
     }
 
     private var anyRuntimeBehaviorEnabled: Bool {
@@ -388,6 +398,10 @@ final class WindowControlCoordinator {
     /// Turns on the layouts master switch when the Window Layouts feature is active.
     /// There is no separate UI for `settings.enabled`; leaving it off prevented hotkeys from registering.
     private func performSpaceMove(_ action: WindowAction) {
+        if let bundleID = frontmostBundleID(), shouldIgnoreFrontmost(bundleID: bundleID) {
+            state = .suspended(.ignoredApp)
+            return
+        }
         guard let app = NSWorkspace.shared.frontmostApplication else { return }
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var value: CFTypeRef?
@@ -402,7 +416,95 @@ final class WindowControlCoordinator {
         }
         lastAction = action
         lastMovementResult = nil
-        _ = result
+        presentSpaceMoveFeedback(result)
+    }
+
+    private func presentSpaceMoveFeedback(_ result: WindowSpaceMoveResult) {
+        switch result {
+        case .moved:
+            return
+        case .unavailable:
+            CopyHUD.show("Couldn't move window to another Space", symbol: "exclamationmark.triangle.fill")
+        case .separateSpacesDisabled:
+            CopyHUD.show(
+                "Turn on \"Displays have separate Spaces\" in System Settings",
+                symbol: "rectangle.split.2x1"
+            )
+        case .windowNotFound:
+            CopyHUD.show("No movable window found for Space move", symbol: "rectangle.slash")
+        }
+    }
+
+    private func shouldIgnoreFrontmost(bundleID: String) -> Bool {
+        if settings.ignoredBundleIDs.contains(bundleID) { return true }
+        let title = focusedWindowTitle()
+        return WindowRulesEngine(rules: settings.windowRules).shouldIgnore(bundleID: bundleID, title: title)
+    }
+
+    private func focusedWindowTitle() -> String? {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
+              let axWindow = value,
+              CFGetTypeID(axWindow) == AXUIElementGetTypeID()
+        else { return nil }
+        return WindowAccessibilityElement(axWindow as! AXUIElement).windowTitle
+    }
+
+    private func wireAnimatedMoveCompletionIfNeeded(action _: WindowAction) {
+        guard settings.animateWindowMoves else { return }
+        guard let keyboardPerformer = actionPerformer as? WindowKeyboardActionPerformer else { return }
+        let generation = keyboardPerformer.lastAnimatedMoveGeneration
+        keyboardPerformer.setAnimatedMoveCompletion(for: generation) { [weak self] result in
+            guard let self else { return }
+            self.lastMovementResult = result
+            self.presentMovementFeedback(for: result)
+        }
+    }
+
+    private func handleMovementResult(
+        action: WindowAction,
+        result: WindowMovementResult,
+        identity: WindowIdentity?
+    ) {
+        if action != .restore, let identity, result.status == .moved {
+            restoreHistory.store(result.originalFrame, for: identity)
+        }
+        lastAction = action
+        lastMovementResult = result
+        guard !isAnimatedInterimResult(result) else { return }
+        presentMovementFeedback(for: result)
+    }
+
+    private func isAnimatedInterimResult(_ result: WindowMovementResult) -> Bool {
+        settings.animateWindowMoves
+            && result.proposedFrame != nil
+            && result.resultingFrame == result.originalFrame
+    }
+
+    private func presentMovementFeedback(for result: WindowMovementResult) {
+        if result.status == .moved, settings.snapHapticsEnabled {
+            NSHapticFeedbackManager.defaultPerformer.perform(
+                .alignment,
+                performanceTime: .default
+            )
+        }
+        WindowControlMovementFeedback.present(status: result.status, axTrusted: axTrusted)
+    }
+
+    private func recordMovement(
+        action: WindowAction,
+        result: WindowMovementResult,
+        identity: WindowIdentity?
+    ) {
+        handleMovementResult(action: action, result: result, identity: identity)
+    }
+
+    func retryAfterRecoverableErrorIfNeeded() {
+        guard case .error = state else { return }
+        guard anyRuntimeBehaviorEnabled, axTrusted, !suspendedForHotkeyRecording else { return }
+        reconcileLifecycle()
     }
 
     private func syncLayoutsMasterSwitchWithFeature() {
@@ -411,25 +513,6 @@ final class WindowControlCoordinator {
         next.enabled = true
         settings = next
         WindowControlSettingsStore.save(next)
-    }
-
-    private func recordMovement(
-        action: WindowAction,
-        result: WindowMovementResult,
-        identity: WindowIdentity?
-    ) {
-        lastAction = action
-        lastMovementResult = result
-        if result.status == .moved, settings.snapHapticsEnabled {
-            NSHapticFeedbackManager.defaultPerformer.perform(
-                .alignment,
-                performanceTime: .default
-            )
-        }
-        WindowControlMovementFeedback.present(status: result.status, axTrusted: axTrusted)
-        if action != .restore, let identity, result.status == .moved {
-            restoreHistory.store(result.originalFrame, for: identity)
-        }
     }
 }
 

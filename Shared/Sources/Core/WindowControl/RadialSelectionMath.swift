@@ -1,66 +1,185 @@
 import CoreGraphics
 import Foundation
 
-/// Pure cursor angle/distance to ring-index selection math.
+/// Pure cursor angle/distance to puck HUD selection math.
 /// No AppKit, no UI imports — fully testable.
 public enum RadialSelectionMath {
-    /// Minimum cursor travel from menu center before a ring segment is selected.
-    public static let activationDistance: CGFloat = 12
-    /// Inside this radius selects the center maximize action (matches the visible center button).
-    /// The center band is exempt from `activationDistance` so the icon hub arms on hover, not only
-    /// the annulus between the dead zone and the button edge.
-    public static var centerBandRadius: CGFloat { RadialMenuMetrics.centerSelectionRadius }
-    public static let ringCount = 8
+    public static let ringCount = RadialPuckMetrics.ringCount
 
-    /// Result of mapping a center-to-cursor vector onto the radial menu.
-    /// - `.center` if within the center band
-    /// - `.ring(index)` for the outer ring (0 = top, clockwise)
-    /// - `.none` if the cursor has not moved far enough to arm a ring segment
     public enum Selection: Equatable, Hashable {
         case none
-        case center
         case ring(Int)
-        /// Cursor is over the top-leading close pill; dismiss without applying a layout.
-        case cancel
+        case fullScreen
     }
 
-    /// Whether `cursor` is inside the close pill for a menu centered at `menuCenter`.
-    public static func closeZoneContains(cursor: CGPoint, menuCenter: CGPoint) -> Bool {
-        RadialMenuMetrics.closePillRect(menuCenter: menuCenter).contains(cursor)
+    /// Stateful hysteresis for stable selection near boundaries.
+    public struct SelectionState: Equatable {
+        public var isArmed: Bool
+        public var lastRingIndex: Int?
+        public var isFullScreen: Bool
+        /// Monotonic clock time when the cursor first crossed `fullScreenEnterDistance`.
+        public var fullScreenArmingStartedAt: TimeInterval?
+
+        public init(
+            isArmed: Bool = false,
+            lastRingIndex: Int? = nil,
+            isFullScreen: Bool = false,
+            fullScreenArmingStartedAt: TimeInterval? = nil
+        ) {
+            self.isArmed = isArmed
+            self.lastRingIndex = lastRingIndex
+            self.isFullScreen = isFullScreen
+            self.fullScreenArmingStartedAt = fullScreenArmingStartedAt
+        }
     }
 
-    /// Inputs are in CG display coordinates where +Y points down (matching
-    /// `CGEvent.location`). `delta` is `cursor - menuCenter`.
+    public static func action(for selection: Selection) -> WindowAction? {
+        switch selection {
+        case .none:
+            nil
+        case let .ring(index):
+            RadialMenuLayout.action(forRingIndex: index)
+        case .fullScreen:
+            RadialMenuLayout.fillScreenAction
+        }
+    }
+
+    /// `delta` is `cursor - menuCenter` in CG display coordinates (+Y down).
+    /// Pass `now` (monotonic seconds, e.g. `ProcessInfo.processInfo.systemUptime`) to apply
+    /// Fill Screen dwell; omit for instantaneous distance-only behavior (tests).
     public static func selection(
         from delta: CGPoint,
-        cursor: CGPoint? = nil,
-        menuCenter: CGPoint? = nil,
-        activationDistance: CGFloat = RadialSelectionMath.activationDistance
+        state: inout SelectionState,
+        now: TimeInterval? = nil
     ) -> Selection {
-        if let cursor, let menuCenter, closeZoneContains(cursor: cursor, menuCenter: menuCenter) {
-            return .cancel
-        }
-        let distance = sqrt(delta.x * delta.x + delta.y * delta.y)
-        if distance < centerBandRadius { return .center }
-        guard distance >= activationDistance else { return .none }
+        let distance = hypot(delta.x, delta.y)
 
-        // Angle measured from the top (up), increasing clockwise. In CG coords
-        // up is -Y, so negate the Y component before atan2.
+        if state.isArmed {
+            if distance < RadialPuckMetrics.armedExitDistance {
+                state = SelectionState()
+                return .none
+            }
+        } else if distance < RadialPuckMetrics.armedEnterDistance {
+            return .none
+        } else {
+            state.isArmed = true
+        }
+
+        let rawRingIndex = rawRingIndex(from: delta)
+        let ringIndex = applyAngleHysteresis(
+            rawIndex: rawRingIndex,
+            lastIndex: state.lastRingIndex,
+            delta: delta
+        )
+        state.lastRingIndex = ringIndex
+
+        if state.isFullScreen {
+            if distance < RadialPuckMetrics.fullScreenExitDistance {
+                state.isFullScreen = false
+                state.fullScreenArmingStartedAt = nil
+                return .ring(ringIndex)
+            }
+            return .fullScreen
+        }
+
+        if distance >= RadialPuckMetrics.fullScreenEnterDistance {
+            if let now {
+                if state.fullScreenArmingStartedAt == nil {
+                    state.fullScreenArmingStartedAt = now
+                }
+                if now - (state.fullScreenArmingStartedAt ?? now) < RadialPuckMetrics.fullScreenEnterDwell {
+                    state.isFullScreen = false
+                    return .ring(ringIndex)
+                }
+            }
+            state.isFullScreen = true
+            state.fullScreenArmingStartedAt = nil
+            return .fullScreen
+        }
+
+        state.fullScreenArmingStartedAt = nil
+        state.isFullScreen = false
+        return .ring(ringIndex)
+    }
+
+    /// Distance from anchor for rendering the active puck along the aim ray.
+    public static func displayDistance(for delta: CGPoint, selection: Selection) -> CGFloat {
+        let distance = hypot(delta.x, delta.y)
+        if distance >= RadialPuckMetrics.fullScreenExitDistance {
+            return min(
+                max(distance, RadialPuckMetrics.armedEnterDistance),
+                RadialPuckMetrics.fullScreenRayMaxRadius
+            )
+        }
+        switch selection {
+        case .none:
+            return 0
+        case .fullScreen:
+            return min(
+                max(distance, RadialPuckMetrics.armedEnterDistance),
+                RadialPuckMetrics.fullScreenRayMaxRadius
+            )
+        case .ring:
+            return min(max(distance, RadialPuckMetrics.armedEnterDistance), RadialPuckMetrics.guideRingRadius)
+        }
+    }
+
+    /// Whether the puck HUD should track live cursor aim instead of canonical ring angles.
+    public static func usesCursorAim(for delta: CGPoint, selection: Selection) -> Bool {
+        if selection == .fullScreen { return true }
+        return hypot(delta.x, delta.y) >= RadialPuckMetrics.fullScreenExitDistance
+    }
+
+    public static func aimAngleRadians(for delta: CGPoint) -> CGFloat {
         let angle = atan2(delta.x, -delta.y)
-        let normalized = angle < 0 ? angle + 2 * .pi : angle
+        return angle < 0 ? angle + 2 * .pi : angle
+    }
+
+    public static func aimAngleRadians(forRingIndex index: Int) -> CGFloat {
+        RadialMenuLayout.canonicalAngleRadians(forRingIndex: index)
+    }
+
+    public static func syntheticDelta(
+        for selection: Selection,
+        distance: CGFloat = RadialPuckMetrics.keyboardRingDistance
+    ) -> CGPoint {
+        switch selection {
+        case .none:
+            return .zero
+        case .fullScreen:
+            return CGPoint(x: 0, y: -distance)
+        case let .ring(index):
+            let angle = RadialMenuLayout.canonicalAngleRadians(forRingIndex: index)
+            return CGPoint(x: sin(angle) * distance, y: -cos(angle) * distance)
+        }
+    }
+
+    private static func rawRingIndex(from delta: CGPoint) -> Int {
+        let angle = aimAngleRadians(for: delta)
         let segmentWidth = 2 * CGFloat.pi / CGFloat(ringCount)
-        // Offset by half a segment so each ring action is centered on its
-        // cardinal/diagonal direction rather than starting at it.
-        let shifted = (normalized + segmentWidth / 2).truncatingRemainder(dividingBy: 2 * .pi)
-        let segment = Int(shifted / segmentWidth) % ringCount
-        return .ring(segment)
+        let shifted = (angle + segmentWidth / 2).truncatingRemainder(dividingBy: 2 * .pi)
+        return Int(shifted / segmentWidth) % ringCount
+    }
+
+    private static func applyAngleHysteresis(rawIndex: Int, lastIndex: Int?, delta: CGPoint) -> Int {
+        guard let lastIndex else { return rawIndex }
+        if rawIndex == lastIndex { return lastIndex }
+
+        let angle = aimAngleRadians(for: delta)
+        let segmentWidth = 2 * CGFloat.pi / CGFloat(ringCount)
+        let lastCenter = CGFloat(lastIndex) * segmentWidth
+        var diff = angle - lastCenter
+        while diff > .pi { diff -= 2 * .pi }
+        while diff < -.pi { diff += 2 * .pi }
+
+        let halfSegment = segmentWidth / 2
+        if abs(diff) < halfSegment + RadialPuckMetrics.angleHysteresisRadians {
+            return lastIndex
+        }
+        return rawIndex
     }
 
     /// Compensates for macOS cursor pinning at the **desktop** perimeter while the radial menu is open.
-    ///
-    /// Uses `desktopBounds` (union of all displays) so inter-monitor edges are not treated as
-    /// pinned edges — that mismatch caused the cursor to appear stuck or loop on one screen
-    /// when multiple monitors were attached.
     public struct EdgeClamp {
         private var latest: CGPoint
         private let desktopBounds: CGRect
@@ -84,7 +203,7 @@ public enum RadialSelectionMath {
             }
 
             let edgeThreshold: CGFloat = 1
-            let maxOffset = RadialSelectionMath.activationDistance + RadialSelectionMath.centerBandRadius
+            let maxOffset = RadialPuckMetrics.armedEnterDistance + RadialPuckMetrics.guideRingRadius
 
             let atMinX = abs(current.x - desktopBounds.minX) < edgeThreshold
             let atMaxX = abs(current.x - desktopBounds.maxX) < edgeThreshold

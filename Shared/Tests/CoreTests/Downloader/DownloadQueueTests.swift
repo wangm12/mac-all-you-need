@@ -39,6 +39,156 @@ final class DownloadQueueTests: XCTestCase {
         await fulfillment(of: [cancelled], timeout: 1)
     }
 
+    func testEnqueueBatchStartsJobsWithoutDuplicatingQueueHops() async {
+        let started = expectation(description: "started")
+        started.expectedFulfillmentCount = 2
+        let completed = expectation(description: "completed")
+        completed.expectedFulfillmentCount = 2
+        var startedIDs: [RecordID] = []
+        var completedIDs: [RecordID] = []
+
+        let queue = DownloadQueue(
+            maxConcurrent: 2,
+            started: { id in
+                startedIDs.append(id)
+                started.fulfill()
+            },
+            progress: { _, _ in },
+            completion: { id, result in
+                if case .success = result {
+                    completedIDs.append(id)
+                } else {
+                    XCTFail("expected batch jobs to complete successfully")
+                }
+                completed.fulfill()
+            }
+        )
+
+        let first = DownloadJob(
+            recordID: RecordID.generate(), url: "https://example.com/1",
+            destination: URL(fileURLWithPath: "/tmp/out-1"),
+            ytdlp: URL(fileURLWithPath: "/bin/sh"),
+            ffmpeg: URL(fileURLWithPath: "/bin/echo"),
+            extraArgs: []
+        )
+        first.process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        first.process.arguments = ["-c", "exit 0"]
+
+        let second = DownloadJob(
+            recordID: RecordID.generate(), url: "https://example.com/2",
+            destination: URL(fileURLWithPath: "/tmp/out-2"),
+            ytdlp: URL(fileURLWithPath: "/bin/sh"),
+            ffmpeg: URL(fileURLWithPath: "/bin/echo"),
+            extraArgs: []
+        )
+        second.process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        second.process.arguments = ["-c", "exit 0"]
+
+        await queue.enqueueBatch([first, second])
+        await fulfillment(of: [started, completed], timeout: 5)
+
+        XCTAssertEqual(Set(startedIDs), Set([first.recordID, second.recordID]))
+        XCTAssertEqual(Set(completedIDs), Set([first.recordID, second.recordID]))
+    }
+
+    func testEnqueueBatchDropsDuplicateQueuedJobsBeforeStarting() async {
+        let started = expectation(description: "started")
+        started.expectedFulfillmentCount = 1
+        let completed = expectation(description: "completed")
+        completed.expectedFulfillmentCount = 1
+        var startedIDs: [RecordID] = []
+
+        let queue = DownloadQueue(
+            maxConcurrent: 1,
+            started: { id in
+                startedIDs.append(id)
+                started.fulfill()
+            },
+            progress: { _, _ in },
+            completion: { _, result in
+                if case .success = result {
+                    completed.fulfill()
+                } else {
+                    XCTFail("expected success")
+                }
+            }
+        )
+
+        let first = DownloadJob(
+            recordID: RecordID.generate(), url: "https://example.com/1",
+            destination: URL(fileURLWithPath: "/tmp/out-1"),
+            ytdlp: URL(fileURLWithPath: "/bin/sh"),
+            ffmpeg: URL(fileURLWithPath: "/bin/echo"),
+            extraArgs: []
+        )
+        first.process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        first.process.arguments = ["-c", "exit 0"]
+
+        let duplicate = DownloadJob(
+            recordID: first.recordID, url: "https://example.com/dup",
+            destination: URL(fileURLWithPath: "/tmp/out-dup"),
+            ytdlp: URL(fileURLWithPath: "/bin/sh"),
+            ffmpeg: URL(fileURLWithPath: "/bin/echo"),
+            extraArgs: []
+        )
+        duplicate.process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        duplicate.process.arguments = ["-c", "exit 0"]
+
+        await queue.enqueueBatch([first, duplicate])
+        await fulfillment(of: [started, completed], timeout: 5)
+
+        XCTAssertEqual(startedIDs, [first.recordID])
+    }
+
+    func testEnqueueBatchHandlesLargeBulkWithoutDroppingJobs() async {
+        let total = 200
+        let started = expectation(description: "started")
+        started.expectedFulfillmentCount = 4
+        let completed = expectation(description: "completed")
+        completed.expectedFulfillmentCount = total
+        var startedIDs: [RecordID] = []
+        var completedIDs: [RecordID] = []
+
+        let queue = DownloadQueue(
+            maxConcurrent: 4,
+            started: { id in
+                startedIDs.append(id)
+                if startedIDs.count <= 4 {
+                    started.fulfill()
+                }
+            },
+            progress: { _, _ in },
+            completion: { id, result in
+                if case .success = result {
+                    completedIDs.append(id)
+                } else {
+                    XCTFail("expected success")
+                }
+                completed.fulfill()
+            }
+        )
+
+        let jobs: [DownloadJob] = (0..<total).map { index in
+            let job = DownloadJob(
+                recordID: RecordID.generate(),
+                url: "https://example.com/\(index)",
+                destination: URL(fileURLWithPath: "/tmp/out-\(index)"),
+                ytdlp: URL(fileURLWithPath: "/bin/sh"),
+                ffmpeg: URL(fileURLWithPath: "/bin/echo"),
+                extraArgs: []
+            )
+            job.process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            job.process.arguments = ["-c", "exit 0"]
+            return job
+        }
+
+        await queue.enqueueBatch(jobs)
+        await fulfillment(of: [started, completed], timeout: 20)
+
+        XCTAssertEqual(Set(completedIDs), Set(jobs.map(\.recordID)))
+        XCTAssertTrue(Set(startedIDs).isSubset(of: Set(jobs.map(\.recordID))))
+    }
+
     func testFailedDownloadAttachesStderrToErrorUserInfo() async {
         let completed = expectation(description: "completed")
         let id = RecordID.generate()

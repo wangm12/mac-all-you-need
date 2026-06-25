@@ -9,7 +9,7 @@ struct VoiceRemindersOnboardingWizardView: View {
     @State private var statusKind: StatusPill.Kind = .neutral
 
     private var reminderShortcut: String {
-        HotkeyDescriptor.defaultVoiceReminder.display
+        VoiceReminderShortcutSettingsStore.load().shortcut.display
     }
 
     private let examples: [OnboardingExample] = [
@@ -40,7 +40,7 @@ struct VoiceRemindersOnboardingWizardView: View {
                 }
             }
         },
-        footnote: "Reminders access was requested during setup. Tune the shortcut on the Voice Reminders page."
+        footnote: "Reminders access was requested during setup. Tune the shortcut in Voice → Settings."
         )
         .onReceive(NotificationCenter.default.publisher(for: .voiceReminderCreated)) { note in
             guard let created = note.object as? CreatedReminder else { return }

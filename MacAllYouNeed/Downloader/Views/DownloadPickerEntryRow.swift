@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import SwiftUI
 
 struct DownloadPickerEntryRow: View {
@@ -88,7 +89,33 @@ struct DownloadPickerEntryRow: View {
     }
 }
 
-private struct DownloadPickerThumbnailImage: View {
+struct DownloadThumbnailView: View {
+    let record: DownloadRecord
+    var placeholderSymbol: String = "play.rectangle"
+
+    var body: some View {
+        Group {
+            if let url = DownloadMetadataFallback.resolvedThumbnailURL(for: record) {
+                if url.isFileURL, let image = NSImage(contentsOf: url) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    DownloadPickerThumbnailImage(url: url)
+                }
+            } else {
+                ZStack {
+                    MAYNTheme.elevated
+                    Image(systemName: placeholderSymbol)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+struct DownloadPickerThumbnailImage: View {
     let url: URL
     @State private var image: NSImage?
 
@@ -111,19 +138,21 @@ private struct DownloadPickerThumbnailImage: View {
     }
 
     private func load() async -> NSImage? {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 15
-        if isDouyinThumbnail(url: url) {
-            request.setValue("https://www.douyin.com/", forHTTPHeaderField: "Referer")
-            request.setValue(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                forHTTPHeaderField: "User-Agent"
-            )
-            request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+        await DownloadPickerThumbnailLimiter.shared.withPermit {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 15
+            if isDouyinThumbnail(url: url) {
+                request.setValue("https://www.douyin.com/", forHTTPHeaderField: "Referer")
+                request.setValue(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                    forHTTPHeaderField: "User-Agent"
+                )
+                request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+            }
+            guard let (data, _) = try? await URLSession.shared.data(for: request),
+                  let image = NSImage(data: data) else { return nil }
+            return image
         }
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let image = NSImage(data: data) else { return nil }
-        return image
     }
 
     private func isDouyinThumbnail(url: URL) -> Bool {
@@ -133,6 +162,43 @@ private struct DownloadPickerThumbnailImage: View {
             || host.contains("toutiao")
             || host.contains("snssdk")
             || host.contains("amemv")
+    }
+}
+
+actor DownloadPickerThumbnailLimiter {
+    static let shared = DownloadPickerThumbnailLimiter(maxConcurrent: 4)
+
+    private let maxConcurrent: Int
+    private var active = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(maxConcurrent: Int) {
+        self.maxConcurrent = max(1, maxConcurrent)
+    }
+
+    func withPermit<T>(_ operation: @Sendable () async -> T) async -> T {
+        await acquire()
+        defer { release() }
+        return await operation()
+    }
+
+    private func acquire() async {
+        if active < maxConcurrent {
+            active += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func release() {
+        if !waiters.isEmpty {
+            let continuation = waiters.removeFirst()
+            continuation.resume()
+        } else {
+            active = max(0, active - 1)
+        }
     }
 }
 

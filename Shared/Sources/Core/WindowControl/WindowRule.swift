@@ -68,4 +68,18 @@ public struct WindowRulesEngine: Sendable {
     public func shouldIgnore(bundleID: String?, title: String?) -> Bool {
         resolvedAction(bundleID: bundleID, title: title) == .ignore
     }
+
+    public func allowsWindowControl(bundleID: String?, title: String?) -> Bool {
+        !shouldIgnore(bundleID: bundleID, title: title)
+    }
+
+    public func allowsSnapping(bundleID: String?, title: String?) -> Bool {
+        guard allowsWindowControl(bundleID: bundleID, title: title) else { return false }
+        switch resolvedAction(bundleID: bundleID, title: title) {
+        case .forceFloating, .ignore:
+            return false
+        case .defaultSnap, nil:
+            return true
+        }
+    }
 }

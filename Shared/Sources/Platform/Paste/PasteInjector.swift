@@ -50,13 +50,23 @@ public enum PasteInjector {
     public static func pasteWithRestore(
         _ string: String,
         into pasteboard: NSPasteboard = .general,
-        restoreDelay: Duration = .milliseconds(200),
+        restoreDelay: Duration = .milliseconds(200), // ceiling is now hardcoded to 200ms; parameter retained for API compatibility
         restoreOnManualPasteRequired: Bool = true
     ) async -> PasteInjectionOutcome {
         let snapshot = PasteboardSnapshot.capture(from: pasteboard)
         let result = paste(string, into: pasteboard)
         if result == .injected || restoreOnManualPasteRequired {
-            try? await Task.sleep(for: restoreDelay)
+            // Poll until the target app processes the paste (changeCount advances beyond our write),
+            // or until the ceiling elapses. Most apps paste within ~30ms; the ceiling matches the
+            // previous fixed delay so behaviour is unchanged for slow apps.
+            let changeCountAfterWrite = pasteboard.changeCount
+            let ceilingNs = UInt64(200_000_000) // 200ms in nanoseconds
+            let pollIntervalNs = UInt64(10_000_000) // 10ms
+            let deadline = DispatchTime.now().uptimeNanoseconds + ceilingNs
+            while DispatchTime.now().uptimeNanoseconds < deadline {
+                if pasteboard.changeCount != changeCountAfterWrite { break }
+                try? await Task.sleep(nanoseconds: pollIntervalNs)
+            }
             snapshot.restore(to: pasteboard)
             return PasteInjectionOutcome(result: result, restoredPasteboard: true)
         }

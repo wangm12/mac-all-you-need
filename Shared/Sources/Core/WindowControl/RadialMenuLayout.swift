@@ -16,8 +16,21 @@ public enum RadialMenuLayout {
         .topLeft // 7: top-left
     ]
 
-    /// Action applied when the cursor stays in the center band.
+    /// Fill Screen via long-pull past the ring in any direction, or keyboard binding.
+    public static let fillScreenAction: WindowAction = .maximize
+
+    /// Deprecated center-band target; preserved for migration and keyboard mapping only.
     public static let centerAction: WindowAction = .maximize
+
+    /// Canonical aim angle (radians, 0 = up, clockwise) for ring index.
+    public static func canonicalAngleRadians(forRingIndex index: Int) -> CGFloat {
+        guard index >= 0, index < ringActions.count else { return 0 }
+        return CGFloat(index) * (2 * .pi / CGFloat(ringActions.count))
+    }
+
+    public static func ringIndex(for action: WindowAction) -> Int? {
+        ringActions.firstIndex(of: action)
+    }
 
     /// Optional keyboard shortcuts for ring + center positions.
     /// Keys that dismiss the radial menu while it is open (in addition to Esc).

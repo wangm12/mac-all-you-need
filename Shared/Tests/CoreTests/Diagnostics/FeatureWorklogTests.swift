@@ -19,10 +19,10 @@ final class FeatureWorklogTests: XCTestCase {
     }
 
     func testWritesStructuredLine() throws {
-        FeatureWorklog.log(.dockPreviews, "test.event", fields: ["pid": 42, "ok": true])
+        FeatureWorklog.log(.windowHub, "test.event", fields: ["pid": 42, "ok": true])
         waitForWorklogFlush()
 
-        let file = FeatureWorklog.latestLogFile(for: .dockPreviews)
+        let file = FeatureWorklog.latestLogFile(for: .windowHub)
         XCTAssertNotNil(file)
         let text = try String(contentsOf: XCTUnwrap(file), encoding: .utf8)
         XCTAssertTrue(text.contains("test.event"))
@@ -31,15 +31,15 @@ final class FeatureWorklogTests: XCTestCase {
     }
 
     func testClearRemovesFeatureDirectory() throws {
-        FeatureWorklog.log(.dockPreviews, "before.clear")
+        FeatureWorklog.log(.windowHub, "before.clear")
         waitForWorklogFlush()
 
-        FeatureWorklog.clear(.dockPreviews)
+        FeatureWorklog.clear(.windowHub)
         waitForWorklogFlush()
 
         var isDir: ObjCBool = false
         let exists = FileManager.default.fileExists(
-            atPath: FeatureWorklog.directory(for: .dockPreviews).path,
+            atPath: FeatureWorklog.directory(for: .windowHub).path,
             isDirectory: &isDir
         )
         XCTAssertFalse(exists)

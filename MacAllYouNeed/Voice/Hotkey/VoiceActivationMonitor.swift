@@ -16,6 +16,9 @@ final class VoiceActivationMonitor {
     var onPress: (() -> Void)?
     var onRelease: (() -> Void)?
 
+    /// True while a hold-to-talk shortcut is currently pressed.
+    var isHeld: Bool { isDown }
+
     func start(settings: VoiceActivationSettings) throws {
         stop()
         self.settings = settings

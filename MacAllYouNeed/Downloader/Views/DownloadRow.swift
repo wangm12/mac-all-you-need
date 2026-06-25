@@ -1,3 +1,4 @@
+import AppKit
 import Core
 import Platform
 import SwiftUI
@@ -83,6 +84,8 @@ struct DownloadJobRowModel: Identifiable {
     let inlineError: String?
     let errorTooltip: String?
     let destinationPath: String?
+    let durationSeconds: Int?
+    let modified: Date
 
     var statusPillKind: StatusPill.Kind {
         DownloadStatePresentation.pillKind(for: state)
@@ -104,6 +107,8 @@ struct DownloadJobRowModel: Identifiable {
         inlineError = Self.inlineError(for: record)
         errorTooltip = Self.inlineError(for: record)
         destinationPath = record.destinationPath
+        durationSeconds = record.durationSeconds
+        modified = record.modified
     }
 
     private static func isMerging(_ statusText: String?) -> Bool {
@@ -126,7 +131,8 @@ struct DownloadJobRowModel: Identifiable {
         case .paused:
             return "Paused; resume continues from partial file"
         case .queued:
-            return "Waiting for an available slot"
+            let trimmed = statusText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? "Waiting for an available slot" : trimmed
         case .completed:
             return "Completed"
         case .failed:
@@ -184,6 +190,7 @@ struct DownloadJobRow: View {
     let model: DownloadJobRowModel
     let isSelected: Bool
     var isCompact = false
+    var showsThumbnail = true
     let onTap: () -> Void
     let onPrimaryAction: () -> Void
     let onDelete: () -> Void
@@ -240,7 +247,7 @@ struct DownloadJobRow: View {
 
     private var thumbnailView: some View {
         Group {
-            if let thumbnailURL = model.thumbnailURL {
+            if showsThumbnail, let thumbnailURL = model.thumbnailURL {
                 AsyncImage(url: thumbnailURL) { image in
                     image
                         .resizable()
@@ -383,32 +390,32 @@ struct DownloadIconButton: View {
     let symbolName: String
     var role: Role = .secondary
     let accessibilityLabel: String
+    var accessibilityIdentifier: String? = nil
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovering = false
-    @State private var isPressed = false
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: symbolName)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(foreground)
-                .frame(width: MAYNControlMetrics.controlHeight, height: MAYNControlMetrics.controlHeight)
-                .background(background, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-        .scaleEffect(isPressed && !reduceMotion ? 0.985 : 1)
-        .onHover { if isEnabled { isHovering = $0 } else { isHovering = false } }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in if isEnabled { isPressed = true } }
-                .onEnded { _ in isPressed = false }
+        AppKitIconButton(
+            symbolName: symbolName,
+            role: role,
+            label: accessibilityLabel,
+            accessibilityID: accessibilityIdentifier ?? defaultAccessibilityIdentifier,
+            action: action
         )
+        .frame(width: MAYNControlMetrics.controlHeight, height: MAYNControlMetrics.controlHeight)
+        .onHover { if isEnabled { isHovering = $0 } else { isHovering = false } }
         .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
-        .animation(MAYNMotion.fastAnimation(reduceMotion: reduceMotion), value: isPressed)
+    }
+
+    private var defaultAccessibilityIdentifier: String {
+        switch role {
+        case .secondary:
+            return symbolName == "folder" ? "download.row.open-folder" : "download.row.primary-action"
+        case .destructive:
+            return "download.row.delete"
+        }
     }
 
     private var foreground: Color {
@@ -418,8 +425,89 @@ struct DownloadIconButton: View {
 
     private var background: Color {
         if !isEnabled { return Color.clear }
-        if isPressed { return MAYNTheme.elevatedPressed }
         if isHovering { return MAYNTheme.elevatedHover }
         return Color.clear
+    }
+}
+
+struct AppKitIconButton: NSViewRepresentable {
+    let symbolName: String
+    let role: DownloadIconButton.Role
+    let label: String
+    let accessibilityID: String
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> ButtonContainerView {
+        let view = ButtonContainerView()
+        view.accessibilityID = accessibilityID
+        view.label = label
+        view.action = action
+        view.configure(symbolName: symbolName, role: role)
+        return view
+    }
+
+    func updateNSView(_ nsView: ButtonContainerView, context: Context) {
+        nsView.accessibilityID = accessibilityID
+        nsView.label = label
+        nsView.action = action
+        nsView.configure(symbolName: symbolName, role: role)
+    }
+}
+
+final class ButtonContainerView: NSView {
+    var accessibilityID: String = ""
+    var label: String = ""
+    var action: (() -> Void)?
+    private let button = NSButton()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        setup()
+    }
+
+    private func setup() {
+        translatesAutoresizingMaskIntoConstraints = false
+        addSubview(button)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: leadingAnchor),
+            button.trailingAnchor.constraint(equalTo: trailingAnchor),
+            button.topAnchor.constraint(equalTo: topAnchor),
+            button.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        button.bezelStyle = .texturedRounded
+        button.isBordered = false
+        button.focusRingType = .none
+        button.imagePosition = .imageOnly
+        button.target = self
+        button.action = #selector(handlePress)
+    }
+
+    func configure(symbolName: String, role: DownloadIconButton.Role) {
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
+        button.contentTintColor = role == .destructive ? NSColor.systemRed : NSColor.secondaryLabelColor
+        button.target = self
+        button.action = #selector(handlePress)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(label)
+        setAccessibilityIdentifier(accessibilityID)
+        toolTip = label
+    }
+
+    @objc private func handlePress() {
+        action?()
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        action?()
+        return true
     }
 }

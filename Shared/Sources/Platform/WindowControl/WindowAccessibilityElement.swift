@@ -48,7 +48,11 @@ public final class WindowAccessibilityElement: WindowTargetElement {
     }
 
     public var windowTitleHash: Int? {
-        stringAttribute(kAXTitleAttribute as CFString)?.hashValue
+        windowTitle?.hashValue
+    }
+
+    public var windowTitle: String? {
+        stringAttribute(kAXTitleAttribute as CFString)
     }
 
     public var frameFingerprint: Int? {
@@ -113,6 +117,36 @@ public final class WindowAccessibilityElement: WindowTargetElement {
         case "AXDialog": return 40
         default: return 10
         }
+    }
+
+    public var cgWindowID: CGWindowID? {
+        SystemWindowServerPrivateAPI.shared.axWindowID(for: element)
+    }
+
+    public var hasStandardWindowControls: Bool {
+        var buttonRef: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, kAXZoomButtonAttribute as CFString, &buttonRef) == .success
+            && buttonRef != nil
+    }
+
+    /// True for the outer browser chrome window; false for Chromium tab panels.
+    public var isBrowserShellWindow: Bool {
+        guard role == "AXWindow" else { return false }
+        if subrole == "AXDocumentWindow" { return false }
+        if subrole == "AXStandardWindow" { return true }
+        return hasStandardWindowControls && hasFullWindowChrome
+    }
+
+    private var hasFullWindowChrome: Bool {
+        hasButton(kAXCloseButtonAttribute as CFString)
+            && hasButton(kAXMinimizeButtonAttribute as CFString)
+            && hasButton(kAXZoomButtonAttribute as CFString)
+    }
+
+    private func hasButton(_ attribute: CFString) -> Bool {
+        var buttonRef: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, attribute, &buttonRef) == .success
+            && buttonRef != nil
     }
 
     public var enhancedUserInterfaceEnabled: Bool? {

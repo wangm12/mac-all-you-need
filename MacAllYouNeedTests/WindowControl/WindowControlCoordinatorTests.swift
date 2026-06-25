@@ -35,7 +35,9 @@ final class WindowControlCoordinatorTests: XCTestCase {
         let coordinator = makeCoordinator(settings: settings, axTrusted: true, tap: tap)
         coordinator.start()
 
-        coordinator.applySettings(.default)
+        var disabled = WindowControlSettings.default
+        disabled.dragAnywhereEnabled = false
+        coordinator.applySettings(disabled)
 
         XCTAssertEqual(coordinator.state, .off)
         XCTAssertEqual(tap.stopCount, 1)
@@ -267,7 +269,6 @@ final class WindowControlCoordinatorTests: XCTestCase {
 
     func testWindowGrabFeatureCanRunWhenWindowLayoutsFeatureIsOff() {
         var settings = WindowControlSettings.default
-        settings.enabled = true
         settings.dragAnywhereEnabled = true
         let tap = FakeWindowControlTap()
         let coordinator = makeCoordinator(
@@ -287,9 +288,30 @@ final class WindowControlCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.windowActionPerformerAvailable)
     }
 
+    func testWindowGrabRunsWhenLayoutsMasterSwitchIsOff() {
+        var settings = WindowControlSettings.default
+        settings.enabled = false
+        settings.dragAnywhereEnabled = true
+        let tap = FakeWindowControlTap()
+        let coordinator = makeCoordinator(
+            settings: settings,
+            featureAvailability: WindowControlFeatureAvailability(
+                windowLayoutsEnabled: true,
+                windowGrabEnabled: true
+            ),
+            axTrusted: true,
+            tap: tap
+        )
+
+        coordinator.start()
+
+        XCTAssertEqual(coordinator.state, .active)
+        XCTAssertEqual(tap.startCount, 1)
+        XCTAssertFalse(coordinator.windowActionPerformerAvailable)
+    }
+
     func testDisablingWindowGrabStopsTapWhenWindowLayoutsFeatureIsOff() {
         var settings = WindowControlSettings.default
-        settings.enabled = true
         settings.dragAnywhereEnabled = true
         let tap = FakeWindowControlTap()
         let coordinator = makeCoordinator(
@@ -307,6 +329,23 @@ final class WindowControlCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.state, .off)
         XCTAssertEqual(tap.stopCount, 1)
+    }
+
+    func testTapInstallFailureRetriesOnRecoverableErrorRefresh() {
+        var settings = WindowControlSettings.default
+        settings.enabled = true
+        let tap = FakeWindowControlTap(startError: TestWindowControlError.tapInstallFailed)
+        let coordinator = makeCoordinator(settings: settings, axTrusted: true, tap: tap)
+
+        coordinator.start()
+        XCTAssertEqual(coordinator.state, .error("tap install failed"))
+        XCTAssertEqual(tap.startCount, 1)
+
+        tap.startError = nil
+        coordinator.retryAfterRecoverableErrorIfNeeded()
+
+        XCTAssertEqual(coordinator.state, .active)
+        XCTAssertEqual(tap.startCount, 2)
     }
 
     private func makeCoordinator(
@@ -336,7 +375,7 @@ private final class FakeWindowControlTap: WindowControlTapLifecycle {
     private(set) var startCount = 0
     private(set) var stopCount = 0
     private(set) var isRunning = false
-    private let startError: Error?
+    var startError: Error?
 
     init(startError: Error? = nil) {
         self.startError = startError

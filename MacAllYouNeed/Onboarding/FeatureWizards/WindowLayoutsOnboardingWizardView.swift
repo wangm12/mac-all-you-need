@@ -16,8 +16,8 @@ struct WindowLayoutsOnboardingWizardView: View {
                 "Snap the focused window to screen edges, maximize, center, or restore with global shortcuts.",
                 "Optional Snap Assist zones, active window borders, and Move to Space shortcuts are in Window Layouts settings."
             ],
-            previewTitle: "Radial menu",
-            previewSubtitle: "Optional hold-to-open layout ring.",
+            previewTitle: "Layout puck",
+            previewSubtitle: "Hold to open the gesture HUD. Pull past the ring for Fill Screen.",
             preview: {
                 OnboardingPanel {
                     RadialSettingsPreview()

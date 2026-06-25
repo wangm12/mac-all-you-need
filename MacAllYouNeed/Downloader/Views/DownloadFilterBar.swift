@@ -51,6 +51,43 @@ enum DownloadsQueuePresentation {
         return visibleRows(rows, filter: filter).contains { $0.state == .failed }
     }
 
+    enum BulkAction: String, CaseIterable, Hashable {
+        case pauseAll = "Pause all"
+        case resumeAll = "Resume all"
+        case retryAll = "Retry all"
+        case startAll = "Start all"
+        case clearAll = "Clear all"
+        case openFolder = "Open Folder"
+    }
+
+    static func bulkActions(rows: [DownloadRecord], filter: DownloadsListFilter) -> [BulkAction] {
+        let visible = visibleRows(rows, filter: filter)
+        guard !visible.isEmpty else { return [] }
+
+        var actions: [BulkAction] = []
+        switch filter {
+        case .completed:
+            actions.append(.openFolder)
+            actions.append(.clearAll)
+        case .all, .activeQueue:
+            let hasRunning = visible.contains { $0.state == .running }
+            let hasPaused = visible.contains { $0.state == .paused }
+            let hasFailed = visible.contains { $0.state == .failed }
+            let hasQueued = visible.contains { $0.state == .queued }
+
+            if hasRunning || hasQueued { actions.append(.pauseAll) }
+            if hasPaused { actions.append(.resumeAll) }
+            if hasFailed { actions.append(.retryAll) }
+            if hasPaused || hasFailed || hasQueued { actions.append(.startAll) }
+            if visible.allSatisfy({ $0.state == .completed }) {
+                actions.append(.openFolder)
+            }
+            actions.append(.clearAll)
+        }
+        return actions
+    }
+
+    @available(*, deprecated, message: "Use bulkActions(rows:filter:)")
     static func headerActionTitle(rows: [DownloadRecord], filter: DownloadsListFilter) -> String? {
         switch filter {
         case .activeQueue, .all:

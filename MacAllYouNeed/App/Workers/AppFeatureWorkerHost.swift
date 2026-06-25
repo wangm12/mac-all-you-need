@@ -6,7 +6,6 @@ import Foundation
 @MainActor
 final class AppFeatureWorkerHost {
     let clipboard: ClipboardWorker
-    let dockPreviews: DockPreviewWorker
     let downloader: DownloadFeatureWorker
     let voice: VoiceFeatureWorker
     let folderPreview: FolderPreviewFeatureWorker
@@ -19,7 +18,6 @@ final class AppFeatureWorkerHost {
 
     init(clip: ClipboardStore, search: SearchStore) {
         clipboard = ClipboardWorker(clip: clip, search: search)
-        dockPreviews = DockPreviewWorker()
         downloader = DownloadFeatureWorker()
         voice = VoiceFeatureWorker()
         folderPreview = FolderPreviewFeatureWorker()
@@ -36,10 +34,8 @@ final class AppFeatureWorkerHost {
             await clipboard.start()
             running.insert(.clipboard)
             running.insert(.clipboardSmartText)
-        case .dockPreviews:
-            guard !running.contains(id) else { return }
-            await dockPreviews.start()
-            running.insert(id)
+        case .windowHub:
+            break
         case .downloader:
             guard !running.contains(id) else { return }
             await downloader.start()
@@ -83,10 +79,8 @@ final class AppFeatureWorkerHost {
             await clipboard.stop()
             running.remove(.clipboard)
             running.remove(.clipboardSmartText)
-        case .dockPreviews:
-            guard running.contains(id) else { return }
-            await dockPreviews.stop()
-            running.remove(id)
+        case .windowHub:
+            break
         case .downloader:
             guard running.contains(id) else { return }
             await downloader.stop()

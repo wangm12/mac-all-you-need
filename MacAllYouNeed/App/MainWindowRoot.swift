@@ -7,8 +7,7 @@ import SwiftUI
 struct MainWindowRoot: View {
     let controller: AppController
     private var statePublisher: FeatureStatePublisher
-    @AppStorage(MainAppDestination.storageKey, store: AppGroupSettings.defaults)
-    private var selectedRaw = MainAppDestination.dashboard.rawValue
+    @State private var selectedDestination: MainAppDestination = MainAppDestination.load(from: AppGroupSettings.defaults)
     @State private var pendingOrphans: [OrphanCacheScanner.Orphan] = []
     @State private var showWhatsNew = false
     @State private var whatsNewReport: MigrationReport?
@@ -21,11 +20,10 @@ struct MainWindowRoot: View {
     }
 
     private var selection: Binding<MainAppDestination> {
-        Binding {
-            MainAppDestination.storedSelection(selectedRaw)
-        } set: { destination in
-            selectedRaw = destination.rawValue
-        }
+        Binding(
+            get: { selectedDestination },
+            set: { selectedDestination = $0 }
+        )
     }
 
     var body: some View {
@@ -46,6 +44,12 @@ struct MainWindowRoot: View {
         .tint(MAYNTheme.controlTint)
         .accentColor(.gray)
         .maynDismissTextFocusOnOutsideClick()
+        .onAppear {
+            selectedDestination = MainAppDestination.load(from: AppGroupSettings.defaults)
+        }
+        .onChange(of: selectedDestination) { _, destination in
+            MainAppDestination.persist(destination, to: AppGroupSettings.defaults)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .globalSettingsOpenRequested)) { note in
             if DockSettingsNavigation.isClipboardRulesRoute(note.object as? String) {
                 openClipboardRulesInMain()
@@ -94,7 +98,7 @@ struct MainWindowRoot: View {
                             SettingsDestination.general.rawValue,
                             forKey: DockSettingsNavigation.settingsSelectionKey
                         )
-                        selectedRaw = MainAppDestination.settings.rawValue
+                        selectedDestination = .settings
                         NSApp.activate(ignoringOtherApps: true)
                     }
                 )
@@ -103,7 +107,7 @@ struct MainWindowRoot: View {
     }
 
     private var detailView: AnyView {
-        let destination = MainAppDestination.storedSelection(selectedRaw)
+        let destination = selectedDestination
 
         // Prefer descriptor-driven page factory when the destination maps to a feature
         // with a registered mainPageViewFactory. Falls back to the explicit switch below.
@@ -123,7 +127,8 @@ struct MainWindowRoot: View {
         case .voice:
             return AnyView(VoiceDestinationView(controller: controller))
         case .voiceReminders:
-            return AnyView(VoiceRemindersPage(controller: controller))
+            AppGroupSettings.defaults.set(VoiceFunctionTab.settings.rawValue, forKey: VoiceFunctionTab.storageKey)
+            return AnyView(VoiceDestinationView(controller: controller))
         case .downloads:
             return AnyView(DownloadsDestinationView(controller: controller))
         case .aiFileOrganizer:
@@ -146,8 +151,8 @@ struct MainWindowRoot: View {
             return AnyView(WindowLayoutsDestinationView(controller: controller))
         case .grabAnywhere:
             return AnyView(WindowGrabDestinationView(controller: controller))
-        case .dockPreviews:
-            return AnyView(DockHoverPreviewsPage(controller: controller))
+        case .windowHub:
+            return AnyView(WindowHubPage(controller: controller))
         case .settings:
             return AnyView(SettingsDestinationView(controller: controller))
         }
@@ -168,7 +173,7 @@ struct MainWindowRoot: View {
     }
 
     private func openMainDestination(_ destination: MainAppDestination) {
-        selectedRaw = destination.rawValue
+        selectedDestination = destination
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -224,7 +229,7 @@ struct MainWindowRoot: View {
 
             MainSidebarSettingsButton(
                 isCollapsed: isSidebarCollapsed,
-                isSelected: MainAppDestination.storedSelection(selectedRaw) == .settings
+                isSelected: selectedDestination == .settings
             ) {
                 openSettingsInMain()
             }
@@ -257,7 +262,7 @@ enum MainWindowDestinationRouter {
         case .dashboard: String(describing: DashboardDestinationView.self)
         case .clipboard: String(describing: ClipboardDestinationView.self)
         case .voice: String(describing: VoiceDestinationView.self)
-        case .voiceReminders: String(describing: VoiceRemindersPage.self)
+        case .voiceReminders: String(describing: VoiceDestinationView.self)
         case .downloads: String(describing: DownloadsDestinationView.self)
         case .aiFileOrganizer: String(describing: AIFileOrganizerPage.self)
         case .folderPreview: String(describing: FolderPreviewDestinationView.self)
@@ -265,7 +270,7 @@ enum MainWindowDestinationRouter {
         case .snippets: String(describing: SnippetsDestinationView.self)
         case .windowLayouts: String(describing: WindowLayoutsDestinationView.self)
         case .grabAnywhere: String(describing: WindowGrabDestinationView.self)
-        case .dockPreviews: String(describing: DockHoverPreviewsPage.self)
+        case .windowHub: String(describing: WindowHubPage.self)
         case .settings: String(describing: SettingsDestinationView.self)
         }
     }
@@ -543,6 +548,9 @@ enum MainVoiceTranscriptHistoryPresentation {
         if !raw.isEmpty {
             return transcript.rawText
         }
+        if transcript.failedStage == .cancelled {
+            return "Cancelled"
+        }
         if transcript.status == .failed {
             return "Failed: \(transcript.failureReason ?? "unknown")"
         }
@@ -638,6 +646,7 @@ struct ClipboardHistoryIconView: View {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(MAYNTheme.subtleBorder, lineWidth: 0.5)
                     )
+                    .accessibilityLabel("\(appIcons.displayName(for: bundleID)) source app")
                     .help(appIcons.displayName(for: bundleID))
             } else {
                 fallbackIcon(fallbackSymbol)
@@ -652,6 +661,8 @@ struct ClipboardHistoryIconView: View {
             .font(.system(size: symbolFontSize, weight: .medium))
             .foregroundStyle(.secondary)
             .frame(width: size, height: size)
+            .accessibilityLabel("Clipboard item source indicator")
+            .accessibilityHint("Indicates where this clipboard item came from")
     }
 }
 

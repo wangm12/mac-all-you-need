@@ -8,6 +8,7 @@ struct VoiceCleanupRequest: Equatable {
     let rawText: String
     let appBundleID: String?
     let language: VoiceLanguage
+    let voiceIntent: VoiceIntent
     let dictionaryEntries: [VoiceDictionaryEntry]
     let appInstructions: String?
     let personalStyleNotes: String?
@@ -18,6 +19,7 @@ struct VoiceCleanupRequest: Equatable {
         rawText: String,
         appBundleID: String?,
         language: VoiceLanguage,
+        voiceIntent: VoiceIntent = .dictation,
         dictionaryEntries: [VoiceDictionaryEntry] = [],
         appInstructions: String? = nil,
         personalStyleNotes: String? = nil,
@@ -27,6 +29,7 @@ struct VoiceCleanupRequest: Equatable {
         self.rawText = rawText
         self.appBundleID = appBundleID
         self.language = language
+        self.voiceIntent = voiceIntent
         self.dictionaryEntries = dictionaryEntries
         self.appInstructions = appInstructions
         self.personalStyleNotes = personalStyleNotes
@@ -39,6 +42,7 @@ struct VoiceCleanupRequest: Equatable {
         lhs.rawText == rhs.rawText
             && lhs.appBundleID == rhs.appBundleID
             && lhs.language == rhs.language
+            && lhs.voiceIntent == rhs.voiceIntent
             && lhs.dictionaryEntries == rhs.dictionaryEntries
             && lhs.appInstructions == rhs.appInstructions
             && lhs.personalStyleNotes == rhs.personalStyleNotes
@@ -52,6 +56,7 @@ struct VoiceLLMRequest: Equatable {
     let rawText: String
     let appBundleID: String?
     let language: VoiceLanguage
+    let voiceIntent: VoiceIntent
     let dictionaryEntries: [VoiceDictionaryEntry]
     let translationTarget: VoiceLanguage?
     let appInstructions: String?
@@ -64,6 +69,7 @@ struct VoiceLLMRequest: Equatable {
         rawText: String,
         appBundleID: String?,
         language: VoiceLanguage,
+        voiceIntent: VoiceIntent = .dictation,
         dictionaryEntries: [VoiceDictionaryEntry] = [],
         translationTarget: VoiceLanguage? = nil,
         appInstructions: String? = nil,
@@ -75,6 +81,7 @@ struct VoiceLLMRequest: Equatable {
         self.rawText = rawText
         self.appBundleID = appBundleID
         self.language = language
+        self.voiceIntent = voiceIntent
         self.dictionaryEntries = dictionaryEntries
         self.translationTarget = translationTarget
         self.appInstructions = appInstructions
@@ -102,6 +109,7 @@ struct VoiceLLMRequest: Equatable {
             && lhs.rawText == rhs.rawText
             && lhs.appBundleID == rhs.appBundleID
             && lhs.language == rhs.language
+            && lhs.voiceIntent == rhs.voiceIntent
             && lhs.dictionaryEntries == rhs.dictionaryEntries
             && lhs.translationTarget == rhs.translationTarget
             && lhs.appInstructions == rhs.appInstructions
@@ -236,7 +244,10 @@ struct VoiceCleanupPipeline {
             log.info("cleanup: local only — provider unavailable")
             return VoiceCleanupResult(
                 rawText: request.rawText,
-                cleanedText: applyDictionary(to: localText, entries: request.dictionaryEntries),
+                cleanedText: localizedCleanupText(
+                    request: request,
+                    text: applyDictionary(to: localText, entries: request.dictionaryEntries)
+                ),
                 usedLLM: false,
                 providerIdentifier: nil,
                 fallbackReason: forcedFallbackReason ?? .providerUnavailable,
@@ -248,7 +259,10 @@ struct VoiceCleanupPipeline {
             log.info("cleanup: local only — speechUnits \(speechUnits, privacy: .public) < 3")
             return VoiceCleanupResult(
                 rawText: request.rawText,
-                cleanedText: applyDictionary(to: localText, entries: request.dictionaryEntries),
+                cleanedText: localizedCleanupText(
+                    request: request,
+                    text: applyDictionary(to: localText, entries: request.dictionaryEntries)
+                ),
                 usedLLM: false,
                 providerIdentifier: provider.providerIdentifier,
                 fallbackReason: .transcriptTooShort,
@@ -261,6 +275,7 @@ struct VoiceCleanupPipeline {
             rawText: request.rawText,
             appBundleID: request.appBundleID,
             language: request.language,
+            voiceIntent: request.voiceIntent,
             dictionaryEntries: request.dictionaryEntries,
             appInstructions: request.appInstructions,
             personalStyleNotes: request.personalStyleNotes,
@@ -289,7 +304,10 @@ struct VoiceCleanupPipeline {
             log.info("cleanup: LLM ok — outputLength: \(llmText.count, privacy: .public) chars")
             return VoiceCleanupResult(
                 rawText: request.rawText,
-                cleanedText: applyDictionary(to: llmText, entries: request.dictionaryEntries),
+                cleanedText: localizedCleanupText(
+                    request: request,
+                    text: applyDictionary(to: llmText, entries: request.dictionaryEntries)
+                ),
                 usedLLM: true,
                 providerIdentifier: provider.providerIdentifier,
                 cleanupMs: Self.elapsedMs(since: startedAt)
@@ -359,7 +377,10 @@ struct VoiceCleanupPipeline {
     ) -> VoiceCleanupResult {
         VoiceCleanupResult(
             rawText: request.rawText,
-            cleanedText: applyDictionary(to: localText, entries: request.dictionaryEntries),
+            cleanedText: localizedCleanupText(
+                request: request,
+                text: applyDictionary(to: localText, entries: request.dictionaryEntries)
+            ),
             usedLLM: false,
             providerIdentifier: providerIdentifier,
             fallbackReason: reason,
@@ -370,6 +391,21 @@ struct VoiceCleanupPipeline {
 
     private func applyDictionary(to text: String, entries: [VoiceDictionaryEntry]) -> String {
         VoiceWordReplacement.apply(text, entries: entries)
+    }
+
+    private func localizedCleanupText(request: VoiceCleanupRequest, text: String) -> String {
+        guard request.voiceIntent == .reminder else { return text }
+        let prepared = ReminderPayloadNormalizer.prepare(text)
+        return Self.reminderCleanupText(title: prepared.title, dueDate: prepared.dueDate)
+    }
+
+    private static func reminderCleanupText(title: String, dueDate: ReminderDueDate?) -> String {
+        guard let dueDate else { return title }
+        if let hour = dueDate.hour {
+            let minute = dueDate.minute ?? 0
+            return "\(title)\nDUE:\(String(format: "%04d-%02d-%02dT%02d:%02d", dueDate.year, dueDate.month, dueDate.day, hour, minute))"
+        }
+        return "\(title)\nDUE:\(String(format: "%04d-%02d-%02d", dueDate.year, dueDate.month, dueDate.day))"
     }
 
     private static func speechUnitCount(in text: String) -> Int {

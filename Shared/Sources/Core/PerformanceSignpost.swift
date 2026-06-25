@@ -130,4 +130,41 @@ public enum PerformanceSignpost {
             os_signpost(.end, log: log, name: "AXWrite", signpostID: id)
         }
     }
+
+    public enum WindowHub {
+        private static let log = OSLog(
+            subsystem: Logging.subsystem(for: "window-hub"),
+            category: "indexing"
+        )
+
+        public static func beginShellPass() -> OSSignpostID {
+            let id = OSSignpostID(log: log)
+            os_signpost(.begin, log: log, name: "WindowHubShellPass", signpostID: id)
+            return id
+        }
+
+        public static func endShellPass(_ id: OSSignpostID) {
+            os_signpost(.end, log: log, name: "WindowHubShellPass", signpostID: id)
+        }
+
+        public static func beginFullPass() -> OSSignpostID {
+            let id = OSSignpostID(log: log)
+            os_signpost(.begin, log: log, name: "WindowHubFullPass", signpostID: id)
+            return id
+        }
+
+        public static func endFullPass(_ id: OSSignpostID) {
+            os_signpost(.end, log: log, name: "WindowHubFullPass", signpostID: id)
+        }
+
+        public static func beginJXAUpgrade(pid: pid_t) -> OSSignpostID {
+            let id = OSSignpostID(log: log)
+            os_signpost(.begin, log: log, name: "WindowHubJXAUpgrade", signpostID: id, "pid=%d", pid)
+            return id
+        }
+
+        public static func endJXAUpgrade(_ id: OSSignpostID) {
+            os_signpost(.end, log: log, name: "WindowHubJXAUpgrade", signpostID: id)
+        }
+    }
 }

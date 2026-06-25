@@ -102,7 +102,7 @@ struct WindowControlSettingsView: View {
             MAYNDivider()
             MAYNSettingsRow(
                 title: "Active window border",
-                subtitle: "Highlight the frontmost window with an accent border."
+                subtitle: "Highlight the frontmost window with a soft glowing accent border."
             ) {
                 Toggle("", isOn: boolBinding(\.activeWindowBorderEnabled)).labelsHidden()
             }
@@ -213,6 +213,22 @@ struct WindowControlSettingsView: View {
             title: "Window Grab",
             subtitle: "Hold a modifier and drag a window from any visible area."
         ) {
+            MAYNSettingsRow(
+                title: "Runtime status",
+                subtitle: "Shows whether the grab event tap is running. Use \(settings.dragModifier.display) to drag."
+            ) {
+                StatusPill(
+                    text: WindowControlActionPresentation.statusText(
+                        for: controller.windowControl.state,
+                        featureEnabled: controller.windowControl.windowGrabEnabled && settings.dragAnywhereEnabled
+                    ),
+                    kind: WindowControlActionPresentation.statusKind(
+                        for: controller.windowControl.state,
+                        featureEnabled: controller.windowControl.windowGrabEnabled && settings.dragAnywhereEnabled
+                    )
+                )
+            }
+            MAYNDivider()
             MAYNSettingsRow(
                 title: "Enable Window Grab",
                 subtitle: "Allow dragging windows from visible content areas."

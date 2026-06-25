@@ -136,6 +136,41 @@ final class WindowControlPresentationTests: XCTestCase {
         )
     }
 
+    func testWindowControlStatusPresentationTracksCoordinatorState() {
+        XCTAssertEqual(
+            WindowControlActionPresentation.statusText(for: .active, featureEnabled: true),
+            "Active"
+        )
+        XCTAssertEqual(
+            WindowControlActionPresentation.statusKind(for: .active, featureEnabled: true),
+            .success
+        )
+        XCTAssertEqual(
+            WindowControlActionPresentation.statusText(for: .error("tap install failed"), featureEnabled: true),
+            "Error"
+        )
+        XCTAssertEqual(
+            WindowControlActionPresentation.statusKind(for: .error("tap install failed"), featureEnabled: true),
+            .danger
+        )
+        XCTAssertEqual(
+            WindowControlActionPresentation.statusText(for: .needsAccessibility, featureEnabled: true),
+            "Needs Accessibility"
+        )
+        XCTAssertEqual(
+            WindowControlActionPresentation.statusText(for: .suspended(.ignoredApp), featureEnabled: true),
+            "Suspended"
+        )
+        XCTAssertEqual(
+            WindowControlActionPresentation.statusText(for: .off, featureEnabled: false),
+            "Off"
+        )
+        XCTAssertEqual(
+            WindowControlActionPresentation.statusKind(for: .off, featureEnabled: false),
+            .neutral
+        )
+    }
+
     @MainActor
     func testSnapOverlayPresentationUsesSharedPanelMetricsWithoutGlow() {
         let radius = WindowSnapOverlayPresentation.standardCornerRadius

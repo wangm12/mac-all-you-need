@@ -4,8 +4,8 @@ import Foundation
 
 /// Seeds first-launch feature activation state once per install (guarded by `seededKey`).
 ///
-/// Core productivity features default to enabled; Dock Previews and AI File Organizer
-/// default to disabled. User changes after the first seed are never overwritten.
+/// Core productivity features default to enabled; AI File Organizer defaults to disabled.
+/// Window Hub replaces Dock Previews and is enabled by default.
 enum BootstrapDefaults {
     static let seededKey = "feature.bootstrap.seeded"
 
@@ -20,6 +20,7 @@ enum BootstrapDefaults {
         .folderHistory,
         .windowLayouts,
         .windowGrab,
+        .windowHub,
     ]
 
     static func seedIfNeeded(manager: FeatureManager, defaults: UserDefaults) async throws {

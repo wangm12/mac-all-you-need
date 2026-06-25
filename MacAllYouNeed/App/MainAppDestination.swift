@@ -14,7 +14,7 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
     case snippets
     case windowLayouts
     case grabAnywhere
-    case dockPreviews
+    case windowHub
     case settings
 
     static let storageKey = "main.selectedDestination"
@@ -22,13 +22,12 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         .dashboard,
         .clipboard,
         .voice,
-        .voiceReminders,
         .downloads,
         .aiFileOrganizer,
         .folderPreview,
         .windowLayouts,
         .grabAnywhere,
-        .dockPreviews,
+        .windowHub,
     ]
 
     var id: String { rawValue }
@@ -46,7 +45,7 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .snippets: "Clipboard"
         case .windowLayouts: "Window Layouts"
         case .grabAnywhere: "Window Grab"
-        case .dockPreviews: "Dock"
+        case .windowHub: "Windows"
         case .settings: "Settings"
         }
     }
@@ -64,7 +63,7 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .snippets: "Clipboard history, snippets, and paste behavior"
         case .windowLayouts: "Keyboard shortcuts and edge snapping"
         case .grabAnywhere: "Modifier-drag windows"
-        case .dockPreviews: "Dock previews, switcher, Cmd+Tab, lock, and indicator"
+        case .windowHub: "Search apps, windows, and tabs"
         case .settings: "Global app settings"
         }
     }
@@ -82,7 +81,7 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .snippets: "text.quote"
         case .windowLayouts: "rectangle.3.group"
         case .grabAnywhere: "hand.draw"
-        case .dockPreviews: "dock.rectangle"
+        case .windowHub: "macwindow.on.rectangle"
         case .settings: "gearshape"
         }
     }
@@ -91,8 +90,8 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         if raw == "windows" {
             return .windowLayouts
         }
-        if raw == "windowSwitcher" || raw == "cmdTabEnhancements" || raw == "dockLocking" || raw == "activeAppIndicator" {
-            return .dockPreviews
+        if raw == "windowSwitcher" || raw == "cmdTabEnhancements" || raw == "dockLocking" || raw == "activeAppIndicator" || raw == "dockPreviews" {
+            return .windowHub
         }
         if raw == "snippets" {
             AppGroupSettings.defaults.set(ClipboardFunctionTab.snippets.rawValue, forKey: ClipboardFunctionTab.storageKey)
@@ -101,6 +100,10 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         if raw == "finderHistory" {
             AppGroupSettings.defaults.set(FolderPreviewFunctionTab.history.rawValue, forKey: FolderPreviewFunctionTab.storageKey)
             return .folderPreview
+        }
+        if raw == "voiceReminders" {
+            AppGroupSettings.defaults.set(VoiceFunctionTab.settings.rawValue, forKey: VoiceFunctionTab.storageKey)
+            return .voice
         }
         return raw.flatMap(MainAppDestination.init(rawValue:)) ?? .dashboard
     }

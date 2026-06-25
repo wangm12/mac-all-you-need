@@ -71,6 +71,7 @@
   max-height: 420px;
   overflow-y: auto;
   z-index: 2147483647;
+  pointer-events: auto;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 13px;
   color: #e4e4e7;
@@ -147,6 +148,19 @@
 
 .dy-dl-format-item:hover {
   background: #27272a;
+}
+
+.dy-dl-format-item.dy-dl-row-sending {
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.dy-dl-format-item.dy-dl-row-error .dy-dl-format-label {
+  color: #f87171;
+}
+
+.dy-dl-format-item.dy-dl-row-sent .dy-dl-format-dl-btn {
+  color: #34d399;
 }
 
 .dy-dl-format-icon {

@@ -67,7 +67,7 @@ enum VoiceLanguageModePresentation {
     static func title(for hint: VoiceASRLanguageHint) -> String {
         switch hint {
         case .automatic:
-            "Auto-detect Chinese + English"
+            "Auto-detect (all languages)"
         case .chinese:
             "Chinese only"
         case .english:

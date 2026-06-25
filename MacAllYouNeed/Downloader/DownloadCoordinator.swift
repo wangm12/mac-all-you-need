@@ -2,8 +2,7 @@ import Core
 import Foundation
 import Platform
 
-@MainActor
-final class DownloadCheckpointThrottler {
+actor DownloadCheckpointThrottler {
     private let interval: TimeInterval
     private let store: DownloadStore
     private var lastWrite: [RecordID: Date] = [:]
@@ -24,15 +23,29 @@ final class DownloadCheckpointThrottler {
 
 @MainActor
 final class DownloadCoordinator {
+    enum BulkEnqueueResult {
+        case local(records: [DownloadRecord])
+        case forwarded
+    }
+
     let store: DownloadStore
     let queue: DownloadQueue
     let binaries: any BinaryLocator
     var dispatch: DispatchServer?
     private var destinationObserver: NSObjectProtocol?
+    private var settingsObserver: NSObjectProtocol?
     private var metadataFetchTasks: [RecordID: Task<Void, Never>] = [:]
     private var periodicCookieSyncTask: Task<Void, Never>?
     private let log = Logging.logger(for: "downloader", category: "coordinator")
     private let extensionCookieSyncIntervalNanos: UInt64 = 30 * 60 * 1_000_000_000
+    nonisolated private static let helperRequestTimeout: TimeInterval = 8
+    private var isHelperProcess: Bool {
+        Bundle.main.bundleIdentifier == "com.macallyouneed.app.downloader"
+    }
+    private var helperBaseURL: URL? {
+        guard !isHelperProcess else { return nil }
+        return URL(string: "http://127.0.0.1:18765")
+    }
 
     init(binaries: any BinaryLocator) throws {
         let key = try KeyManager(keychain: SystemKeychain()).deviceKey()
@@ -43,27 +56,28 @@ final class DownloadCoordinator {
         let checkpoints = DownloadCheckpointThrottler(store: store)
         let storeRef = store
         queue = DownloadQueue(
-            maxConcurrent: 3,
+            maxConcurrent: Self.currentConcurrency(),
             started: { id in
-                Task { @MainActor in
+                Task.detached(priority: .utility) {
                     try? storeRef.updateState(id: id, to: .running)
                     Self.postStateChanged(id: id, state: .running)
                 }
             },
             progress: { id, p in
-                NotificationCenter.default.post(
-                    name: .downloadProgress, object: nil,
+                Self.postCrossProcessNotification(
+                    name: .downloadProgress,
                     userInfo: ["id": id.rawValue, "progress": p]
                 )
-                Task { @MainActor in checkpoints.record(id: id, progress: p) }
+                Task.detached(priority: .utility) {
+                    await checkpoints.record(id: id, progress: p)
+                }
             },
             completion: { id, result in
-                Task { @MainActor in
+                Task.detached(priority: .utility) {
                     switch result {
                     case .success:
                         try? storeRef.updateState(id: id, to: .completed)
                         Self.postStateChanged(id: id, state: .completed)
-                        CopyHUD.show("Download finished", symbol: "checkmark.circle.fill")
                     case .failure(let error):
                         recordDownloadFailure(store: storeRef, id: id, error: error)
                         Self.postStateChanged(id: id, state: .failed)
@@ -71,7 +85,7 @@ final class DownloadCoordinator {
                 }
             }
         )
-        destinationObserver = NotificationCenter.default.addObserver(
+        destinationObserver = DistributedNotificationCenter.default().addObserver(
             forName: .downloadDestinationPath,
             object: nil,
             queue: .main
@@ -83,23 +97,43 @@ final class DownloadCoordinator {
                 self?.applyDestinationMetadataFallback(id: id, destinationPath: path)
             }
         }
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: AppGroupSettings.defaults,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in await self?.applyConcurrencySetting() }
+        }
+        Task { @MainActor [weak self] in await self?.applyConcurrencySetting() }
     }
 
     deinit {
         if let destinationObserver {
             NotificationCenter.default.removeObserver(destinationObserver)
         }
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+        }
         periodicCookieSyncTask?.cancel()
     }
 
-    private static func postStateChanged(id: RecordID, state: DownloadState) {
-        NotificationCenter.default.post(
-            name: .downloadStateChanged, object: nil,
+    nonisolated private static func postStateChanged(id: RecordID, state: DownloadState) {
+        postCrossProcessNotification(
+            name: .downloadStateChanged,
             userInfo: ["id": id.rawValue, "state": state.rawValue]
         )
     }
 
-    private func cookieArgs() -> ([String], hadErrors: Bool) {
+    private static func currentConcurrency() -> Int {
+        let raw = AppGroupSettings.defaults.integer(forKey: "downloadConcurrency")
+        return max(1, raw)
+    }
+
+    private func applyConcurrencySetting() async {
+        await queue.setMaxConcurrent(Self.currentConcurrency())
+    }
+
+    nonisolated private static func makeCookieArgs() -> ([String], hadErrors: Bool) {
         let cookieFile = AppGroup.containerURL()
             .appendingPathComponent("cookies", isDirectory: true)
             .appendingPathComponent("downloader-cookies.txt")
@@ -117,7 +151,7 @@ final class DownloadCoordinator {
                 return (exists ? ["--cookies", extensionCookieFile.path] : [], !exists)
             }
             let browserPref = AppGroupSettings.defaults.string(forKey: "downloadCookieBrowserProfile") ?? "chrome"
-            let preferredBrowser = preferredBrowserProfile(for: browserPref)
+            let preferredBrowser = Self.preferredBrowserProfile(for: browserPref)
             let options = CookieImportOptions(
                 preferredBrowser: preferredBrowser,
                 includeSafari: preferredBrowser == nil || preferredBrowser == .safari,
@@ -130,7 +164,7 @@ final class DownloadCoordinator {
         }
     }
 
-    private func preferredBrowserProfile(for raw: String) -> BrowserProfile.Browser? {
+    nonisolated private static func preferredBrowserProfile(for raw: String) -> BrowserProfile.Browser? {
         switch raw {
         case "chrome", "chromium":
             .chrome
@@ -154,10 +188,11 @@ final class DownloadCoordinator {
         } else {
             message = "Some browser profiles could not be imported. Downloads requiring login may fail."
         }
-        NotificationCenter.default.post(name: .cookieWarning, object: nil, userInfo: ["message": message])
+        Self.postCrossProcessNotification(name: .cookieWarning, userInfo: ["message": message])
     }
 
     func startDispatchServer() async {
+        guard Bundle.main.bundleIdentifier == "com.macallyouneed.app.downloader" else { return }
         guard dispatch == nil else { return }
         let tokenURL = AppGroup.containerURL().appendingPathComponent("dispatch.token")
         let token = (try? DispatchToken.rotate(at: tokenURL)) ?? UUID().uuidString
@@ -174,12 +209,23 @@ final class DownloadCoordinator {
     }
 
     func stopDispatchServer() async {
+        guard Bundle.main.bundleIdentifier == "com.macallyouneed.app.downloader" else { return }
         periodicCookieSyncTask?.cancel()
         periodicCookieSyncTask = nil
         if let server = dispatch {
             await server.stop()
             dispatch = nil
         }
+    }
+
+    func resetCompanionRegistration() async {
+        let tokenURL = AppGroup.containerURL().appendingPathComponent("extension.token")
+        try? FileManager.default.removeItem(at: tokenURL)
+        await dispatch?.resetExtensionToken()
+        guard let url = URL(string: "http://127.0.0.1:18765/companion-reset") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        _ = try? await URLSession.shared.data(for: request)
     }
 
     private func startPeriodicExtensionCookieSync() {
@@ -204,42 +250,86 @@ final class DownloadCoordinator {
     }
 
     private func handleDispatchRequest(_ req: DispatchServer.Request) async {
-        guard let route = DownloadURLClassifier.route(for: req.url) else { return }
-        switch route {
-        case let .single(url):
-            if shouldBlockForMissingExtensionCookies(url: url) {
-                NotificationCenter.default.post(
-                    name: .cookieWarning,
-                    object: nil,
-                    userInfo: [
-                        "message": "Mac All You Need Companion mode is selected but synced cookies are missing. Install Companion and sync cookies in Downloads settings, or switch to Browser Auto."
-                    ]
+        let normalized = Self.normalizeDouyinExtensionDispatch(
+            url: req.url,
+            title: req.title,
+            mediaType: req.mediaType,
+            pageURL: req.pageURL,
+            douyinAwemeID: req.douyinAwemeID
+        )
+        switch req.action {
+        case .enqueue:
+            guard let route = DownloadURLClassifier.route(for: normalized.url) else { return }
+            switch route {
+            case let .single(url):
+                if shouldBlockForMissingExtensionCookies(url: url) {
+                    Self.postCrossProcessNotification(
+                        name: .cookieWarning,
+                        userInfo: [
+                            "message": "Mac All You Need Companion mode is selected but synced cookies are missing. Install Companion and sync cookies in Downloads settings, or switch to Browser Auto."
+                        ]
+                    )
+                    return
+                }
+                let quality = AppGroupSettings.defaults.integer(forKey: "downloadDefaultVideoQuality")
+                let preset = DownloadFormatPreset.fromDefaultQualitySetting(quality == 0 ? 1080 : quality)
+                await enqueue(
+                    url: url,
+                    title: req.title,
+                    formatArgs: preset.ytdlpArgs(),
+                    mediaType: normalized.mediaType,
+                    referer: req.referer,
+                    customHeaders: req.headers,
+                    pageURL: normalized.pageURL,
+                    douyinAwemeID: normalized.awemeID
                 )
-                return
+            case .collection, .douyinProfile, .multiURL:
+                await MainActor.run {
+                    Self.postCrossProcessNotification(
+                        name: .downloadRouteRequested,
+                        userInfo: [
+                            "url": req.url,
+                            "title": req.title as Any,
+                            "type": req.mediaType as Any,
+                            "referer": req.referer as Any,
+                            "headers": req.headers as Any
+                        ]
+                    )
+                }
             }
-            let quality = AppGroupSettings.defaults.integer(forKey: "downloadDefaultVideoQuality")
-            let preset = DownloadFormatPreset.fromDefaultQualitySetting(quality == 0 ? 1080 : quality)
-            await enqueue(
-                url: url,
-                title: req.title,
-                formatArgs: preset.ytdlpArgs(),
-                mediaType: req.mediaType,
-                referer: req.referer,
-                customHeaders: req.headers
-            )
-        case .collection, .douyinProfile, .multiURL:
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: .downloadRouteRequested,
-                    object: nil,
-                    userInfo: [
-                        "url": req.url,
-                        "title": req.title as Any,
-                        "type": req.mediaType as Any,
-                        "referer": req.referer as Any,
-                        "headers": req.headers as Any
-                    ]
-                )
+        case .retry:
+            if let recordID = req.recordID, let id = RecordID(rawValue: recordID), let record = try? store.fetch(id: id) {
+                await reenqueue(record: record)
+            }
+        case .pause:
+            if let recordID = req.recordID, let id = RecordID(rawValue: recordID) {
+                await pauseDownload(id: id)
+            }
+        case .resume:
+            if let recordID = req.recordID, let id = RecordID(rawValue: recordID) {
+                await resumeDownload(id: id)
+            }
+        case .delete:
+            if let recordID = req.recordID, let id = RecordID(rawValue: recordID) {
+                if req.deleteFiles {
+                    if let record = try? store.fetch(id: id) {
+                        await deleteDownloadWithFiles(record: record)
+                    }
+                } else {
+                    await deleteDownload(id: id)
+                }
+            }
+        case .pauseCollection:
+            if let collectionID = req.collectionID { await pauseCollection(id: collectionID) }
+        case .resumeCollection:
+            if let collectionID = req.collectionID { await resumeCollection(id: collectionID) }
+        case .deleteCollection:
+            if let collectionID = req.collectionID { await deleteCollection(id: collectionID, deleteFiles: req.deleteFiles) }
+        case .bulkEnqueue:
+            if let entries = req.entries, !entries.isEmpty {
+                let title = req.title ?? "Downloads"
+                let kind: DownloadCollectionKind = req.mediaType == "douyin" ? .douyinProfile : .multiURL
+                _ = try? await enqueueBulk(entries: entries, collectionTitle: title, kind: kind)
             }
         }
     }
@@ -285,8 +375,14 @@ final class DownloadCoordinator {
 
     /// Re-enqueue an existing record without creating a new DB entry.
     func reenqueue(record: DownloadRecord) async {
+        if helperBaseURL != nil, await sendAction(.retry, recordID: record.id.rawValue) {
+            return
+        }
         do {
             try store.updateState(id: record.id, to: .queued)
+            // Surface the queued state immediately so the row reflects the retry
+            // before the (potentially slow) resolve/startJob work runs.
+            Self.postStateChanged(id: record.id, state: .queued)
             try await startJob(for: record)
         } catch {
             log.error("reenqueue failed: \(error.localizedDescription)")
@@ -294,6 +390,9 @@ final class DownloadCoordinator {
     }
 
     func cancelDownload(id: RecordID) async {
+        if helperBaseURL != nil, await sendAction(.delete, recordID: id.rawValue) {
+            return
+        }
         cancelMetadataFetch(for: id)
         await queue.cancel(id)
         try? store.updateState(id: id, to: .failed)
@@ -301,19 +400,67 @@ final class DownloadCoordinator {
     }
 
     func deleteDownload(id: RecordID) async {
+        if helperBaseURL != nil, await sendAction(.delete, recordID: id.rawValue) {
+            return
+        }
         cancelMetadataFetch(for: id)
         await queue.cancel(id)
         try? store.delete(id: id)
-        Self.postStateChanged(id: id, state: .failed)
+        NotificationCenter.default.post(
+            name: .downloadStateChanged,
+            object: nil,
+            userInfo: ["id": id.rawValue]
+        )
+    }
+
+    func deleteDownloads(ids: [RecordID]) async {
+        guard !ids.isEmpty else { return }
+        if helperBaseURL != nil {
+            let helperResults = await withTaskGroup(of: (RecordID, Bool).self) { group in
+                for id in ids {
+                    group.addTask { [id] in
+                        (id, await self.sendAction(.delete, recordID: id.rawValue))
+                    }
+                }
+                var results: [(RecordID, Bool)] = []
+                results.reserveCapacity(ids.count)
+                for await result in group {
+                    results.append(result)
+                }
+                return results
+            }
+            let helperSucceeded = Set(helperResults.filter { $0.1 }.map { $0.0 })
+            for id in ids where !helperSucceeded.contains(id) {
+                cancelMetadataFetch(for: id)
+                await queue.cancel(id)
+                try? store.delete(id: id)
+                NotificationCenter.default.post(
+                    name: .downloadStateChanged,
+                    object: nil,
+                    userInfo: ["id": id.rawValue]
+                )
+            }
+            return
+        }
+        cancelMetadataFetches(for: ids)
+        await queue.cancelMany(ids)
+        try? store.delete(ids: ids)
+        postDeletedStateChanges(ids)
     }
 
     func pauseDownload(id: RecordID) async {
+        if helperBaseURL != nil, await sendAction(.pause, recordID: id.rawValue) {
+            return
+        }
         await queue.pauseForResume(id) // terminates without firing failure completion
         try? store.updateState(id: id, to: .paused)
         Self.postStateChanged(id: id, state: .paused)
     }
 
     func resumeDownload(id: RecordID) async {
+        if helperBaseURL != nil, await sendAction(.resume, recordID: id.rawValue) {
+            return
+        }
         do {
             let record = try store.fetch(id: id)
             try store.updateState(id: id, to: .queued)
@@ -325,7 +472,7 @@ final class DownloadCoordinator {
     }
 
     func listCollectionEntries(url: String) async throws -> PlaylistListResult {
-        let (cookieArgsList, _) = cookieArgs()
+        let (cookieArgsList, _) = Self.makeCookieArgs()
         let cookieFileURL: URL? = cookieFileURL(from: cookieArgsList)
         guard let ytdlpPath = try? binaries.ytdlpPath() else {
             throw PlaylistListError.ytdlpFailed(code: -1, message: "yt-dlp not available")
@@ -338,63 +485,479 @@ final class DownloadCoordinator {
         collectionTitle: String,
         kind: DownloadCollectionKind,
         formatArgs: [String] = []
-    ) async throws {
-        guard !entries.isEmpty else { return }
-        guard entries.count <= PlaylistEntryLister.maxBulkItems else {
-            throw PlaylistListError.tooManyItems(count: entries.count)
+    ) async throws -> BulkEnqueueResult {
+        let helperBaseURL = helperBaseURL
+        if let helperBaseURL, await Self.sendBulkToHelper(
+            helperBaseURL: helperBaseURL,
+            entries: entries,
+            collectionTitle: collectionTitle
+        ) {
+            return .forwarded
         }
 
-        let collectionID = UUID().uuidString
+        let store = store
+        let binaries = binaries
+        let dispatch = dispatch
+        let queue = queue
+        let log = log
+        let shouldDeferBulkJobBuild = entries.count >= 64
+
+        return await Task.detached(priority: .userInitiated) { [entries, collectionTitle, kind, formatArgs, store, binaries, dispatch, queue, log] in
+            let collectionID = UUID().uuidString
+            let bulkConfig = Self.prepareBulkConfiguration(collectionTitle: collectionTitle)
+            let records: [DownloadRecord] = entries.enumerated().compactMap { index, entry in
+                let pageURL = entry.pageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !pageURL.isEmpty else { return nil }
+                var record = DownloadRecord(
+                    url: pageURL,
+                    title: entry.title,
+                    destinationPath: bulkConfig.dest.path,
+                    state: .queued
+                )
+                record.pageURL = pageURL
+                record.collectionID = collectionID
+                record.collectionIndex = entry.playlistIndex ?? (index + 1)
+                record.collectionTitle = collectionTitle
+                record.collectionKind = kind
+                record.videoTitle = entry.title
+                record.channelName = entry.channel.isEmpty ? nil : entry.channel
+                record.durationSeconds = entry.durationSeconds
+                record.thumbnailURL = entry.thumbnailURL
+                return DownloadMetadataFallback.applyingFallbacks(to: record, destinationPath: nil)
+            }
+            guard !records.isEmpty else { return .local(records: []) }
+
+            do {
+                _ = try store.insertBulk(records)
+                Self.postBulkStateChanged(count: records.count)
+
+                if kind == .douyinProfile {
+                    await Self.requestDouyinCookieSyncIfPossible(dispatch: dispatch)
+                }
+
+                if shouldDeferBulkJobBuild {
+                    Task.detached(priority: .userInitiated) {
+                        let ytdlpPath = try? binaries.ytdlpPath()
+                        let ffmpegPath = try? binaries.ffmpegPath()
+                        let jobs = await Self.buildBulkJobs(
+                            records: records,
+                            totalBulkCount: records.count,
+                            bulkConfig: bulkConfig,
+                            formatArgs: formatArgs,
+                            ytdlpPath: ytdlpPath,
+                            ffmpegPath: ffmpegPath,
+                            store: store
+                        )
+                        await queue.enqueueBatch(jobs)
+                    }
+                    return .local(records: records)
+                }
+
+                let ytdlpPath = try? binaries.ytdlpPath()
+                let ffmpegPath = try? binaries.ffmpegPath()
+                let batchSize = 16
+                var pendingJobs: [DownloadJob] = []
+                pendingJobs.reserveCapacity(batchSize)
+
+                func flushPendingJobs() async {
+                    guard !pendingJobs.isEmpty else { return }
+                    await queue.enqueueBatch(pendingJobs)
+                    pendingJobs.removeAll(keepingCapacity: true)
+                }
+
+                if kind == .douyinProfile {
+                    // Resolve incrementally so the first few items can start
+                    // quickly, but batch queue mutations to avoid repeated
+                    // sort/start churn on large collections.
+                    for record in records {
+                        if Task.isCancelled { break }
+                        guard let job = await Self.buildBulkJob(
+                            record: record,
+                            totalBulkCount: records.count,
+                            bulkConfig: bulkConfig,
+                            formatArgs: formatArgs,
+                            ytdlpPath: ytdlpPath,
+                            ffmpegPath: ffmpegPath,
+                            store: store
+                        ) else { continue }
+                        pendingJobs.append(job)
+                        if pendingJobs.count >= batchSize {
+                            await flushPendingJobs()
+                            await Task.yield()
+                        }
+                    }
+                } else {
+                    let jobs = await Self.buildBulkJobs(
+                        records: records,
+                        totalBulkCount: records.count,
+                        bulkConfig: bulkConfig,
+                        formatArgs: formatArgs,
+                        ytdlpPath: ytdlpPath,
+                        ffmpegPath: ffmpegPath,
+                        store: store
+                    )
+                    pendingJobs.append(contentsOf: jobs)
+                }
+
+                await flushPendingJobs()
+                return .local(records: records)
+            } catch {
+                log.error("bulk enqueue failed: \(error.localizedDescription)")
+                return .local(records: records)
+            }
+        }.value
+    }
+
+    nonisolated private static func buildBulkJobs(
+        records: [DownloadRecord],
+        totalBulkCount: Int,
+        bulkConfig: BulkPreparation,
+        formatArgs: [String],
+        ytdlpPath: URL?,
+        ffmpegPath: URL?,
+        store: DownloadStore
+    ) async -> [DownloadJob] {
+        guard let ytdlpPath, let ffmpegPath else { return [] }
+        var jobs: [DownloadJob] = []
+        jobs.reserveCapacity(records.count)
+        let douyinResolves = await resolveBulkDouyinRecords(records, cookieFile: bulkConfig.cookieFileURL)
+
+        for (index, record) in records.enumerated() {
+            if Task.isCancelled { break }
+            let job: DownloadJob
+            switch DownloadEngineRouter.selectEngine(for: record) {
+            case .ytdlp:
+                let extraArgs = YtDlpArgumentBuilder.build(
+                    record: record,
+                    cookies: bulkConfig.cookieArgsList,
+                    formatArgs: formatArgs,
+                    batchArgs: DownloadBatchRateLimiter.gentleSleepRequestsArgs(
+                        kind: record.collectionKind ?? .multiURL,
+                        batchCount: totalBulkCount
+                    ),
+                    options: bulkConfig.ytdlpOptions
+                )
+                job = DownloadJob(
+                    recordID: record.id,
+                    url: record.url,
+                    destination: URL(fileURLWithPath: record.destinationPath),
+                    ytdlp: ytdlpPath,
+                    ffmpeg: ffmpegPath,
+                    extraArgs: extraArgs,
+                    collectionID: record.collectionID,
+                    collectionIndex: record.collectionIndex,
+                    enqueuedAt: record.created
+                )
+            case .douyinDirect:
+                let resolved = douyinResolves[index]
+                var updated = record
+                if let resolved {
+                    updated.douyinAwemeID = resolved.awemeId
+                    updated.videoTitle = resolved.title
+                    if updated.channelName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+                       !resolved.author.isEmpty
+                    {
+                        updated.channelName = resolved.author
+                    }
+                    if updated.thumbnailURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+                       let thumbnail = resolved.thumbnailURL
+                    {
+                        updated.thumbnailURL = thumbnail
+                    }
+                    updated.referer = DouyinAPISupport.origin
+                    updated.destinationPath = Self.backgroundConcreteDestination(
+                        from: bulkConfig.dest,
+                        title: updated.videoTitle,
+                        author: updated.channelName,
+                        fallbackID: resolved.awemeId,
+                        ext: "mp4"
+                    ).path
+                    try? store.update(updated)
+                }
+                let target = URL(fileURLWithPath: updated.destinationPath)
+                job = DownloadJob(
+                    recordID: updated.id,
+                    url: resolved?.directURL ?? updated.url,
+                    destination: target,
+                    executable: ffmpegPath,
+                    arguments: {
+                        var args = ["-y"]
+                        if let referer = updated.referer?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                            ?? (resolved != nil ? DouyinAPISupport.origin : nil)
+                        {
+                            args += ["-referer", referer]
+                        }
+                        var headers = updated.customHeaders ?? [:]
+                        if let extraHeaders = resolved?.downloadHeaders {
+                            for (key, value) in extraHeaders {
+                                headers[key] = value
+                            }
+                        }
+                        if !headers.isEmpty {
+                            let joined = headers
+                                .keys
+                                .sorted()
+                                .compactMap { key -> String? in
+                                    guard let value = headers[key] else { return nil }
+                                    let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    guard !k.isEmpty, !v.isEmpty else { return nil }
+                                    return "\(k): \(v)\r\n"
+                                }
+                                .joined()
+                            if !joined.isEmpty {
+                                args += ["-headers", joined]
+                            }
+                        }
+                        args += ["-i", resolved?.directURL ?? updated.url, "-c", "copy", "-movflags", "+faststart", target.path]
+                        return args
+                    }(),
+                    collectionID: updated.collectionID,
+                    collectionIndex: updated.collectionIndex,
+                    enqueuedAt: updated.created
+                )
+            case .ffmpegDirect:
+                job = DownloadJob(
+                    recordID: record.id,
+                    url: record.url,
+                    destination: URL(fileURLWithPath: record.destinationPath),
+                    executable: ffmpegPath,
+                    arguments: ["-y", "-i", record.url, "-c", "copy", "-movflags", "+faststart", record.destinationPath],
+                    collectionID: record.collectionID,
+                    collectionIndex: record.collectionIndex,
+                    enqueuedAt: record.created
+                )
+            }
+            jobs.append(job)
+            if index.isMultiple(of: 16) {
+                await Task.yield()
+            }
+        }
+        return jobs
+    }
+
+    nonisolated private static func buildBulkJob(
+        record: DownloadRecord,
+        totalBulkCount: Int,
+        bulkConfig: BulkPreparation,
+        formatArgs: [String],
+        ytdlpPath: URL?,
+        ffmpegPath: URL?,
+        store: DownloadStore
+    ) async -> DownloadJob? {
+        guard let ytdlpPath, let ffmpegPath else { return nil }
+        switch DownloadEngineRouter.selectEngine(for: record) {
+        case .ytdlp:
+            let extraArgs = YtDlpArgumentBuilder.build(
+                record: record,
+                cookies: bulkConfig.cookieArgsList,
+                formatArgs: formatArgs,
+                batchArgs: DownloadBatchRateLimiter.gentleSleepRequestsArgs(
+                    kind: record.collectionKind ?? .multiURL,
+                    batchCount: totalBulkCount
+                ),
+                options: bulkConfig.ytdlpOptions
+            )
+            return DownloadJob(
+                recordID: record.id,
+                url: record.url,
+                destination: URL(fileURLWithPath: record.destinationPath),
+                ytdlp: ytdlpPath,
+                ffmpeg: ffmpegPath,
+                extraArgs: extraArgs,
+                collectionID: record.collectionID,
+                collectionIndex: record.collectionIndex,
+                enqueuedAt: record.created
+            )
+        case .douyinDirect:
+            let resolved = try? await DouyinVideoClient.resolve(
+                url: record.url,
+                cookieFile: bulkConfig.cookieFileURL
+            )
+            var updated = record
+            if let resolved {
+                updated.douyinAwemeID = resolved.awemeId
+                updated.videoTitle = resolved.title
+                if updated.channelName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+                   !resolved.author.isEmpty
+                {
+                    updated.channelName = resolved.author
+                }
+                if updated.thumbnailURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+                   let thumbnail = resolved.thumbnailURL
+                {
+                    updated.thumbnailURL = thumbnail
+                }
+                updated.referer = DouyinAPISupport.origin
+                updated.destinationPath = Self.backgroundConcreteDestination(
+                    from: bulkConfig.dest,
+                    title: updated.videoTitle,
+                    author: updated.channelName,
+                    fallbackID: resolved.awemeId,
+                    ext: "mp4"
+                ).path
+                try? store.update(updated)
+            }
+            let target = URL(fileURLWithPath: updated.destinationPath)
+            return DownloadJob(
+                recordID: updated.id,
+                url: resolved?.directURL ?? updated.url,
+                destination: target,
+                executable: ffmpegPath,
+                arguments: {
+                    var args = ["-y"]
+                    if let referer = updated.referer?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                        ?? (resolved != nil ? DouyinAPISupport.origin : nil)
+                    {
+                        args += ["-referer", referer]
+                    }
+                    var headers = updated.customHeaders ?? [:]
+                    if let extraHeaders = resolved?.downloadHeaders {
+                        for (key, value) in extraHeaders {
+                            headers[key] = value
+                        }
+                    }
+                    if !headers.isEmpty {
+                        let joined = headers
+                            .keys
+                            .sorted()
+                            .compactMap { key -> String? in
+                                guard let value = headers[key] else { return nil }
+                                let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
+                                let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !k.isEmpty, !v.isEmpty else { return nil }
+                                return "\(k): \(v)\r\n"
+                            }
+                            .joined()
+                        if !joined.isEmpty {
+                            args += ["-headers", joined]
+                        }
+                    }
+                    args += ["-i", resolved?.directURL ?? updated.url, "-c", "copy", "-movflags", "+faststart", target.path]
+                    return args
+                }(),
+                collectionID: updated.collectionID,
+                collectionIndex: updated.collectionIndex,
+                enqueuedAt: updated.created
+            )
+        case .ffmpegDirect:
+            return DownloadJob(
+                recordID: record.id,
+                url: record.url,
+                destination: URL(fileURLWithPath: record.destinationPath),
+                executable: ffmpegPath,
+                arguments: ["-y", "-i", record.url, "-c", "copy", "-movflags", "+faststart", record.destinationPath],
+                collectionID: record.collectionID,
+                collectionIndex: record.collectionIndex,
+                enqueuedAt: record.created
+            )
+        }
+    }
+
+    nonisolated private static func resolveBulkDouyinRecords(
+        _ records: [DownloadRecord],
+        cookieFile: URL?
+    ) async -> [Int: DouyinResolvedVideo] {
+        let douyinEntries: [(Int, DownloadRecord)] = records.enumerated().compactMap { index, record in
+            guard DownloadEngineRouter.selectEngine(for: record) == .douyinDirect else { return nil }
+            return (index, record)
+        }
+        guard !douyinEntries.isEmpty else { return [:] }
+
+        let maxConcurrent = min(4, douyinEntries.count)
+        return await withTaskGroup(
+            of: (Int, DouyinResolvedVideo?).self,
+            returning: [Int: DouyinResolvedVideo].self
+        ) { group in
+            var nextIndex = 0
+
+            func enqueueNext() {
+                guard nextIndex < douyinEntries.count else { return }
+                let (index, record) = douyinEntries[nextIndex]
+                nextIndex += 1
+                group.addTask {
+                    let resolved = try? await DouyinVideoClient.resolve(
+                        url: record.url,
+                        cookieFile: cookieFile
+                    )
+                    return (index, resolved)
+                }
+            }
+
+            for _ in 0..<maxConcurrent {
+                enqueueNext()
+            }
+
+            var results: [Int: DouyinResolvedVideo] = [:]
+            for await (index, resolved) in group {
+                if let resolved {
+                    results[index] = resolved
+                }
+                enqueueNext()
+            }
+            return results
+        }
+    }
+
+    private struct BulkPreparation: Sendable {
+        let dest: URL
+        let cookieArgsList: [String]
+        let cookieFileURL: URL?
+        let ytdlpOptions: YtDlpArgumentOptions
+    }
+
+    nonisolated private static func prepareBulkConfiguration(collectionTitle: String) -> BulkPreparation {
         let useSubfolder = AppGroupSettings.defaults.object(forKey: "downloadCollectionSubfolder") as? Bool ?? true
-        let dest = try DownloadDestinationBuilder.destinationURL(
+        let dest = try? DownloadDestinationBuilder.destinationURL(
             collectionTitle: collectionTitle,
             useCollectionSubfolder: useSubfolder
         )
-
-        var records: [DownloadRecord] = []
-        for (index, entry) in entries.enumerated() {
-            let pageURL = entry.pageURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !pageURL.isEmpty else { continue }
-            var record = DownloadRecord(
-                url: pageURL,
-                title: entry.title,
-                destinationPath: dest.path,
-                state: .queued
-            )
-            record.pageURL = pageURL
-            record.collectionID = collectionID
-            record.collectionIndex = entry.playlistIndex ?? (index + 1)
-            record.collectionTitle = collectionTitle
-            record.collectionKind = kind
-            record.videoTitle = entry.title
-            record.channelName = entry.channel.isEmpty ? nil : entry.channel
-            record.durationSeconds = entry.durationSeconds
-            record.thumbnailURL = entry.thumbnailURL
-            record = DownloadMetadataFallback.applyingFallbacks(to: record, destinationPath: nil)
-            records.append(record)
+        let cookieMode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
+        let browserPref = AppGroupSettings.defaults.string(forKey: "downloadCookieBrowserProfile") ?? "chrome"
+        let preferredBrowser: BrowserProfile.Browser? = switch browserPref {
+        case "chrome", "chromium": .chrome
+        case "edge": .edge
+        case "brave": .brave
+        case "safari": .safari
+        default: nil
         }
-
-        guard !records.isEmpty else { return }
-        _ = try store.insertBulk(records)
-        Self.postBulkStateChanged(count: records.count)
-
-        let sleepSeconds = DownloadBatchRateLimiter.effectiveSleepSeconds(kind: kind, count: records.count)
-        for (index, record) in records.enumerated() {
-            let stagger = Double(index) * sleepSeconds
-            let task = Task { [weak self] in
-                guard let self else { return }
-                if stagger > 0 {
-                    try? await Task.sleep(nanoseconds: UInt64(stagger * 1_000_000_000))
-                }
-                await self.fetchMetadataThenStart(
-                    record: record,
-                    url: record.url,
-                    dest: dest,
-                    formatArgs: formatArgs
-                )
+        let cookiesDir = AppGroup.containerURL().appendingPathComponent("cookies", isDirectory: true)
+        let cookieFile = cookiesDir.appendingPathComponent("downloader-cookies.txt")
+        let extensionCookieFile = cookiesDir.appendingPathComponent("downloader-extension-cookies.txt")
+        var cookieArgsList: [String] = []
+        if cookieMode == "extension_only" {
+            if FileManager.default.fileExists(atPath: extensionCookieFile.path) {
+                cookieArgsList = ["--cookies", extensionCookieFile.path]
             }
-            metadataFetchTasks[record.id] = task
+        } else {
+            let options = CookieImportOptions(
+                preferredBrowser: preferredBrowser,
+                includeSafari: preferredBrowser == nil || preferredBrowser == .safari,
+                appendExistingCookieFile: extensionCookieFile
+            )
+            _ = try? CookieImporter.combinedCookiesFile(at: cookieFile, options: options)
+            cookieArgsList = ["--cookies", cookieFile.path]
         }
+        let rawSpeedMode = AppGroupSettings.defaults.string(forKey: "downloadSpeedMode") ?? DownloadSpeedMode.balanced.rawValue
+        let speedMode = DownloadSpeedMode(rawValue: rawSpeedMode) ?? .balanced
+        let configuredFragments = AppGroupSettings.defaults.integer(forKey: "downloadConcurrentFragments")
+        let concurrentFragments = configuredFragments > 0 ? configuredFragments : 4
+        let sleepInterval = max(0, AppGroupSettings.defaults.double(forKey: "downloadSleepInterval"))
+        let options = YtDlpArgumentOptions(
+            concurrentFragments: concurrentFragments,
+            sleepInterval: sleepInterval,
+            speedMode: speedMode
+        )
+        let cookieFileURL = cookieArgsList.firstIndex(of: "--cookies").flatMap { idx -> URL? in
+            guard cookieArgsList.indices.contains(idx + 1) else { return nil }
+            return URL(fileURLWithPath: cookieArgsList[idx + 1])
+        }
+        return BulkPreparation(
+            dest: dest ?? URL(fileURLWithPath: "/tmp"),
+            cookieArgsList: cookieArgsList,
+            cookieFileURL: cookieFileURL,
+            ytdlpOptions: options
+        )
     }
 
     func enqueue(
@@ -403,59 +966,183 @@ final class DownloadCoordinator {
         formatArgs: [String] = [],
         mediaType: String? = nil,
         referer: String? = nil,
-        customHeaders: [String: String]? = nil
-    ) async {
-        do {
-            let dest = try makeDestinationURL(for: nil)
-            var record = DownloadRecord(url: url, title: title ?? url, destinationPath: dest.path, state: .queued)
-            record.pageURL = url
-            record.mediaType = mediaType?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            record.referer = referer?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            record.customHeaders = (customHeaders?.isEmpty == false) ? customHeaders : nil
-            record = DownloadMetadataFallback.applyingFallbacks(to: record, destinationPath: nil)
-            try store.insert(record)
-            let task = Task { [weak self] in
-                guard let self else { return }
-                await self.fetchMetadataThenStart(record: record, url: url, dest: dest, formatArgs: formatArgs)
+        customHeaders: [String: String]? = nil,
+        pageURL: String? = nil,
+        douyinAwemeID: String? = nil,
+        videoTitle: String? = nil,
+        channelName: String? = nil,
+        thumbnailURL: String? = nil
+        ) async {
+        let normalized = Self.normalizeDouyinExtensionDispatch(
+            url: url,
+            title: title,
+            mediaType: mediaType,
+            pageURL: pageURL,
+            douyinAwemeID: douyinAwemeID
+        )
+        if helperBaseURL != nil {
+            let forwarded = await sendSingleToHelper(
+                url: normalized.url,
+                title: title ?? normalized.url,
+                mediaType: normalized.mediaType,
+                referer: referer,
+                customHeaders: customHeaders,
+                pageURL: normalized.pageURL ?? normalized.url,
+                douyinAwemeID: normalized.awemeID,
+                formatArgs: formatArgs
+            )
+                if forwarded { return }
             }
-            metadataFetchTasks[record.id] = task
-        } catch {
-            log.error("enqueue failed: \(error.localizedDescription)")
+        let initialState = initialEnqueueState()
+        let payload = await Task.detached(priority: .userInitiated) { [normalized, title, referer, customHeaders, formatArgs, initialState, videoTitle, channelName, thumbnailURL] () -> (DownloadRecord, URL)? in
+            do {
+                let dest = try DownloadDestinationBuilder.destinationURL(
+                    collectionTitle: nil,
+                    useCollectionSubfolder: true
+                )
+                var record = DownloadRecord(
+                    url: normalized.url,
+                    title: title ?? normalized.url,
+                    destinationPath: dest.path,
+                    state: initialState
+                )
+                record.pageURL = normalized.pageURL ?? normalized.url
+                record.mediaType = normalized.mediaType?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                record.douyinAwemeID = normalized.awemeID
+                record.referer = referer?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                record.customHeaders = (customHeaders?.isEmpty == false) ? customHeaders : nil
+                if let videoTitle = videoTitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+                    record.videoTitle = videoTitle
+                }
+                if let channelName = channelName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+                    record.channelName = channelName
+                }
+                if let thumbnailURL = thumbnailURL?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+                    record.thumbnailURL = thumbnailURL
+                }
+                record = DownloadMetadataFallback.applyingFallbacks(to: record, destinationPath: nil)
+                return (record, dest)
+            } catch {
+                return nil
+            }
+        }.value
+        guard let payload else {
+            log.error("enqueue failed: unable to prepare destination")
+            return
         }
+        let insertedID = await Task.detached(priority: .userInitiated) { [store, record = payload.0] () -> RecordID? in
+            do {
+                try store.insert(record)
+                return record.id
+            } catch {
+                return nil
+            }
+        }.value
+        guard let insertedID else {
+            log.error("enqueue failed: unable to persist record")
+            return
+        }
+        if payload.0.state == .paused {
+            Self.postStateChanged(id: insertedID, state: .paused)
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.fetchMetadataThenStart(record: payload.0, url: normalized.url, dest: payload.1, formatArgs: formatArgs)
+        }
+        metadataFetchTasks[insertedID] = task
     }
 
     func pauseCollection(id: String) async {
-        guard let records = try? store.records(inCollection: id) else { return }
-        for record in records where [.running, .queued].contains(record.state) {
-            await pauseDownload(id: record.id)
+        if helperBaseURL != nil {
+            await sendAction(.pauseCollection, collectionID: id)
+            return
         }
+        guard let records = try? store.records(inCollection: id) else { return }
+        await pauseDownloads(ids: records.filter { [.running, .queued].contains($0.state) }.map(\.id))
     }
 
     func resumeCollection(id: String) async {
+        if helperBaseURL != nil {
+            await sendAction(.resumeCollection, collectionID: id)
+            return
+        }
         guard let records = try? store.records(inCollection: id) else { return }
-        for record in records where record.state == .paused || record.state == .failed {
+        await resumeDownloads(records: records.filter { record in
+            record.state == .paused || record.state == .failed
+        })
+    }
+
+    func deleteCollection(id: String, deleteFiles: Bool) async {
+        guard let records = try? store.records(inCollection: id), !records.isEmpty else { return }
+
+        if deleteFiles {
+            await Task.detached(priority: .userInitiated) {
+                DownloadDiskCleanup.deleteFiles(for: records)
+            }.value
+        }
+
+        // File deletion always runs in the main app (full disk access). The helper
+        // only needs to clear queue state and DB rows.
+        if helperBaseURL != nil,
+           await sendAction(.deleteCollection, collectionID: id, deleteFiles: false)
+        {
+            return
+        }
+
+        let ids = records.map(\.id)
+        await deleteDownloads(ids: ids)
+    }
+
+    func pauseDownloads(ids: [RecordID]) async {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            await queue.pauseForResume(id)
+            try? store.updateState(id: id, to: .paused)
+            Self.postStateChanged(id: id, state: .paused)
+        }
+    }
+
+    func resumeDownloads(records: [DownloadRecord]) async {
+        guard !records.isEmpty else { return }
+        for record in records {
             await reenqueue(record: record)
         }
     }
 
-    func deleteCollection(id: String, deleteFiles: Bool) async {
-        guard let records = try? store.records(inCollection: id) else { return }
-        for record in records {
-            if deleteFiles {
-                await deleteDownloadWithFiles(record: record)
-            } else {
-                await deleteDownload(id: record.id)
-            }
+    func deleteDownloadsWithFiles(records: [DownloadRecord]) async {
+        guard !records.isEmpty else { return }
+        let snapshot = records
+        let ids = snapshot.map(\.id)
+        log.info("deleteDownloadsWithFiles ids=\(ids.count), collection=\(snapshot.first?.collectionTitle ?? "nil")")
+        await deleteDownloads(ids: ids)
+        await Task.detached(priority: .userInitiated) {
+            DownloadDiskCleanup.deleteFiles(for: snapshot)
+        }.value
+    }
+
+    func cancelMetadataFetches(for ids: [RecordID]) {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            cancelMetadataFetch(for: id)
+        }
+    }
+
+    func postDeletedStateChanges(_ ids: [RecordID]) {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            NotificationCenter.default.post(
+                name: .downloadStateChanged,
+                object: nil,
+                userInfo: ["id": id.rawValue]
+            )
         }
     }
 
     private func deleteDownloadWithFiles(record: DownloadRecord) async {
-        let path = record.destinationPath
         await deleteDownload(id: record.id)
-        guard !path.isEmpty else { return }
-        try? FileManager.default.removeItem(atPath: path)
-        try? FileManager.default.removeItem(atPath: path + ".part")
-        try? FileManager.default.removeItem(atPath: path + ".ytdl")
+        await Task.detached(priority: .userInitiated) {
+            DownloadDiskCleanup.deleteFiles(for: [record])
+        }.value
     }
 
     private func applyDestinationMetadataFallback(id: RecordID, destinationPath: String) {
@@ -480,66 +1167,113 @@ final class DownloadCoordinator {
         return record.state == .queued
     }
 
+    private func initialEnqueueState() -> DownloadState {
+        guard let paused = try? store.list(state: .paused), !paused.isEmpty else {
+            return .queued
+        }
+        let running = (try? store.list(state: .running)) ?? []
+        let queued = (try? store.list(state: .queued)) ?? []
+        if running.isEmpty && queued.isEmpty {
+            return .paused
+        }
+        return .queued
+    }
+
     private func fetchMetadataThenStart(
         record: DownloadRecord,
         url: String,
         dest: URL,
-        formatArgs: [String] = []
+        formatArgs: [String] = [],
+        requestCookieSync: Bool = true
     ) async {
         defer { metadataFetchTasks.removeValue(forKey: record.id) }
         guard !Task.isCancelled else { return }
 
-        NotificationCenter.default.post(
-            name: .downloadPhase, object: nil,
+        Self.postCrossProcessNotification(
+            name: .downloadPhase,
             userInfo: ["id": record.id.rawValue, "phase": "Fetching info…"]
         )
 
-        let (cookieArgsList, cookieHadErrors) = cookieArgs()
+        let (cookieArgsList, cookieHadErrors) = await Task.detached(priority: .utility) {
+            Self.makeCookieArgs()
+        }.value
         postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
         let cookieFileURL = cookieFileURL(from: cookieArgsList)
         let selectedEngine = DownloadEngineRouter.selectEngine(for: record)
-        let shouldFetchMetadata = selectedEngine != .ffmpegDirect
+        let shouldFetchMetadata = selectedEngine != .ffmpegDirect && selectedEngine != .douyinDirect
 
-        if shouldFetchMetadata,
-           record.videoTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
-           let ytdlpPath = try? binaries.ytdlpPath(),
-           let meta = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath, cookieFile: cookieFileURL)
-        {
-            var updated = record
-            updated.videoTitle = meta.title
-            updated.channelName = meta.channelName
-            updated.durationSeconds = meta.durationSeconds
-            updated.thumbnailURL = meta.thumbnailURL
-            updated.modified = Date()
-            try? store.update(updated)
-            Self.postStateChanged(id: record.id, state: .queued)
+        if shouldFetchMetadata {
+            let needsTitle = record.videoTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+            let needsThumbnail = record.thumbnailURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+            if needsTitle || needsThumbnail {
+                guard let ytdlpPath = try? binaries.ytdlpPath() else { return }
+                let metadata = await MetadataFetcher.fetch(url: url, ytdlp: ytdlpPath, cookieFile: cookieFileURL)
+                if let meta = metadata {
+                    var updated = record
+                    if needsTitle, !meta.title.isEmpty {
+                        updated.videoTitle = meta.title
+                    }
+                    if needsThumbnail, !meta.thumbnailURL.isEmpty {
+                        updated.thumbnailURL = meta.thumbnailURL
+                    }
+                    if needsTitle, !meta.channelName.isEmpty {
+                        updated.channelName = meta.channelName
+                    }
+                    if meta.durationSeconds > 0 {
+                        updated.durationSeconds = meta.durationSeconds
+                    }
+                    updated.modified = Date()
+                    try? store.update(updated)
+                    Self.postStateChanged(id: record.id, state: updated.state)
+                }
+            }
         }
 
         guard !Task.isCancelled, shouldStillEnqueue(recordID: record.id) else { return }
 
         do {
             let latest = try store.fetch(id: record.id)
-            try await startJob(for: latest, formatArgs: formatArgs)
+            try await startJob(
+                for: latest,
+                formatArgs: formatArgs,
+                requestCookieSync: requestCookieSync
+            )
         } catch {
             log.error("enqueue start failed: \(error.localizedDescription)")
-            try? store.updateState(id: record.id, to: .failed)
+            if var failed = try? store.fetch(id: record.id) {
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                if !message.isEmpty {
+                    failed.lastError = message
+                }
+                failed.state = .failed
+                failed.modified = Date()
+                try? store.update(failed)
+            } else {
+                try? store.updateState(id: record.id, to: .failed)
+            }
             Self.postStateChanged(id: record.id, state: .failed)
         }
     }
 
-    private func startJob(for record: DownloadRecord, formatArgs: [String] = []) async throws {
+    private func startJob(
+        for record: DownloadRecord,
+        formatArgs: [String] = [],
+        requestCookieSync: Bool = true
+    ) async throws {
+        let record = try await persistNormalizedDouyinRecordIfNeeded(record)
         let dest = URL(fileURLWithPath: record.destinationPath)
-        let (cookies, cookieHadErrors) = cookieArgs()
+        let (cookies, cookieHadErrors) = await Task.detached(priority: .utility) {
+            Self.makeCookieArgs()
+        }.value
         postCookieWarningIfNeeded(hadErrors: cookieHadErrors)
         let selectedEngine = DownloadEngineRouter.selectEngine(for: record)
-        NotificationCenter.default.post(
+        Self.postCrossProcessNotification(
             name: .downloadPhase,
-            object: nil,
             userInfo: ["id": record.id.rawValue, "phase": "\(selectedEngine.rawValue)…"]
         )
         var batchArgs: [String] = []
         if let kind = record.collectionKind, let collectionID = record.collectionID, !collectionID.isEmpty {
-            let batchCount = (try? store.records(inCollection: collectionID).count) ?? 1
+            let batchCount = (try? store.count(inCollection: collectionID)) ?? 1
             batchArgs = DownloadBatchRateLimiter.gentleSleepRequestsArgs(kind: kind, batchCount: batchCount)
         }
         let job: DownloadJob
@@ -553,12 +1287,13 @@ final class DownloadCoordinator {
                 batchArgs: batchArgs
             )
         case .douyinDirect:
-            job = try makeYtDlpJob(
+            job = try await makeDouyinJob(
                 record: record,
                 destination: dest,
                 cookies: cookies,
                 formatArgs: formatArgs,
-                batchArgs: batchArgs + ["--no-playlist"]
+                batchArgs: batchArgs,
+                requestCookieSync: requestCookieSync
             )
         case .ffmpegDirect:
             job = try makeFfmpegDirectJob(record: record, destination: dest)
@@ -593,12 +1328,266 @@ final class DownloadCoordinator {
         )
     }
 
-    private func makeFfmpegDirectJob(record: DownloadRecord, destination: URL) throws -> DownloadJob {
+    private func makeDouyinJob(
+        record: DownloadRecord,
+        destination: URL,
+        cookies: [String],
+        formatArgs: [String],
+        batchArgs: [String],
+        requestCookieSync: Bool
+    ) async throws -> DownloadJob {
+        guard record.url.localizedCaseInsensitiveContains("douyin.com") else {
+            return try makeYtDlpJob(
+                record: record,
+                destination: destination,
+                cookies: cookies,
+                formatArgs: formatArgs,
+                batchArgs: batchArgs + ["--no-playlist"]
+            )
+        }
+
+        if requestCookieSync {
+            await Self.requestDouyinCookieSyncIfPossible(dispatch: dispatch)
+        }
+        let (refreshedCookies, _) = Self.makeCookieArgs()
+        let cookieFile = cookieFileURL(from: refreshedCookies) ?? cookieFileURL(from: cookies)
+
+        let resolved = try await DouyinVideoClient.resolve(url: record.url, cookieFile: cookieFile)
+        var updated = record
+        updated.douyinAwemeID = resolved.awemeId
+        updated.videoTitle = resolved.title
+        if updated.channelName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+           !resolved.author.isEmpty
+        {
+            updated.channelName = resolved.author
+        }
+        if updated.thumbnailURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+           let thumbnail = resolved.thumbnailURL
+        {
+            updated.thumbnailURL = thumbnail
+        }
+        updated.referer = DouyinAPISupport.origin
+        // ffmpeg cannot expand yt-dlp output templates (e.g. "%(title)s.%(ext)s");
+        // resolve a concrete .mp4 path so it can open the output file.
+        let concreteDestination = Self.concreteDestination(
+            from: destination,
+            title: updated.videoTitle,
+            author: updated.channelName,
+            fallbackID: resolved.awemeId,
+            ext: "mp4"
+        )
+        updated.destinationPath = concreteDestination.path
+        updated.modified = Date()
+        try? store.update(updated)
+        NotificationCenter.default.post(
+            name: .downloadPhase,
+            object: nil,
+            userInfo: ["id": record.id.rawValue, "phase": "Downloading…"]
+        )
+        return try makeFfmpegDirectJob(
+            record: updated,
+            destination: concreteDestination,
+            mediaURL: resolved.directURL,
+            extraHeaders: resolved.downloadHeaders
+        )
+    }
+
+    struct DouyinExtensionDispatchNormalization: Equatable {
+        let url: String
+        let pageURL: String?
+        let awemeID: String?
+        let mediaType: String?
+    }
+
+    nonisolated static func normalizeDouyinExtensionDispatch(
+        url: String,
+        title: String?,
+        mediaType: String?,
+        pageURL: String? = nil,
+        douyinAwemeID: String? = nil
+    ) -> DouyinExtensionDispatchNormalization {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard DouyinDownloadURLPatterns.prefersNativeResolve(url: trimmed) else {
+            return DouyinExtensionDispatchNormalization(
+                url: trimmed,
+                pageURL: pageURL?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                awemeID: douyinAwemeID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                mediaType: mediaType?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            )
+        }
+
+        let awemeFromURL = DouyinVideoClient.extractAwemeID(from: trimmed)
+        let awemeFromPage = pageURL.flatMap { DouyinVideoClient.extractAwemeID(from: $0) }
+        let awemeFromTitle = DouyinDownloadURLPatterns.extractAwemeIDFromTitle(title)
+        let awemeID = douyinAwemeID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? awemeFromURL
+            ?? awemeFromPage
+            ?? awemeFromTitle
+
+        if let awemeID {
+            let page = "https://www.douyin.com/video/\(awemeID)"
+            return DouyinExtensionDispatchNormalization(url: page, pageURL: page, awemeID: awemeID, mediaType: nil)
+        }
+
+        return DouyinExtensionDispatchNormalization(
+            url: trimmed,
+            pageURL: pageURL?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            awemeID: nil,
+            mediaType: mediaType?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        )
+    }
+
+    private func persistNormalizedDouyinRecordIfNeeded(_ record: DownloadRecord) async throws -> DownloadRecord {
+        let normalized = Self.normalizeDouyinExtensionDispatch(
+            url: record.url,
+            title: record.title,
+            mediaType: record.mediaType,
+            pageURL: record.pageURL,
+            douyinAwemeID: record.douyinAwemeID
+        )
+        guard normalized.url != record.url
+            || normalized.pageURL != record.pageURL
+            || normalized.awemeID != record.douyinAwemeID
+            || normalized.mediaType != record.mediaType
+        else {
+            return record
+        }
+        var updated = record
+        updated.url = normalized.url
+        updated.pageURL = normalized.pageURL ?? normalized.url
+        updated.douyinAwemeID = normalized.awemeID
+        updated.mediaType = normalized.mediaType
+        updated.modified = Date()
+        try store.update(updated)
+        return updated
+    }
+
+    private func ffmpegOutputExtension(record: DownloadRecord, destination: URL) -> String {
+        if let mediaType = record.mediaType?.lowercased(), !mediaType.isEmpty {
+            switch mediaType {
+            case "jpeg", "jpg":
+                return "jpg"
+            case "mp3", "audio":
+                return "mp3"
+            default:
+                return mediaType
+            }
+        }
+        let ext = destination.pathExtension.lowercased()
+        if !ext.isEmpty, !ext.contains("%") {
+            return ext
+        }
+        return "mp4"
+    }
+
+    /// Resolves a literal output path, expanding any yt-dlp template placeholders
+    /// (`%(...)s`) into a sanitized `<title> - <author>.<ext>` filename. ffmpeg
+    /// cannot expand templates, so the native Douyin path needs a concrete file.
+    nonisolated static func concreteDestination(
+        from destination: URL,
+        title: String?,
+        author: String?,
+        fallbackID: String,
+        ext: String
+    ) -> URL {
+        let directory = destination.deletingLastPathComponent()
+        let existingName = destination.lastPathComponent
+        guard existingName.contains("%(") || destination.pathExtension.isEmpty else {
+            return destination
+        }
+        func sanitize(_ value: String?) -> String {
+            (value ?? "")
+                .components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|\n\r\t"))
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let cleanTitle = sanitize(title)
+        let cleanAuthor = sanitize(author)
+        var base: String
+        if !cleanTitle.isEmpty, !cleanAuthor.isEmpty {
+            base = "\(cleanTitle) - \(cleanAuthor)"
+        } else if !cleanTitle.isEmpty {
+            base = cleanTitle
+        } else {
+            base = "douyin-\(fallbackID.isEmpty ? UUID().uuidString : fallbackID)"
+        }
+        if base.count > 180 { base = String(base.prefix(180)) }
+        return directory.appendingPathComponent("\(base).\(ext)")
+    }
+
+    nonisolated private static func backgroundConcreteDestination(
+        from destination: URL,
+        title: String?,
+        author: String?,
+        fallbackID: String,
+        ext: String
+    ) -> URL {
+        let directory = destination.deletingLastPathComponent()
+        let existingName = destination.lastPathComponent
+        guard existingName.contains("%(") || destination.pathExtension.isEmpty else {
+            return destination
+        }
+        func sanitize(_ value: String?) -> String {
+            (value ?? "")
+                .components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|\n\r\t"))
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let cleanTitle = sanitize(title)
+        let cleanAuthor = sanitize(author)
+        var base: String
+        if !cleanTitle.isEmpty, !cleanAuthor.isEmpty {
+            base = "\(cleanTitle) - \(cleanAuthor)"
+        } else if !cleanTitle.isEmpty {
+            base = cleanTitle
+        } else {
+            base = "douyin-\(fallbackID.isEmpty ? UUID().uuidString : fallbackID)"
+        }
+        if base.count > 180 { base = String(base.prefix(180)) }
+        return directory.appendingPathComponent("\(base).\(ext)")
+    }
+
+    nonisolated private static func requestDouyinCookieSyncIfPossible(dispatch: DispatchServer?) async {
+        let mode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
+        guard mode == "extension_only" else { return }
+        await dispatch?.requestCookieSync()
+        for _ in 0 ..< 4 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            let extFile = AppGroup.containerURL()
+                .appendingPathComponent("cookies", isDirectory: true)
+                .appendingPathComponent("downloader-extension-cookies.txt")
+            if FileManager.default.fileExists(atPath: extFile.path) { return }
+        }
+    }
+
+    private func makeFfmpegDirectJob(
+        record: DownloadRecord,
+        destination: URL,
+        mediaURL: String? = nil,
+        extraHeaders: [String: String]? = nil
+    ) throws -> DownloadJob {
+        let inputURL = mediaURL ?? record.url
+        let outputExt = ffmpegOutputExtension(record: record, destination: destination)
+        let outputDest = Self.concreteDestination(
+            from: destination,
+            title: record.videoTitle ?? record.title,
+            author: record.channelName,
+            fallbackID: record.douyinAwemeID ?? record.id.rawValue,
+            ext: outputExt
+        )
         var args = ["-y"]
-        if let referer = record.referer?.trimmingCharacters(in: .whitespacesAndNewlines), !referer.isEmpty {
+        if let referer = record.referer?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? (mediaURL != nil ? DouyinAPISupport.origin : nil)
+        {
             args += ["-referer", referer]
         }
-        if let headers = record.customHeaders, !headers.isEmpty {
+        var headers = record.customHeaders ?? [:]
+        if let extraHeaders {
+            for (key, value) in extraHeaders {
+                headers[key] = value
+            }
+        }
+        if !headers.isEmpty {
             let joined = headers
                 .keys
                 .sorted()
@@ -614,17 +1603,162 @@ final class DownloadCoordinator {
                 args += ["-headers", joined]
             }
         }
-        args += ["-i", record.url, "-c", "copy", "-movflags", "+faststart", destination.path]
+        args += ["-i", inputURL, "-c", "copy", "-movflags", "+faststart", outputDest.path]
         return DownloadJob(
             recordID: record.id,
-            url: record.url,
-            destination: destination,
+            url: inputURL,
+            destination: outputDest,
             executable: try binaries.ffmpegPath(),
             arguments: args,
             collectionID: record.collectionID,
             collectionIndex: record.collectionIndex,
             enqueuedAt: record.created
         )
+    }
+
+    private func helperURL(_ path: String) -> URL? {
+        helperBaseURL?.appendingPathComponent(path)
+    }
+
+    nonisolated private static func dispatchAuthorizationHeader() -> String? {
+        let tokenURL = AppGroup.containerURL().appendingPathComponent("dispatch.token")
+        guard let token = try? DispatchToken.read(at: tokenURL).trimmingCharacters(in: .whitespacesAndNewlines),
+              !token.isEmpty else { return nil }
+        return "Bearer \(token)"
+    }
+
+    @discardableResult
+    private func sendAction(
+        _ action: DispatchServer.Action,
+        recordID: String? = nil,
+        collectionID: String? = nil,
+        deleteFiles: Bool = false
+    ) async -> Bool {
+        guard let helperURL = helperURL("dispatch") else { return false }
+        let body = DownloadBridgeRequest(
+            action: action,
+            url: nil,
+            title: nil,
+            urls: nil,
+            entries: nil,
+            type: nil,
+            referer: nil,
+            headers: nil,
+            awemeId: nil,
+            pageURL: nil,
+            recordID: recordID,
+            collectionID: collectionID,
+            deleteFiles: deleteFiles
+        )
+        var request = URLRequest(url: helperURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.helperRequestTimeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let auth = Self.dispatchAuthorizationHeader() {
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
+        }
+        if let data = try? JSONEncoder().encode(body) {
+            request.httpBody = data
+            guard let (_, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse else { return false }
+            return (200..<300).contains(http.statusCode)
+        }
+        return false
+    }
+
+    private func sendSingleToHelper(
+        url: String,
+        title: String?,
+        mediaType: String?,
+        referer: String?,
+        customHeaders: [String: String]?,
+        pageURL: String?,
+        douyinAwemeID: String?,
+        formatArgs: [String]
+    ) async -> Bool {
+        guard let helperURL = helperURL("dispatch") else { return false }
+        let body = DownloadBridgeRequest(
+            action: .enqueue,
+            url: url,
+            title: title,
+            urls: nil,
+            entries: nil,
+            type: mediaType,
+            referer: referer,
+            headers: customHeaders,
+            awemeId: douyinAwemeID,
+            pageURL: pageURL,
+            recordID: nil,
+            collectionID: nil,
+            deleteFiles: nil
+        )
+        var request = URLRequest(url: helperURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.helperRequestTimeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let auth = Self.dispatchAuthorizationHeader() {
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
+        }
+        if let data = try? JSONEncoder().encode(body) {
+            request.httpBody = data
+            guard let (_, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse else { return false }
+            return (200..<300).contains(http.statusCode)
+        }
+        return false
+    }
+
+    nonisolated private static func sendBulkToHelper(
+        helperBaseURL: URL,
+        entries: [BulkEnqueueEntry],
+        collectionTitle: String
+    ) async -> Bool {
+        let helperURL = helperBaseURL.appendingPathComponent("dispatch")
+        let body = DownloadBridgeRequest(
+            action: .bulkEnqueue,
+            url: nil,
+            title: collectionTitle,
+            urls: entries.map(\.pageURL),
+            entries: entries,
+            type: nil,
+            referer: nil,
+            headers: nil,
+            awemeId: nil,
+            pageURL: nil,
+            recordID: nil,
+            collectionID: nil,
+            deleteFiles: nil
+        )
+        var request = URLRequest(url: helperURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.helperRequestTimeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let auth = Self.dispatchAuthorizationHeader() {
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
+        }
+        if let data = try? JSONEncoder().encode(body) {
+            request.httpBody = data
+            guard let (_, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse else { return false }
+            return (200..<300).contains(http.statusCode)
+        }
+        return false
+    }
+
+    private struct DownloadBridgeRequest: Codable {
+        let action: DispatchServer.Action?
+        let url: String?
+        let title: String?
+        let urls: [String]?
+        let entries: [BulkEnqueueEntry]?
+        let type: String?
+        let referer: String?
+        let headers: [String: String]?
+        let awemeId: String?
+        let pageURL: String?
+        let recordID: String?
+        let collectionID: String?
+        let deleteFiles: Bool?
     }
 
     private func ytdlpArgumentOptions() -> YtDlpArgumentOptions {
@@ -647,11 +1781,22 @@ final class DownloadCoordinator {
         return URL(fileURLWithPath: cookieArgsList[idx + 1])
     }
 
-    private static func postBulkStateChanged(count: Int) {
-        NotificationCenter.default.post(
-            name: .downloadStateChanged,
+    nonisolated private static func postBulkStateChanged(count: Int) {
+        postCrossProcessNotification(
+            name: .downloadBulkChanged,
+            userInfo: ["count": count]
+        )
+    }
+
+    nonisolated private static func postCrossProcessNotification(
+        name: Notification.Name,
+        userInfo: [AnyHashable: Any]
+    ) {
+        let notification = Notification(name: name, object: nil, userInfo: userInfo)
+        DistributedNotificationCenter.default().postNotificationName(
+            notification.name,
             object: nil,
-            userInfo: ["id": "", "state": "queued", "bulkAdded": count]
+            userInfo: notification.userInfo
         )
     }
 
@@ -670,16 +1815,14 @@ final class DownloadCoordinator {
                 try? store.updateState(id: id, to: .paused)
             }
             if !ids.isEmpty {
-                NotificationCenter.default.post(
-                    name: .downloadInterruptedRecovery,
-                    object: nil,
-                    userInfo: ["count": ids.count]
-                )
-                NotificationCenter.default.post(
-                    name: .downloadStateChanged,
-                    object: nil,
-                    userInfo: ["id": "", "state": "paused"]
-                )
+        Self.postCrossProcessNotification(
+            name: .downloadInterruptedRecovery,
+            userInfo: ["count": ids.count]
+        )
+        Self.postCrossProcessNotification(
+            name: .downloadStateChanged,
+            userInfo: ["id": "", "state": "paused"]
+        )
             }
         } catch {
             log.error("recovery preparation failed: \(error.localizedDescription)")
@@ -696,6 +1839,7 @@ public extension Notification.Name {
     static let downloaderUpdateRequested = Notification.Name("downloaderUpdateRequested")
     static let downloadInterruptedRecovery = Notification.Name("downloadInterruptedRecovery")
     static let downloadRouteRequested = Notification.Name("downloadRouteRequested")
+    static let downloadBulkChanged = Notification.Name("downloadBulkChanged")
 }
 
 private extension String {
@@ -707,7 +1851,6 @@ private extension String {
 /// Mark the record as failed, persisting the yt-dlp error message when one is
 /// attached. User-initiated cancellations get the bare state update so we don't
 /// surface a misleading `Cocoa error 3072` string in the UI.
-@MainActor
 private func recordDownloadFailure(store: DownloadStore, id: RecordID, error: Error) {
     let nsError = error as NSError
     let isUserCancelled = nsError.domain == NSCocoaErrorDomain
@@ -728,6 +1871,11 @@ private func recordDownloadFailure(store: DownloadStore, id: RecordID, error: Er
 enum DownloadMetadataFallback {
     static func applyingFallbacks(to record: DownloadRecord, destinationPath: String?) -> DownloadRecord {
         var updated = record
+        if let path = destinationPath?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+           !path.contains("%(")
+        {
+            updated.destinationPath = path
+        }
         if updated.videoTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
            let title = destinationPath.flatMap(title(fromDestinationPath:))
         {
@@ -755,6 +1903,40 @@ enum DownloadMetadataFallback {
     static func thumbnailURL(for url: String) -> String? {
         guard let videoID = youtubeVideoID(from: url) else { return nil }
         return "https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg"
+    }
+
+    static func resolvedThumbnailURL(for record: DownloadRecord) -> URL? {
+        if let remote = remoteThumbnailURL(from: record.thumbnailURL) {
+            return remote
+        }
+        let source = record.pageURL?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? record.url
+        if let remote = remoteThumbnailURL(from: thumbnailURL(for: source)) {
+            return remote
+        }
+        return localThumbnailURL(for: record.destinationPath)
+    }
+
+    static func hydrate(_ record: DownloadRecord) -> DownloadRecord {
+        applyingFallbacks(to: record, destinationPath: record.destinationPath)
+    }
+
+    private static func remoteThumbnailURL(from string: String?) -> URL? {
+        guard let trimmed = string?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
+            return nil
+        }
+        return URL(string: trimmed)
+    }
+
+    private static func localThumbnailURL(for destinationPath: String) -> URL? {
+        guard !destinationPath.contains("%(") else { return nil }
+        let stem = URL(fileURLWithPath: destinationPath).deletingPathExtension()
+        for ext in ["jpg", "webp", "png"] {
+            let candidate = stem.appendingPathExtension(ext)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private static func youtubeVideoID(from rawURL: String) -> String? {

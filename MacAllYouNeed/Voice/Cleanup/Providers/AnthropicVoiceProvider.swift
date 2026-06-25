@@ -30,11 +30,11 @@ struct AnthropicVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvider {
             "model": model,
             "max_tokens": 1024,
             "temperature": 0,
-            "system": VoicePromptBuilder.systemPrompt(context: request.promptContext),
+            "system": VoicePromptBuilder.cleanupSystemPrompt(for: request),
             "messages": [
                 [
                     "role": "user",
-                    "content": VoicePromptBuilder.userPrompt(transcript: request.text)
+                    "content": VoicePromptBuilder.cleanupUserPrompt(for: request)
                 ]
             ]
         ])
@@ -57,11 +57,11 @@ struct AnthropicVoiceProvider: VoiceLLMProvider, VoiceTextGenerationProvider {
                         "max_tokens": 1024,
                         "temperature": 0,
                         "stream": true,
-                        "system": VoicePromptBuilder.systemPrompt(context: request.promptContext),
+                        "system": VoicePromptBuilder.cleanupSystemPrompt(for: request),
                         "messages": [
                             [
                                 "role": "user",
-                                "content": VoicePromptBuilder.userPrompt(transcript: request.text)
+                                "content": VoicePromptBuilder.cleanupUserPrompt(for: request)
                             ]
                         ]
                     ])

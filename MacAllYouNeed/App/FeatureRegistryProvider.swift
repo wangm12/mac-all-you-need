@@ -14,7 +14,7 @@ enum FeatureRegistryProvider {
             FileOrganizerDescriptor.descriptor(),
             WindowLayoutsDescriptor.descriptor(),
             WindowGrabDescriptor.descriptor(),
-            DockPreviewsDescriptor.descriptor(),
+            WindowHubDescriptor.descriptor(),
         ])
     }
 }

@@ -66,6 +66,7 @@ final class VoicePipelineController {
     private let cleanupKeyStore: VoiceCleanupKeyStore
     private let learningMonitor: VoicePostEditLearningMonitor
     private let summarizer: VoicePersonalizationSummarizer?
+    private let miner: VoiceDictionarySuggestionMiner?
     let log: Logger
 
     // MARK: - Test seams (nil → production path)
@@ -110,6 +111,7 @@ final class VoicePipelineController {
         cleanupKeyStore: VoiceCleanupKeyStore,
         learningMonitor: VoicePostEditLearningMonitor?,
         summarizer: VoicePersonalizationSummarizer?,
+        miner: VoiceDictionarySuggestionMiner? = nil,
         historySettings: @escaping () -> VoiceHistorySettings,
         cleanupPipelineFactory: ((TimeInterval) -> VoiceCleanupPipeline)?,
         paster: ((String, AXTargetSnapshot?) async -> CursorPaster.Result)?,
@@ -126,6 +128,7 @@ final class VoicePipelineController {
         self.cleanupKeyStore = cleanupKeyStore
         self.learningMonitor = learningMonitor ?? VoicePostEditLearningMonitor()
         self.summarizer = summarizer
+        self.miner = miner
         self.historySettings = historySettings
         cleanupPipelineFactoryOverride = cleanupPipelineFactory
         pasterOverride = paster
@@ -300,7 +303,11 @@ final class VoicePipelineController {
                 // LLM cleanup path — show HUD, run provider, handle timeouts.
                 hudPresenter?.showTranscribingPhase(.cleanup(progress: 0))
                 let cleanupCompleted = await withTimeout(seconds: VoiceStageTimeouts.cleanupSeconds) {
-                    await self.makeCleanupPhase(bundleID: appBundleID, generation: generation).run(&ctx)
+                    await self.makeCleanupPhase(
+                        bundleID: appBundleID,
+                        generation: generation,
+                        voiceIntent: delegate.activeIntent
+                    ).run(&ctx)
                     return true
                 } ?? false
                 let cleanupMs = Int(Date().timeIntervalSince(cleanupStartedAt) * 1000)
@@ -470,7 +477,7 @@ final class VoicePipelineController {
             undoBookkeeping.clearInflight()
             delegate.inputSourceChangedDuringRun = false
             delegate.inputSourceAtRecordingStart = nil
-            hudPresenter?.dismiss()
+            await hudPresenter?.dismissAfterSuccessHold()
         } catch {
             guard isCurrentOperation(generation) else { return }
             undoBookkeeping.clearInflight()
@@ -553,7 +560,7 @@ final class VoicePipelineController {
 
     // MARK: - Phase builders
 
-    private func makeCleanupPhase(bundleID: String?, generation: Int) -> CleanupPhase {
+    private func makeCleanupPhase(bundleID: String?, generation: Int, voiceIntent: VoiceIntent) -> CleanupPhase {
         let onThinkingProgress: (Double) -> Void = { [weak self] progress in
             guard let self, self.isCurrentOperation(generation) else { return }
             self.hudPresenter?.updateThinkingProgress(progress)
@@ -563,6 +570,7 @@ final class VoicePipelineController {
         let dictionaryEntries = (try? dictionary?.list()) ?? []
         let recentExamples = loadRecentExamples(context: recentExamplesContext)
         return CleanupPhase(
+            voiceIntent: voiceIntent,
             makePipeline: { [weak self] elapsed in
                 self?.makeCleanupPipeline(elapsedBeforeCleanupSeconds: elapsed) ?? VoiceCleanupPipeline()
             },
@@ -690,9 +698,7 @@ final class VoicePipelineController {
 
     @discardableResult
     func persistAudio(captured: CapturedAudio, transcriptID: String, forceSave: Bool = false) -> String? {
-        let shouldSave = personalizationSettings().saveTrainingExamplesEnabled
-            || historySettings().saveAudio
-            || forceSave
+        let shouldSave = historySettings().saveAudio || forceSave
         guard shouldSave, let trainingExampleStore else { return nil }
 
         let sampleRate = max(1, Int(captured.sampleRate.rounded()))
@@ -814,6 +820,7 @@ final class VoicePipelineController {
             try? store.expireSamplesByCount(contextID: ctxID, max: maxSamples)
             try? store.expireSamplesByDate()
             await summarizer?.maybeRun(contextID: ctxID)
+            await miner?.maybeRun(contextID: ctxID)
         }
     }
 
@@ -842,13 +849,15 @@ final class VoicePipelineController {
         dictionaryEntries: [VoiceDictionaryEntry],
         appContext: VoicePersonalizationContext?,
         globalContext: VoicePersonalizationContext?,
-        recentExamples: [(before: String, after: String)]
+        recentExamples: [(before: String, after: String)],
+        voiceIntent: VoiceIntent = .dictation
     ) -> VoiceCleanupRequest {
         if let appCtx = appContext, !appCtx.enabled {
             return VoiceCleanupRequest(
                 rawText: rawText,
                 appBundleID: appBundleID,
                 language: language,
+                voiceIntent: voiceIntent,
                 dictionaryEntries: dictionaryEntries
             )
         }
@@ -859,6 +868,7 @@ final class VoicePipelineController {
             rawText: rawText,
             appBundleID: appBundleID,
             language: language,
+            voiceIntent: voiceIntent,
             dictionaryEntries: dictionaryEntries,
             appInstructions: effectiveCtx?.customPromptOverride.flatMap { Self.trimmedOrNil($0) },
             personalStyleNotes: globalContext?.styleNotes.flatMap { Self.trimmedOrNil($0) },
@@ -890,6 +900,39 @@ final class VoicePipelineController {
     ) async {
         persistFailedTranscript(ctx: ctx, stage: stage, reason: reason)
         fail(message)
+    }
+
+    func persistCancelledRecording(
+        captured: CapturedAudio,
+        appBundleID: String?,
+        partialASR: VoiceTranscriptionResult? = nil
+    ) {
+        let transcriptID = UUID().uuidString
+        let audioPath = persistAudio(captured: captured, transcriptID: transcriptID, forceSave: true)
+        let asrResult = partialASR ?? VoiceTranscriptionResult(
+            text: "",
+            language: .unknown,
+            modelIdentifier: "cancelled"
+        )
+        do {
+            let saved = try saveTranscript(
+                transcriptID: transcriptID,
+                captured: captured,
+                result: asrResult,
+                cleanedText: "",
+                appBundleID: appBundleID,
+                audioPath: audioPath,
+                status: .failed,
+                failedStage: .cancelled,
+                failureReason: "user_cancelled"
+            )
+            NotificationCenter.default.post(name: .voiceTranscriptAppended, object: saved.id)
+            log.info(
+                "voice_session_cancelled_saved id=\(saved.id, privacy: .public) audioSaved=\(audioPath != nil, privacy: .public)"
+            )
+        } catch {
+            log.error("voice_session_cancelled_saved failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func persistFailedTranscript(

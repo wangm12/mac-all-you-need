@@ -47,7 +47,7 @@ public struct PlaylistListResult: Sendable, Equatable {
     }
 }
 
-public struct BulkEnqueueEntry: Sendable, Equatable {
+public struct BulkEnqueueEntry: Sendable, Equatable, Codable {
     public var pageURL: String
     public var title: String
     public var channel: String

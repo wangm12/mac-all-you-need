@@ -169,6 +169,18 @@ struct ClipboardDestinationView: View {
 
     private var clipboardSettingsSection: some View {
         Group {
+            MAYNSection(title: "Quick Start") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Keep the recommended shortcut, choose how pasting should behave, and leave Smart Text on unless you need a simpler clipboard.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("The rest of these options are for exclusions, history retention, and power-user tweaks.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             MAYNSection(title: "Shortcut") {
                 MAYNSettingsRow(
                     title: "Clipboard shortcut",

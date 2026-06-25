@@ -40,12 +40,14 @@ final class PermissionGrantPresenterTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testShouldPresentFloatingPanelForDragPermissions() {
         XCTAssertTrue(PermissionGrantPresenter.shouldPresentFloatingPanel(for: .accessibility))
         XCTAssertTrue(PermissionGrantPresenter.shouldPresentFloatingPanel(for: .fullDiskAccess))
         XCTAssertTrue(PermissionGrantPresenter.shouldPresentFloatingPanel(for: .screenRecording))
     }
 
+    @MainActor
     func testShouldNotPresentFloatingPanelForInstructionOnlyPermissions() {
         XCTAssertFalse(PermissionGrantPresenter.shouldPresentFloatingPanel(for: .notifications))
         XCTAssertFalse(PermissionGrantPresenter.shouldPresentFloatingPanel(for: .reminders))

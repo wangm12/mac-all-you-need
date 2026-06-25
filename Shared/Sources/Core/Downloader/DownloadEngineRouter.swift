@@ -11,11 +11,21 @@ public enum DownloadEngineRouter {
         if record.douyinAwemeID?.isEmpty == false || record.douyinImageURLs?.isEmpty == false {
             return .douyinDirect
         }
+        if DouyinDownloadURLPatterns.prefersNativeResolve(url: record.url) {
+            return .douyinDirect
+        }
         if let mediaType = record.mediaType?.lowercased(), !mediaType.isEmpty {
             if mediaType == "hls" || mediaType.contains("m3u8") {
                 return .ytdlp
             }
-            return .ffmpegDirect
+            let directTypes: Set<String> = [
+                "mp4", "webm", "flv", "mov", "m4v", "mkv", "ts",
+                "mp3", "m4a", "aac", "wav", "opus", "ogg"
+            ]
+            if directTypes.contains(mediaType) {
+                return .ffmpegDirect
+            }
+            return .ytdlp
         }
         if record.url.localizedCaseInsensitiveContains("douyin.com") {
             return .douyinDirect

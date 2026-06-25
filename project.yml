@@ -43,6 +43,8 @@ targets:
         type: folder
       - path: Resources/Onboarding
         type: folder
+      - path: design/window_radial.html
+        buildPhase: resources
     info:
       path: MacAllYouNeed/Info.plist
       properties:
@@ -54,6 +56,10 @@ targets:
         NSMicrophoneUsageDescription: MacAllYouNeed needs microphone access for voice dictation.
         NSRemindersFullAccessUsageDescription: MacAllYouNeed saves spoken reminders to Apple Reminders.
         NSAppleEventsUsageDescription: Mac All You Need reads the front Finder window folder for your folder history when Accessibility cannot resolve the path.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.macallyouneed.app
+            CFBundleURLSchemes:
+              - mayn
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app
@@ -78,6 +84,9 @@ targets:
       - target: ClipboardDaemon
         embed: false
         copy: false
+      - target: DownloadDaemon
+        embed: false
+        copy: false
       - target: FolderPreview
         embed: true
         codeSign: true
@@ -97,6 +106,15 @@ targets:
           mkdir -p "$DEST"
           if [ -d "${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app" ]; then
             cp -Rf "${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app" "$DEST/"
+          fi
+      - name: "Embed DownloadDaemon in LoginItems"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          DEST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LoginItems"
+          mkdir -p "$DEST"
+          if [ -d "${BUILT_PRODUCTS_DIR}/DownloadDaemon.app" ]; then
+            cp -Rf "${BUILT_PRODUCTS_DIR}/DownloadDaemon.app" "$DEST/"
           fi
       - name: "Copy downloader binaries to Resources"
         basedOnDependencyAnalysis: false
@@ -184,6 +202,56 @@ targets:
         product: Platform
       - package: Shared
         product: FeatureCore
+
+  DownloadDaemon:
+    type: application
+    platform: macOS
+    sources:
+      - path: DownloadDaemon
+      - path: MacAllYouNeed/Downloader
+        excludes:
+          - Views
+          - DownloaderViewModel.swift
+          - DownloadsListView.swift
+          - DockProgressController.swift
+          - DownloaderFeatureActivator.swift
+          - DownloadPickerPresentation.swift
+          - DownloadCollectionGrouping.swift
+    info:
+      path: DownloadDaemon/Info.plist
+      properties:
+        CFBundleName: DownloadDaemon
+        LSUIElement: YES
+        LSBackgroundOnly: YES
+        MAYNKeychainAccessGroup: "$(AppIdentifierPrefix)com.macallyouneed.shared"
+        MAYNTeamIdentifier: "$(DEVELOPMENT_TEAM)"
+        NSHumanReadableCopyright: ""
+        MachServices:
+          "group.com.macallyouneed.shared.download": true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.macallyouneed.app.downloader
+        CODE_SIGN_ENTITLEMENTS: DownloadDaemon/DownloadDaemon.entitlements
+    dependencies:
+      - package: Shared
+        product: Core
+      - package: Shared
+        product: Platform
+      - package: Shared
+        product: FeatureCore
+    postBuildScripts:
+      - name: "Copy downloader binaries to Resources"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          RES="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          if [ ! -f "${SRCROOT}/Vendored/binaries/yt-dlp" ]; then
+            echo "error: Missing Vendored/binaries/yt-dlp. Run scripts/fetch-binaries.sh first." >&2
+            exit 1
+          fi
+          cp "${SRCROOT}/Vendored/binaries/yt-dlp" "${RES}/yt-dlp"
+          cp "${SRCROOT}/Vendored/binaries/ffmpeg" "${RES}/ffmpeg"
+          cp "${SRCROOT}/Vendored/binaries/manifest.json" "${RES}/downloader-manifest.json"
 
   FolderPreview:
     type: app-extension

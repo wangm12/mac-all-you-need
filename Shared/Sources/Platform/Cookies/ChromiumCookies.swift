@@ -10,6 +10,9 @@ public enum ChromiumCookies {
         let supportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let candidates: [(BrowserProfile.Browser, String)] = [
             (.chrome, "Google/Chrome"),
+            (.chrome, "Google/Chrome Canary"),
+            (.chrome, "Google/Chrome Beta"),
+            (.chrome, "Google/Chrome Dev"),
             (.edge, "Microsoft Edge"),
             (.brave, "BraveSoftware/Brave-Browser"),
             (.arc, "Arc")

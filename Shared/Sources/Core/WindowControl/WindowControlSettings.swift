@@ -55,7 +55,7 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialCursorSelectionEnabled: Bool = false,
         radialTriggerModifier: WindowGestureModifier = [.control, .option],
         radialTriggerTapCount: Int = 1,
-        radialTargetHighlightEnabled: Bool = true,
+        radialTargetHighlightEnabled: Bool = false,
         radialTargetHighlightColor: RadialHighlightColor = .focusRingDefault,
         repeatHalfAcrossDisplays: Bool = false,
         snapAssistShowZones: Bool = false,
@@ -124,7 +124,7 @@ public struct WindowControlSettings: Codable, Equatable, Sendable {
         radialCursorSelectionEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialCursorSelectionEnabled) ?? false
         radialTriggerModifier = try container.decodeIfPresent(WindowGestureModifier.self, forKey: .radialTriggerModifier) ?? [.control, .option]
         radialTriggerTapCount = try container.decodeIfPresent(Int.self, forKey: .radialTriggerTapCount) ?? 1
-        radialTargetHighlightEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialTargetHighlightEnabled) ?? true
+        radialTargetHighlightEnabled = try container.decodeIfPresent(Bool.self, forKey: .radialTargetHighlightEnabled) ?? false
         radialTargetHighlightColor = try container.decodeIfPresent(RadialHighlightColor.self, forKey: .radialTargetHighlightColor)
             ?? .focusRingDefault
         repeatHalfAcrossDisplays = try container.decodeIfPresent(Bool.self, forKey: .repeatHalfAcrossDisplays) ?? false

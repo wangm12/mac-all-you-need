@@ -1,0 +1,933 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Window Hub — Window Aware Compact Dashboard</title>
+<style>
+  :root {
+    --page: #ececef;
+    --panel: rgba(249,249,250,.94);
+    --bar: rgba(255,255,255,.56);
+    --surface: rgba(255,255,255,.72);
+    --surface-2: rgba(255,255,255,.48);
+    --line: rgba(0,0,0,.115);
+    --line-soft: rgba(0,0,0,.072);
+    --text: #202124;
+    --muted: #6d6f76;
+    --muted-2: #9a9ca3;
+    --blue: #007aff;
+    --blue-soft: rgba(0,122,255,.105);
+    --blue-line: rgba(0,122,255,.32);
+    --hover: rgba(0,0,0,.043);
+    --selected: rgba(0,122,255,.125);
+    --row-h: 28px;
+    --radius: 14px;
+    --ease: cubic-bezier(.22,.74,.2,1);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: var(--page);
+    color: var(--text);
+  }
+
+  .stage {
+    width: min(1080px, calc(100vw - 34px));
+    height: min(680px, calc(100vh - 34px));
+  }
+
+  .panel {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--panel);
+    backdrop-filter: blur(22px) saturate(120%);
+    -webkit-backdrop-filter: blur(22px) saturate(120%);
+    box-shadow: 0 18px 54px rgba(0,0,0,.145), 0 2px 12px rgba(0,0,0,.07), inset 0 1px 0 rgba(255,255,255,.68);
+    animation: panelIn 160ms var(--ease) both;
+  }
+
+  @keyframes panelIn {
+    from { opacity: .001; transform: translateY(4px) scale(.996); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .titlebar {
+    height: 38px;
+    display: grid;
+    grid-template-columns: 84px 1fr 84px;
+    align-items: center;
+    padding: 0 13px;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--bar);
+    flex: none;
+  }
+
+  .traffic { display: flex; gap: 8px; align-items: center; }
+  .traffic span { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,.14); }
+  .red { background: #ff5f57; }
+  .yellow { background: #ffbd2e; }
+  .green { background: #28c840; }
+  .title { text-align: center; font-size: 13px; font-weight: 650; color: #383a3f; letter-spacing: -.01em; }
+  .shortcut { justify-self: end; height: 22px; display: inline-flex; align-items: center; border: 1px solid var(--line-soft); border-radius: 7px; padding: 0 7px; background: rgba(255,255,255,.46); color: var(--muted-2); font-size: 12px; }
+
+  .toolbar {
+    height: 52px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    flex: none;
+  }
+
+  .search-wrap { position: relative; min-width: 0; }
+  .search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted-2); pointer-events: none; }
+
+  #search {
+    width: 100%;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    outline: none;
+    padding: 0 12px 0 32px;
+    background: rgba(255,255,255,.82);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    letter-spacing: -.01em;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.82);
+    transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  }
+
+  #search:focus {
+    background: rgba(255,255,255,.98);
+    border-color: rgba(0,122,255,.44);
+    box-shadow: 0 0 0 3px rgba(0,122,255,.11), inset 0 1px 0 rgba(255,255,255,.82);
+  }
+
+  .button {
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 10px;
+    background: rgba(255,255,255,.62);
+    color: #303238;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 520;
+    cursor: default;
+    transition: background 110ms ease, border-color 110ms ease, transform 110ms ease;
+  }
+  .button:hover { background: rgba(255,255,255,.95); border-color: rgba(0,0,0,.16); }
+  .button:active { transform: scale(.985); }
+
+  .status {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 12px;
+    align-items: center;
+    min-height: 42px;
+    padding: 0 12px 10px;
+    border-bottom: 1px solid var(--line-soft);
+    flex: none;
+  }
+
+  .status-main {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .status-main strong { color: var(--text); font-size: 12.8px; font-weight: 680; letter-spacing: -.01em; }
+  .current-chip {
+    min-width: 0;
+    max-width: 560px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--blue-line);
+    border-radius: 999px;
+    padding: 0 9px;
+    background: var(--blue-soft);
+    color: #1267b4;
+    font-size: 11.5px;
+    overflow: hidden;
+  }
+  .current-chip span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .live-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--blue); flex: none; box-shadow: 0 0 0 3px rgba(0,122,255,.08); }
+
+  .metrics { display: flex; justify-content: flex-end; gap: 5px; }
+  .pill { height: 21px; display: inline-flex; align-items: center; border: 1px solid var(--line-soft); border-radius: 999px; padding: 0 7px; background: rgba(255,255,255,.42); color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .pill.blue { color: #1267b4; border-color: var(--blue-line); background: var(--blue-soft); }
+
+  .content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0;
+    background: rgba(246,246,247,.50);
+    scroll-behavior: smooth;
+  }
+  .content::-webkit-scrollbar { width: 11px; }
+  .content::-webkit-scrollbar-track { background: transparent; }
+  .content::-webkit-scrollbar-thumb { background: rgba(0,0,0,.18); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+
+  .masonry-board {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+    gap: 9px;
+    align-items: start;
+    min-height: 100%;
+    padding: 9px;
+  }
+  .masonry-col { min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+
+  .app-section {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 1px 1px rgba(0,0,0,.025);
+    animation: sectionIn 120ms var(--ease) both;
+  }
+  @keyframes sectionIn { from { opacity: .001; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+  .app-header {
+    height: 32px;
+    display: grid;
+    grid-template-columns: 22px minmax(0,1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 0 9px;
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(255,255,255,.58);
+  }
+  .app-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 690; letter-spacing: -.012em; }
+  .app-meta { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+
+  .window-group {
+    margin: 7px;
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    background: rgba(255,255,255,.48);
+  }
+  .window-group + .window-group { margin-top: 8px; }
+  .window-group.current { border-color: rgba(0,122,255,.24); background: rgba(255,255,255,.62); }
+
+  .window-head {
+    min-height: 36px;
+    display: grid;
+    grid-template-columns: 4px 22px minmax(0,1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 0 8px 0 0;
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(255,255,255,.42);
+    cursor: default;
+  }
+  .window-head:hover { background: rgba(255,255,255,.64); }
+  .current-bar { width: 4px; align-self: stretch; background: transparent; }
+  .window-group.current .current-bar { background: var(--blue); }
+  .window-symbol {
+    width: 20px;
+    height: 20px;
+    border: 1px solid rgba(0,0,0,.07);
+    border-radius: 6px;
+    background: linear-gradient(#fff,#f5f6f8);
+    position: relative;
+  }
+  .window-symbol::before { content: ""; position: absolute; left: 4px; right: 4px; top: 5px; height: 2px; border-radius: 2px; background: rgba(0,0,0,.18); }
+  .window-symbol::after { content: ""; position: absolute; left: 4px; right: 4px; top: 9px; bottom: 4px; border-radius: 2px; background: rgba(0,122,255,.16); }
+  .window-text { min-width: 0; }
+  .window-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #2d3036; font-size: 12.8px; font-weight: 650; letter-spacing: -.01em; }
+  .window-sub { margin-top: 1px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted-2); font-size: 11.2px; }
+  .window-right { display: flex; align-items: center; gap: 5px; }
+  .window-badge { height: 20px; display: inline-flex; align-items: center; border: 1px solid var(--line-soft); border-radius: 999px; padding: 0 7px; color: var(--muted); background: rgba(255,255,255,.5); font-size: 11px; white-space: nowrap; }
+  .window-badge.current { color: #1267b4; border-color: var(--blue-line); background: var(--blue-soft); }
+
+  .rows { padding: 3px 0 5px; }
+  .target-row, .action-row, .domain-row {
+    height: var(--row-h);
+    display: grid;
+    align-items: center;
+    gap: 7px;
+    margin: 0 4px;
+    padding: 0 7px;
+    border-radius: 7px;
+    outline: none;
+    cursor: default;
+    transition: background 90ms ease;
+  }
+  .target-row { grid-template-columns: 22px minmax(0,1fr) auto; }
+  .domain-row, .action-row { grid-template-columns: 22px minmax(0,1fr) auto; }
+  .target-row:hover, .action-row:hover, .domain-row:hover { background: var(--hover); }
+  .target-row.selected, .target-row:focus-visible { background: var(--selected); }
+  .target-main { min-width: 0; display: flex; align-items: center; gap: 6px; }
+  .target-title, .domain-title, .action-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; letter-spacing: -.01em; }
+  .target-title { color: #2a2c31; }
+  .target-right { min-width: 0; display: flex; align-items: center; justify-content: end; gap: 6px; }
+  .host, .count { max-width: 122px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 11.2px; }
+  .count { color: var(--muted-2); }
+  .domain-row { color: #3a3c42; background: rgba(255,255,255,.22); }
+  .domain-title { font-weight: 540; }
+  .action-row { color: #316fb6; }
+  .action-title { font-size: 12.2px; }
+  .dot-active { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); flex: none; }
+
+  .divider-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 22px;
+    padding: 0 11px;
+    color: var(--muted-2);
+    font-size: 10.8px;
+    letter-spacing: .015em;
+    text-transform: uppercase;
+  }
+  .divider-label::after { content: ""; height: 1px; flex: 1; background: var(--line-soft); }
+
+  .flat-rows { padding: 3px 0 4px; }
+
+  .empty {
+    display: none;
+    height: 100%;
+    min-height: 280px;
+    place-items: center;
+    text-align: center;
+    color: var(--muted-2);
+    font-size: 13px;
+  }
+  .empty strong { display: block; color: #46484e; margin-bottom: 5px; font-size: 13.5px; }
+
+  .footer {
+    height: 32px;
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 0 12px;
+    border-top: 1px solid var(--line-soft);
+    background: var(--bar);
+    color: var(--muted-2);
+    font-size: 11.8px;
+    flex: none;
+  }
+  .hint { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .footer-actions { display: flex; gap: 8px; }
+  .link-button { border: 0; padding: 1px 2px; background: transparent; color: #2f6fbd; font: inherit; cursor: default; }
+
+  .app-icon, .fav, .type-icon {
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    flex: none;
+  }
+  .app-icon { border-radius: 6px; overflow: hidden; }
+  .fav, .type-icon { border-radius: 5px; border: 1px solid rgba(0,0,0,.06); background: rgba(255,255,255,.66); color: #5f6268; font-size: 10px; font-weight: 720; }
+  .chrome { border-radius: 50%; background: conic-gradient(#ea4335 0 33%, #fbbc05 0 66%, #34a853 0 82%, #4285f4 0 100%); position: relative; }
+  .chrome::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #4285f4; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.05); }
+  .safari { border-radius: 50%; background: #f9f9fb; position: relative; }
+  .safari::before { content: ""; width: 16px; height: 16px; border-radius: 50%; background: #0a84ff; }
+  .safari::after { content: ""; position: absolute; width: 2px; height: 10px; border-radius: 2px; background: #fff; transform: rotate(38deg); }
+  .cursor { background: #202124; color: #fff; font-size: 11px; font-weight: 740; }
+  .cursor::before { content: "<>"; transform: scaleX(.76); }
+  .finder { background: linear-gradient(90deg,#8fc8ff 0 50%, #d8efff 50%); position: relative; }
+  .finder::after { content: ""; position: absolute; width: 2px; height: 2px; left: 6px; top: 8px; border-radius: 50%; background: rgba(0,0,0,.65); box-shadow: 8px 0 0 rgba(0,0,0,.65); }
+  .terminal { background: #1d1d20; color: #f7f7f7; font: 720 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .terminal::before { content: ">_"; }
+  .figma { background: #fff; position: relative; }
+  .figma::before { content: ""; width: 12px; height: 16px; background: radial-gradient(circle at 75% 25%, #1abcfe 0 28%, transparent 30%), radial-gradient(circle at 25% 75%, #0acf83 0 28%, transparent 30%), radial-gradient(circle at 25% 25%, #ff7262 0 28%, transparent 30%), radial-gradient(circle at 75% 50%, #a259ff 0 28%, transparent 30%), radial-gradient(circle at 25% 50%, #f24e1e 0 28%, transparent 30%); }
+  .notes { background: linear-gradient(#fff5a6 0 38%, #fff 38% 100%); }
+  .mail { background: linear-gradient(135deg,#6bbcff,#1d6fff); }
+  .gh { background: #24292f; color: #fff; }
+  .nt { background: #fff8c7; color: #8b6b00; }
+  .ap { background: #f8f8f9; color: #1d1d1f; }
+  .lo { background: #eef2f7; color: #4b5563; }
+  .ln { background: #eef3ff; color: #375ac4; }
+  .yt { background: #fff1f1; color: #cf1b1b; }
+  .md { background: #f5f5f6; color: #4f5158; }
+  .cu { background: #202124; color: #fff; }
+  .fd { background: #f3f7ff; color: #007aff; }
+  .tm { background: #1d1d20; color: #fff; }
+  .fi { background: #fff; color: #a259ff; }
+  .ma { background: #eef6ff; color: #0064d2; }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 26px;
+    transform: translateX(-50%) translateY(12px);
+    opacity: 0;
+    pointer-events: none;
+    max-width: 520px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: rgba(255,255,255,.95);
+    box-shadow: 0 14px 34px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.8);
+    color: #303035;
+    font-size: 12.5px;
+    transition: opacity 140ms ease, transform 140ms var(--ease);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    display: none;
+    place-items: center;
+    background: rgba(0,0,0,.07);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+  }
+  .sheet-backdrop.open { display: grid; }
+  .sheet {
+    width: min(520px, calc(100vw - 48px));
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(250,250,251,.98);
+    box-shadow: 0 22px 62px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.75);
+    animation: sheetIn 150ms var(--ease) both;
+  }
+  @keyframes sheetIn { from { opacity: .001; transform: translateY(5px) scale(.992); } to { opacity: 1; transform: none; } }
+  .sheet-head { height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--line-soft); background: rgba(255,255,255,.46); }
+  .sheet-head strong { font-size: 13.5px; }
+  .sheet-body { padding: 8px 12px 12px; }
+  .sheet-row { min-height: 48px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--line-soft); }
+  .sheet-row:last-child { border-bottom: 0; }
+  .sheet-row input { width: 14px; height: 14px; accent-color: var(--blue); }
+  .sheet-title { font-size: 12.8px; font-weight: 590; margin-bottom: 3px; }
+  .sheet-copy { font-size: 11.8px; color: var(--muted); line-height: 1.35; }
+
+  @media (max-width: 820px) {
+    .stage { width: min(700px, calc(100vw - 24px)); }
+    .masonry-board { grid-template-columns: 1fr; }
+    .toolbar { grid-template-columns: minmax(0,1fr) auto; height: auto; }
+    .toolbar .button:last-child { grid-column: 2; }
+    .status { grid-template-columns: 1fr; align-items: start; }
+    .metrics { justify-content: flex-start; flex-wrap: wrap; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <main class="panel" aria-label="Window Hub window-aware compact dashboard">
+      <div class="titlebar">
+        <div class="traffic" aria-hidden="true"><span class="red"></span><span class="yellow"></span><span class="green"></span></div>
+        <div class="title">Window Hub</div>
+        <div class="shortcut">&#8997;&#8679;W</div>
+      </div>
+      <div class="toolbar">
+        <label class="search-wrap" aria-label="Search all windows and tabs">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <input id="search" type="text" autocomplete="off" spellcheck="false" placeholder="Search all 203 Chrome tabs, windows, apps..." autofocus />
+        </label>
+        <button class="button" data-sheet="review">Review</button>
+        <button class="button" data-sheet="suggest">Suggest</button>
+      </div>
+      <div class="status">
+        <div class="status-main">
+          <strong>All targets</strong>
+          <span class="current-chip"><span class="live-dot"></span><span>Current: Chrome › MAYN / GitHub Work › PR #42 · Actions CI failing</span></span>
+        </div>
+        <div class="metrics" id="metrics"></div>
+      </div>
+      <section class="content">
+        <div class="masonry-board" id="board" aria-label="All targets grouped by app and window"></div>
+        <div class="empty" id="empty"><div><strong>No matches</strong><span>Search checks every indexed tab, including collapsed Chrome tabs.</span></div></div>
+      </section>
+      <div class="footer"><div class="hint" id="hint">Chrome is window-aware: each browser window has its own header; 100+ tabs stay indexed but collapsed until search or expand.</div><div class="footer-actions"><button class="link-button" id="collapseBtn">Collapse all</button><button class="link-button" id="clearBtn">Clear</button></div></div>
+    </main>
+  </div>
+
+  <div class="sheet-backdrop" id="sheetBackdrop" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="sheet-head"><strong id="sheetTitle">Review</strong><button class="button" id="closeSheet">Done</button></div>
+      <div class="sheet-body" id="sheetBody"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const search = document.getElementById('search');
+  const board = document.getElementById('board');
+  const empty = document.getElementById('empty');
+  const metrics = document.getElementById('metrics');
+  const hint = document.getElementById('hint');
+  const toast = document.getElementById('toast');
+  const collapseBtn = document.getElementById('collapseBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const sheetBackdrop = document.getElementById('sheetBackdrop');
+  const sheetTitle = document.getElementById('sheetTitle');
+  const sheetBody = document.getElementById('sheetBody');
+  const closeSheet = document.getElementById('closeSheet');
+
+  const expandedWindows = new Set();
+  const expandedDomains = new Set();
+  let toastTimer;
+
+  const hostClass = host => {
+    if (host.includes('github')) return 'gh';
+    if (host.includes('notion')) return 'nt';
+    if (host.includes('apple')) return 'ap';
+    if (host.includes('localhost')) return 'lo';
+    if (host.includes('linear')) return 'ln';
+    if (host.includes('youtube')) return 'yt';
+    return 'md';
+  };
+  const hostLabel = host => {
+    if (host.includes('github')) return 'GH';
+    if (host.includes('notion')) return 'N';
+    if (host.includes('apple')) return 'AP';
+    if (host.includes('localhost')) return 'L';
+    if (host.includes('linear')) return 'LI';
+    if (host.includes('youtube')) return 'YT';
+    return host.slice(0, 2).toUpperCase();
+  };
+
+  function makeTabs(id, total, pools, activeTitle) {
+    const tabs = [];
+    let index = 0;
+    pools.forEach(pool => {
+      for (let i = 0; i < pool.count; i++) {
+        const base = pool.titles[i % pool.titles.length];
+        const suffix = i >= pool.titles.length ? ` ${Math.floor(i / pool.titles.length) + 1}` : '';
+        tabs.push({
+          id: `${id}-${index}`,
+          title: `${base}${suffix}`,
+          host: pool.host,
+          fav: hostLabel(pool.host),
+          favClass: hostClass(pool.host),
+          active: false,
+          recent: index < 8
+        });
+        index++;
+      }
+    });
+    while (tabs.length < total) {
+      tabs.push({ id: `${id}-${tabs.length}`, title: `Reference tab ${tabs.length + 1}`, host: 'docs.example', fav: 'D', favClass: 'md', active: false, recent: false });
+    }
+    tabs.length = total;
+    if (activeTitle && tabs[0]) {
+      tabs[0].title = activeTitle;
+      tabs[0].active = true;
+      tabs[0].recent = true;
+    }
+    return tabs;
+  }
+
+  const apps = [
+    {
+      id: 'chrome', name: 'Google Chrome', icon: 'chrome', web: true,
+      windows: [
+        {
+          id: 'chrome-work', title: 'MAYN / GitHub Work', current: true, age: 'Current', space: 'Desktop 1',
+          tabs: makeTabs('cw', 104, [
+            { host: 'github.com', count: 44, titles: ['PR #42 · Actions CI failing', 'mac-all-you-need · Issues', 'Pull requests · MAYN', 'Review comments', 'WindowHubCoordinator.swift', 'Release checklist'] },
+            { host: 'notion.so', count: 18, titles: ['Roadmap Q3', 'Window Hub design spec', 'Implementation notes', 'Launch checklist'] },
+            { host: 'localhost', count: 13, titles: ['localhost:3000 · Dashboard', 'Preview · Window Hub', 'Storybook · Components'] },
+            { host: 'apple.com', count: 16, titles: ['AXUIElement · Apple Developer', 'NSPanel docs', 'Accessibility API notes', 'AppKit Window Programming'] },
+            { host: 'linear.app', count: 13, titles: ['Window Hub tasks', 'Cleanup backlog', 'AI suggestions milestone'] }
+          ], 'PR #42 · Actions CI failing')
+        },
+        {
+          id: 'chrome-research', title: 'Research / Product References', current: false, age: 'Last used 8m ago', space: 'Desktop 2',
+          tabs: makeTabs('cr', 99, [
+            { host: 'tabtabapp.net', count: 22, titles: ['TabTab · Mac window switcher', 'Search tabs and windows', 'Keyboard navigation examples'] },
+            { host: 'github.com', count: 24, titles: ['BetterCmdTab repository', 'FFWF fuzzy window finder', 'TabBuddy prototype', 'AltTab issues'] },
+            { host: 'apple.com', count: 19, titles: ['Accessibility overview', 'Scripting Bridge', 'ScreenCaptureKit privacy', 'Window server notes'] },
+            { host: 'youtube.com', count: 8, titles: ['macOS utility app demos', 'Window manager walkthrough'] },
+            { host: 'notion.so', count: 26, titles: ['Research notes', 'Competitor matrix', 'UI references', 'Privacy copy'] }
+          ], 'TabTab · Mac window switcher')
+        }
+      ]
+    },
+    {
+      id: 'cursor', name: 'Cursor', icon: 'cursor', web: false,
+      targets: [
+        { id: 'cursor-1', title: 'WindowHubOverlayView.swift', fav: 'S', favClass: 'cu', meta: 'mac-all-you-need' },
+        { id: 'cursor-2', title: 'WindowHubEnumerator.swift', fav: 'S', favClass: 'cu', meta: 'mac-all-you-need' },
+        { id: 'cursor-3', title: 'WindowHubModels.swift', fav: 'S', favClass: 'cu', meta: 'mac-all-you-need' },
+        { id: 'cursor-4', title: 'implementation-plan.md', fav: 'M', favClass: 'md', meta: 'docs' },
+        { id: 'cursor-5', title: 'Window · mac-all-you-need', fav: 'W', favClass: 'cu', meta: '5 files' }
+      ]
+    },
+    {
+      id: 'safari', name: 'Safari', icon: 'safari', web: true,
+      windows: [
+        {
+          id: 'safari-docs', title: 'Apple Developer Docs', current: false, age: 'Last used 14m ago', space: 'Desktop 1',
+          tabs: [
+            { id: 'saf-1', title: 'NSPanel · Apple Developer', host: 'apple.com', fav: 'AP', favClass: 'ap', active: true, recent: true },
+            { id: 'saf-2', title: 'AXUIElement reference', host: 'apple.com', fav: 'AP', favClass: 'ap', recent: true },
+            { id: 'saf-3', title: 'ScreenCaptureKit notes', host: 'apple.com', fav: 'AP', favClass: 'ap', recent: true },
+            { id: 'saf-4', title: 'Human Interface Guidelines', host: 'apple.com', fav: 'AP', favClass: 'ap', recent: true }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'finder', name: 'Finder', icon: 'finder', web: false,
+      targets: [
+        { id: 'finder-1', title: 'Downloads', fav: 'D', favClass: 'fd', meta: '' },
+        { id: 'finder-2', title: 'Resources / Onboarding', fav: 'F', favClass: 'fd', meta: '' },
+        { id: 'finder-3', title: 'Window Hub prototypes', fav: 'P', favClass: 'fd', meta: '' }
+      ]
+    },
+    {
+      id: 'terminal', name: 'Terminal', icon: 'terminal', web: false,
+      targets: [
+        { id: 'term-1', title: 'npm run dev', fav: '$', favClass: 'tm', meta: '' },
+        { id: 'term-2', title: 'git status · mayn', fav: 'G', favClass: 'tm', meta: '' }
+      ]
+    },
+    {
+      id: 'figma', name: 'Figma', icon: 'figma', web: false,
+      targets: [
+        { id: 'figma-1', title: 'Window Hub · Compact Dashboard', fav: 'F', favClass: 'fi', meta: '' },
+        { id: 'figma-2', title: 'MAYN Components', fav: 'D', favClass: 'fi', meta: '' },
+        { id: 'figma-3', title: 'Window · Prototype', fav: 'W', favClass: 'fi', meta: '' }
+      ]
+    },
+    {
+      id: 'mail', name: 'Mail', icon: 'mail', web: false,
+      targets: [
+        { id: 'mail-1', title: 'Inbox', fav: 'M', favClass: 'ma', meta: '' },
+        { id: 'mail-2', title: 'MAYN vendor thread', fav: 'M', favClass: 'ma', meta: '' }
+      ]
+    }
+  ];
+
+  function allTabs() {
+    return apps.flatMap(app => app.windows ? app.windows.flatMap(win => win.tabs.map(tab => ({ app, win, tab }))) : []);
+  }
+  function allTargets() {
+    const tabs = allTabs().length;
+    const browserWindows = apps.reduce((sum, app) => sum + (app.windows ? app.windows.length : 0), 0);
+    const regularTargets = apps.reduce((sum, app) => sum + (app.targets ? app.targets.length : 0), 0);
+    return { tabs, windows: browserWindows + regularTargets, apps: apps.length };
+  }
+  function tokens() {
+    return search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  }
+  function tabText(app, win, tab) {
+    return `${app.name} ${win.title} ${win.space} ${tab.title} ${tab.host || ''}`.toLowerCase();
+  }
+  function targetText(app, target) {
+    return `${app.name} ${target.title} ${target.meta || ''}`.toLowerCase();
+  }
+  function matches(text, queryTokens) {
+    return queryTokens.every(token => text.includes(token));
+  }
+  function hostGroups(tabs) {
+    const map = new Map();
+    tabs.forEach(tab => map.set(tab.host, (map.get(tab.host) || 0) + 1));
+    return Array.from(map.entries()).sort((a,b) => b[1] - a[1]);
+  }
+  function el(tag, className, html) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (html !== undefined) node.innerHTML = html;
+    return node;
+  }
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+  function appIcon(app) {
+    return `<div class="app-icon ${app.icon}"></div>`;
+  }
+  function fav(tab) {
+    return `<div class="fav ${tab.favClass || hostClass(tab.host || '')}">${escapeHtml(tab.fav || hostLabel(tab.host || ''))}</div>`;
+  }
+  function rowForTab(app, win, tab) {
+    const row = el('div', 'target-row' + (tab.active && win.current ? ' selected' : ''), `
+      ${fav(tab)}
+      <div class="target-main">${tab.active ? '<span class="dot-active"></span>' : ''}<span class="target-title">${escapeHtml(tab.title)}</span></div>
+      <div class="target-right"><span class="host">${escapeHtml(tab.host || '')}</span></div>
+    `);
+    row.tabIndex = 0;
+    row.dataset.action = 'switch-tab';
+    row.dataset.label = `${app.name} › ${win.title} › ${tab.title}`;
+    return row;
+  }
+  function rowForTarget(app, target) {
+    const row = el('div', 'target-row', `
+      <div class="fav ${target.favClass}">${escapeHtml(target.fav)}</div>
+      <div class="target-main"><span class="target-title">${escapeHtml(target.title)}</span></div>
+      <div class="target-right"></div>
+    `);
+    row.tabIndex = 0;
+    row.dataset.action = 'switch-target';
+    row.dataset.label = `${app.name} › ${target.title}`;
+    return row;
+  }
+  function domainRow(app, win, host, count) {
+    const row = el('div', 'domain-row', `
+      <div class="fav ${hostClass(host)}">${escapeHtml(hostLabel(host))}</div>
+      <div class="target-main"><span class="domain-title">${escapeHtml(host)}</span></div>
+      <div class="target-right"><span class="count">${count} tabs</span></div>
+    `);
+    row.dataset.action = 'toggle-domain';
+    row.dataset.window = win.id;
+    row.dataset.host = host;
+    return row;
+  }
+  function actionRow(title, right, action, winId) {
+    const row = el('div', 'action-row', `
+      <div class="type-icon">+</div>
+      <div class="target-main"><span class="action-title">${escapeHtml(title)}</span></div>
+      <div class="target-right"><span class="count">${escapeHtml(right || '')}</span></div>
+    `);
+    row.dataset.action = action;
+    if (winId) row.dataset.window = winId;
+    return row;
+  }
+
+  function renderWindowGroup(app, win, queryTokens) {
+    const isSearching = queryTokens.length > 0;
+    const group = el('div', 'window-group' + (win.current ? ' current' : ''));
+    const total = win.tabs.length;
+    const matchedTabs = isSearching ? win.tabs.filter(tab => matches(tabText(app, win, tab), queryTokens)) : win.tabs;
+    if (isSearching && matchedTabs.length === 0) return { node: null, rows: 0, shown: 0, total };
+
+    const titleForHeader = win.title;
+    const head = el('div', 'window-head', `
+      <div class="current-bar"></div>
+      <div class="window-symbol"></div>
+      <div class="window-text">
+        <div class="window-title">${escapeHtml(titleForHeader)}</div>
+        <div class="window-sub">${escapeHtml(win.space)} · ${total} tabs · click header to switch window</div>
+      </div>
+      <div class="window-right">
+        ${win.current ? '<span class="window-badge current">Current</span>' : `<span class="window-badge">${escapeHtml(win.age)}</span>`}
+      </div>
+    `);
+    head.dataset.action = 'switch-window';
+    head.dataset.label = `${app.name} › ${win.title}`;
+    group.append(head);
+
+    const rows = el('div', 'rows');
+    let renderedRows = 0;
+
+    if (isSearching) {
+      const firstMatches = matchedTabs.slice(0, 80);
+      firstMatches.forEach(tab => { rows.append(rowForTab(app, win, tab)); renderedRows++; });
+      if (matchedTabs.length > firstMatches.length) {
+        rows.append(actionRow(`${matchedTabs.length - firstMatches.length} more matches are indexed`, 'refine search', 'noop', win.id));
+        renderedRows++;
+      }
+    } else if (expandedWindows.has(win.id)) {
+      rows.append(el('div', 'divider-label', 'All tabs'));
+      renderedRows++;
+      const sorted = [...win.tabs].sort((a, b) => {
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        return (a.host || '').localeCompare(b.host || '') || a.title.localeCompare(b.title);
+      });
+      sorted.forEach(tab => { rows.append(rowForTab(app, win, tab)); renderedRows++; });
+      rows.append(actionRow('Collapse this window', `${total} tabs`, 'collapse-window', win.id));
+      renderedRows++;
+    } else {
+      const active = win.tabs.find(tab => tab.active) || win.tabs[0];
+      const recent = win.tabs.filter(tab => tab !== active).slice(0, 4);
+      rows.append(el('div', 'divider-label', 'Active + recent'));
+      renderedRows++;
+      if (active) { rows.append(rowForTab(app, win, active)); renderedRows++; }
+      recent.forEach(tab => { rows.append(rowForTab(app, win, tab)); renderedRows++; });
+
+      const groups = hostGroups(win.tabs).slice(0, 4);
+      rows.append(el('div', 'divider-label', 'Domains'));
+      renderedRows++;
+      groups.forEach(([host, count]) => {
+        rows.append(domainRow(app, win, host, count));
+        renderedRows++;
+        const key = `${win.id}:${host}`;
+        if (expandedDomains.has(key)) {
+          win.tabs.filter(tab => tab.host === host).slice(0, 20).forEach(tab => {
+            rows.append(rowForTab(app, win, tab));
+            renderedRows++;
+          });
+          if (count > 20) {
+            rows.append(actionRow(`${count - 20} more ${host} tabs`, 'search host', 'noop', win.id));
+            renderedRows++;
+          }
+        }
+      });
+      rows.append(actionRow('Show all tabs in this window', `${total} tabs`, 'expand-window', win.id));
+      renderedRows++;
+    }
+
+    group.append(rows);
+    return { node: group, rows: renderedRows, shown: matchedTabs.length, total };
+  }
+
+  function renderApp(app, queryTokens) {
+    const section = el('section', 'app-section');
+    let shown = 0;
+    let total = 0;
+    let rowsEstimate = 1;
+
+    if (app.windows) {
+      total = app.windows.reduce((sum, win) => sum + win.tabs.length, 0);
+      const body = el('div');
+      app.windows.forEach(win => {
+        const rendered = renderWindowGroup(app, win, queryTokens);
+        if (rendered.node) {
+          body.append(rendered.node);
+          shown += queryTokens.length ? rendered.shown : rendered.rows;
+          rowsEstimate += rendered.rows + 2;
+        }
+      });
+      if (!body.children.length) return null;
+      const meta = queryTokens.length ? `${shown} matches / ${total} tabs` : `${app.windows.length} windows · ${total} tabs`;
+      section.append(el('header', 'app-header', `${appIcon(app)}<div class="app-name">${escapeHtml(app.name)}</div><div class="app-meta">${escapeHtml(meta)}</div>`));
+      section.append(body);
+    } else {
+      total = app.targets.length;
+      const matchesForApp = app.targets.filter(target => queryTokens.length ? matches(targetText(app, target), queryTokens) : true);
+      if (!matchesForApp.length) return null;
+      shown = matchesForApp.length;
+      const meta = queryTokens.length ? `${shown} matches / ${total} targets` : `${total} targets`;
+      section.append(el('header', 'app-header', `${appIcon(app)}<div class="app-name">${escapeHtml(app.name)}</div><div class="app-meta">${escapeHtml(meta)}</div>`));
+      const rows = el('div', 'flat-rows');
+      matchesForApp.forEach(target => rows.append(rowForTarget(app, target)));
+      rowsEstimate += matchesForApp.length;
+      section.append(rows);
+    }
+
+    return { section, height: rowsEstimate, shown, total };
+  }
+
+  function render() {
+    const queryTokens = tokens();
+    board.replaceChildren();
+    const colA = el('div', 'masonry-col');
+    const colB = el('div', 'masonry-col');
+    board.append(colA, colB);
+    const heights = [0, 0];
+    let visibleSections = 0;
+    let visibleCount = 0;
+    let matchedTargets = 0;
+
+    apps.forEach(app => {
+      const rendered = renderApp(app, queryTokens);
+      if (!rendered) return;
+      visibleSections++;
+      matchedTargets += rendered.shown;
+      const index = heights[0] <= heights[1] ? 0 : 1;
+      (index === 0 ? colA : colB).append(rendered.section);
+      heights[index] += rendered.height;
+      visibleCount += rendered.total;
+    });
+
+    board.style.display = visibleSections ? 'grid' : 'none';
+    empty.style.display = visibleSections ? 'none' : 'grid';
+    const totals = allTargets();
+    if (queryTokens.length) {
+      metrics.innerHTML = `<span class="pill blue">${matchedTargets} matches</span><span class="pill">${totals.tabs} tabs indexed</span><span class="pill">${totals.apps} apps</span>`;
+      hint.textContent = 'Search is flat and direct: matching hidden Chrome tabs appear under their exact window header.';
+    } else {
+      metrics.innerHTML = `<span class="pill blue">203 Chrome tabs</span><span class="pill">${totals.tabs} tabs indexed</span><span class="pill">${totals.apps} apps</span>`;
+      hint.textContent = 'Chrome is window-aware: each browser window has its own header; 100+ tabs stay indexed but collapsed until search or expand.';
+    }
+  }
+
+  function showToast(message) {
+    clearTimeout(toastTimer);
+    toast.textContent = message;
+    toast.classList.add('show');
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  board.addEventListener('click', event => {
+    const target = event.target.closest('[data-action]');
+    if (!target) return;
+    const action = target.dataset.action;
+    if (action === 'switch-tab' || action === 'switch-target') {
+      showToast(`Switching to ${target.dataset.label}`);
+    } else if (action === 'switch-window') {
+      showToast(`Switching to window: ${target.dataset.label}`);
+    } else if (action === 'expand-window') {
+      expandedWindows.add(target.dataset.window);
+      render();
+      showToast('Showing all tabs for this window. Other apps stay in the dashboard.');
+    } else if (action === 'collapse-window') {
+      expandedWindows.delete(target.dataset.window);
+      render();
+    } else if (action === 'toggle-domain') {
+      const key = `${target.dataset.window}:${target.dataset.host}`;
+      if (expandedDomains.has(key)) expandedDomains.delete(key); else expandedDomains.add(key);
+      render();
+    } else if (action === 'noop') {
+      showToast('Use search to narrow this group without expanding the full tab list.');
+    }
+  });
+
+  board.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    const target = event.target.closest('[data-action]');
+    if (target) target.click();
+  });
+
+  search.addEventListener('input', render);
+  clearBtn.addEventListener('click', () => { search.value = ''; render(); search.focus(); });
+  collapseBtn.addEventListener('click', () => { expandedWindows.clear(); expandedDomains.clear(); render(); });
+
+  function openSheet(kind) {
+    sheetTitle.textContent = kind === 'suggest' ? 'Suggest groups' : 'Review cleanup';
+    sheetBody.innerHTML = kind === 'suggest'
+      ? `<div class="sheet-row"><input type="checkbox"><div><div class="sheet-title">Project: mac-all-you-need</div><div class="sheet-copy">6 tabs from the current Chrome window. Create a project window after review.</div></div><span class="pill">safe</span></div>
+         <div class="sheet-row"><input type="checkbox"><div><div class="sheet-title">Research references</div><div class="sheet-copy">Tabs from the second Chrome window. Keep window boundary intact.</div></div><span class="pill">manual</span></div>
+         <div class="sheet-row"><input type="checkbox"><div><div class="sheet-title">Duplicates</div><div class="sheet-copy">Same URL opened multiple times. Active and pinned tabs remain protected.</div></div><span class="pill">12 found</span></div>`
+      : `<div class="sheet-row"><input type="checkbox"><div><div class="sheet-title">Duplicate GitHub tabs</div><div class="sheet-copy">Close extras inside Chrome › MAYN / GitHub Work. Keep active tab.</div></div><span class="pill">8</span></div>
+         <div class="sheet-row"><input type="checkbox"><div><div class="sheet-title">Stale research tabs</div><div class="sheet-copy">Review older tabs in Chrome › Research / Product References.</div></div><span class="pill">21</span></div>
+         <div class="sheet-row"><input type="checkbox"><div><div class="sheet-title">Background windows</div><div class="sheet-copy">No automatic quit. User must select each action.</div></div><span class="pill">off</span></div>`;
+    sheetBackdrop.classList.add('open');
+    sheetBackdrop.setAttribute('aria-hidden', 'false');
+  }
+  document.querySelectorAll('[data-sheet]').forEach(button => button.addEventListener('click', () => openSheet(button.dataset.sheet)));
+  function closeModal() { sheetBackdrop.classList.remove('open'); sheetBackdrop.setAttribute('aria-hidden', 'true'); search.focus(); }
+  closeSheet.addEventListener('click', closeModal);
+  sheetBackdrop.addEventListener('click', event => { if (event.target === sheetBackdrop) closeModal(); });
+  window.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      if (sheetBackdrop.classList.contains('open')) closeModal();
+      else if (search.value) { search.value = ''; render(); }
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

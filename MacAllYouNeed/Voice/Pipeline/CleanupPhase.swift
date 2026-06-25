@@ -17,6 +17,7 @@ struct CleanupPhase {
         let recentExamples: [(before: String, after: String)]
     }
 
+    let voiceIntent: VoiceIntent
     let makePipeline: (TimeInterval) -> VoiceCleanupPipeline
     let personalization: PersonalizationInputs
     /// Optional spy invoked with the resolved request just before the
@@ -30,12 +31,14 @@ struct CleanupPhase {
     let log: Logger
 
     init(
+        voiceIntent: VoiceIntent,
         makePipeline: @escaping (TimeInterval) -> VoiceCleanupPipeline,
         personalization: PersonalizationInputs,
         observer: ((VoiceCleanupRequest) -> Void)?,
         onThinkingProgress: ((Double) -> Void)? = nil,
         log: Logger
     ) {
+        self.voiceIntent = voiceIntent
         self.makePipeline = makePipeline
         self.personalization = personalization
         self.observer = observer
@@ -52,7 +55,8 @@ struct CleanupPhase {
             dictionaryEntries: personalization.dictionaryEntries,
             appContext: personalization.appContext,
             globalContext: personalization.globalContext,
-            recentExamples: personalization.recentExamples
+            recentExamples: personalization.recentExamples,
+            voiceIntent: voiceIntent
         )
         observer?(cleanupRequest)
 

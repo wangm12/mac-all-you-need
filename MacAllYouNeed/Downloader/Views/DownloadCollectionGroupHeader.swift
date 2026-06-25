@@ -6,202 +6,464 @@ struct DownloadCollectionGroupHeader: View {
     let progress: Double
     let speedText: String?
     let etaText: String?
+    let locationLabel: String
+    let collectionStatus: DownloadCollectionPresentation.CollectionStatus
+    let hasActive: Bool
     let isExpanded: Bool
+    let isCompact: Bool
     let showsPauseAll: Bool
     let showsResumeAll: Bool
     let onToggleExpanded: () -> Void
+    let onOpenFolder: () -> Void
     let onPauseAll: () -> Void
     let onResumeAll: () -> Void
-    let onDelete: () -> Void
+    let onRetryFailed: () -> Void
+    let onCopySourceURL: () -> Void
+    let onRemoveFromList: () -> Void
+    let onMoveFilesToTrash: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var artSize: CGFloat { isCompact ? 48 : 58 }
+    private var horizontalPadding: CGFloat { MAYNControlMetrics.rowControlSpacing }
+    private var verticalPadding: CGFloat { isCompact ? 14 : 16 }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Button(action: onToggleExpanded) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 16)
-                        .contentShape(Rectangle())
+        HStack(alignment: .top, spacing: 12) {
+            disclosureButton
+            collectionArt
+            VStack(alignment: .leading, spacing: 10) {
+                titleLine
+                Text(DownloadCollectionPresentation.compactMetaLine(for: group, location: locationLabel))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                progressBlock
+                if !isCompact {
+                    actionRow
                 }
-                .buttonStyle(.plain)
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [MAYNTheme.elevated, MAYNTheme.window.opacity(0.8)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
-                                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
-                        )
-                    Image(systemName: group.kind == .douyinProfile ? "folder" : "rectangle.stack")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                if !isCompact, speedText != nil || etaText != nil {
+                    speedLine
                 }
-                .frame(width: 32, height: 32)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(group.title)
-                            .font(.callout.weight(.semibold))
-                            .lineLimit(1)
-                        Text(group.kind == .douyinProfile ? "Folder" : "Collection")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(MAYNTheme.elevated, in: Capsule())
-                            .overlay(Capsule().stroke(MAYNTheme.subtleBorder, lineWidth: 1))
-                    }
-                    Text(DownloadCollectionGrouping.groupSubtitle(for: group))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .trailing, spacing: 9) {
-                    HStack(spacing: 8) {
-                        Text("\(group.completedCount)/\(group.totalCount)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        if let speedText {
-                            Text(speedText)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        if let etaText {
-                            Text(etaText)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    VStack(alignment: .trailing, spacing: 6) {
-                        GeometryReader { geometry in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(MAYNTheme.divider.opacity(0.9))
-                                Capsule()
-                                    .fill(MAYNTheme.progress)
-                                    .frame(width: max(2, geometry.size.width * progress))
-                            }
-                        }
-                        .frame(width: 132, height: 4)
-                        Text(progress >= 1 ? "Completed" : "\(Int((progress * 100).rounded()))%")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
             }
-
-            HStack(spacing: 10) {
-                summaryChip(title: "Total videos", value: "\(group.totalCount)")
-                summaryChip(title: "Completed", value: "\(group.completedCount)")
-                summaryChip(title: "Progress", value: "\(Int((progress * 100).rounded()))%")
-                Spacer(minLength: 8)
-                if showsResumeAll {
-                    DownloadIconButton(symbolName: "play.fill", accessibilityLabel: "Resume all", action: onResumeAll)
-                }
-                if showsPauseAll {
-                    DownloadIconButton(symbolName: "pause.fill", accessibilityLabel: "Pause all", action: onPauseAll)
-                }
-                DownloadIconButton(symbolName: "trash", role: .destructive, accessibilityLabel: "Remove collection", action: onDelete)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(MAYNTheme.window.opacity(0.35))
-            )
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
-        .padding(.vertical, 13)
-        .background(
-            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [MAYNTheme.elevated, MAYNTheme.elevated.opacity(0.94)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
-                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
-        )
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, verticalPadding)
         .contentShape(Rectangle())
         .onTapGesture(perform: onToggleExpanded)
         .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: isExpanded)
     }
 
-    private func summaryChip(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.caption2)
+    private var disclosureButton: some View {
+        Button(action: onToggleExpanded) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.secondary)
-            Text(value)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.primary)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
         }
-        .frame(minWidth: 76, alignment: .leading)
+        .buttonStyle(.plain)
+        .padding(.top, 4)
+    }
+
+    private var collectionArt: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: isCompact ? 14 : 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [MAYNTheme.elevated, MAYNTheme.window.opacity(0.85)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: isCompact ? 14 : 16, style: .continuous)
+                        .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                )
+
+            if group.kind == .douyinProfile {
+                Image(systemName: "folder")
+                    .font(.system(size: isCompact ? 16 : 18, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.55), lineWidth: 1.4)
+                        .frame(width: isCompact ? 24 : 30, height: isCompact ? 16 : 20)
+                        .offset(x: -4, y: -4)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.55), lineWidth: 1.4)
+                        .frame(width: isCompact ? 24 : 30, height: isCompact ? 16 : 20)
+                        .offset(x: 4, y: 4)
+                }
+            }
+        }
+        .frame(width: artSize, height: artSize)
+    }
+
+    private var titleLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(group.title)
+                .font(isCompact ? .callout.weight(.semibold) : .headline.weight(.semibold))
+                .lineLimit(1)
+                .layoutPriority(1)
+            Spacer(minLength: 8)
+            StatusPill(text: collectionStatus.label, kind: collectionStatus.pillKind)
+        }
+    }
+
+    private var progressBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("\(group.completedCount) of \(group.totalCount) completed")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text("\(Int((progress * 100).rounded()))%")
+                    .font(.callout.weight(.semibold))
+                    .monospacedDigit()
+            }
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(MAYNTheme.divider.opacity(0.9))
+                    Capsule()
+                        .fill(DownloadCollectionPresentation.progressBarColor(for: collectionStatus))
+                        .frame(
+                            width: DownloadCollectionPresentation.progressFillWidth(
+                                totalWidth: geometry.size.width,
+                                progress: progress
+                            )
+                        )
+                }
+            }
+            .frame(height: 6)
+        }
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 8) {
+            if let title = DownloadCollectionPresentation.primaryActionTitle(
+                status: collectionStatus,
+                showsPauseAll: showsPauseAll,
+                showsResumeAll: showsResumeAll
+            ) {
+                MAYNButton(title, role: .secondary, height: 30) {
+                    performPrimaryAction()
+                }
+            }
+
+            MAYNButton(role: .secondary, height: 30, action: onOpenFolder) {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(.caption.weight(.semibold))
+                    Text("Finder")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+
+            Menu {
+                Button("Copy Source URL", action: onCopySourceURL)
+                Button("Open Collection Folder", action: onOpenFolder)
+                Divider()
+                Button("Remove from List", action: onRemoveFromList)
+                Button("Move Files to Trash...", role: .destructive, action: onMoveFilesToTrash)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 30, height: 30)
+                    .background(MAYNTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                    )
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+    }
+
+    private var speedLine: some View {
+        HStack(spacing: 6) {
+            if let speedText {
+                Text(speedText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if let etaText {
+                Text(etaText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func performPrimaryAction() {
+        if showsPauseAll {
+            onPauseAll()
+        } else if collectionStatus == .failed {
+            onRetryFailed()
+        } else if showsResumeAll {
+            onResumeAll()
+        }
+    }
+}
+
+struct DownloadCollectionExpandedToolbar: View {
+    let itemFilter: DownloadCollectionItemFilter
+    let onSelectFilter: (DownloadCollectionItemFilter) -> Void
+    let onCopySourceURL: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text("Manage individual downloads in this collection.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(1)
+
+            HStack(spacing: 6) {
+                ForEach(DownloadCollectionItemFilter.allCases) { filter in
+                    collectionFilterButton(filter)
+                }
+                MAYNButton("Copy Source URL", role: .secondary, height: 30, action: onCopySourceURL)
+            }
+        }
+        .padding(.horizontal, MAYNControlMetrics.rowControlSpacing)
+        .padding(.vertical, 12)
+    }
+
+    private func collectionFilterButton(_ filter: DownloadCollectionItemFilter) -> some View {
+        Button {
+            onSelectFilter(filter)
+        } label: {
+            Text(filter.title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(itemFilter == filter ? Color.primary : Color.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(
+                    itemFilter == filter ? MAYNTheme.window : MAYNTheme.elevated.opacity(0.85),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 }
 
 struct DownloadCollectionDeleteSheet: View {
     let title: String
-    let itemCount: Int
+    let itemLabel: String
+    let statusLabel: String
+    let locationLabel: String
+    var initialDeleteFiles: Bool = false
     let onCancel: () -> Void
-    let onRemoveListOnly: () -> Void
-    let onRemoveWithFiles: () -> Void
+    let onConfirm: (_ deleteFiles: Bool) -> Void
+
+    @State private var deleteFiles = false
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                metadataBox
+                optionCards
+            }
+            .padding(24)
+
+            MAYNDivider()
+                .padding(.leading, 0)
+
+            footer
+                .padding(24)
+        }
+        .frame(width: 480)
+        .background(MAYNTheme.window)
+        .onAppear {
+            deleteFiles = initialDeleteFiles
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 14) {
             ZStack {
                 Circle()
                     .fill(MAYNTheme.danger.opacity(0.09))
-                    .frame(width: 54, height: 54)
+                    .frame(width: 44, height: 44)
                 Circle()
                     .strokeBorder(MAYNTheme.danger.opacity(0.35), lineWidth: 1)
-                    .frame(width: 54, height: 54)
+                    .frame(width: 44, height: 44)
                 Image(systemName: "trash")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(MAYNTheme.danger)
             }
 
-            VStack(spacing: 7) {
-                Text("Remove collection")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Remove \"\(title)\"?")
                     .font(.title3.weight(.semibold))
-                Text(title)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                Text("\(itemCount) item\(itemCount == 1 ? "" : "s")")
-                    .font(.caption)
+                Text("This removes the collection from Downloads. Choose what to do with downloaded files.")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-                Text("Choose whether to keep downloaded files on disk or delete them as well.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            VStack(spacing: 10) {
-                MAYNButton("Remove from list only", role: .primary, action: onRemoveListOnly)
-                    .frame(maxWidth: .infinity)
-                MAYNButton("Delete files and remove", role: .destructive, action: onRemoveWithFiles)
-                    .frame(maxWidth: .infinity)
-                MAYNButton("Cancel", action: onCancel)
-                    .frame(maxWidth: .infinity)
-                    .keyboardShortcut(.cancelAction)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(26)
-        .frame(width: 380)
-        .background(MAYNTheme.window)
+    }
+
+    private var metadataBox: some View {
+        VStack(spacing: 10) {
+            metadataRow(label: "Items", value: itemLabel)
+            metadataRow(label: "Status", value: statusLabel)
+            metadataRow(label: "Location", value: locationLabel, emphasizesValue: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MAYNTheme.elevated.opacity(0.65), in: RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
+                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+        )
+    }
+
+    private func metadataRow(label: String, value: String, emphasizesValue: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(emphasizesValue ? .callout.weight(.semibold) : .callout)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+        }
+    }
+
+    private var optionCards: some View {
+        VStack(spacing: 10) {
+            DownloadDeleteOptionCard(
+                title: "Keep files on disk",
+                badge: "Recommended",
+                badgeKind: .neutral,
+                description: "The downloaded files remain in their current folder.",
+                isSelected: !deleteFiles
+            ) {
+                deleteFiles = false
+            }
+
+            DownloadDeleteOptionCard(
+                title: "Move downloaded files to Trash",
+                badge: "Frees disk space",
+                badgeKind: .danger,
+                description: "Files already saved for this collection will be moved to Trash.",
+                isSelected: deleteFiles
+            ) {
+                deleteFiles = true
+            }
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 10) {
+            Spacer()
+            MAYNButton("Cancel", action: onCancel)
+                .keyboardShortcut(.cancelAction)
+            if deleteFiles {
+                MAYNButton("Move Files to Trash", role: .destructive) {
+                    onConfirm(true)
+                }
+                .keyboardShortcut(.defaultAction)
+            } else {
+                MAYNButton("Remove from List", role: .primary) {
+                    onConfirm(false)
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+}
+
+private struct DownloadDeleteOptionCard: View {
+    enum BadgeKind {
+        case neutral
+        case danger
+    }
+
+    let title: String
+    let badge: String
+    let badgeKind: BadgeKind
+    let description: String
+    let isSelected: Bool
+    let onSelect: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(isSelected ? MAYNTheme.progress : .secondary.opacity(0.45))
+                    .padding(.top, 1)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(title)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        badgeView
+                    }
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(14)
+            .background(cardBackground, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
+                    .stroke(borderColor, lineWidth: isSelected ? 1.5 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: isSelected)
+    }
+
+    private var badgeView: some View {
+        Text(badge)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(badgeKind == .danger ? MAYNTheme.danger : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                (badgeKind == .danger ? MAYNTheme.danger : Color.secondary).opacity(0.10),
+                in: Capsule()
+            )
+            .overlay(
+                Capsule().stroke(
+                    (badgeKind == .danger ? MAYNTheme.danger : MAYNTheme.subtleBorder).opacity(badgeKind == .danger ? 0.25 : 1),
+                    lineWidth: 1
+                )
+            )
+    }
+
+    private var cardBackground: Color {
+        if isSelected { return MAYNTheme.progress.opacity(0.08) }
+        if isHovering { return MAYNTheme.elevatedHover.opacity(0.55) }
+        return MAYNTheme.window
+    }
+
+    private var borderColor: Color {
+        isSelected ? MAYNTheme.progress.opacity(0.55) : MAYNTheme.subtleBorder
     }
 }
