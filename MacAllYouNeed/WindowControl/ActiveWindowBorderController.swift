@@ -176,7 +176,7 @@ final class ActiveWindowBorderController {
 }
 
 private enum ActiveWindowBorderVisualTokens {
-    static let accent = Color(red: 10 / 255, green: 132 / 255, blue: 1)
+    static let accent = Color.primary
     static let strokeOpacity: CGFloat = 0.50
     static let glowOpacity: CGFloat = 0.34
     static let haloOpacity: CGFloat = 0.18

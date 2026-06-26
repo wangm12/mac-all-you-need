@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Core
 import SwiftUI
 import UI
 
@@ -162,6 +163,25 @@ final class MiniVoiceHUD {
     /// full rootView swap on every audio tick. Created once and shared with each
     /// `MiniVoiceHUDView` instance so the waveform observes it directly.
     let audioLevelBridge = MiniVoiceAudioLevelBridge()
+    private var obstructionObserver: NSObjectProtocol?
+
+    init() {
+        obstructionObserver = NotificationCenter.default.addObserver(
+            forName: FloatingBottomObstructionProvider.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.repositionIfVisible()
+            }
+        }
+    }
+
+    deinit {
+        if let obstructionObserver {
+            NotificationCenter.default.removeObserver(obstructionObserver)
+        }
+    }
 
     #if DEBUG
     var testingContentView: NSView? {
@@ -179,8 +199,16 @@ final class MiniVoiceHUD {
     var currentTargetScreen: NSScreen? { targetScreen }
 
     var currentPillBottomY: CGFloat {
+        if let panel = panelController?.currentPanel, isVisible {
+            return panel.frame.minY
+        }
         guard let screen = targetScreen ?? Self.screenContainingMouseCursor() ?? NSScreen.main else { return 0 }
-        return screen.visibleFrame.minY + MiniVoiceHUDLayout.bottomInsetAboveDock
+        let frame = screen.visibleFrame
+        return MiniVoiceHUDLayout.defaultPillBottomY(
+            in: frame,
+            screenFrame: screen.frame,
+            bottomObstruction: FloatingBottomObstructionProvider.bottomObstruction(for: frame)
+        )
     }
 
     var currentPillCenterX: CGFloat {
@@ -239,7 +267,13 @@ final class MiniVoiceHUD {
             firstMouseHosting?.rootView = nextView
             firstMouseHosting?.frame = NSRect(origin: .zero, size: size)
             controller.updateSize(size)
-            controller.currentPanel?.setFrameOrigin(targetOrigin(for: size))
+            if let panel = controller.currentPanel {
+                normalizePresentationLayer(panel: panel)
+                panel.setContentSize(size)
+                firstMouseHosting?.frame = panel.contentView?.bounds ?? NSRect(origin: .zero, size: size)
+                panel.setFrameOrigin(targetOrigin(for: size))
+                VoiceHUDWindowLayering.orderFront(panel)
+            }
             return
         }
 
@@ -251,8 +285,8 @@ final class MiniVoiceHUD {
             let hideDuration = MAYNMotionBridge.effectiveDuration(.toastOut)
             panelController = NonActivatingFloatingPanelController<MiniVoiceHUDView>(
                 styleMask: [.borderless, .nonactivatingPanel],
-                level: FloatingHUDWindowLayering.windowLevel,
-                collectionBehavior: FloatingHUDWindowLayering.collectionBehavior,
+                level: VoiceHUDWindowLayering.windowLevel,
+                collectionBehavior: VoiceHUDWindowLayering.collectionBehavior,
                 hasShadow: false,
                 backgroundColor: .clear,
                 showAnimationDuration: showDuration,
@@ -265,23 +299,48 @@ final class MiniVoiceHUD {
             )
         }
 
-        // present() creates the panel and starts the fade-in animation.
-        panelController?.present(rootView: nextView, size: size, animated: true)
+        // No panel fade — SwiftUI entrance scale/opacity was getting stuck mid-animation.
+        panelController?.present(rootView: nextView, size: size, animated: false)
 
         // Apply HUD-specific panel settings not exposed by the shared controller,
         // and swap in FirstMouseHostingView so buttons respond on the first click
         // without requiring the panel to become key.
         if let panel = panelController?.currentPanel {
+            VoiceHUDWindowLayering.configureGlassPanel(panel, acceptsMouseEvents: true)
             panel.isOpaque = false
             panel.backgroundColor = .clear
-            panel.hidesOnDeactivate = false
-            panel.ignoresMouseEvents = false
             let fmh = FirstMouseHostingView(rootView: nextView)
             fmh.frame = NSRect(origin: .zero, size: size)
-            fmh.layer?.setAffineTransform(CGAffineTransform.identity)
             panel.contentView = fmh
             firstMouseHosting = fmh
+            normalizePresentationLayer(panel: panel)
+            VoiceHUDWindowLayering.orderFront(panel)
         }
+    }
+
+    /// Clears any in-flight dismiss scale / panel fade so the pill never sticks small or dim.
+    private func normalizePresentationLayer(panel: NSPanel) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0
+            panel.animator().alphaValue = 1
+        })
+        panel.alphaValue = 1
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layer?.removeAllAnimations()
+        panel.contentView?.layer?.setAffineTransform(.identity)
+        firstMouseHosting?.wantsLayer = true
+        firstMouseHosting?.layer?.removeAllAnimations()
+        firstMouseHosting?.layer?.setAffineTransform(.identity)
+    }
+
+    private func repositionIfVisible() {
+        guard let controller = panelController, controller.isPresented,
+              let panel = controller.currentPanel
+        else { return }
+        let size = panel.frame.size
+        normalizePresentationLayer(panel: panel)
+        panel.setFrameOrigin(targetOrigin(for: size))
+        VoiceHUDWindowLayering.orderFront(panel)
     }
 
     /// Updates the cleanup wipe without rebuilding the hosting view (stream chunks).
@@ -303,27 +362,13 @@ final class MiniVoiceHUD {
         thinkingProgressBridge.cancelBootAndResetDisplay()
         audioLevelBridge.reset()
         guard let controller = panelController, controller.isPresented else { return }
-        if let fmh = firstMouseHosting, NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false {
-            fmh.wantsLayer = true
-            if let layer = fmh.layer {
-                NSAnimationContext.runAnimationGroup({ context in
-                    context.duration = MAYNMotionBridge.effectiveDuration(.press)
-                    context.timingFunction = MAYNMotionBridge.timingFunction(.press)
-                    layer.setAffineTransform(CGAffineTransform(scaleX: 0.88, y: 0.88))
-                }, completionHandler: { [weak self] in
-                    layer.setAffineTransform(CGAffineTransform.identity)
-                    self?.tearDownHUD(controller: controller)
-                })
-                return
-            }
-        }
         tearDownHUD(controller: controller)
     }
 
     private func tearDownHUD(controller: NonActivatingFloatingPanelController<MiniVoiceHUDView>) {
         targetScreen = nil
         firstMouseHosting = nil
-        controller.dismiss(animated: true)
+        controller.dismiss(animated: false)
     }
 
     private func targetOrigin(for size: CGSize) -> NSPoint {
@@ -332,9 +377,12 @@ final class MiniVoiceHUD {
             ?? NSScreen.main
             ?? NSScreen.screens.first
         guard let frame = screen?.visibleFrame else { return .zero }
-        return NSPoint(
-            x: frame.midX - size.width / 2,
-            y: frame.minY + MiniVoiceHUDLayout.bottomInsetAboveDock
+        let obstruction = FloatingBottomObstructionProvider.bottomObstruction(for: frame)
+        return MiniVoiceHUDLayout.pillOrigin(
+            in: frame,
+            screenFrame: screen?.frame ?? frame,
+            size: size,
+            bottomObstruction: obstruction
         )
     }
 
@@ -359,7 +407,38 @@ enum MiniVoiceHUDLayout {
   static let maxPillWidth: CGFloat = terminalMaxWidth
   static let pillHeight: CGFloat = 32
   static let pillSize = CGSize(width: pillWidth, height: pillHeight)
+  /// Gap above the macOS Dock / bottom screen edge — Typeless-style bottom-center anchor.
   static let bottomInsetAboveDock: CGFloat = 28
+  /// When the Dock autohides, `visibleFrame` includes the dock strip until it slides in.
+  static let autohideDockReserve: CGFloat = 60
+
+  static func pillOrigin(
+    in visibleFrame: NSRect,
+    screenFrame: NSRect,
+    size: CGSize,
+    bottomObstruction: CGFloat = 0
+  ) -> NSPoint {
+    let dockOccupiedInMetrics = max(0, visibleFrame.minY - screenFrame.minY)
+    let autohideReserve = dockOccupiedInMetrics > 1 ? 0 : autohideDockReserve
+    return NSPoint(
+      x: visibleFrame.midX - size.width / 2,
+      y: visibleFrame.minY + bottomInsetAboveDock + autohideReserve + bottomObstruction
+    )
+  }
+
+  static func defaultPillBottomY(
+    in visibleFrame: NSRect,
+    screenFrame: NSRect,
+    pillHeight: CGFloat = pillHeight,
+    bottomObstruction: CGFloat = 0
+  ) -> CGFloat {
+    pillOrigin(
+      in: visibleFrame,
+      screenFrame: screenFrame,
+      size: CGSize(width: pillWidth, height: pillHeight),
+      bottomObstruction: bottomObstruction
+    ).y
+  }
   static let cornerRadius: CGFloat = 16
   static let iconSize: CGFloat = 14
   static let labelHorizontalPadding: CGFloat = 16
@@ -371,6 +450,26 @@ enum MiniVoiceHUDLayout {
   static let captionCornerRadius: CGFloat = 8
   static let captionShellHeight: CGFloat = captionHeight + captionVerticalPadding * 2
   static let captionGap: CGFloat = 5
+  static let alertGapAboveCaption: CGFloat = 8
+
+  static func captionOrigin(pillBottomY: CGFloat, size: CGSize, centerX: CGFloat) -> NSPoint {
+    NSPoint(
+      x: centerX - size.width / 2,
+      y: pillBottomY + pillHeight + captionGap
+    )
+  }
+
+  static func alertOrigin(
+    pillBottomY: CGFloat,
+    captionHeight: CGFloat,
+    size: CGSize,
+    centerX: CGFloat
+  ) -> NSPoint {
+    NSPoint(
+      x: centerX - size.width / 2,
+      y: pillBottomY + pillHeight + captionGap + captionHeight + alertGapAboveCaption
+    )
+  }
 
   static func size(
     for state: MiniVoiceHUD.State,
@@ -409,6 +508,49 @@ enum MiniVoiceHUDLayout {
       return recordingWidth
     }
   }
+}
+
+enum VoiceHUDAppearance: String, CaseIterable, Codable, Equatable, Hashable, Identifiable, SegmentedTabDestination {
+    case glass
+    case graphite
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .glass: "Glass"
+        case .graphite: "Graphite"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .glass: "Frosted Liquid Glass that adapts to the desktop"
+        case .graphite: "Solid near-black pill for maximum contrast"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .glass: "sparkles.rectangle.stack"
+        case .graphite: "capsule.fill"
+        }
+    }
+}
+
+enum VoiceHUDAppearanceStore {
+    static let storageKey = "voice.hud.appearance.v1"
+    static let didChangeNotification = Notification.Name("VoiceHUDAppearanceStore.didChange")
+
+    static func load() -> VoiceHUDAppearance {
+        let raw = AppGroupSettings.defaults.string(forKey: storageKey)
+        return VoiceHUDAppearance(rawValue: raw ?? VoiceHUDAppearance.glass.rawValue) ?? .glass
+    }
+
+    static func save(_ appearance: VoiceHUDAppearance) {
+        AppGroupSettings.defaults.set(appearance.rawValue, forKey: storageKey)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
 }
 
 enum MiniVoiceHUDPalette {
@@ -544,9 +686,15 @@ struct VoicePillContentModel: Equatable {
             actionAvailability = .dismissTerminal
             secondaryAction = .none
         case let .error(message):
-            label = VoiceHUDCopy.pillLabel(for: message)
-            labelTransitionSlot = "error"
-            leading = .none
+            if VoiceHUDCopy.routesFailureMessageToCaptionAbovePill(message) {
+                label = ""
+                labelTransitionSlot = "errorCaption"
+                leading = .warningTriangle
+            } else {
+                label = VoiceHUDCopy.pillLabel(for: message)
+                labelTransitionSlot = "error"
+                leading = .none
+            }
             actionAvailability = .dismissTerminal
             secondaryAction = .none
         case .clipboardFallback:
@@ -590,49 +738,72 @@ struct MiniVoiceHUDView: View {
     let onPrimary: (() -> Void)?
     let onFinish: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(VoiceHUDAppearanceStore.storageKey, store: AppGroupSettings.defaults)
+    private var appearanceRaw = VoiceHUDAppearance.glass.rawValue
     @State private var isHovering = false
+
+    private var appearance: VoiceHUDAppearance {
+        VoiceHUDAppearance(rawValue: appearanceRaw) ?? .glass
+    }
+
+    private var usesGraphiteChrome: Bool {
+        appearance == .graphite
+    }
+
+    private var contentForeground: Color {
+        usesGraphiteChrome ? MiniVoiceHUDPalette.pillText : Color.primary
+    }
+
+    private var waveformBarColor: Color {
+        usesGraphiteChrome ? Color.white.opacity(0.96) : Color.primary.opacity(0.92)
+    }
 
     private var pillWidth: CGFloat {
         MiniVoiceHUDLayout.computedWidth(for: state, label: pill.label, chrome: chrome)
     }
 
     var body: some View {
-        EntranceTransform {
-            ZStack {
-                pillBackground
+        ZStack(alignment: .leading) {
+            centeredContent
+                .padding(.horizontal, MiniVoiceHUDLayout.labelHorizontalPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                centeredContent
-                    .padding(.horizontal, MiniVoiceHUDLayout.labelHorizontalPadding)
+            if showsTranscribingProgressWipe {
+                transcribingWipeOverlay
             }
-            .frame(width: pillWidth, height: MiniVoiceHUDLayout.pillHeight)
-            .shadow(color: .black.opacity(0.26), radius: 18, x: 0, y: 14)
-            .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
-            .contentShape(Capsule())
-            .onTapGesture(perform: handleBackgroundTap)
-            .onHover { isHovering = $0 }
-            .animation(MAYNMotion.animation(.control, reduceMotion: reduceMotion), value: pill.labelTransitionSlot)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(accessibilityText)
         }
         .frame(width: pillWidth, height: MiniVoiceHUDLayout.pillHeight)
-        .animation(MAYNMotion.animation(.control, reduceMotion: reduceMotion), value: pillWidth)
+        .voiceHubPillChrome(isGraphite: usesGraphiteChrome)
+        .compositingGroup()
+        .clipShape(Capsule())
+        .shadow(
+            color: .black.opacity(usesGraphiteChrome ? 0.26 : 0.08),
+            radius: usesGraphiteChrome ? 18 : 8,
+            x: 0,
+            y: usesGraphiteChrome ? 14 : 4
+        )
+        .contentShape(Capsule())
+        .onTapGesture(perform: handleBackgroundTap)
+        .onHover { isHovering = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityText)
+        .frame(width: pillWidth, height: MiniVoiceHUDLayout.pillHeight)
+        .transaction { transaction in
+            transaction.animation = nil
+        }
     }
 
     @ViewBuilder
-    private var pillBackground: some View {
-        Group {
-            if showsTranscribingProgressWipe {
-                thinkingPillBackground(wipe: thinkingProgress.displayWipe)
-            } else {
-                Capsule()
-                    .fill(MiniVoiceHUDPalette.pillGraphite)
-            }
-        }
-        .clipShape(Capsule())
-        .animation(
-            MAYNMotion.animation(.control, reduceMotion: reduceMotion),
-            value: thinkingWipeAnimationValue
-        )
+    private var transcribingWipeOverlay: some View {
+        let w = min(1, max(0, thinkingProgress.displayWipe))
+        Capsule()
+            .fill(
+                usesGraphiteChrome
+                    ? MiniVoiceHUDPalette.pillWipeOverlay
+                    : Color.primary.opacity(0.12)
+            )
+            .frame(width: pillWidth * w, height: MiniVoiceHUDLayout.pillHeight)
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -644,19 +815,23 @@ struct MiniVoiceHUDView: View {
                 reminderAddedContent
             } else {
                 switch pill.leading {
+                case .warningTriangle:
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: MiniVoiceHUDLayout.iconSize, weight: .semibold))
+                        .foregroundStyle(contentForeground.opacity(0.92))
+                        .accessibilityHidden(true)
                 case .waveformBars:
                     let dimmed = if case .startingMic = state { true }
                     else if case .recording(_, _, let dim) = state { dim }
                     else { false }
-                    WaveformBars(level: recordingLevel, dimmed: dimmed)
+                    WaveformBars(level: recordingLevel, dimmed: dimmed, barColor: waveformBarColor)
                 case .none where !pill.label.isEmpty:
                     Text(pill.label)
                         .font(.system(size: MiniVoiceHUDLayout.fontSize, weight: .semibold))
-                        .foregroundStyle(MiniVoiceHUDPalette.pillText)
+                        .foregroundStyle(contentForeground)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                         .id(pill.labelTransitionSlot)
-                        .transition(hudAsymmetricTransition)
                 default:
                     EmptyView()
                 }
@@ -669,12 +844,12 @@ struct MiniVoiceHUDView: View {
         HStack(spacing: 8) {
             Image(systemName: "xmark.circle")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(MiniVoiceHUDPalette.pillText.opacity(0.92))
+                .foregroundStyle(contentForeground.opacity(0.92))
                 .accessibilityHidden(true)
 
             Text(pill.label)
                 .font(.system(size: MiniVoiceHUDLayout.fontSize, weight: .semibold))
-                .foregroundStyle(MiniVoiceHUDPalette.pillText)
+                .foregroundStyle(contentForeground)
                 .lineLimit(1)
 
             Spacer(minLength: 4)
@@ -682,12 +857,16 @@ struct MiniVoiceHUDView: View {
             Button(action: { onPrimary?() }) {
                 Text(VoiceHUDCopy.Pill.undo)
                     .font(.system(size: MiniVoiceHUDLayout.fontSize, weight: .semibold))
-                    .foregroundStyle(MiniVoiceHUDPalette.pillText)
+                    .foregroundStyle(contentForeground)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
                         Capsule()
-                            .fill(Color.white.opacity(0.18))
+                            .fill(
+                                usesGraphiteChrome
+                                    ? Color.white.opacity(0.18)
+                                    : Color.primary.opacity(0.10)
+                            )
                     )
             }
             .buttonStyle(.plain)
@@ -699,52 +878,21 @@ struct MiniVoiceHUDView: View {
         HStack(spacing: 6) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: MiniVoiceHUDLayout.iconSize, weight: .semibold))
-                .foregroundStyle(MiniVoiceHUDPalette.pillText.opacity(0.92))
+                .foregroundStyle(contentForeground.opacity(0.92))
                 .accessibilityHidden(true)
 
             Text(pill.label)
                 .font(.system(size: MiniVoiceHUDLayout.fontSize, weight: .semibold))
-                .foregroundStyle(MiniVoiceHUDPalette.pillText)
+                .foregroundStyle(contentForeground)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .id(pill.labelTransitionSlot)
-                .transition(hudAsymmetricTransition)
         }
-    }
-
-    private var hudAsymmetricTransition: AnyTransition {
-        let entryOffset = MAYNMotionBridge.translation(-4, reduceMotion: reduceMotion)
-        let exitOffset = MAYNMotionBridge.translation(4, reduceMotion: reduceMotion)
-        return .asymmetric(
-            insertion: .opacity.combined(with: .offset(y: entryOffset)),
-            removal: .opacity.combined(with: .offset(y: exitOffset))
-        )
     }
 
     private var showsTranscribingProgressWipe: Bool {
         if case .transcribing = state.normalizedForDisplay { return true }
         return false
-    }
-
-    /// Stable animation token for the processing wipe; `-1` when the wipe stack is inactive.
-    private var thinkingWipeAnimationValue: Double {
-        if showsTranscribingProgressWipe { return thinkingProgress.displayWipe }
-        return -1
-    }
-
-    @ViewBuilder
-    private func thinkingPillBackground(wipe: Double) -> some View {
-        let w = min(1, max(0, wipe))
-        let fillWidth = pillWidth * w
-        ZStack(alignment: .leading) {
-            Capsule()
-                .fill(MiniVoiceHUDPalette.pillGraphite)
-            Capsule()
-                .fill(MiniVoiceHUDPalette.pillWipeOverlay)
-                .frame(width: fillWidth)
-        }
-        .frame(width: pillWidth, height: MiniVoiceHUDLayout.pillHeight)
-        .clipShape(Capsule())
     }
 
     private var accessibilityText: String {
@@ -784,6 +932,7 @@ struct MiniVoiceHUDView: View {
 private struct WaveformBars: View {
     let level: Float
     var dimmed: Bool = false
+    var barColor: Color = Color.white.opacity(0.96)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Matches `mayn_voice_pill_centered_final.html` drawWave at 1× (canvas native is 2×).
     private let barCount = 8
@@ -814,31 +963,13 @@ private struct WaveformBars: View {
                         + barWeights[index] * waveLevel * pulse * amplitudeScale
                     let height = min(maxBarHeight, max(minBarHeight, target))
                     Capsule()
-                        .fill(Color.white.opacity(0.96))
+                        .fill(barColor)
                         .frame(width: barWidth, height: height)
                 }
             }
         }
         .frame(width: 108, height: 26)
         .accessibilityHidden(true)
-    }
-}
-
-private struct EntranceTransform<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-    @State private var inflated = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        content()
-            .opacity(inflated ? 1 : 0)
-            .offset(y: inflated ? 0 : MAYNMotionBridge.translation(4, reduceMotion: reduceMotion))
-            .scaleEffect(inflated ? 1 : (reduceMotion ? 1 : 0.82))
-            .onAppear {
-                withAnimation(MAYNMotion.animation(.control, reduceMotion: reduceMotion)) {
-                    inflated = true
-                }
-            }
     }
 }
 
@@ -853,6 +984,13 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.isOpaque = false
+    }
+
+    override func layout() {
+        if let container = superview {
+            frame = container.bounds
+        }
+        super.layout()
     }
 
     override func acceptsFirstMouse(for _: NSEvent?) -> Bool {

@@ -106,8 +106,10 @@ struct MultiSelectBar: View {
     private var countLabel: some View {
         if !model.selection.isEmpty {
             Text("\(model.selection.count) selected")
-        } else if model.items.indices.contains(model.focusedIndex) {
+        } else if model.displayItems.indices.contains(model.focusedIndex) {
             Text("Focused card")
+        } else if !model.items.isEmpty {
+            Text("Search or browse")
         } else {
             Text("No items")
         }

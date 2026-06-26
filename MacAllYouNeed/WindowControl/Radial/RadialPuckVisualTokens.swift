@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Dark-material palette for the Radial Puck HUD (aligned with `design/window_radial.html` / Loop).
 enum RadialPuckVisualTokens {
-    private static let previewBlue = Color(red: 10 / 255, green: 132 / 255, blue: 1)
+    private static let previewFill = Color.primary
 
     static func guideRingOpacity(selectionActive: CGFloat) -> CGFloat {
         0.055 + selectionActive * 0.045
@@ -98,11 +98,11 @@ enum RadialPuckVisualTokens {
     }
 
     static var focusPreviewFill: Color {
-        previewBlue
+        previewFill
     }
 
     static var focusPreviewStroke: Color {
-        previewBlue
+        previewFill
     }
 
     /// Settings / onboarding preview chrome.

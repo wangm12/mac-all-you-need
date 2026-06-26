@@ -56,12 +56,19 @@ struct WindowHubOverlayView: View {
     private var toolbar: some View {
         HStack(spacing: 12) {
             Image(systemName: "macwindow.on.rectangle")
-                .foregroundStyle(MAYNTheme.progress)
+                .foregroundStyle(.secondary)
             TextField("Search apps, windows, tabs…", text: Binding(
                 get: { coordinator.searchQuery },
                 set: { coordinator.updateSearchQuery($0) }
             ))
-            .textFieldStyle(.roundedBorder)
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(MAYNTheme.panelSubtle, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
+                    .stroke(searchFocused ? MAYNTheme.focusRing : MAYNTheme.hairline, lineWidth: searchFocused ? 2 : 1)
+            )
             .focused($searchFocused)
             if coordinator.isIndexing {
                 HStack(spacing: 6) {
@@ -98,7 +105,11 @@ struct WindowHubOverlayView: View {
         }
         .font(.caption)
         .padding(10)
-        .background(MAYNTheme.warning.opacity(0.12))
+        .background(MAYNTheme.panel)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(MAYNTheme.strongBorder, lineWidth: 1)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -117,7 +128,11 @@ struct WindowHubOverlayView: View {
         }
         .font(.caption)
         .padding(10)
-        .background(MAYNTheme.warning.opacity(0.12))
+        .background(MAYNTheme.panel)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(MAYNTheme.strongBorder, lineWidth: 1)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 

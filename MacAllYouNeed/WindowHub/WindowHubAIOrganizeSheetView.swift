@@ -241,7 +241,7 @@ struct WindowHubAIOrganizeSheetView: View {
             }
             .keyboardShortcut(.defaultAction)
             .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .tint(MAYNTheme.danger)
             .disabled(executableSelectedCount == 0)
         }
         .padding(16)

@@ -73,7 +73,10 @@ final class ClipboardDockModel {
     var pendingSnippetDraft: SnippetDraft?
     var search: String = ""
     var searchFocusRequestID: Int = 0
-    var focusedIndex: Int = 0
+    /// Index into `displayItems` / `snippetItems`, or `noCardFocus` when the
+    /// search field owns keyboard focus and no card should show a focus ring.
+    var focusedIndex: Int = noCardFocus
+    static let noCardFocus = -1
     var activeList: DockListSelector = .history
     var availableLists: [Pinboard] = []
     var selection: Set<DockItem.ID> = []
@@ -215,7 +218,7 @@ final class ClipboardDockModel {
     func switchList(_ selector: DockListSelector) async {
         activeList = selector
         search = ""
-        focusedIndex = 0
+        focusedIndex = Self.noCardFocus
         // Drop the previous list's items so performRefresh doesn't carry a
         // stale previousID across the tab switch — user expects the new tab
         // to land on its first (newest) card.
@@ -389,12 +392,13 @@ final class ClipboardDockModel {
     func focusForward() {
         if activeList == .snippets {
             guard !snippetItems.isEmpty else { return }
-            focusedIndex = min(snippetItems.count - 1, focusedIndex + 1)
+            let next = focusedIndex < 0 ? 0 : min(snippetItems.count - 1, focusedIndex + 1)
+            focusedIndex = next
             selection.removeAll()
             return
         }
         guard !displayItems.isEmpty else { return }
-        let next = min(displayItems.count - 1, focusedIndex + 1)
+        let next = focusedIndex < 0 ? 0 : min(displayItems.count - 1, focusedIndex + 1)
         // Replace selection with the newly-focused card so the highlight
         // border follows arrow keys (Finder-style). Without this, focus
         // and selection diverge after a click — the dock card stops
@@ -405,12 +409,13 @@ final class ClipboardDockModel {
     func focusBackward() {
         if activeList == .snippets {
             guard !snippetItems.isEmpty else { return }
-            focusedIndex = max(0, focusedIndex - 1)
+            let prev = focusedIndex < 0 ? snippetItems.count - 1 : max(0, focusedIndex - 1)
+            focusedIndex = prev
             selection.removeAll()
             return
         }
         guard !displayItems.isEmpty else { return }
-        let prev = max(0, focusedIndex - 1)
+        let prev = focusedIndex < 0 ? displayItems.count - 1 : max(0, focusedIndex - 1)
         selectOnly(itemID: displayItems[prev].id)
     }
 
@@ -444,7 +449,7 @@ final class ClipboardDockModel {
     /// ⇧-click semantics: extend from anchor to target, inclusive.
     func shiftExtendSelection(toItemID itemID: String) {
         guard let target = displayItems.firstIndex(where: { $0.id == itemID }) else { return }
-        let anchor = selectionAnchorIndex ?? focusedIndex
+        let anchor = selectionAnchorIndex ?? max(focusedIndex, 0)
         let lower = min(anchor, target)
         let upper = max(anchor, target)
         for rangeIndex in lower ... upper where displayItems.indices.contains(rangeIndex) {

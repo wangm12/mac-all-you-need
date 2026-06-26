@@ -19,15 +19,22 @@ final class VoiceAlertPresenter {
     private var panelController: NonActivatingFloatingPanelController<VoiceBlockingAlertView>?
     private var anchorScreen: NSScreen?
     private var pillBottomY: CGFloat = 0
+    private var captionStackHeight: CGFloat = 0
     var onPrimaryAction: (() -> Void)?
     var onSecondaryAction: (() -> Void)?
 
     private var pillCenterX: CGFloat?
 
-    func updateAnchor(screen: NSScreen?, pillBottomY: CGFloat, pillCenterX: CGFloat? = nil) {
+    func updateAnchor(
+        screen: NSScreen?,
+        pillBottomY: CGFloat,
+        pillCenterX: CGFloat? = nil,
+        captionHeight: CGFloat = 0
+    ) {
         anchorScreen = screen
         self.pillBottomY = pillBottomY
         self.pillCenterX = pillCenterX
+        captionStackHeight = captionHeight
         if panelController?.isPresented == true {
             let size = panelController?.currentPanel?.frame.size ?? CGSize(width: 300, height: 120)
             panelController?.currentPanel?.setFrameOrigin(origin(for: size))
@@ -45,8 +52,8 @@ final class VoiceAlertPresenter {
         if panelController == nil {
             panelController = NonActivatingFloatingPanelController<VoiceBlockingAlertView>(
                 styleMask: [.borderless, .nonactivatingPanel],
-                level: FloatingHUDWindowLayering.windowLevel + 2,
-                collectionBehavior: FloatingHUDWindowLayering.collectionBehavior,
+                level: VoiceHUDWindowLayering.windowLevel + 2,
+                collectionBehavior: VoiceHUDWindowLayering.collectionBehavior,
                 hasShadow: true,
                 backgroundColor: .clear,
                 showAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastIn),
@@ -61,10 +68,16 @@ final class VoiceAlertPresenter {
         if let controller = panelController, controller.isPresented {
             controller.currentPanel?.contentView = NSHostingView(rootView: view)
             controller.updateSize(size)
-            controller.currentPanel?.setFrameOrigin(origin(for: size))
+            if let panel = controller.currentPanel {
+                panel.setFrameOrigin(origin(for: size))
+                VoiceHUDWindowLayering.orderFront(panel)
+            }
         } else {
             panelController?.present(rootView: view, size: size, animated: true)
-            panelController?.currentPanel?.isOpaque = false
+            if let panel = panelController?.currentPanel {
+                panel.isOpaque = false
+                VoiceHUDWindowLayering.orderFront(panel)
+            }
         }
     }
 
@@ -77,12 +90,22 @@ final class VoiceAlertPresenter {
             ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
             ?? NSScreen.main
             ?? NSScreen.screens.first
-        guard let frame = screen?.visibleFrame else { return .zero }
-        let pillY = pillBottomY > 0 ? pillBottomY : frame.minY + MiniVoiceHUDLayout.bottomInsetAboveDock
+        guard let screen else { return .zero }
+        let frame = screen.visibleFrame
+        let obstruction = FloatingBottomObstructionProvider.bottomObstruction(for: frame)
+        let pillY = pillBottomY > 0
+            ? pillBottomY
+            : MiniVoiceHUDLayout.defaultPillBottomY(
+                in: frame,
+                screenFrame: screen.frame,
+                bottomObstruction: obstruction
+            )
         let centerX = pillCenterX ?? frame.midX
-        return NSPoint(
-            x: centerX - size.width / 2,
-            y: pillY + MiniVoiceHUDLayout.pillHeight + MiniVoiceHUDLayout.captionGap + MiniVoiceHUDLayout.captionShellHeight + 8
+        return MiniVoiceHUDLayout.alertOrigin(
+            pillBottomY: pillY,
+            captionHeight: captionStackHeight,
+            size: size,
+            centerX: centerX
         )
     }
 }

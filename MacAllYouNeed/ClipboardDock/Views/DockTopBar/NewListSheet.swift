@@ -5,11 +5,11 @@ struct NewListSheet: View {
     let onCreate: (String, String?) -> Void
 
     @State private var name: String = ""
-    @State private var color: String? = "#FF8800"
+    @State private var color: String? = "#4A4A4A"
 
     private let palette: [String] = [
-        "#FF8800", "#34C759", "#007AFF", "#FF3B30",
-        "#AF52DE", "#5AC8FA", "#FFCC00", "#8E8E93"
+        "#2A2A2A", "#4A4A4A", "#6A6A6A", "#8A8A8A",
+        "#AAAAAA", "#CCCCCC", "#E0E0E0", "#F0F0F0"
     ]
 
     var body: some View {

@@ -9,9 +9,7 @@ final class VoiceSettingsSectionRegistryTests: XCTestCase {
 
     func testSectionTypeNamesAreInExpectedOrder() {
         let expected = [
-            "VoiceProviderSection",
             "VoiceAPIKeySection",
-            "VoiceCleanupSection",
             "VoiceDictionarySection",
             "VoicePersonalizationSection",
             "VoiceTrainingExamplesSection",
@@ -21,16 +19,8 @@ final class VoiceSettingsSectionRegistryTests: XCTestCase {
 
     // MARK: - Section header strings
 
-    func testProviderSectionHeader() {
-        XCTAssertEqual(VoiceSettingsSectionRegistry.headers[.provider], "Recognition")
-    }
-
     func testAPIKeySectionHeader() {
         XCTAssertEqual(VoiceSettingsSectionRegistry.headers[.apiKey], "API Key Setup")
-    }
-
-    func testCleanupSectionHeader() {
-        XCTAssertEqual(VoiceSettingsSectionRegistry.headers[.cleanup], "Cleanup")
     }
 
     func testDictionarySectionHeader() {

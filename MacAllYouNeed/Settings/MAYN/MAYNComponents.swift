@@ -54,6 +54,37 @@ enum MAYNTextEditingShortcutPolicy {
         if responder is NSTextField { return true }
         return false
     }
+
+    /// True while a CJK IME still holds marked (pre-edit) text in the key
+    /// window's field editor. Return must reach the IME to commit candidates.
+    static func isIMEComposing(in window: NSWindow?) -> Bool {
+        guard let responder = window?.firstResponder else { return false }
+        if let client = responder as? NSTextInputClient, client.hasMarkedText() {
+            return true
+        }
+        if let textField = responder as? NSTextField,
+           let editor = textField.currentEditor() as? NSTextInputClient,
+           editor.hasMarkedText()
+        {
+            return true
+        }
+        return false
+    }
+
+    /// App shortcuts bound to Return (e.g. dock paste) must not run while an
+    /// IME composition is active — Enter belongs to the input method first.
+    static func shouldConsumeReturnForAppShortcut(isIMEComposing: Bool) -> Bool {
+        !isIMEComposing
+    }
+
+    /// Space is used by CJK IMEs to pick candidates and by text fields for
+    /// literal spaces. Preview shortcuts must not steal it in either case.
+    static func shouldConsumeSpaceForAppShortcut(
+        isIMEComposing: Bool,
+        isTextEditingFirstResponder: Bool
+    ) -> Bool {
+        !isIMEComposing && !isTextEditingFirstResponder
+    }
 }
 
 private struct MAYNTextFocusDismissBridge: NSViewRepresentable {
@@ -172,9 +203,42 @@ struct MAYNSettingsPage<Content: View>: View {
 }
 
 struct MAYNSection<Content: View>: View {
+    enum ContentLayout {
+        /// Settings rows supply their own horizontal padding.
+        case rows
+        /// Callout / prose blocks (e.g. Quick Start).
+        case prose
+    }
+
+    enum SurfaceStyle {
+        /// Opaque content panel (default for lists and settings).
+        case opaque
+        /// Opaque dense list panel (`contentListPanel`).
+        case listPanel
+        /// Liquid Glass — floating panels only.
+        case glass
+    }
+
     let title: String
     var subtitle: String?
+    var contentLayout: ContentLayout = .rows
+    var surfaceStyle: SurfaceStyle = .opaque
     @ViewBuilder let content: Content
+    @Environment(\.colorScheme) private var colorScheme
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        contentLayout: ContentLayout = .rows,
+        surfaceStyle: SurfaceStyle = .opaque,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.contentLayout = contentLayout
+        self.surfaceStyle = surfaceStyle
+        self.content = content()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: showsHeader ? 10 : 0) {
@@ -191,18 +255,46 @@ struct MAYNSection<Content: View>: View {
                 }
             }
 
-            VStack(spacing: 0) {
-                content
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MAYNTheme.panel)
-            .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
-                    .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
+            styledSectionBody(
+                VStack(spacing: 0) {
+                    content
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(contentInsets)
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func styledSectionBody<Inner: View>(_ inner: Inner) -> some View {
+        let shape = RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
+        switch surfaceStyle {
+        case .opaque:
+            inner
+                .background(MAYNTheme.contentPanel(colorScheme), in: shape)
+                .overlay { shape.strokeBorder(MAYNTheme.hairline, lineWidth: 1) }
+        case .listPanel:
+            inner
+                .background(MAYNTheme.contentListPanel(colorScheme), in: shape)
+                .overlay { shape.strokeBorder(MAYNTheme.hairline, lineWidth: 1) }
+        case .glass:
+            inner.maynGlassSurface(.panel, cornerRadius: MAYNControlMetrics.panelRadius)
+        }
+    }
+
+    private var contentInsets: EdgeInsets {
+        switch contentLayout {
+        case .rows:
+            EdgeInsets()
+        case .prose:
+            EdgeInsets(
+                top: MAYNSpacing.sm,
+                leading: MAYNControlMetrics.rowHorizontalPadding,
+                bottom: MAYNSpacing.sm,
+                trailing: MAYNControlMetrics.rowHorizontalPadding
+            )
+        }
     }
 
     private var showsHeader: Bool {
@@ -782,10 +874,10 @@ struct ShortcutChip: View {
         .fixedSize(horizontal: true, vertical: true)
         .padding(.horizontal, height <= HotkeyChipPresentation.compactHeight ? 8 : 11)
         .frame(height: height)
-        .background(Color.primary.opacity(0.075), in: RoundedRectangle(cornerRadius: HotkeyChipPresentation.cornerRadius, style: .continuous))
+        .background(MAYNTheme.panelSubtle, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.keycapRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: HotkeyChipPresentation.cornerRadius, style: .continuous)
-                .stroke(Color.primary.opacity(0.16), lineWidth: 1)
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.keycapRadius, style: .continuous)
+                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
         )
     }
 
@@ -810,6 +902,97 @@ struct MAYNHotkeyDisplay: View {
 
 // MARK: - MAYNToolCard
 
+// MARK: - Dashboard card primitives (Metric / Action / List)
+
+struct MAYNMetricStrip<Content: View>: View {
+    var height: CGFloat = 76
+    @ViewBuilder let content: Content
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 0) {
+            content
+        }
+        .frame(height: height)
+        .background(MAYNTheme.contentPanel(colorScheme), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(MAYNTheme.hairline, lineWidth: 1)
+        }
+    }
+}
+
+struct MAYNMetricCell: View {
+    let title: String
+    let value: String
+    let detail: String
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(MAYNTheme.textTertiary(colorScheme))
+            Text(value)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+                .lineLimit(1)
+            Text(detail)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+    }
+}
+
+struct MAYNActionCard: View {
+    let title: String
+    let subtitle: String
+    var buttonTitle: String = "Open"
+    let action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+                Text(subtitle)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
+            }
+            Spacer(minLength: 8)
+            MAYNButton(buttonTitle, role: .secondary, action: action)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MAYNTheme.contentPanelElevated(colorScheme), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(MAYNTheme.hairline, lineWidth: 1)
+        }
+    }
+}
+
+struct MAYNListPanel<Content: View>: View {
+    let title: String
+    var subtitle: String?
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        MAYNSection(title: title, subtitle: subtitle, surfaceStyle: .listPanel) {
+            content
+        }
+    }
+}
+
+// MARK: - MAYNToolCard
+
 struct MAYNToolCard<Content: View>: View {
     let title: String
     let subtitle: String
@@ -819,6 +1002,7 @@ struct MAYNToolCard<Content: View>: View {
     var action: (() -> Void)?
     @ViewBuilder let content: Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
     @State private var isPressed = false
 
@@ -859,7 +1043,11 @@ struct MAYNToolCard<Content: View>: View {
                 maxHeight: fixedHeight,
                 alignment: .topLeading
             )
-            .background(cardBackground, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
+            .background(MAYNTheme.contentPanel(colorScheme), in: RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
+                    .fill(hoverOverlay)
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
                     .stroke(isHovering ? MAYNTheme.strongBorder : MAYNTheme.subtleBorder, lineWidth: 1)
@@ -879,10 +1067,10 @@ struct MAYNToolCard<Content: View>: View {
         .animation(MAYNMotion.fastAnimation(reduceMotion: reduceMotion), value: isPressed)
     }
 
-    private var cardBackground: Color {
+    private var hoverOverlay: Color {
         if isPressed { return MAYNTheme.elevatedPressed }
-        if isHovering { return MAYNTheme.elevatedHover }
-        return MAYNTheme.panel
+        if isHovering { return MAYNTheme.hover }
+        return .clear
     }
 }
 
@@ -895,46 +1083,92 @@ struct StatusPill: View {
         case warning
         case danger
         case progress
+        case ready
+        case active
+        case idle
+        case needsPermission
+        case failed
+        case processing
+        case paused
+        case completed
     }
 
     let text: String
     var kind: Kind = .neutral
+    var showsIcon = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsePhase = false
+
+    private var palette: MAYNStatusTagPalette.Colors {
+        MAYNStatusTagPalette.colors(for: kind)
+    }
 
     var body: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(color)
-                .frame(width: 6, height: 6)
+        HStack(spacing: 4) {
+            if showsIcon {
+                leadingIcon
+            }
             Text(text)
-                .font(.caption)
+                .font(.system(size: MAYNControlMetrics.statusTagFontSize, weight: .medium))
+                .lineLimit(1)
         }
-        .foregroundStyle(kind == .neutral ? .secondary : .primary)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 4)
-        .background(color.opacity(kind == .neutral ? 0.08 : 0.14), in: Capsule())
-        .overlay(Capsule().stroke(color.opacity(kind == .neutral ? 0.14 : 0.30), lineWidth: 1))
+        .foregroundStyle(palette.foreground)
+        .padding(.horizontal, MAYNControlMetrics.statusPillHorizontalPadding)
+        .frame(height: MAYNControlMetrics.statusPillHeight)
+        .background(palette.background, in: Capsule())
+        .overlay(Capsule().stroke(palette.border, lineWidth: 0.75))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
         .accessibilityValue(accessibilityValue)
+        .onAppear {
+            guard kind == .active, !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                pulsePhase = true
+            }
+        }
     }
 
-    private var color: Color {
+    @ViewBuilder
+    private var leadingIcon: some View {
         switch kind {
-        case .neutral: Color.secondary
-        case .success: MAYNTheme.success
-        case .warning: MAYNTheme.warning
-        case .danger: MAYNTheme.danger
-        case .progress: MAYNTheme.progress
+        case .needsPermission:
+            Image(systemName: "lock.fill")
+                .font(.system(size: 8, weight: .semibold))
+        case .failed, .danger:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 8, weight: .semibold))
+        case .paused:
+            Image(systemName: "pause.fill")
+                .font(.system(size: 7, weight: .semibold))
+        case .success, .ready, .completed:
+            Image(systemName: "checkmark")
+                .font(.system(size: 8, weight: .bold))
+        case .active, .processing:
+            Circle()
+                .fill(palette.foreground)
+                .frame(width: 5, height: 5)
+                .scaleEffect(pulsePhase ? 1 : 0.75)
+                .opacity(pulsePhase ? 1 : 0.45)
+        case .progress:
+            Circle()
+                .fill(palette.foreground)
+                .frame(width: 5, height: 5)
+        default:
+            Circle()
+                .fill(palette.foreground.opacity(0.70))
+                .frame(width: 5, height: 5)
         }
     }
 
     private var accessibilityValue: String {
         switch kind {
         case .neutral: "Status"
-        case .success: "Success"
-        case .warning: "Warning"
-        case .danger: "Error"
-        case .progress: "In progress"
+        case .success, .ready, .completed: "Ready"
+        case .warning, .paused: "Paused"
+        case .danger, .failed: "Failed"
+        case .progress, .processing, .active: "In progress"
+        case .idle: "Idle"
+        case .needsPermission: "Needs permission"
         }
     }
 }
@@ -952,11 +1186,34 @@ extension VoiceASRModelRowPresentation.StatusKind {
 
 // MARK: - Switch toggle
 
+private struct MAYNMonochromeSwitchToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+            Spacer(minLength: 0)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(configuration.isOn ? MAYNTheme.activeFill : MAYNTheme.statusMutedFill)
+                .frame(width: 36, height: 20)
+                .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                    Circle()
+                        .fill(MAYNTheme.activeText)
+                        .frame(width: 16, height: 16)
+                        .padding(2)
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(MAYNTheme.hairline, lineWidth: 1)
+                )
+                .onTapGesture { configuration.isOn.toggle() }
+                .accessibilityAddTraits(.isButton)
+        }
+    }
+}
+
 extension View {
-    /// Standard green macOS switch styling for settings and dashboard feature cards.
+    /// Monochrome switch styling for settings and dashboard feature cards.
     func maynSwitchToggleStyle() -> some View {
-        toggleStyle(.switch)
-            .tint(MAYNTheme.switchTint)
+        toggleStyle(MAYNMonochromeSwitchToggleStyle())
     }
 }
 
@@ -1009,9 +1266,9 @@ struct PermissionCard: View {
         .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
-                .stroke(isHighlighted ? MAYNTheme.progress.opacity(0.70) : MAYNTheme.subtleBorder, lineWidth: 1)
+                .stroke(isHighlighted ? MAYNTheme.strongBorder : MAYNTheme.subtleBorder, lineWidth: 1)
         )
-        .shadow(color: isHighlighted && !reduceMotion ? MAYNTheme.progress.opacity(0.22) : .clear, radius: 12, y: 2)
+        .shadow(color: isHighlighted && !reduceMotion ? Color.black.opacity(0.08) : .clear, radius: 12, y: 2)
         .animation(MAYNMotion.instructionAnimation(reduceMotion: reduceMotion), value: isHighlighted)
     }
 
@@ -1026,7 +1283,7 @@ struct PermissionCard: View {
 
     private var color: Color {
         switch state {
-        case .granted: MAYNTheme.success
+        case .granted: MAYNTheme.activeFill
         case .needed: MAYNTheme.progress
         case .denied: MAYNTheme.warning
         case .optional: Color.secondary
@@ -1044,15 +1301,15 @@ struct PermissionCard: View {
 
     private var pillKind: StatusPill.Kind {
         switch state {
-        case .granted: .success
-        case .needed: .progress
-        case .denied: .warning
-        case .optional: .neutral
+        case .granted: .ready
+        case .needed: .needsPermission
+        case .denied: .failed
+        case .optional: .idle
         }
     }
 
     private var cardBackground: Color {
-        isHighlighted ? MAYNTheme.progress.opacity(0.10) : MAYNTheme.panel
+        isHighlighted ? MAYNTheme.selected : MAYNTheme.panel
     }
 }
 
@@ -1154,15 +1411,15 @@ struct MAYNToastContent: View {
             Image(systemName: symbol)
                 .font(.system(size: CGFloat(MAYNNotificationPillPresentation.iconSize), weight: .semibold))
             Text(message)
-                .font(.system(size: CGFloat(MAYNNotificationPillPresentation.titleFontSize), weight: .semibold))
+                .font(MAYNTypography.body(strong: true))
         }
-        .foregroundStyle(isDestructive ? .white : Color(nsColor: .controlBackgroundColor))
+        .foregroundStyle(MAYNTheme.hudForeground)
         .padding(.horizontal, CGFloat(MAYNNotificationPillPresentation.horizontalPadding))
-        .padding(.vertical, CGFloat(MAYNNotificationPillPresentation.verticalPadding))
-        .background(isDestructive ? Color.red : Color.primary, in: Capsule())
+        .frame(minHeight: MAYNControlMetrics.toastHeight)
+        .background(MAYNTheme.hudBackground, in: Capsule())
         .overlay {
             if MAYNNotificationPillPresentation.hasCapsuleStroke {
-                Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
+                Capsule().stroke(MAYNTheme.hairline, lineWidth: 1)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -1178,5 +1435,51 @@ struct MAYNToast: View {
 
     var body: some View {
         MAYNToastContent(message: message, symbol: symbol, isDestructive: isDestructive)
+    }
+}
+
+// MARK: - MAYNKeycap
+
+/// DESIGN.md §7.4 keycap — thin wrapper over `ShortcutChip`.
+struct MAYNKeycap: View {
+    let text: String
+    var height: CGFloat = MAYNControlMetrics.hotkeyHeight
+
+    var body: some View {
+        ShortcutChip(text: text, height: height)
+    }
+}
+
+// MARK: - MAYNHUDContainer
+
+struct MAYNHUDContainer<Content: View>: View {
+    @ViewBuilder let content: Content
+    var padding: CGFloat = MAYNSpacing.md
+
+    var body: some View {
+        content
+            .padding(padding)
+            .background(MAYNTheme.hudBackground, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.hudRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: MAYNControlMetrics.hudRadius, style: .continuous)
+                    .stroke(MAYNTheme.hairline, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.28), radius: 24, y: 12)
+            .foregroundStyle(MAYNTheme.hudForeground)
+    }
+}
+
+extension View {
+    func maynHUDContainer(padding: CGFloat = MAYNSpacing.md) -> some View {
+        MAYNHUDContainer(padding: padding) { self }
+    }
+
+    func maynFocusRing(isFocused: Bool) -> some View {
+        overlay {
+            if isFocused {
+                RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
+                    .stroke(MAYNTheme.focusRing, lineWidth: 2)
+            }
+        }
     }
 }

@@ -48,6 +48,7 @@ final class DockWindowController {
     private let dockNotifications: DockNotificationObservers
     private var ignoreOutsideClicksUntil: Date = .distantPast
     private weak var heightPreviewInvokerWindow: NSWindow?
+    private var quickLookSyncGeneration = 0
     private var heightPreviewInvokerOriginalLevel: NSWindow.Level?
 
     var dockHeight: CGFloat = 360 {
@@ -121,10 +122,11 @@ final class DockWindowController {
         // would do — so right-click "Paste to <App>" knows the target.
         model.previousFrontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let preserveFocusOnOpen = ClipboardDockOpenFocusSetting.load()
-        // Default open behavior focuses the newest item. A clipboard setting
-        // can opt back into preserving the previous focused card.
+        // Default open behavior keeps keyboard focus in search with no card
+        // highlighted. A clipboard setting can opt back into preserving the
+        // previous focused card.
         if !preserveFocusOnOpen {
-            model.focusedIndex = 0
+            model.focusedIndex = ClipboardDockModel.noCardFocus
         }
         Task {
             await model.refreshForDockOpen(
@@ -145,6 +147,7 @@ final class DockWindowController {
         }
 
         if let panel = window, panel.isVisible {
+            syncFloatingObstruction(for: screen)
             showExistingPanel(panel, frame: frame)
             log.info("show: reused visible panel.frame=\(NSStringFromRect(panel.frame), privacy: .public)")
             return
@@ -180,6 +183,7 @@ final class DockWindowController {
 
         window = panel
 
+        syncFloatingObstruction(for: screen)
         panel.orderFrontRegardless()
         focusDockPanelForKeyboardInput(panel)
         raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
@@ -226,6 +230,10 @@ final class DockWindowController {
         }
     }
 
+    private func syncFloatingObstruction(for screen: NSScreen) {
+        FloatingBottomObstructionProvider.setClipboardDockVisible(height: dockHeight, on: screen)
+    }
+
     private func showExistingPanel(_ panel: BottomDockWindow, frame: NSRect) {
         panel.contentView?.layer?.removeAllAnimations()
         panel.alphaValue = 1
@@ -256,10 +264,12 @@ final class DockWindowController {
         panel.contentView?.layer?.removeAllAnimations()
         panel.setFrame(frame, display: true)
         panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
+        syncFloatingObstruction(for: screen)
         raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
     }
 
     func hide() {
+        FloatingBottomObstructionProvider.clearClipboardDockObstruction()
         model.prepareForDismiss()
         PreviewPanel.dismiss()
         ClipboardSystemQuickLookCoordinator.shared.dismiss()
@@ -453,6 +463,12 @@ final class DockWindowController {
             }
 
             if registry.matches(event: event, .quickLook) {
+                if !MAYNTextEditingShortcutPolicy.shouldConsumeSpaceForAppShortcut(
+                    isIMEComposing: MAYNTextEditingShortcutPolicy.isIMEComposing(in: window),
+                    isTextEditingFirstResponder: MAYNTextEditingShortcutPolicy.isTextEditingFirstResponder(in: window)
+                ) {
+                    return event
+                }
                 handleShortcutAction(.quickLook)
                 return nil
             }
@@ -501,11 +517,21 @@ final class DockWindowController {
             }
 
             if registry.matches(event: event, .paste) {
+                if !MAYNTextEditingShortcutPolicy.shouldConsumeReturnForAppShortcut(
+                    isIMEComposing: MAYNTextEditingShortcutPolicy.isIMEComposing(in: window)
+                ) {
+                    return event
+                }
                 handleShortcutAction(.paste)
                 return nil
             }
 
             if registry.matches(event: event, .pastePlain) {
+                if !MAYNTextEditingShortcutPolicy.shouldConsumeReturnForAppShortcut(
+                    isIMEComposing: MAYNTextEditingShortcutPolicy.isIMEComposing(in: window)
+                ) {
+                    return event
+                }
                 handleShortcutAction(.pastePlain)
                 return nil
             }
@@ -661,6 +687,7 @@ final class DockWindowController {
         )
         tapCoordinator.start()
         modifierTapCoordinator = tapCoordinator
+        startQuickLookFocusSync()
     }
 
     private func startDragMonitor() {
@@ -707,11 +734,42 @@ final class DockWindowController {
     }
 
     private func stopKeyMonitor() {
+        stopQuickLookFocusSync()
         keyMonitor = nil
         globalKeyRouter?.stop()
         globalKeyRouter = nil
         modifierTapCoordinator?.stop()
         modifierTapCoordinator = nil
+    }
+
+    private func startQuickLookFocusSync() {
+        quickLookSyncGeneration += 1
+        scheduleQuickLookFocusSync(generation: quickLookSyncGeneration)
+    }
+
+    private func scheduleQuickLookFocusSync(generation: Int) {
+        withObservationTracking { [model] in
+            _ = model.focusedIndex
+            _ = model.activeList
+            _ = model.items.count
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.quickLookSyncGeneration == generation else { return }
+                self.syncQuickLookPreviewIfVisible()
+                self.scheduleQuickLookFocusSync(generation: generation)
+            }
+        }
+    }
+
+    private func stopQuickLookFocusSync() {
+        quickLookSyncGeneration += 1
+    }
+
+    private func syncQuickLookPreviewIfVisible() {
+        guard ClipboardSystemQuickLookCoordinator.shared.isVisible else { return }
+        if model.activeList == .snippets || !showSystemQuickLookForFocused() {
+            ClipboardSystemQuickLookCoordinator.shared.dismiss()
+        }
     }
 
     private func performDockShortcut(_ action: ShortcutAction) {

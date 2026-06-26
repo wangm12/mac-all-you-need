@@ -117,7 +117,7 @@ final class ClipboardDockModelTests: XCTestCase {
         XCTAssertTrue(ClipboardDockOpenFocusSetting.load(from: defaults))
     }
 
-    func testRefreshForDockOpenFocusesNewestItemWhenPreserveFocusIsOff() async {
+    func testRefreshForDockOpenLeavesNoCardFocusedWhenPreserveFocusIsOff() async {
         let mock = MockClient()
         mock.listResults = [
             ClipboardXPCMeta(id: "old", modified: Date(), kind: "clipboardItem", preview: "old")
@@ -132,8 +132,7 @@ final class ClipboardDockModelTests: XCTestCase {
         await model.refreshForDockOpen(preserveFocus: false)
 
         XCTAssertEqual(model.items.map(\.id), ["new", "old"])
-        XCTAssertEqual(model.focusedIndex, 0)
-        XCTAssertEqual(model.items[model.focusedIndex].id, "new")
+        XCTAssertEqual(model.focusedIndex, ClipboardDockModel.noCardFocus)
     }
 
     func testRefreshForDockOpenCanPreservePreviousFocusedItem() async {
@@ -143,6 +142,7 @@ final class ClipboardDockModelTests: XCTestCase {
         ]
         let model = makeModel(mock)
         await model.refresh()
+        model.focusedIndex = 0
 
         mock.listResults = [
             ClipboardXPCMeta(id: "new", modified: Date(), kind: "clipboardItem", preview: "new"),
@@ -484,7 +484,7 @@ final class ClipboardDockModelTests: XCTestCase {
         )
     }
 
-    func testFocusedIndexResetsToZeroAfterRefresh() async {
+    func testFocusedIndexClearsAfterRefreshWhenPreviousFocusIsInvalid() async {
         let mock = MockClient()
         mock.listResults = [
             ClipboardXPCMeta(id: "a", modified: Date(), kind: "clipboardItem", preview: "alpha")
@@ -492,7 +492,7 @@ final class ClipboardDockModelTests: XCTestCase {
         let model = makeModel(mock)
         model.focusedIndex = 5
         await model.refresh()
-        XCTAssertEqual(model.focusedIndex, 0)
+        XCTAssertEqual(model.focusedIndex, ClipboardDockModel.noCardFocus)
     }
 
     func testFocusForwardClampsToCount() async {
@@ -503,6 +503,7 @@ final class ClipboardDockModelTests: XCTestCase {
         ]
         let model = makeModel(mock)
         await model.refresh()
+        model.focusedIndex = 0
         model.focusForward()
         XCTAssertEqual(model.focusedIndex, 1)
         model.focusForward()
@@ -553,7 +554,7 @@ final class ClipboardDockModelTests: XCTestCase {
         XCTAssertEqual(model.focusedIndex, 1)
     }
 
-    func testFocusJumpsToZeroWhenItemRemoved() async {
+    func testFocusJumpsToNoCardFocusWhenItemRemoved() async {
         let mock = MockClient()
         mock.listResults = [
             ClipboardXPCMeta(id: "a", modified: Date(), kind: "clipboardItem", preview: "alpha"),
@@ -566,7 +567,7 @@ final class ClipboardDockModelTests: XCTestCase {
             ClipboardXPCMeta(id: "a", modified: Date(), kind: "clipboardItem", preview: "alpha")
         ]
         await model.refresh()
-        XCTAssertEqual(model.focusedIndex, 0)
+        XCTAssertEqual(model.focusedIndex, ClipboardDockModel.noCardFocus)
     }
 
     func testFocusFollowsItemWhenReordered() async {

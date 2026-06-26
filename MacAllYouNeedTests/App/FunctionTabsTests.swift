@@ -703,7 +703,7 @@ final class FunctionTabsTests: XCTestCase {
     }
 
     func testDashboardToolCardsUseFixedUnifiedHeight() {
-        XCTAssertEqual(DashboardRenderingPresentation.toolCardHeight, 170)
+        XCTAssertEqual(DashboardRenderingPresentation.toolCardHeight, 168)
     }
 
     func testMainWindowRootTypeErasesDetailViews() {
@@ -720,6 +720,11 @@ final class FunctionTabsTests: XCTestCase {
 
     func testMainWindowRootMakesDisabledSidebarItemsVisuallyInert() {
         XCTAssertTrue(MainWindowRootPresentation.disabledSidebarItemsIgnoreHover)
+    }
+
+    func testMainWindowRootUsesSingleInSidebarCollapseControl() {
+        XCTAssertTrue(MainWindowRootPresentation.removesNativeSidebarToggle)
+        XCTAssertTrue(MainWindowRootPresentation.ownsSidebarCollapseControlInSidebarColumn)
     }
 
     func testHotkeyMapStoreExposesPureDefaultMapForViewInitialization() {

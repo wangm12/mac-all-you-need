@@ -193,17 +193,9 @@ private struct DownloadSettingsRail: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 9)
                     .frame(minHeight: MAYNControlMetrics.controlHeight)
-                    .background(
-                        isActive ? MAYNTheme.tabSelectedFill : Color.clear,
-                        in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
-                            .stroke(isActive ? MAYNTheme.tabSelectedBorder : Color.clear, lineWidth: 1)
-                    )
-                    .shadow(
-                        color: isActive ? MAYNTheme.tabSelectedShadow : Color.clear,
-                        radius: 1, x: 0, y: 1
+                    .maynSelectionBackground(
+                        isSelected: isActive,
+                        shape: .rounded(MAYNControlMetrics.controlRadius)
                     )
                 }
                 .buttonStyle(.borderless)

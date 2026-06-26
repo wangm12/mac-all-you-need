@@ -15,13 +15,7 @@ struct ClipboardDockOnboardingPreview: View {
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(white: 0.96), Color(white: 0.90)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
+                    .fill(MAYNTheme.panelSubtle)
 
                 // Subtle desktop hint — no shortcut chip (lives in the Shortcut section).
                 VStack(spacing: 6) {

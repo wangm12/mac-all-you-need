@@ -42,14 +42,26 @@ struct ClipboardDestinationView: View {
             title: "Clipboard",
             subtitle: "History, snippets, and paste behavior for local clipboard memory.",
             selection: selectedTab,
+            tabStripMaxWidth: 560,
             toolbar: {
-                MainHeaderShortcutDisplay(
-                    text: MainToolHeaderShortcutModel.display(
-                        for: .clipboard,
-                        hotkeys: hotkeyMap,
-                        voiceSettings: VoiceActivationSettingsStore.load()
-                    )
-                )
+                Button {
+                    NSApp.activate(ignoringOtherApps: true)
+                    controller.clipboardDock.show()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Open Dock")
+                            .font(.system(size: 12, weight: .semibold))
+                        MAYNHotkeyDisplay(
+                            text: MainToolHeaderShortcutModel.display(
+                                for: .clipboard,
+                                hotkeys: hotkeyMap,
+                                voiceSettings: VoiceActivationSettingsStore.load()
+                            ) ?? "⇧⌘V"
+                        )
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Open clipboard dock")
             }
         ) {
             switch ClipboardFunctionTab.storedSelection(selectedTabRaw) {
@@ -92,7 +104,11 @@ struct ClipboardDestinationView: View {
 
     private var clipboardHistorySection: some View {
         Group {
-            MAYNSection(title: "All items", subtitle: "Search and page through the full local clipboard history.") {
+            MAYNSection(
+                title: "All items",
+                subtitle: "Search and page through the full local clipboard history.",
+                surfaceStyle: .listPanel
+            ) {
                 let state = clipboardHistoryState
                 ClipboardHistorySearchBar(
                     query: $historySearch,
@@ -127,6 +143,12 @@ struct ClipboardDestinationView: View {
                             },
                             onCopy: {
                                 copyClipboardHistoryItems(ids: [item.id.rawValue])
+                            },
+                            onPin: {
+                                pinClipboardHistoryItem(item)
+                            },
+                            onDelete: {
+                                deleteClipboardHistoryItem(item)
                             }
                         )
                     }
@@ -169,7 +191,7 @@ struct ClipboardDestinationView: View {
 
     private var clipboardSettingsSection: some View {
         Group {
-            MAYNSection(title: "Quick Start") {
+            MAYNSection(title: "Quick Start", contentLayout: .prose) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Keep the recommended shortcut, choose how pasting should behave, and leave Smart Text on unless you need a simpler clipboard.")
                         .font(.callout)
@@ -545,6 +567,26 @@ struct ClipboardDestinationView: View {
         return items.first.map { [$0.id.rawValue] } ?? []
     }
 
+    private func pinClipboardHistoryItem(_ item: ClipboardItemMeta) {
+        Task {
+            await controller.clipboardDeps.dockModel.togglePin(itemID: item.id.rawValue)
+        }
+    }
+
+    private func deleteClipboardHistoryItem(_ item: ClipboardItemMeta) {
+        let id = item.id.rawValue
+        Task {
+            await controller.clipboardDeps.dockModel.deleteItems(itemIDs: [id])
+            await MainActor.run {
+                controller.clipboardReader.selectedIDs.remove(id)
+                if controller.clipboardReader.anchorID == id {
+                    controller.clipboardReader.anchorID = nil
+                }
+                reloadClipboardHistory()
+            }
+        }
+    }
+
     private func copyClipboardHistoryItems(ids: [String]) {
         guard let store = controller.clipboardReader.store,
               !ids.isEmpty
@@ -624,34 +666,50 @@ struct ClipboardDestinationView: View {
 private struct ClipboardHistorySearchBar: View {
     @Binding var query: String
     let resultText: String
+    @FocusState private var isFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(MAYNTheme.textTertiary(colorScheme))
 
             TextField("Search all clipboard items", text: $query)
                 .textFieldStyle(.plain)
+                .font(.callout)
+                .focused($isFocused)
 
             if !query.isEmpty {
                 Button {
                     query = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
                 }
                 .buttonStyle(.plain)
             }
 
             Text(resultText)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(MAYNTheme.textTertiary(colorScheme))
                 .lineLimit(1)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
+                .strokeBorder(
+                    isFocused ? MAYNTheme.focusRing : (isHovering ? MAYNTheme.strongBorder : MAYNTheme.hairline),
+                    lineWidth: 1
+                )
+        }
+        .onHover { isHovering = $0 }
+        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: isFocused)
     }
 }
 
@@ -662,6 +720,11 @@ private struct MainClipboardRecentRow: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onCopy: () -> Void
+    let onPin: () -> Void
+    let onDelete: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
 
     var body: some View {
         switch MainClipboardItemPresentation.previewKind(for: item) {
@@ -672,9 +735,13 @@ private struct MainClipboardRecentRow: View {
                 imageLoader: imageLoader,
                 appIcons: appIcons,
                 isSelected: isSelected,
+                isHovering: isHovering,
                 onSelect: onSelect,
-                onCopy: onCopy
+                onCopy: onCopy,
+                onPin: onPin,
+                onDelete: onDelete
             )
+            .onHover { isHovering = $0 }
         case let .symbol(symbol):
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -683,9 +750,22 @@ private struct MainClipboardRecentRow: View {
                         .lineLimit(2)
                     Text(CompactTimestamp.format(item.modified))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(
+                            isSelected
+                                ? MAYNTheme.selectionInversionSubtitle(colorScheme)
+                                : MAYNTheme.textSecondary(colorScheme)
+                        )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                if isHovering {
+                    ClipboardHistoryRowActions(
+                        isSelected: isSelected,
+                        onCopy: onCopy,
+                        onPin: onPin,
+                        onDelete: onDelete
+                    )
+                }
 
                 ClipboardHistoryIconView(
                     item: item,
@@ -696,11 +776,20 @@ private struct MainClipboardRecentRow: View {
                     cornerRadius: 7
                 )
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .frame(minHeight: 62)
+            .frame(minHeight: 56)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(rowBackground)
+            .maynInversionSelectionBackground(
+                isSelected: isSelected,
+                isHovering: isHovering,
+                shape: .rounded(10)
+            )
+            .foregroundStyle(
+                isSelected
+                    ? MAYNTheme.selectionInversionForeground(colorScheme)
+                    : MAYNTheme.textPrimary(colorScheme)
+            )
             .contentShape(Rectangle())
             .onTapGesture(perform: onSelect)
             .simultaneousGesture(
@@ -708,11 +797,42 @@ private struct MainClipboardRecentRow: View {
                     onCopy()
                 }
             )
+            .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
+            .onHover { isHovering = $0 }
         }
     }
+}
 
-    private var rowBackground: Color {
-        isSelected ? Color.primary.opacity(0.10) : Color.clear
+private struct ClipboardHistoryRowActions: View {
+    let isSelected: Bool
+    let onCopy: () -> Void
+    let onPin: () -> Void
+    let onDelete: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 4) {
+            rowActionButton(symbol: "doc.on.doc", label: "Copy", action: onCopy)
+            rowActionButton(symbol: "pin", label: "Pin", action: onPin)
+            rowActionButton(symbol: "trash", label: "Delete", action: onDelete)
+        }
+        .foregroundStyle(
+            isSelected
+                ? MAYNTheme.selectionInversionSubtitle(colorScheme)
+                : MAYNTheme.textSecondary(colorScheme)
+        )
+    }
+
+    private func rowActionButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 
@@ -722,10 +842,13 @@ private struct MainClipboardImageRecentRow: View {
     let imageLoader: ImageBlobLoader
     let appIcons: AppIconResolver
     let isSelected: Bool
+    var isHovering: Bool
     let onSelect: () -> Void
     let onCopy: () -> Void
+    let onPin: () -> Void
+    let onDelete: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovering = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -742,10 +865,23 @@ private struct MainClipboardImageRecentRow: View {
                     .font(.callout)
                 Text("\(item.preview) - \(CompactTimestamp.format(item.modified))")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(
+                        isSelected
+                            ? MAYNTheme.selectionInversionSubtitle(colorScheme)
+                            : MAYNTheme.textSecondary(colorScheme)
+                    )
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isHovering {
+                ClipboardHistoryRowActions(
+                    isSelected: isSelected,
+                    onCopy: onCopy,
+                    onPin: onPin,
+                    onDelete: onDelete
+                )
+            }
 
             if ClipboardHistoryIconPresentation.hasSourceApp(item) {
                 ClipboardHistoryIconView(
@@ -762,7 +898,16 @@ private struct MainClipboardImageRecentRow: View {
         .padding(.vertical, 10)
         .frame(minHeight: 82)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground)
+        .maynInversionSelectionBackground(
+            isSelected: isSelected,
+            isHovering: isHovering,
+            shape: .rounded(10)
+        )
+        .foregroundStyle(
+            isSelected
+                ? MAYNTheme.selectionInversionForeground(colorScheme)
+                : MAYNTheme.textPrimary(colorScheme)
+        )
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .simultaneousGesture(
@@ -772,13 +917,6 @@ private struct MainClipboardImageRecentRow: View {
         )
         .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
         .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
-        .onHover { isHovering = $0 }
-    }
-
-    private var rowBackground: Color {
-        if isSelected { return Color.primary.opacity(0.10) }
-        if isHovering { return MAYNTheme.hover }
-        return .clear
     }
 }
 

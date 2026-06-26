@@ -125,7 +125,7 @@ struct VoiceSettingsView: View {
     private var mainContent: some View {
         MAYNSettingsPage(
             title: "Voice",
-            subtitle: "Configure dictation setup, activation, recognition, cleanup, and app-specific behavior."
+            subtitle: "Configure dictation setup, activation, audio, dictionary, and personalization."
         ) {
             MAYNSection(title: "Overview") {
                 MAYNSettingsRow(
@@ -216,21 +216,7 @@ struct VoiceSettingsView: View {
                 }
             }
 
-            VoiceProviderSection(
-                asrProviderKind: asrProviderKind,
-                selectedASRModelID: selectedASRModelID,
-                cloudModelID: cloudModelID,
-                onOpenModels: { controller.showVoiceModels() }
-            )
-
-            VoiceCleanupSection(
-                cleanupEnabled: cleanupEnabled,
-                cleanupProvider: cleanupProvider,
-                cleanupModel: cleanupModel,
-                cleanupBaseURLString: cleanupBaseURLString,
-                cleanupTimeoutSeconds: cleanupTimeoutSeconds,
-                cleanupLatencyPolicy: cleanupLatencyPolicy
-            )
+            VoiceHUDAppearanceSection()
 
             MAYNSection(title: "Audio") {
                 MAYNSettingsRow(

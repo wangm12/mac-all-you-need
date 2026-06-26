@@ -9,6 +9,7 @@ struct DashboardDestinationView: View {
     private var statePublisher: FeatureStatePublisher
     @State private var pendingFeatureIDs: Set<FeatureID> = []
     @State private var retryingFeatureIDs: Set<FeatureID> = []
+    @Environment(\.colorScheme) private var colorScheme
 
     init(controller: AppController, openDestination: @escaping (MainAppDestination) -> Void) {
         self.controller = controller
@@ -20,13 +21,17 @@ struct DashboardDestinationView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 dashboardHeader
-                summaryRail
+                statusStrip
                 setupPrompt
-                quickStartStrip
+                if showsQuickStartStrip {
+                    quickStartStrip
+                }
+                recommendedActions
+                recentActivityStrip
                 toolGrid
             }
-            .frame(maxWidth: 1040, alignment: .leading)
-            .padding(.horizontal, 36)
+            .frame(maxWidth: 1120, alignment: .leading)
+            .padding(.horizontal, 48)
             .padding(.top, 30)
             .padding(.bottom, 48)
         }
@@ -51,50 +56,129 @@ struct DashboardDestinationView: View {
         }
     }
 
-    private var summaryRail: some View {
-        HStack(alignment: .top, spacing: 12) {
-            summaryCard(
-                title: "Setup",
-                value: nextPendingFeatureTitle(for: nextPendingFeatureID),
-                detail: nextPendingFeatureID == nil ? "All feature onboarding complete." : "Continue the next unfinished setup step."
+    private var statusStrip: some View {
+        MAYNMetricStrip {
+            MAYNMetricCell(
+                title: "Status",
+                value: nextPendingFeatureID == nil ? "Ready" : "Setup",
+                detail: nextPendingFeatureID == nil ? "All onboarding complete" : "Finish feature setup"
             )
-
-            summaryCard(
+            MAYNMetricCell(
                 title: "Active tools",
                 value: "\(enabledFeatureCount)",
-                detail: "Features enabled in this install."
+                detail: "Enabled in this install"
             )
-
-            summaryCard(
-                title: "Downloads",
-                value: "\(DashboardDownloadSummaryPresentation.activeQueueCount(in: controller.downloaderVM.rows))",
-                detail: "Queued or running downloads."
+            MAYNMetricCell(
+                title: "Clipboard",
+                value: "\(controller.clipboardReader.items.count)",
+                detail: "Items saved locally"
             )
+            if failedDownloadCount > 0 {
+                MAYNMetricCell(
+                    title: "Attention",
+                    value: "\(failedDownloadCount)",
+                    detail: "Downloads need review"
+                )
+            }
         }
     }
 
-    private func summaryCard(title: String, value: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+    private var failedDownloadCount: Int {
+        controller.downloaderVM.rows.filter { $0.state == .failed }.count
+    }
 
-            Text(value)
-                .font(.headline.weight(.semibold))
-                .lineLimit(1)
+    private var showsQuickStartStrip: Bool {
+        nextPendingFeatureID != nil
+    }
 
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    @ViewBuilder
+    private var recommendedActions: some View {
+        let actions = recommendedActionItems
+        if !actions.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Recommended")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+                ForEach(actions, id: \.title) { action in
+                    MAYNActionCard(
+                        title: action.title,
+                        subtitle: action.subtitle,
+                        action: action.action
+                    )
+                }
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
-                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
-        )
+    }
+
+    private struct RecommendedAction {
+        let title: String
+        let subtitle: String
+        let action: () -> Void
+    }
+
+    private var recommendedActionItems: [RecommendedAction] {
+        var items: [RecommendedAction] = []
+        if failedDownloadCount > 0 {
+            items.append(
+                RecommendedAction(
+                    title: "Review \(failedDownloadCount) downloads",
+                    subtitle: "Resolve files that need attention.",
+                    action: { openDestination(.downloads) }
+                )
+            )
+        }
+        if let pendingFeatureID = nextPendingFeatureID,
+           let title = pendingFeatureTitle(for: pendingFeatureID) {
+            items.append(
+                RecommendedAction(
+                    title: "Complete \(title) setup",
+                    subtitle: "Finish the feature onboarding wizard.",
+                    action: { controller.showFeatureOnboarding(pendingFeatureID) }
+                )
+            )
+        }
+        return items
+    }
+
+    @ViewBuilder
+    private var recentActivityStrip: some View {
+        let recent = Array(controller.clipboardReader.items.prefix(5))
+        if !recent.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Recent activity")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+                    Spacer(minLength: 8)
+                    Button("View all") {
+                        openDestination(.clipboard)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
+                }
+                MAYNListPanel(title: "", subtitle: nil) {
+                    ForEach(Array(recent.enumerated()), id: \.element.id.rawValue) { index, item in
+                        if index > 0 { MAYNDivider() }
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.customLabel ?? item.preview)
+                                    .font(.callout)
+                                    .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+                                    .lineLimit(1)
+                                Text(CompactTimestamp.format(item.modified))
+                                    .font(.caption)
+                                    .foregroundStyle(MAYNTheme.textTertiary(colorScheme))
+                            }
+                            Spacer(minLength: 8)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .frame(minHeight: 44)
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -137,25 +221,25 @@ struct DashboardDestinationView: View {
     private var quickStartStrip: some View {
         HStack(alignment: .top, spacing: 14) {
             quickStartItem(
-                symbol: "1.circle.fill",
+                step: "1",
                 title: "Pick one tool",
                 body: "Start with Clipboard, then move to Voice or Downloads. The shortcut chip is the fastest entry point."
             ) { openDestination(.clipboard) }
 
             quickStartItem(
-                symbol: "2.circle.fill",
+                step: "2",
                 title: "Grant permissions",
                 body: "When a tool needs Accessibility, Screen Recording, or Reminders, finish setup from its permissions page."
             ) { openPermissions() }
 
             quickStartItem(
-                symbol: "3.circle.fill",
+                step: "3",
                 title: "Use the default path",
                 body: "If you are unsure, keep the recommended settings. They are tuned for the fastest first successful run."
             ) { openDestination(.downloads) }
         }
         .padding(14)
-        .background(MAYNTheme.panel, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous))
+        .background(MAYNTheme.contentPanel(colorScheme), in: RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
                 .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
@@ -163,17 +247,26 @@ struct DashboardDestinationView: View {
     }
 
     private func quickStartItem(
-        symbol: String,
+        step: String,
         title: String,
         body: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: symbol)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(MAYNTheme.progress)
-                    .padding(.top, 1)
+                Text(step)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+                    .frame(width: 22, height: 22)
+                    .background(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.10)
+                            : Color.black.opacity(0.08),
+                        in: Circle()
+                    )
+                    .overlay {
+                        Circle().strokeBorder(MAYNTheme.hairline, lineWidth: 1)
+                    }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)

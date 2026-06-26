@@ -47,7 +47,7 @@ final class PinboardsSubModel {
         if model.activeList == .pinboard(id) {
             model.activeList = .history
             model.search = ""
-            model.focusedIndex = 0
+            model.focusedIndex = ClipboardDockModel.noCardFocus
             model.selection.removeAll()
             model.selectionAnchorIndex = nil
             model.items = []

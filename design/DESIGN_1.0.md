@@ -1,9 +1,12 @@
 ---
-version: 1.0
+version: 1.2
 product: Mayn / MacAllYouNeed
-direction: Monochrome Native Command Layer
+direction: Monochrome Native Command Layer — Apple Liquid Glass
 platform: macOS desktop app
 primary_color_system: black-white-grayscale
+references:
+  - https://developer.apple.com/documentation/technologyoverviews/liquid-glass
+  - https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass
 intended_readers:
   - product designers
   - SwiftUI engineers
@@ -19,7 +22,7 @@ The app should feel like a quiet system utility, not like a colorful SaaS dashbo
 
 Core direction:
 
-> Invisible until needed. Precise when invoked. Black, white, native, fast.
+> Invisible until needed. Precise when invoked. Black, white, native, fast — with macOS liquid-glass depth.
 
 ---
 
@@ -29,41 +32,75 @@ Core direction:
 
 Mayn's primary brand system is black, white, and grayscale.
 
-Use black-white inversion for primary emphasis:
+Use native Liquid Glass for **floating controls and HUD shells**; use **inversion fills** for keyboard-focused navigation rows:
 
-- selected sidebar item
-- active command row
-- primary button
-- enabled feature card
-- focused HUD state
-- selected radial target
-- copied / inserted toast
+- selected sidebar item → `MAYNSelectionInversionBackground` + inverted label (dark: white pill / black text; light: black pill / white text)
+- active command row / list keyboard focus → same inversion highlight
+- primary button → `activeFill` inversion (committed action)
+- selected segmented tab → glass pill inside `GlassEffectContainer`
+- enabled feature picker tile → glass selection on tile
+- floating search pill, attention badge, command palette shell → Liquid Glass
+- copied / inserted toast → `activeFill` inversion
+
+**Selection rule:** Keyboard-focused navigation (sidebar, command palette rows, clipboard history selection) uses **inversion fills** via `MAYNSelectionInversionBackground` + `MAYNSelectionInversionLabelStyle` so text stays crisp. Hover uses translucent `hover` fill. Liquid Glass is reserved for floating control chrome (search, badge, palette shell, segmented track) — not row/sidebar text layers. Voice hub/caption use Liquid Glass (default) or Graphite (legacy setting).
 
 Do not assign bright colors to features. Clipboard should not be blue, Voice should not be purple, Downloads should not be green, Windows should not be orange. The feature identity should come from icon, label, hierarchy, and motion behavior.
 
 ### 1.2 Native macOS utility, not web dashboard
 
-The app should feel closer to Finder, System Settings, Spotlight, Raycast, Linear, and a premium menu bar utility than a SaaS admin panel.
+The app should feel closer to Finder, System Settings, Spotlight, Raycast, and a premium menu-bar utility than a SaaS admin panel. Surfaces should read as **liquid glass**: translucent system materials, hairline borders, and depth from layering — not flat gray boxes.
 
 Use:
 
-- native window chrome
-- system typography
-- sidebar + toolbar structure
-- compact rows
-- subtle hairline borders
+- native window chrome and titlebar transparency
+- system typography (SF Pro)
+- sidebar + toolbar structure on `Material.bar` / `ultraThinMaterial`
+- compact rows on glass panels
+- subtle hairline borders (never heavy strokes)
 - keyboard shortcuts as first-class UI
 - floating HUDs for runtime actions
+- vibrancy through materials, not through color accents
 
 Avoid:
 
 - marketing-style hero sections
 - colorful stat cards
 - gradient feature tiles
+- opaque flat web-style cards on every surface
 - large empty web-app spacing
 - emoji icons
 - confetti or celebratory effects
 - slow decorative animation
+- frosted glass everywhere (reserve solid inversion for primary buttons, copy toasts, and HUD legibility — not list selection)
+
+### 1.5 Apple Liquid Glass (native)
+
+Mayn adopts [Apple Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/liquid-glass): a dynamic material that combines glass optics with fluidity. It forms a **distinct functional layer** for controls and navigation; content sits beneath and shows through.
+
+Follow [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass):
+
+| Principle | Mayn implementation |
+|---|---|
+| Use system frameworks first | `NavigationSplitView`, `.toolbar`, standard `Button` / `Toggle` / `TextField` |
+| Remove custom nav backgrounds | No `Material.bar` / `controlBackgroundColor` on sidebar or toolbar — let the system render glass |
+| Custom glass sparingly | `glassEffect(_:in:)` via `maynGlassSurface` for panels, palette, segmented track only |
+| Batch custom glass | `GlassEffectContainer` + `MAYNLiquidGlassPanel` for command palette / morphing controls |
+| Native button glass | `.buttonStyle(.glass)` / `.glassProminent` on macOS 26+ for secondary actions |
+| Glass selection | `MAYNSelectionGlassBackground` / `maynSelectionBackground` — `glassEffect` on macOS 26+ |
+| Primary actions | `activeFill` / `activeText` for primary buttons and HUDs only |
+| Accessibility | Standard components adapt to Reduce Transparency / Reduce Motion automatically; test custom glass |
+| macOS 14–25 fallback | `Material.thinMaterial` / `regularMaterial` when `glassEffect` is unavailable |
+
+**Do not** stack multiple Liquid Glass layers on one control (e.g. glass panel + glass search field). **Do not** simulate glass with custom blur PNGs or WebKit frost.
+
+| Surface | macOS 26+ | macOS 14–25 |
+|---|---|---|
+| Sidebar, toolbar | System via `NavigationSplitView` + `.toolbar` | Same structure; vibrancy from split chrome |
+| Settings sections, cards | `glassEffect(.regular)` | `thinMaterial` |
+| Command palette | `GlassEffectContainer` + `glassEffect` | `regularMaterial` |
+| Runtime HUD (Voice hub + caption) | `glassEffect(.regular)` via `voiceHubPillChrome` / `voiceHubCaptionChrome` | `NSVisualEffectView` `.behindWindow` + hairline |
+| Runtime HUD (Copy toast, legacy) | Solid `hudBackground` | Solid `hudBackground` |
+| Selected row / tab | `glassEffect(.regular)` + `.primary` label | `MAYNTheme.selected` fill |
 
 ### 1.3 Keyboard-first
 
@@ -130,6 +167,7 @@ Use these words when evaluating the UI:
 
 - monochrome
 - native
+- liquid glass
 - command layer
 - overlay
 - utility
@@ -138,10 +176,11 @@ Use these words when evaluating the UI:
 - quiet
 - focused
 - keyboard-first
+- vibrancy
 
 ### 2.3 One-line visual target
 
-> A black-and-white native macOS command center that appears only when needed and disappears without friction.
+> A black-and-white native macOS command center with liquid-glass depth — appears only when needed and disappears without friction.
 
 ---
 
@@ -249,22 +288,18 @@ Accent colors are not a core part of the visual identity. They may appear only w
 
 ### 3.4 SwiftUI color tokens
 
-Create centralized color tokens. Do not hard-code `.blue`, `.green`, `.purple`, `.orange`, or `.red` for normal UI.
+Centralize colors in `MAYNTheme` (`MacAllYouNeed/Settings/MAYN/MAYNTokens.swift`). Do not hard-code `.blue`, `.green`, `.purple`, `.orange`, or `.red` for normal UI.
 
 ```swift
-enum MaynColor {
-    static let appBackground = Color(nsColor: .windowBackgroundColor)
-    static let panel = Color(nsColor: .controlBackgroundColor)
-    static let panelSubtle = Color.primary.opacity(0.035)
+enum MAYNTheme {
+    static let window = Color(nsColor: .windowBackgroundColor)
+    static let panel = Color(nsColor: .controlBackgroundColor) // fallback when materials unavailable
     static let hairline = Color.primary.opacity(0.08)
-    static let softBorder = Color.primary.opacity(0.13)
+    static let subtleBorder = Color.primary.opacity(0.10)
     static let strongBorder = Color.primary.opacity(0.24)
-    static let primaryText = Color.primary
-    static let secondaryText = Color.secondary
-    static let tertiaryText = Color.secondary.opacity(0.72)
-    static let activeFill = Color.primary
-    static let activeText = Color(nsColor: .windowBackgroundColor)
-    static let hoverFill = Color.primary.opacity(0.045)
+    static let hover = Color.primary.opacity(0.05)
+    static let activeFill = Color.primary          // primary buttons, HUDs
+    static let activeText = Color(nsColor: .windowBackgroundColor) // on activeFill only
 }
 ```
 
@@ -276,22 +311,61 @@ For toggles and selected controls, use monochrome tint:
 
 When the control becomes unreadable in dark mode, define a custom toggle style instead of using system green.
 
-### 3.5 Status without color
+### 3.6 Material and Liquid Glass tokens
 
-Use monochrome status language:
+**Five content layers** (explicit light + dark in `MAYNTheme.contentWindow`, `contentPanel`, `contentPanelElevated`, `contentListPanel`):
 
-| State | Visual |
-|---|---|
-| Ready | filled black pill in light mode / filled white pill in dark mode |
-| Active | filled pill + small pulsing dot |
-| Idle | outline pill + muted text |
-| Needs permission | outline pill + lock icon |
-| Failed | outlined pill + warning triangle + stronger border |
-| Processing | subtle progress line / pulsing dot |
-| Paused | gray pill + pause icon |
-| Completed | filled monochrome pill only when action just completed; otherwise plain text |
+| Layer | Role | Dark | Light |
+|---|---|---|---|
+| L0 | Window | `#0B0B0C` | `#FBFBF8` |
+| L1 | Content panel | `#171718` | `#FFFFFF` |
+| L1 elevated | Cards / inset groups | `#1D1D1F` | `#F3F3F1` |
+| L1 list | Dense list panels | `#151516` | `#FFFFFF` |
+| L3–L4 | Floating glass | `glassEffect(.regular)` | same |
 
-Avoid green success pills, red error banners, blue info badges, purple voice badges, and orange warning pills unless the OS component provides them and they cannot be customized.
+**Scope rule:** Do not wrap `NavigationSplitView` or page content in `GlassEffectContainer`. Glass is scoped to toolbar search, attention badge, command palette shell, and segmented tab track only. Scrollable list rows use opaque L1 surfaces.
+
+Implementation: `MAYNMaterial`, `maynGlassSurface`, `MAYNLiquidGlassPanel` in `MacAllYouNeed/Settings/MAYN/`.
+
+| Role | macOS 26+ | macOS 14–25 | Usage |
+|---|---|---|---|
+| `chrome` | *System-managed* — do not paint manually | — | `NavigationSplitView` sidebar, `.toolbar` |
+| `panel` | `glassEffect(.regular)` | `thinMaterial` | Toolbar search, attention badge, palette shell |
+| `elevated` | `GlassEffectContainer` + glass | `regularMaterial` | Segmented tab track |
+| `overlay` | `glassEffect(.clear)` | `ultraThinMaterial` | Window Hub over desktop |
+| `hud` (voice runtime) | `glassEffect(.regular)` | `NSVisualEffectView` `.hudWindow` `.behindWindow` | Voice hub pill + caption |
+| `content` | Opaque `contentPanel` / `contentListPanel` | same | `MAYNSection`, dashboard cards, clipboard lists |
+
+APIs: [`glassEffect(_:in:)`](https://developer.apple.com/documentation/swiftui/view/glasseffect(_:in:)), [`GlassEffectContainer`](https://developer.apple.com/documentation/swiftui/glasseffectcontainer). Copy toasts and other inverted pills still use solid `hudBackground` / `hudForeground`. Voice hub + caption use Liquid Glass by default; user may opt into legacy Graphite in Voice → Settings. Do not stack glass on glass.
+
+### 3.7 Selection and highlight
+
+Keyboard-focused navigation uses **inversion fills** (light + dark) — not glass-over-text.
+
+| State | Background | Text |
+|---|---|---|
+| Selected (sidebar, **command row**, clipboard row) | `MAYNSelectionInversionBackground` gradient | `MAYNSelectionInversionLabelStyle` inverted |
+| Hover (unselected) | `MAYNTheme.hover` | `textSecondary` |
+| Primary button / HUD | `activeFill` + `activeText` | inverted |
+| Segmented tab (selected) | `MAYNSelectionGlassBackground` | `.primary` semibold |
+
+Implementation: `MAYNSelectionInversionBackground`, `MAYNSelectionInversionLabelStyle`, `maynInversionSelectionBackground(_:)`. Glass selection (`MAYNSelectionGlassBackground`) remains for segmented tabs and feature-picker tiles only.
+
+Content surfaces (`MAYNSection` `.opaque` / `.listPanel`, dashboard cards, clipboard lists) use opaque `MAYNTheme.contentPanel` or `contentListPanel` — not glass.
+
+### 3.5 Status tag colors
+
+All status tags route through `StatusPill` + `MAYNStatusTagPalette` — one palette for the whole app:
+
+| Tone | Kinds | Look |
+|---|---|---|
+| Success | `success`, `ready`, `completed` | Green tint, green label, checkmark icon |
+| Warning | `warning`, `paused`, `needsPermission`, cancelled transcripts | Yellow/amber tint, amber label |
+| Danger | `danger`, `failed` | Red tint, red label, warning triangle |
+| Progress | `progress`, `active`, `processing` | Blue tint, blue label, dot |
+| Neutral | `neutral`, `idle`, `retried` | Gray tint, secondary label |
+
+Each tag uses **tinted capsule + saturated foreground + matching border** at **20px height / 10pt medium label** — aligned with adjacent `.caption` metadata.
 
 ---
 
@@ -371,40 +445,34 @@ Default main window:
 - minimum width: 920 px
 - minimum height: 640 px
 - corner radius: native macOS window radius
-- sidebar width: 220 px
-- toolbar height: 56 px
-- content max width: 920 px
+- sidebar width: 260 px (56 px collapsed icon rail)
+- toolbar: system `.toolbar` on detail column (Liquid Glass on macOS 26+)
+- content max width: 1120 px
 
-Layout:
+Use **`NavigationSplitView`** for the main shell. Do not wrap sidebar/toolbar in custom `VStack` backgrounds — that blocks system Liquid Glass.
 
 ```text
-┌────────────────────────────────────────────────────────────┐
-│ traffic lights   Mayn         Search / Command      Status │
-├────────────────┬───────────────────────────────────────────┤
-│ Sidebar        │ Page title / subtitle / primary action    │
-│                │ Segmented controls / filters              │
-│ Dashboard      │ Main panels / dense lists / preview       │
-│ Clipboard      │                                           │
-│ Voice          │                                           │
-│ Downloads      │                                           │
-│ Windows        │                                           │
-│ Settings       │                                           │
-└────────────────┴───────────────────────────────────────────┘
+NavigationSplitView
+├── Sidebar (system glass)     │ Detail + .toolbar (system glass)
+│   Core / Automation / Windows │ Page content on windowBackgroundColor
+│   Settings                    │
 ```
+
+Reference: [Adopting Liquid Glass — Navigation](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass#Navigation).
 
 ### 5.2 Sidebar
 
-Sidebar width: 220 px.
+Sidebar width: 260 px (56 px collapsed). **No custom background** — `NavigationSplitView` sidebar column provides system chrome.
 
 Sidebar item:
 
-- height: 36 px
+- height: 40 px
 - horizontal padding: 12 px
-- radius: 9 px
+- radius: 12 px
 - icon: 16 px stroke-based
-- label: 13 px, medium when selected
-- active state: black fill / white text in light mode; white fill / black text in dark mode
-- hover state: subtle gray fill
+- label: 13.5 px, medium when selected
+- **active state:** inversion pill (`MAYNSelectionInversionBackground`) + inverted label
+- disabled: reduced opacity + optional `Setup` micro-pill
 
 Navigation groups:
 
@@ -434,13 +502,12 @@ Do not use colorful icons in the sidebar.
 
 ### 5.3 Toolbar
 
-Toolbar contents:
+Toolbar: SwiftUI `.toolbar` on the detail column — **no custom toolbar `VStack` or background**. System applies Liquid Glass on macOS 26+.
 
-- traffic lights
-- optional app title / current workspace
-- global command search
-- active runtime indicator
-- compact settings / theme menu
+Contents:
+
+- global command search (principal placement)
+- active runtime status pill (primary action)
 
 Command search visual:
 
@@ -453,8 +520,8 @@ Specs:
 - height: 34-38 px
 - width: 320-420 px
 - radius: 11 px
-- background: panelSubtle
-- border: hairline
+- on macOS 26+: `maynGlassSurface(.panel)` on the search affordance only (single glass layer)
+- on older macOS: `thinMaterial` fallback
 - icon: magnifying glass, 14 px
 - keycap: right aligned
 
@@ -518,7 +585,7 @@ Usage:
 | search field | 11-12 px |
 | card | 16 px |
 | large panel | 18-22 px |
-| command palette | 22 px |
+| command palette | 28 px |
 | HUD | 20-24 px |
 | pill | 9999 px |
 
@@ -570,6 +637,20 @@ Usage:
 | 3 | active card, sticky toolbar |
 | 4 | dropdown, popover, contextual menu |
 | 5 | command palette, window hub, voice HUD |
+
+### 6.4 Material surfaces
+
+| Surface | Implementation | Border | Shadow |
+|---|---|---|---|
+| Sidebar / toolbar | `NavigationSplitView` + `.toolbar` (system glass) | system | none |
+| Settings section card | `maynGlassSurface(.panel)` | `subtleBorder` | none |
+| Segmented tab track | `GlassEffectContainer` + `glassEffect` in `Capsule` | `strongBorder` | none |
+| Command palette shell | `CommandPaletteShell` gradient + `glassEffect(.regular, in: .rect(cornerRadius: 28))` | gradient border + hairline | elevation-5 |
+| Command palette row (selected) | `MAYNSelectionGlassBackground` inset rounded | `hairline` optional | none |
+| Command palette row (hover) | `MAYNTheme.hover` | none | none |
+| Selected row / tab (elsewhere) | `MAYNSelectionGlassBackground` | hairline optional | none |
+
+Do not layer glass on glass. Page content scrolls on `window` (system window background).
 
 ---
 
@@ -719,7 +800,9 @@ Row specs:
 - height: 44-64 px depending content
 - border-bottom: hairline
 - hover: subtle gray fill
-- selected: inverted fill
+- selected (settings/history lists): inverted fill where specified per surface
+- selected (**command palette**, sidebar, clipboard rows): `MAYNSelectionInversionBackground` + `MAYNSelectionInversionLabelStyle` — **not** glass-over-text
+- selected (segmented tabs, feature-picker tiles): `MAYNSelectionGlassBackground` + `.primary` semibold
 - primary text: 13 px
 - metadata: 11-12 px secondary
 - actions: hidden until hover/focus unless critical
@@ -744,7 +827,106 @@ Monochrome mapping:
 - Failed: outline pill + warning icon
 - Running: animated dot + text
 
-### 7.8 Empty states
+### 7.8 Command palette
+
+Global command surface (`⌘K`). Implementation: `CommandPaletteOverlay`, `CommandPaletteCatalog`, `CommandPaletteShell` in `MacAllYouNeed/App/CommandPalette/`.
+
+Reference: [Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/liquid-glass) — glass is the **control/navigation layer**; page content stays on stable `windowBackgroundColor` beneath an in-window dim scrim (never whole-window opacity that reveals the desktop).
+
+#### Shell (glass control surface)
+
+| Token | Value |
+|---|---|
+| Width | 680 px |
+| Max height | 560 px |
+| Corner radius | 28 px continuous |
+| Outer padding | 8 px |
+| Vertical anchor | top ~112 px (not vertical center) |
+| Structure | **Unified shell** — search header + divider + results in one `CommandPaletteShell` |
+| Material | `GlassEffectContainer` + gradient plate + `glassEffect(.regular, in: .rect(cornerRadius: 28))` on macOS 26+; `regularMaterial` fallback |
+| Border | light: white gradient hairline; dark: `white 14%` |
+| Shadow | elevation-5 |
+
+Do **not** wrap row content in glass. Shell is glass; list is a sharp solid interaction layer on top.
+
+#### Backdrop
+
+Dim **inside** the app window only:
+
+| Mode | Scrim | Notes |
+|---|---|---|
+| Light | `black` 20–24% | Do not scale the whole app window |
+| Dark | `black` 40–46% | Dim inside window only |
+
+No heavy backdrop blur (≤2 px if any). Main window stays `isOpaque` with `NSColor.windowBackgroundColor`.
+
+#### Toolbar search
+
+Opening the palette morphs the toolbar search pill into the palette search header via `matchedGeometryEffect` (`CommandPaletteMorphID.searchChrome`) inside `GlassEffectContainer` on macOS 26+. The toolbar pill stays in the hierarchy at `opacity: 0` during the palette session so the morph can complete.
+
+#### Attention section
+
+Items are built from `CommandPaletteAttentionPlanner` (enabled features only):
+
+| Condition | Action |
+|---|---|
+| Voice enabled, mic or Accessibility missing | Complete Voice setup |
+| Missing required permissions for enabled features | Grant / Review permissions → Settings → Permissions |
+| Failed downloads | Review N downloads needing attention |
+| Orphan caches pending cleanup | Review N orphan caches |
+
+#### Search header
+
+- height: 58 px
+- horizontal padding: 18 px
+- placeholder: `Search Mayn`
+- right keycap: `esc`
+- bottom divider: `commandPaletteDivider`
+
+#### Section order (empty query)
+
+1. **Current Context** — destination-specific actions first
+2. **Attention** — failed downloads, permissions, etc.
+3. **Navigation** — primary destinations last
+
+When filtering, collapse to a flat list (no section headers).
+
+#### Result row
+
+| Token | Value |
+|---|---|
+| Height | 48 px |
+| Horizontal inset | 10 px |
+| Corner radius | 13 px |
+| Icon column | 34 px; SF Symbol 15 px medium |
+| Label | 14.5 px; semibold when selected |
+| Shortcut | `CommandPaletteKeycap` 24 px |
+
+**Icons:** SF Symbols only (`clipboard`, `waveform`, `rectangle.3.group`, etc.) — monochrome, no mixed icon sets.
+
+#### Selection (inversion — mandatory)
+
+| State | Background | Label | Icon |
+|---|---|---|---|
+| Selected | `MAYNSelectionInversionBackground(.rounded(13))` | inverted semibold | inverted |
+| Hover (unselected) | `MAYNTheme.hover` | `textSecondary` | `textSecondary` |
+| Default | clear | `textSecondary` regular | `textSecondary` |
+
+Dark mode selected: white gradient fill + black text. Light mode selected: black gradient fill + white text. Keycaps on selected rows use inverted keycap tokens.
+
+Optional: do not add glass over row text — shell is glass; rows are sharp.
+
+Keyboard: `↑` `↓` move selection; `Return` activates; `Esc` dismisses. Selection change: 90–100 ms (`MAYNMotion.hover`).
+
+#### Scrollbar
+
+Use system overlay scrollbars or hide indicators (`.scrollIndicators(.hidden)`). No thick custom thumbs.
+
+#### Animation
+
+See §9.5. Open 180 ms ease-out; no bounce.
+
+### 7.9 Empty states
 
 Empty states should be minimal.
 
@@ -762,7 +944,7 @@ Visual:
 - no colorful artwork
 - one primary action max
 
-### 7.9 Toasts
+### 7.10 Toasts
 
 Specs:
 
@@ -796,10 +978,36 @@ Use for:
 - Copy confirmation
 - Auto-download prompt
 
-HUD specs:
+#### Voice runtime stack (Liquid Glass)
 
-- background: black in light mode / near-black in dark mode, or inverted if above dark app
-- text: white
+Follow [Apple Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/liquid-glass) for the floating voice chrome:
+
+```text
+┌─────────────────────────────┐  ← caption chip (`voiceHubCaptionChrome`)
+│ Couldn't transcribe         │     glassEffect(.regular) · `.primary` label
+└─────────────────────────────┘
+           gap 5 px
+        ┌──────────┐             ← hub pill (`voiceHubPillChrome`)
+        │ ▂▄▆█▆▄▂ │                capsule · waveform or terminal icon
+        └──────────┘
+```
+
+Specs:
+
+- **Default:** Liquid Glass — `glassEffect(.regular)` on macOS 26+ via `VoiceHUDGlassChrome`; macOS 14–25 uses `NSVisualEffectView` with `.behindWindow` blending inside transparent `NSPanel`s.
+- **Legacy option:** Graphite — solid `#1C1C1E` capsule (user setting: Voice → Settings → Floating HUD → Graphite).
+- **Foreground:** `.primary` at ~92% opacity on glass; white on graphite.
+- **Caption:** rounded rect (8 px radius), always stacked **above** the hub pill — never inside it.
+- **Panels:** borderless, non-activating, clear background — glass samples the desktop behind the window.
+- **Do not** use `glassEffect(.clear)` for the voice hub; it reads as flat white. Use `.regular`.
+- **Do not** stack caption + pill in one glass blob; they are separate floating panels that share the same material language.
+
+#### Other runtime HUDs
+
+Copy confirmation, auto-download prompts, and other inverted toasts:
+
+- background: black in light mode / near-black in dark mode (solid `hudBackground`)
+- text: white (`hudForeground`)
 - radius: 20-24 px
 - strong but clean shadow
 - compact layout
@@ -905,17 +1113,18 @@ Recent Transcripts
   Failed     Could not clean up      14.7s   Jun 19
 ```
 
-Runtime HUD visual target:
+Runtime HUD visual target (Liquid Glass default):
 
 ```text
 ┌─────────────────────────────┐
-│ ● Listening                 │
-│ ▂ ▄ ▆ █ ▆ ▄ ▂               │
-│ Release to insert           │
+│ Starting microphone...      │  caption — glass chip, `.primary` text
 └─────────────────────────────┘
+        ┌──────────────────┐
+        │ ▂ ▄ ▆ █ ▆ ▄ ▂    │  hub pill — glass capsule, waveform
+        └──────────────────┘
 ```
 
-Use monochrome waveform and a pulsing dot. Avoid purple microphone branding.
+Graphite legacy mode keeps the prior solid near-black capsule with white waveform. Use monochrome waveform; avoid purple microphone branding.
 
 ### 8.5 Downloads
 
@@ -1494,8 +1703,13 @@ Bad examples:
 
 ### Do
 
+- use Apple [Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/liquid-glass) via system navigation (`NavigationSplitView`, `.toolbar`)
 - use black and white as the primary visual identity
-- use monochrome active states
+- use native Liquid Glass for floating control chrome (search, badge, palette shell, segmented track)
+- use **inversion fills** (`MAYNSelectionInversionBackground`) for keyboard-focused navigation (sidebar, command palette rows, clipboard selection)
+- use `MAYNSelectionGlassBackground` for segmented tabs and feature-picker tiles only
+- use `activeFill` inversion for primary buttons and copy toasts
+- use `glassEffect` / `GlassEffectContainer` sparingly for custom panels
 - make shortcuts visible
 - make runtime overlays polished
 - keep settings native and quiet
@@ -1512,6 +1726,9 @@ Bad examples:
 - do not use gradients
 - do not use emoji icons
 - do not overuse shadows
+- do not paint custom backgrounds on sidebar, toolbar, or split views (blocks system glass)
+- do not use glass selection on sidebar rows, command palette rows, or clipboard list rows (use inversion instead)
+- do not stack multiple `glassEffect` layers on one control
 - do not create marketing-style dashboard hero sections
 - do not make every feature page visually different
 - do not use slow bounce animations
@@ -1524,7 +1741,7 @@ Bad examples:
 When generating Mayn UI, use this prompt:
 
 ```text
-Build Mayn as a monochrome native macOS productivity app. The UI should feel like a system-level command layer for clipboard memory, voice dictation, downloads, Finder workflows, file organization, and window management. Use only black, white, and grayscale for core UI. Do not use colorful cards, gradients, emoji icons, or SaaS dashboard styling. Use SF Pro/system typography, compact native spacing, hairline borders, black-white inverted selected states, keyboard shortcut keycaps, dense lists, command palette patterns, and polished floating HUDs. Motion should be fast, quiet, interruptible, and mostly opacity/transform based: hover 80-120ms, panels 160-220ms, overlays under 200ms, no bounce, no decorative animation.
+Build Mayn as a monochrome native macOS productivity app using Apple Liquid Glass (https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass). Keyboard-focused navigation (sidebar, command palette rows, clipboard selection) uses inversion via MAYNSelectionInversionBackground + MAYNSelectionInversionLabelStyle. Segmented tabs and feature-picker tiles use MAYNSelectionGlassBackground. Primary buttons and copy toasts may use activeFill inversion. Use NavigationSplitView and .toolbar for chrome without custom backgrounds. Fall back to MAYNTheme.selected on macOS 14–25.
 ```
 
 Animation prompt:
@@ -1540,12 +1757,14 @@ Implement Mayn motion as fast in, calm out. Use opacity, scale, and small transl
 Before shipping any screen, check:
 
 - Does it work in black and white?
-- Is the active state clear without color?
+- Is keyboard-focused navigation using inversion (sidebar, palette rows, clipboard)?
+- Does navigation use `NavigationSplitView` without custom chrome backgrounds?
+- Does custom glass appear only once per control (no stacked glass)?
 - Is the primary action obvious?
 - Is the shortcut visible if the action is frequent?
 - Are icons monochrome and consistent?
 - Is the page using the shared header pattern?
-- Are settings rows native and compact?
+- Are settings rows native and compact on glass panels?
 - Are runtime overlays more polished than settings pages?
 - Does the animation finish quickly?
 - Can the surface be operated by keyboard?

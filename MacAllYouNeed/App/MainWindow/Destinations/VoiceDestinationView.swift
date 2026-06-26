@@ -200,15 +200,12 @@ struct VoiceDestinationView: View {
                 }
             case .settings:
                 FunctionPageScrollContent {
-                    MAYNSection(title: "Quick Start") {
+                    MAYNSection(title: "Quick Start", contentLayout: .prose) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Keep the default shortcut, confirm one recognition engine, then only adjust cleanup if you actually want it.")
+                            Text("Keep the default shortcut, then configure recognition on the Recognition tab. Use this page for HUD style, reminders, audio, and setup replay.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Text("The rest of this page is for reminders, audio input, and setup replay.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
                     }
                     VoiceActivationSection(
@@ -228,19 +225,7 @@ struct VoiceDestinationView: View {
                             applyReminderShortcut(HotkeyDescriptor.defaultVoiceReminder)
                         }
                     )
-                    VoiceModelSummarySection(
-                        asrProviderKind: asrProviderKind,
-                        selectedASRModelID: selectedASRModelID,
-                        cloudModelID: cloudModelID,
-                        recognitionEngineRowSubtitle: recognitionEngineRowSubtitle,
-                        recognitionEngineSingleTag: recognitionEngineSingleTag,
-                        recognitionRecommendationTag: recognitionRecommendationTag,
-                        cleanupRowSubtitle: cleanupRowSubtitle,
-                        cleanupSavedSelectionLine: cleanupSavedSelectionLine,
-                        cleanupAccessibilitySummary: cleanupAccessibilitySummary,
-                        onNavigateToModels: { selectedTabRaw = VoiceFunctionTab.models.rawValue },
-                        onOpenCleanupPicker: { openCleanupPicker() }
-                    )
+                    VoiceHUDAppearanceSection()
                     VoiceAudioSection(
                         preferredMicrophoneID: $preferredMicrophoneID,
                         interactionSounds: $interactionSounds,
@@ -1420,59 +1405,6 @@ private struct VoiceActivationSection: View {
                     StatusPill(text: errorMessage, kind: .danger)
                 }
             }
-        }
-    }
-}
-
-// MARK: - VoiceModelSummarySection
-
-private struct VoiceModelSummarySection: View {
-    let asrProviderKind: VoiceASRProviderKind
-    let selectedASRModelID: VoiceASRModelID
-    let cloudModelID: VoiceCloudASRModelID
-    let recognitionEngineRowSubtitle: String
-    let recognitionEngineSingleTag: String
-    let recognitionRecommendationTag: String?
-    let cleanupRowSubtitle: String
-    let cleanupSavedSelectionLine: String
-    let cleanupAccessibilitySummary: String
-    let onNavigateToModels: () -> Void
-    let onOpenCleanupPicker: () -> Void
-
-    var body: some View {
-        MAYNSection(title: "Recognition") {
-            MAYNSettingsRow(
-                title: "Recognition engine",
-                subtitle: recognitionEngineRowSubtitle,
-                belowSubtitle: {
-                    AnyView(
-                        HStack(spacing: 6) {
-                            StatusPill(text: recognitionEngineSingleTag, kind: .neutral)
-                            if let recommendation = recognitionRecommendationTag {
-                                StatusPill(text: recommendation, kind: .success)
-                            }
-                        }
-                    )
-                }
-            ) {
-                MAYNButton("Choose recognition engine") {
-                    onNavigateToModels()
-                }
-            }
-            MAYNDivider()
-            MAYNSettingsRow(
-                title: "Cleanup model",
-                subtitle: cleanupRowSubtitle,
-                belowSubtitle: {
-                    AnyView(StatusPill(text: cleanupSavedSelectionLine, kind: .neutral))
-                }
-            ) {
-                MAYNButton("Change...") {
-                    onOpenCleanupPicker()
-                }
-            }
-            .accessibilityLabel("Cleanup model")
-            .accessibilityValue(cleanupAccessibilitySummary)
         }
     }
 }

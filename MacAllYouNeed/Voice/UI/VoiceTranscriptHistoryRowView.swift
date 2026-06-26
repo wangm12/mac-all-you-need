@@ -38,7 +38,7 @@ struct VoiceTranscriptHistoryRowView: View {
                 Text(displayText)
                     .font(.callout)
                     .lineLimit(2)
-                HStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     StatusPill(text: statusPresentation.label, kind: statusPillKind)
                     Text(metadataLine)
                         .font(.caption)

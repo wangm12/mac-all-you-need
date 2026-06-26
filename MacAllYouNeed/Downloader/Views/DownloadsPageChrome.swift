@@ -70,14 +70,14 @@ private struct DownloadsStatusChip: View {
                     .fill(dotFill)
                     .frame(width: 7, height: 7)
                 Text(title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                    .font(.caption.weight(MAYNSelectionLabelStyle.weight(isSelected: isSelected)))
+                    .foregroundStyle(MAYNSelectionLabelStyle.foreground(isSelected: isSelected))
                     .lineLimit(1)
             }
             .padding(.horizontal, 11)
             .frame(height: 30)
-            .background(chipBackground, in: Capsule())
-            .overlay(Capsule().stroke(chipBorder, lineWidth: 1))
+            .maynSelectionBackground(isSelected: isSelected, isHovering: isHovering, shape: .capsule)
+            .overlay(Capsule().stroke(MAYNTheme.subtleBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -93,16 +93,6 @@ private struct DownloadsStatusChip: View {
         case .warning: MAYNTheme.warning
         case .danger: MAYNTheme.danger
         }
-    }
-
-    private var chipBackground: Color {
-        if isSelected { return MAYNTheme.window.opacity(0.95) }
-        if isHovering { return MAYNTheme.elevatedHover.opacity(0.55) }
-        return MAYNTheme.window.opacity(0.55)
-    }
-
-    private var chipBorder: Color {
-        isSelected ? MAYNTheme.subtleBorder.opacity(1.2) : MAYNTheme.subtleBorder
     }
 }
 
@@ -161,7 +151,11 @@ struct DownloadsFailedBanner: View {
         }
         .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
         .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
-        .background(MAYNTheme.danger.opacity(0.08))
+        .background(MAYNTheme.panel)
+        .overlay(
+            Rectangle()
+                .stroke(MAYNTheme.strongBorder, lineWidth: 1)
+        )
     }
 }
 

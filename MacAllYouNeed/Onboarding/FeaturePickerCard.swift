@@ -25,9 +25,8 @@ struct FeaturePickerCard: View {
         return .accentColor
     }
 
-    private var iconAccent: Color { isSelected ? accent : .secondary }
+    private var iconAccent: Color { .secondary }
     private var borderColor: Color {
-        if isSelected { return accent.opacity(0.42) }
         if isHovering { return MAYNTheme.strongBorder }
         return MAYNTheme.subtleBorder
     }
@@ -45,8 +44,8 @@ struct FeaturePickerCard: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .font(.system(size: 14, weight: MAYNSelectionLabelStyle.weight(isSelected: isSelected)))
+                        .foregroundStyle(MAYNSelectionLabelStyle.foreground(isSelected: isSelected))
                         .lineLimit(1)
 
                     Text(subtitle)
@@ -61,16 +60,26 @@ struct FeaturePickerCard: View {
 
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isSelected ? accent : Color.secondary.opacity(0.35))
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary.opacity(0.35))
                     .padding(.top, 2)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 11)
             .frame(maxWidth: .infinity, minHeight: Self.uniformHeight, maxHeight: Self.uniformHeight, alignment: .topLeading)
-            .background(cardBackground, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous))
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
+                        .fill(isHovering && !isSelected ? MAYNTheme.panel.opacity(0.92) : MAYNTheme.panel)
+                    MAYNSelectionGlassBackground(
+                        isSelected: isSelected,
+                        isHovering: isHovering && !isSelected,
+                        shape: .rounded(MAYNControlMetrics.cardRadius)
+                    )
+                }
+            }
             .overlay {
                 RoundedRectangle(cornerRadius: MAYNControlMetrics.cardRadius, style: .continuous)
-                    .stroke(borderColor, lineWidth: isSelected ? 1.5 : 1)
+                    .stroke(borderColor, lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -80,10 +89,5 @@ struct FeaturePickerCard: View {
         .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: isSelected)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityLabel("\(title), \(isSelected ? "selected" : "not selected")")
-    }
-
-    private var cardBackground: Color {
-        if isSelected { return MAYNTheme.elevated }
-        return isHovering ? MAYNTheme.panel.opacity(0.92) : MAYNTheme.panel
     }
 }

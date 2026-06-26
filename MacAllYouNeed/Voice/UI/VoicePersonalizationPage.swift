@@ -117,7 +117,7 @@ struct VoicePersonalizationPage: View {
 
             if let err = errorMessage {
                 MAYNSection(title: "") {
-                    Text(err).foregroundStyle(.red).font(.callout)
+                    Text(err).foregroundStyle(MAYNTheme.danger).font(.callout)
                 }
             }
         }

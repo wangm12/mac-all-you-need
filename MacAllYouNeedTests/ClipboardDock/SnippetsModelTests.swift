@@ -133,6 +133,9 @@ final class SnippetsModelTests: XCTestCase {
         _ = try snippets.create(name: "second", body: "2")
         await model.switchList(.snippets)
 
+        XCTAssertEqual(model.focusedIndex, ClipboardDockModel.noCardFocus)
+
+        model.focusForward()
         XCTAssertEqual(model.focusedIndex, 0)
 
         model.focusForward()
@@ -151,6 +154,7 @@ final class SnippetsModelTests: XCTestCase {
         await model.switchList(.snippets)
 
         model.focusForward()
+        model.focusForward()
         await model.pasteFocusedSnippet(plainText: true)
 
         XCTAssertEqual(mock.pasteTextArgs?.text, "1")
@@ -162,6 +166,7 @@ final class SnippetsModelTests: XCTestCase {
         _ = try snippets.create(name: "first", body: "1")
         _ = try snippets.create(name: "second", body: "2")
         await model.switchList(.snippets)
+        model.focusForward()
         model.focusForward()
         NSPasteboard.general.clearContents()
 

@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import SwiftUI
 import UI
 
@@ -11,6 +12,11 @@ final class VoiceCaptionPresenter {
     private var pillBottomY: CGFloat = 0
     private(set) var currentPriority: VoiceHUDCopy.Priority?
     private(set) var currentMessage: String?
+
+    var presentedStackHeight: CGFloat {
+        guard panelController?.isPresented == true, let message = currentMessage else { return 0 }
+        return Self.size(for: message).height
+    }
 
     private var pillCenterX: CGFloat?
 
@@ -41,11 +47,11 @@ final class VoiceCaptionPresenter {
         if panelController == nil {
             panelController = NonActivatingFloatingPanelController<VoiceCaptionView>(
                 styleMask: [.borderless, .nonactivatingPanel],
-                level: FloatingHUDWindowLayering.windowLevel + 1,
-                collectionBehavior: FloatingHUDWindowLayering.collectionBehavior,
+                level: VoiceHUDWindowLayering.windowLevel + 1,
+                collectionBehavior: VoiceHUDWindowLayering.collectionBehavior,
                 hasShadow: false,
                 backgroundColor: .clear,
-                showAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastIn),
+                showAnimationDuration: 0,
                 hideAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastOut),
                 positioner: { [weak self] panel, panelSize in
                     guard let self else { return }
@@ -57,10 +63,18 @@ final class VoiceCaptionPresenter {
         if let controller = panelController, controller.isPresented {
             controller.currentPanel?.contentView = NSHostingView(rootView: view)
             controller.updateSize(size)
-            controller.currentPanel?.setFrameOrigin(origin(for: size))
+            if let panel = panelController?.currentPanel {
+                panel.alphaValue = 1
+                panel.setFrameOrigin(origin(for: size))
+                VoiceHUDWindowLayering.configureGlassPanel(panel, acceptsMouseEvents: false)
+                VoiceHUDWindowLayering.orderFront(panel)
+            }
         } else {
-            panelController?.present(rootView: view, size: size, animated: true)
-            panelController?.currentPanel?.isOpaque = false
+            panelController?.present(rootView: view, size: size, animated: false)
+            if let panel = panelController?.currentPanel {
+                VoiceHUDWindowLayering.configureGlassPanel(panel, acceptsMouseEvents: false)
+                VoiceHUDWindowLayering.orderFront(panel)
+            }
         }
 
         if let duration {
@@ -77,7 +91,7 @@ final class VoiceCaptionPresenter {
         dismissTask = nil
         currentPriority = nil
         currentMessage = nil
-        panelController?.dismiss(animated: true)
+        panelController?.dismiss(animated: false)
     }
 
     private func reposition(message: String) {
@@ -91,12 +105,21 @@ final class VoiceCaptionPresenter {
             ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
             ?? NSScreen.main
             ?? NSScreen.screens.first
-        guard let frame = screen?.visibleFrame else { return .zero }
-        let pillY = pillBottomY > 0 ? pillBottomY : frame.minY + MiniVoiceHUDLayout.bottomInsetAboveDock
+        guard let screen else { return .zero }
+        let frame = screen.visibleFrame
+        let obstruction = FloatingBottomObstructionProvider.bottomObstruction(for: frame)
+        let pillY = pillBottomY > 0
+            ? pillBottomY
+            : MiniVoiceHUDLayout.defaultPillBottomY(
+                in: frame,
+                screenFrame: screen.frame,
+                bottomObstruction: obstruction
+            )
         let centerX = pillCenterX ?? frame.midX
-        return NSPoint(
-            x: centerX - size.width / 2,
-            y: pillY + MiniVoiceHUDLayout.pillHeight + MiniVoiceHUDLayout.captionGap
+        return MiniVoiceHUDLayout.captionOrigin(
+            pillBottomY: pillY,
+            size: size,
+            centerX: centerX
         )
     }
 
@@ -110,29 +133,31 @@ final class VoiceCaptionPresenter {
 
 struct VoiceCaptionView: View {
     let message: String
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var visible = false
+    @AppStorage(VoiceHUDAppearanceStore.storageKey, store: AppGroupSettings.defaults)
+    private var appearanceRaw = VoiceHUDAppearance.glass.rawValue
+
+    private var usesGraphiteChrome: Bool {
+        (VoiceHUDAppearance(rawValue: appearanceRaw) ?? .glass) == .graphite
+    }
 
     var body: some View {
         Text(message)
             .font(.system(size: MiniVoiceHUDLayout.captionFontSize, weight: .medium))
-            .foregroundStyle(Color.primary.opacity(0.88))
+            .foregroundStyle(
+                usesGraphiteChrome
+                    ? MiniVoiceHUDPalette.pillText.opacity(0.92)
+                    : Color.primary.opacity(0.88)
+            )
             .lineLimit(1)
             .truncationMode(.middle)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, MiniVoiceHUDLayout.captionHorizontalPadding)
             .padding(.vertical, MiniVoiceHUDLayout.captionVerticalPadding)
-            .background {
+            .voiceHubCaptionChrome(isGraphite: usesGraphiteChrome)
+            .compositingGroup()
+            .clipShape(
                 RoundedRectangle(cornerRadius: MiniVoiceHUDLayout.captionCornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
-            }
-            .opacity(visible ? 1 : 0)
-            .offset(y: visible ? 0 : (reduceMotion ? 0 : 2))
-            .onAppear {
-                withAnimation(MAYNMotion.animation(.toastIn, reduceMotion: reduceMotion)) {
-                    visible = true
-                }
-            }
+            )
     }
 }

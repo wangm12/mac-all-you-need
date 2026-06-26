@@ -26,6 +26,71 @@ enum FloatingHUDWindowLayering {
     }
 }
 
+/// Voice pill, captions, and alerts sit above the clipboard dock (`.popUpMenu`) and
+/// other `.screenSaver` floating HUDs so dictation chrome is never occluded.
+enum VoiceHUDWindowLayering {
+    static let windowLevel = NSWindow.Level(rawValue: FloatingHUDWindowLayering.windowLevel.rawValue + 2)
+    static let collectionBehavior = FloatingHUDWindowLayering.collectionBehavior
+
+    static func configure(_ panel: NSPanel, acceptsMouseEvents: Bool) {
+        FloatingHUDWindowLayering.configure(panel, acceptsMouseEvents: acceptsMouseEvents)
+        panel.level = windowLevel
+    }
+
+    static func orderFront(_ panel: NSPanel) {
+        panel.level = windowLevel
+        panel.orderFrontRegardless()
+    }
+
+    /// Transparent panels so Liquid Glass can sample the desktop behind the HUD.
+    static func configureGlassPanel(_ panel: NSPanel, acceptsMouseEvents: Bool) {
+        configure(panel, acceptsMouseEvents: acceptsMouseEvents)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+    }
+}
+
+/// Tracks bottom-edge UI (clipboard dock) that should lift floating voice HUDs.
+@MainActor
+enum FloatingBottomObstructionProvider {
+    static let didChangeNotification = Notification.Name("FloatingBottomObstructionProvider.didChange")
+
+    /// Extra lift above `visibleFrame.minY` when the clipboard dock is open on this display.
+    private(set) static var clipboardDockObstruction: CGFloat = 0
+    private(set) static var clipboardDockScreenFrame: NSRect = .zero
+
+    static let clearanceAboveClipboardDock: CGFloat = 12
+
+    static func setClipboardDockVisible(height: CGFloat, on screen: NSScreen) {
+        let obstruction = max(0, height) + clearanceAboveClipboardDock
+        applyClipboardDockObstruction(obstruction, screenFrame: screen.frame)
+    }
+
+    static func clearClipboardDockObstruction() {
+        applyClipboardDockObstruction(0, screenFrame: .zero)
+    }
+
+    static func bottomObstruction(for visibleFrame: NSRect) -> CGFloat {
+        guard clipboardDockObstruction > 0, !clipboardDockScreenFrame.isEmpty else { return 0 }
+        guard framesShareDisplay(visibleFrame, clipboardDockScreenFrame) else { return 0 }
+        return clipboardDockObstruction
+    }
+
+    private static func applyClipboardDockObstruction(_ height: CGFloat, screenFrame: NSRect) {
+        guard clipboardDockObstruction != height || clipboardDockScreenFrame != screenFrame else { return }
+        clipboardDockObstruction = height
+        clipboardDockScreenFrame = screenFrame
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
+
+    private static func framesShareDisplay(_ visibleFrame: NSRect, _ screenFrame: NSRect) -> Bool {
+        visibleFrame.intersects(screenFrame)
+            || NSContainsRect(screenFrame, visibleFrame)
+            || NSContainsRect(visibleFrame, screenFrame)
+    }
+}
+
 /// System-wide floating toast used to confirm an action that originated
 /// outside the dock (e.g., copying from the menu bar popover, which itself
 /// dismisses immediately and can't host its own feedback view).
@@ -110,21 +175,21 @@ private struct HUDChip: View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
                 .font(.system(size: CGFloat(MAYNNotificationPillPresentation.iconSize), weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(MAYNTheme.hudForeground)
                 .frame(
                     width: CGFloat(MAYNNotificationPillPresentation.iconFrameSize),
                     height: CGFloat(MAYNNotificationPillPresentation.iconFrameSize)
                 )
             Text(message)
                 .font(.system(size: CGFloat(MAYNNotificationPillPresentation.titleFontSize), weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(MAYNTheme.hudForeground)
         }
         .padding(.horizontal, CGFloat(MAYNNotificationPillPresentation.horizontalPadding))
         .padding(.vertical, CGFloat(MAYNNotificationPillPresentation.verticalPadding))
-        .background(Color.black, in: Capsule())
+        .background(MAYNTheme.hudBackground, in: Capsule())
         .overlay {
             if MAYNNotificationPillPresentation.hasCapsuleStroke {
-                Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
+                Capsule().stroke(MAYNTheme.hairline, lineWidth: 1)
             }
         }
         .accessibilityElement(children: .ignore)

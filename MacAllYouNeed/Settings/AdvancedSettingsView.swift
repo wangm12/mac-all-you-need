@@ -10,6 +10,7 @@ struct AdvancedSettingsView: View {
     @AppStorage("betaUpdates", store: AppGroupSettings.defaults) private var beta = false
     @State private var confirmingReset = false
     @State private var confirmingFeatureReset = false
+    @State private var showsStorageSettings = false
 #if DEBUG
     @State private var confirmingMigrationReset = false
 #endif
@@ -43,6 +44,15 @@ struct AdvancedSettingsView: View {
                 ) {
                     Toggle("", isOn: $beta)
                         .labelsHidden()
+                }
+            }
+
+            MAYNSection(title: "Storage") {
+                MAYNSettingsRow(
+                    title: "Clipboard retention",
+                    subtitle: "Set history limits and run one-time cleanup."
+                ) {
+                    MAYNButton("Manage…") { showsStorageSettings = true }
                 }
             }
 
@@ -112,6 +122,10 @@ struct AdvancedSettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will disable every feature and remove all downloaded asset packs. Your user data (clipboard history, downloaded videos, snippets, model caches) will NOT be deleted.")
+        }
+        .sheet(isPresented: $showsStorageSettings) {
+            StorageSettingsView()
+                .frame(minWidth: 560, minHeight: 480)
         }
 #if DEBUG
         .confirmationDialog("Reset migration sentinel?", isPresented: $confirmingMigrationReset) {

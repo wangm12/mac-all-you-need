@@ -60,7 +60,7 @@ struct SnippetSheet: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MAYNTheme.danger)
             }
 
             HStack {

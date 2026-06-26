@@ -52,7 +52,7 @@ struct VoiceTrainingExamplesSection: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MAYNTheme.danger)
                     .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
             }
         }

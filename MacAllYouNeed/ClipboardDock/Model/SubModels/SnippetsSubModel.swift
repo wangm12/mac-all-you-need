@@ -29,7 +29,11 @@ final class SnippetsSubModel {
         }.value
         model.snippetItems = loaded
         if model.activeList == .snippets {
-            model.focusedIndex = loaded.isEmpty ? 0 : min(model.focusedIndex, loaded.count - 1)
+            model.focusedIndex = loaded.isEmpty
+                ? ClipboardDockModel.noCardFocus
+                : (model.focusedIndex < 0
+                    ? ClipboardDockModel.noCardFocus
+                    : min(model.focusedIndex, loaded.count - 1))
         }
     }
 

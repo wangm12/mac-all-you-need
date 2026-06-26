@@ -268,30 +268,7 @@ enum DashboardToolTilePresentation {
     }
 
     static func accent(for destination: MainAppDestination) -> Color {
-        switch destination {
-        case .clipboard:
-            Color(red: 0.10, green: 0.42, blue: 0.92)
-        case .voice:
-            Color(red: 0.64, green: 0.22, blue: 0.88)
-        case .downloads:
-            Color(red: 0.02, green: 0.58, blue: 0.42)
-        case .folderPreview:
-            Color(red: 0.86, green: 0.46, blue: 0.12)
-        case .snippets:
-            Color(red: 0.82, green: 0.18, blue: 0.36)
-        case .windowLayouts:
-            Color(red: 0.20, green: 0.48, blue: 0.72)
-        case .grabAnywhere:
-            Color(red: 0.24, green: 0.46, blue: 0.36)
-        case .windowHub:
-            Color(red: 0.10, green: 0.42, blue: 0.92)
-        case .finderHistory:
-            Color(red: 0.86, green: 0.46, blue: 0.12)
-        case .aiFileOrganizer:
-            Color(red: 0.02, green: 0.58, blue: 0.42)
-        case .dashboard, .settings, .voiceReminders:
-            .secondary
-        }
+        Color.primary
     }
 
     private static func windowLayoutsStatusText(settings: WindowControlSettings, axTrusted: Bool) -> String? {
@@ -377,6 +354,33 @@ enum MainSidebarBadgePresentation {
 
     static func inProgressDownloadCount(in records: [DownloadRecord]) -> Int {
         records.filter { $0.state == .running }.count
+    }
+}
+
+enum MainSidebarGroup: String, CaseIterable, Identifiable {
+    case core
+    case automation
+    case windows
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .core: "Core"
+        case .automation: "Automation"
+        case .windows: "Windows"
+        }
+    }
+
+    var destinations: [MainAppDestination] {
+        switch self {
+        case .core:
+            [.dashboard, .clipboard, .voice, .downloads]
+        case .automation:
+            [.aiFileOrganizer, .folderPreview]
+        case .windows:
+            [.windowLayouts, .grabAnywhere, .windowHub]
+        }
     }
 }
 

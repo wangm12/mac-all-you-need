@@ -492,7 +492,7 @@ final class ButtonContainerView: NSView {
 
     func configure(symbolName: String, role: DownloadIconButton.Role) {
         button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
-        button.contentTintColor = role == .destructive ? NSColor.systemRed : NSColor.secondaryLabelColor
+        button.contentTintColor = role == .destructive ? NSColor.labelColor : NSColor.secondaryLabelColor
         button.target = self
         button.action = #selector(handlePress)
         setAccessibilityElement(true)

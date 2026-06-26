@@ -13,8 +13,8 @@ final class VoiceInsertionAnchorPresenter {
         if panelController == nil {
             panelController = NonActivatingFloatingPanelController<VoiceInsertionAnchorView>(
                 styleMask: [.borderless, .nonactivatingPanel],
-                level: FloatingHUDWindowLayering.windowLevel,
-                collectionBehavior: FloatingHUDWindowLayering.collectionBehavior,
+                level: VoiceHUDWindowLayering.windowLevel,
+                collectionBehavior: VoiceHUDWindowLayering.collectionBehavior,
                 hasShadow: false,
                 backgroundColor: .clear,
                 showAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastIn),
@@ -26,7 +26,10 @@ final class VoiceInsertionAnchorPresenter {
             )
         }
         panelController?.present(rootView: view, size: size, animated: true)
-        panelController?.currentPanel?.isOpaque = false
+        if let panel = panelController?.currentPanel {
+            panel.isOpaque = false
+            VoiceHUDWindowLayering.orderFront(panel)
+        }
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
             self?.dismiss()

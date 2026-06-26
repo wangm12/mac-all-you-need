@@ -192,10 +192,7 @@ struct DockListTabStrip: View {
                 .overlay(Capsule().stroke(MAYNTheme.focusRing.opacity(0.95), lineWidth: 1.5))
                 .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 4)
         } else if active {
-            Capsule()
-                .fill(MAYNTheme.tabSelectedFill)
-                .overlay(Capsule().stroke(MAYNTheme.tabSelectedBorder, lineWidth: 1))
-                .shadow(color: MAYNTheme.tabSelectedShadow, radius: 2, x: 0, y: 1)
+            MAYNSelectionGlassBackground(isSelected: true, isHovering: false, shape: .capsule)
                 .matchedGeometryEffect(id: "dock-tab-selection", in: selectionNamespace)
         } else {
             Capsule()

@@ -104,14 +104,20 @@ final class SearchFilterSubModel {
         let apply = {
             self.model.items = newItems
             if self.model.activeList == .snippets {
-                self.model.focusedIndex = 0
+                self.model.focusedIndex = self.model.snippetItems.isEmpty
+                    ? ClipboardDockModel.noCardFocus
+                    : (self.model.snippetItems.indices.contains(self.model.focusedIndex)
+                        ? self.model.focusedIndex
+                        : ClipboardDockModel.noCardFocus)
                 self.model.selection.removeAll()
                 return
             }
             if let previousID, let newIndex = self.model.displayItems.firstIndex(where: { $0.id == previousID }) {
                 self.model.focusedIndex = newIndex
+            } else if self.model.displayItems.indices.contains(self.model.focusedIndex) {
+                // Keep the current card focus when it is still valid.
             } else {
-                self.model.focusedIndex = 0
+                self.model.focusedIndex = ClipboardDockModel.noCardFocus
             }
             self.model.selection.removeAll()
         }

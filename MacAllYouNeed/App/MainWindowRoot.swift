@@ -12,6 +12,8 @@ struct MainWindowRoot: View {
     @State private var showWhatsNew = false
     @State private var whatsNewReport: MigrationReport?
     @State private var isSidebarCollapsed = false
+    @State private var isCommandPalettePresented = false
+    @Namespace private var commandSearchNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(controller: AppController) {
@@ -27,25 +29,21 @@ struct MainWindowRoot: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            mainSidebar
-                .frame(width: isSidebarCollapsed ? MainSidebarMetrics.collapsedWidth : MainSidebarMetrics.expandedWidth)
-                .background(MAYNTheme.panel)
-
-            Rectangle()
-                .fill(MAYNTheme.divider)
-                .frame(width: 1)
-
-            detailView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(MAYNTheme.window)
-        }
+        mainWindowContent
+            .animation(MAYNMotion.paletteMorphAnimation(reduceMotion: reduceMotion), value: isCommandPalettePresented)
+        .background(MAYNTheme.window.ignoresSafeArea())
         .animation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion), value: isSidebarCollapsed)
         .tint(MAYNTheme.controlTint)
         .accentColor(.gray)
         .maynDismissTextFocusOnOutsideClick()
         .onAppear {
             selectedDestination = MainAppDestination.load(from: AppGroupSettings.defaults)
+        }
+        .background {
+            CommandPaletteKeyboardMonitor(
+                isPresented: $isCommandPalettePresented,
+                reduceMotion: reduceMotion
+            )
         }
         .onChange(of: selectedDestination) { _, destination in
             MainAppDestination.persist(destination, to: AppGroupSettings.defaults)
@@ -103,6 +101,46 @@ struct MainWindowRoot: View {
                     }
                 )
             }
+        }
+    }
+
+    private var mainWindowContent: some View {
+        ZStack {
+            NavigationSplitView {
+                mainSidebar
+                    .navigationSplitViewColumnWidth(
+                        min: MainSidebarMetrics.collapsedWidth,
+                        ideal: isSidebarCollapsed
+                            ? MainSidebarMetrics.collapsedWidth
+                            : MainSidebarMetrics.expandedWidth,
+                        max: isSidebarCollapsed
+                            ? MainSidebarMetrics.collapsedWidth
+                            : MainSidebarMetrics.expandedWidth
+                    )
+            } detail: {
+                detailView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(MAYNTheme.window)
+                    .toolbar(removing: .sidebarToggle)
+                    .toolbar { mainToolbarItems }
+            }
+            .toolbar(removing: .sidebarToggle)
+
+            CommandPaletteOverlay(
+                isPresented: $isCommandPalettePresented,
+                sections: CommandPaletteCatalog.sections(context: commandPaletteContext),
+                onSelect: handleCommandPaletteSelection,
+                searchNamespace: commandSearchNamespace
+            )
+            .opacity(isCommandPalettePresented ? 1 : 0)
+            .allowsHitTesting(isCommandPalettePresented)
+            .accessibilityHidden(!isCommandPalettePresented)
+        }
+    }
+
+    private func setCommandPalettePresented(_ presented: Bool) {
+        withAnimation(MAYNMotion.paletteMorphAnimation(reduceMotion: reduceMotion)) {
+            isCommandPalettePresented = presented
         }
     }
 
@@ -177,6 +215,84 @@ struct MainWindowRoot: View {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    private var commandPaletteContext: CommandPaletteContext {
+        let enabledDestinations = Set(
+            MainAppDestination.primarySidebarDestinations.filter { !isFeatureDisabled(for: $0) }
+                + [.settings]
+        )
+        let attention = CommandPaletteAttentionPlanner.snapshot(
+            registry: controller.runtime.registry,
+            stateFor: { statePublisher.state(for: $0) },
+            failedDownloadCount: controller.downloaderVM.rows.filter { $0.state == .failed }.count,
+            orphanCacheCount: unseenOrphanCaches().count
+        )
+        return CommandPaletteContext(
+            destination: selectedDestination,
+            hotkeys: HotkeyMapStore.load(),
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut.display,
+            voiceMode: VoiceActivationSettingsStore.load().mode,
+            failedDownloadCount: attention.failedDownloadCount,
+            enabledDestinations: enabledDestinations,
+            attention: attention
+        )
+    }
+
+    private func handleCommandPaletteSelection(_ action: CommandPaletteAction) {
+        guard isCommandPaletteActionAllowed(action) else { return }
+        switch action.kind {
+        case .openDestination(let destination):
+            openMainDestination(destination)
+        case .startDictation:
+            NSApp.activate(ignoringOtherApps: true)
+            Task { await controller.voiceCoordinator.startRecording() }
+        case .openVoiceTab(let tab):
+            AppGroupSettings.defaults.set(tab.rawValue, forKey: VoiceFunctionTab.storageKey)
+            openMainDestination(.voice)
+        case .toggleVoiceActivationMode:
+            var activation = VoiceActivationSettingsStore.load()
+            activation.mode = activation.mode == .hold ? .toggle : .hold
+            try? controller.applyVoiceActivationSettings(activation)
+        case .reviewFailedDownloads:
+            openMainDestination(.downloads)
+        case .openClipboardHistory:
+            AppGroupSettings.defaults.set(ClipboardFunctionTab.history.rawValue, forKey: ClipboardFunctionTab.storageKey)
+            openMainDestination(.clipboard)
+        case .openClipboardDock:
+            NSApp.activate(ignoringOtherApps: true)
+            controller.clipboardDock.show()
+        case .openClipboardSnippets:
+            AppGroupSettings.defaults.set(ClipboardFunctionTab.snippets.rawValue, forKey: ClipboardFunctionTab.storageKey)
+            openMainDestination(.clipboard)
+        case .openPermissionsSettings:
+            openSettingsInMain(.permissions)
+        case .reviewOrphanCaches:
+            let orphans = unseenOrphanCaches()
+            guard !orphans.isEmpty else { return }
+            pendingOrphans = orphans
+        case .completeVoiceSetup:
+            if !PermissionGateProbe.isGranted(.microphone) || !PermissionGateProbe.isGranted(.accessibility) {
+                controller.showFeatureOnboardingIfNeeded(for: .voice)
+            }
+            AppGroupSettings.defaults.set(VoiceFunctionTab.settings.rawValue, forKey: VoiceFunctionTab.storageKey)
+            openMainDestination(.voice)
+        }
+    }
+
+    private func isCommandPaletteActionAllowed(_ action: CommandPaletteAction) -> Bool {
+        switch action.kind {
+        case .openDestination(let destination):
+            return !isFeatureDisabled(for: destination)
+        case .startDictation, .openVoiceTab, .toggleVoiceActivationMode, .completeVoiceSetup:
+            return !isFeatureDisabled(for: .voice)
+        case .openClipboardHistory, .openClipboardDock, .openClipboardSnippets:
+            return !isFeatureDisabled(for: .clipboard)
+        case .reviewFailedDownloads:
+            return !isFeatureDisabled(for: .downloads)
+        case .openPermissionsSettings, .reviewOrphanCaches:
+            return true
+        }
+    }
+
     // MARK: Feature gating helpers
 
     private func isFeatureDisabled(for destination: MainAppDestination) -> Bool {
@@ -185,40 +301,63 @@ struct MainWindowRoot: View {
         }
     }
 
+    private func unseenOrphanCaches() -> [OrphanCacheScanner.Orphan] {
+        let scanner = OrphanCacheScanner.makeForRegistry(controller.runtime.registry)
+        return OrphanCacheDismissal.unseen(scanner.scan())
+    }
+
+    @ToolbarContentBuilder
+    private var mainToolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            CommandPaletteToolbarSearch(
+                isSidebarCollapsed: isSidebarCollapsed,
+                isPalettePresented: isCommandPalettePresented,
+                searchNamespace: commandSearchNamespace,
+                onOpen: { setCommandPalettePresented(true) }
+            )
+        }
+        if !isCommandPalettePresented {
+            ToolbarItem(placement: .primaryAction) {
+                MainAttentionBadge(
+                    controller: controller,
+                    onReviewDownloads: {
+                        openMainDestination(.downloads)
+                    }
+                )
+            }
+        }
+    }
+
     private var mainSidebar: some View {
         VStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 6) {
-            HStack {
-                if !isSidebarCollapsed {
-                    Spacer(minLength: 0)
-                }
-                Button {
-                    withAnimation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion)) {
-                        isSidebarCollapsed.toggle()
-                    }
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar")
-            }
-            .frame(height: 34)
-            .frame(maxWidth: .infinity)
+            sidebarCollapseButton
+                .padding(.horizontal, 4)
+                .padding(.bottom, 2)
 
-            ForEach(MainSidebarDestinationPresentation.renderedDestinations()) { destination in
-                let isDisabled = isFeatureDisabled(for: destination)
-                MainSidebarButton(
-                    destination: destination,
-                    isSelected: selection.wrappedValue == destination,
-                    isDisabled: isDisabled,
-                    isCollapsed: isSidebarCollapsed,
-                    badge: MainSidebarBadgePresentation.badgeText(
-                        for: destination,
-                        records: controller.downloaderVM.rows
-                    )
-                ) {
-                    selection.wrappedValue = destination
+            ForEach(MainSidebarGroup.allCases) { group in
+                if !isSidebarCollapsed {
+                    Text(group.title)
+                        .font(MAYNTypography.sidebarGroup())
+                        .kerning(MAYNTypography.sidebarGroupTracking)
+                        .foregroundStyle(.tertiary)
+                        .textCase(.uppercase)
+                        .padding(.horizontal, 4)
+                        .padding(.top, group == .core ? 0 : 8)
+                }
+                ForEach(group.destinations) { destination in
+                    let isDisabled = isFeatureDisabled(for: destination)
+                    MainSidebarButton(
+                        destination: destination,
+                        isSelected: selection.wrappedValue == destination,
+                        isDisabled: isDisabled,
+                        isCollapsed: isSidebarCollapsed,
+                        badge: MainSidebarBadgePresentation.badgeText(
+                            for: destination,
+                            records: controller.downloaderVM.rows
+                        )
+                    ) {
+                        selection.wrappedValue = destination
+                    }
                 }
             }
 
@@ -235,13 +374,34 @@ struct MainWindowRoot: View {
             }
         }
         .padding(.horizontal, isSidebarCollapsed ? 8 : 10)
+        .padding(.top, 10)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .toolbar(removing: .sidebarToggle)
+    }
+
+    private var sidebarCollapseButton: some View {
+        HStack {
+            if !isSidebarCollapsed { Spacer(minLength: 0) }
+            Button {
+                withAnimation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion)) {
+                    isSidebarCollapsed.toggle()
+                }
+            } label: {
+                Image(systemName: isSidebarCollapsed ? "sidebar.right" : "sidebar.left")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar")
+            if isSidebarCollapsed { Spacer(minLength: 0) }
+        }
     }
 }
 
 enum MainSidebarMetrics {
-    static let expandedWidth: CGFloat = 220
+    static let expandedWidth: CGFloat = MAYNControlMetrics.sidebarWidth
     static let collapsedWidth: CGFloat = 56
 }
 
@@ -251,6 +411,11 @@ enum MainWindowRootPresentation {
     static let disabledSidebarItemsAreNonClickable = true
     static let disabledSidebarItemsIgnoreHover = true
     static let sidebarCollapsesToIconRail = true
+    /// Native `NavigationSplitView` sidebar toggles are removed; one in-sidebar control drives icon-rail collapse.
+    static let removesNativeSidebarToggle = true
+    static let ownsSidebarCollapseControlInSidebarColumn = true
+    /// Main shell uses `NavigationSplitView` so sidebar/toolbar pick up system Liquid Glass.
+    static let usesNavigationSplitView = true
 }
 
 /// Test contract: maps each `MainAppDestination` to the typename of the View
@@ -284,6 +449,8 @@ private struct MainSidebarButton: View {
     let badge: String?
     let action: () -> Void
     @State private var isHovering = false
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -294,16 +461,28 @@ private struct MainSidebarButton: View {
                     expandedLabel
                 }
             }
-            .foregroundStyle(isSelected && !isDisabled ? .primary : .secondary)
+            .foregroundStyle(
+                MAYNSelectionInversionLabelStyle.foreground(
+                    isSelected: isSelected && !isDisabled,
+                    isDisabled: isDisabled,
+                    scheme: colorScheme
+                )
+            )
+            .fontWeight(MAYNSelectionInversionLabelStyle.weight(isSelected: isSelected && !isDisabled))
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, isCollapsed ? 0 : 10)
-            .padding(.vertical, 7)
-            .background(rowBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .padding(.horizontal, isCollapsed ? 0 : 12)
+            .frame(height: MAYNControlMetrics.sidebarItemHeight)
+            .maynInversionSelectionBackground(
+                isSelected: isSelected && !isDisabled,
+                isHovering: isHovering && !isDisabled,
+                shape: .rounded(MAYNControlMetrics.sidebarItemRadius)
+            )
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .help(destination.title)
         .onHover { isHovering = $0 }
+        .animation(MAYNMotion.sidebarSelectionAnimation(reduceMotion: reduceMotion), value: isSelected)
         .accessibilityLabel(accessibilityLabel)
     }
 
@@ -311,16 +490,25 @@ private struct MainSidebarButton: View {
         HStack(spacing: 9) {
             destinationIcon
             Text(destination.title)
-                .font(.callout)
+                .font(.system(size: 13.5, weight: .medium))
                 .lineLimit(1)
             Spacer(minLength: 8)
-            if let badge {
+            if isDisabled {
+                Text("Setup")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(MAYNTheme.textTertiary(colorScheme))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .overlay {
+                        Capsule().strokeBorder(MAYNTheme.hairline, lineWidth: 1)
+                    }
+            } else if let badge {
                 Text(badge)
                     .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
                     .padding(.horizontal, 6)
                     .frame(minWidth: 18, minHeight: 18)
-                    .background(MAYNTheme.progress, in: Capsule())
+                    .background(MAYNTheme.statusMutedFill, in: Capsule())
                     .accessibilityLabel("\(badge) downloads in progress")
             }
         }
@@ -345,10 +533,10 @@ private struct MainSidebarButton: View {
             } else if isCollapsed, let badge {
                 Text(badge)
                     .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
                     .padding(.horizontal, 4)
                     .frame(minWidth: 14, minHeight: 14)
-                    .background(MAYNTheme.progress, in: Capsule())
+                    .background(MAYNTheme.statusMutedFill, in: Capsule())
                     .offset(x: 6, y: -6)
                     .accessibilityLabel("\(badge) downloads in progress")
             }
@@ -361,13 +549,6 @@ private struct MainSidebarButton: View {
         }
         return destination.title
     }
-
-    private var rowBackground: Color {
-        if isDisabled { return .clear }
-        if isSelected && !isDisabled { return Color.primary.opacity(0.14) }
-        if isHovering { return MAYNTheme.hover }
-        return .clear
-    }
 }
 
 private struct MainSidebarSettingsButton: View {
@@ -375,6 +556,8 @@ private struct MainSidebarSettingsButton: View {
     let isSelected: Bool
     let action: () -> Void
     @State private var isHovering = false
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -386,24 +569,204 @@ private struct MainSidebarSettingsButton: View {
                         .frame(maxWidth: .infinity)
                 } else {
                     Label("Settings", systemImage: "gearshape")
-                        .font(.callout)
+                        .font(.system(size: 13.5, weight: .medium))
                 }
             }
-            .foregroundStyle(isSelected ? .primary : .secondary)
+            .foregroundStyle(
+                MAYNSelectionInversionLabelStyle.foreground(
+                    isSelected: isSelected,
+                    isDisabled: false,
+                    scheme: colorScheme
+                )
+            )
+            .fontWeight(MAYNSelectionInversionLabelStyle.weight(isSelected: isSelected))
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
-            .padding(.horizontal, isCollapsed ? 0 : 10)
-            .padding(.vertical, 7)
-            .background(rowBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .padding(.horizontal, isCollapsed ? 0 : 12)
+            .frame(height: MAYNControlMetrics.sidebarItemHeight)
+            .maynInversionSelectionBackground(
+                isSelected: isSelected,
+                isHovering: isHovering,
+                shape: .rounded(MAYNControlMetrics.sidebarItemRadius)
+            )
         }
         .buttonStyle(.plain)
         .help("Settings")
         .onHover { isHovering = $0 }
+        .animation(MAYNMotion.sidebarSelectionAnimation(reduceMotion: reduceMotion), value: isSelected)
+    }
+}
+
+private struct MainAttentionBadge: View {
+    let controller: AppController
+    let onReviewDownloads: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var showsPopover = false
+    @State private var hoverWorkItem: DispatchWorkItem?
+
+    var body: some View {
+        switch controller.voiceCoordinator.state {
+        case .recording:
+            listeningPill
+        default:
+            if failedDownloadCount > 0 {
+                attentionPill
+            }
+        }
     }
 
-    private var rowBackground: Color {
-        if isSelected { return Color.primary.opacity(0.14) }
-        if isHovering { return MAYNTheme.hover }
-        return .clear
+    private var failedDownloadCount: Int {
+        controller.downloaderVM.rows.filter { $0.state == .failed }.count
+    }
+
+    private var listeningPill: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(MAYNTheme.textPrimary(colorScheme))
+                .frame(width: 6, height: 6)
+            Text("Listening")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+        }
+        .padding(.horizontal, 12)
+        .frame(height: MAYNControlMetrics.attentionPillHeight)
+        .maynGlassSurface(.panel, cornerRadius: MAYNControlMetrics.attentionPillHeight / 2, showsShadow: false)
+        .overlay {
+            Capsule().strokeBorder(MAYNTheme.attentionPillBorder(colorScheme), lineWidth: 1)
+        }
+        .accessibilityLabel("Voice listening")
+    }
+
+    private var attentionPill: some View {
+        Button(action: onReviewDownloads) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(MAYNTheme.textPrimary(colorScheme))
+                    .frame(width: 6, height: 6)
+                Text("Review \(failedDownloadCount) downloads")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: MAYNControlMetrics.attentionPillHeight)
+        }
+        .buttonStyle(.plain)
+        .maynGlassSurface(.panel, cornerRadius: MAYNControlMetrics.attentionPillHeight / 2, showsShadow: false)
+        .overlay {
+            Capsule().strokeBorder(MAYNTheme.attentionPillBorder(colorScheme), lineWidth: 1)
+        }
+        .onHover(perform: handleAttentionHover)
+        .popover(isPresented: $showsPopover, arrowEdge: .bottom) {
+            attentionPopover
+        }
+        .help("Open downloads needing attention")
+        .accessibilityLabel("Review \(failedDownloadCount) downloads")
+    }
+
+    private var attentionPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("\(failedDownloadCount) downloads failed")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+            Text("Open the queue to retry or remove failed items.")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
+                .fixedSize(horizontal: false, vertical: true)
+            MAYNButton("Review", role: .primary) {
+                showsPopover = false
+                onReviewDownloads()
+            }
+        }
+        .padding(14)
+        .frame(width: 240)
+    }
+
+    private func handleAttentionHover(_ hovering: Bool) {
+        hoverWorkItem?.cancel()
+        if hovering {
+            let work = DispatchWorkItem { showsPopover = true }
+            hoverWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + MAYNMotionDuration.badgePopoverDelay, execute: work)
+        } else {
+            showsPopover = false
+        }
+    }
+}
+
+private struct CommandPaletteKeyboardMonitor: View {
+    @Binding var isPresented: Bool
+    let reduceMotion: Bool
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .background(
+                CommandPaletteKeyboardMonitorBridge(
+                    isPresented: $isPresented,
+                    reduceMotion: reduceMotion
+                )
+            )
+    }
+}
+
+private struct CommandPaletteKeyboardMonitorBridge: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let reduceMotion: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        context.coordinator.isPresented = $isPresented
+        context.coordinator.reduceMotion = reduceMotion
+        context.coordinator.attach(to: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.isPresented = $isPresented
+        context.coordinator.reduceMotion = reduceMotion
+        context.coordinator.attach(to: nsView)
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator {
+        var isPresented: Binding<Bool>?
+        var reduceMotion = false
+        private weak var view: NSView?
+        private var monitor: NSEventMonitorHandle?
+
+        func attach(to view: NSView) {
+            self.view = view
+            guard monitor == nil else { return }
+            monitor = NSEventMonitorHandle(local: [.keyDown]) { [weak self] event in
+                guard let self else { return event }
+                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "k" {
+                    guard let isPresented = self.isPresented else { return event }
+                    let next = !isPresented.wrappedValue
+                    if let animation = MAYNMotion.paletteMorphAnimation(reduceMotion: self.reduceMotion) {
+                        withAnimation(animation) {
+                            isPresented.wrappedValue = next
+                        }
+                    } else {
+                        isPresented.wrappedValue = next
+                    }
+                    return nil
+                }
+                return event
+            }
+        }
+
+        func detach() {
+            monitor = nil
+            view = nil
+        }
     }
 }
 
@@ -417,7 +780,7 @@ enum DashboardRenderingPresentation {
     static let usesStaticStartupSummary = false
     static let usesToolCards = true
     static let usesPlainRows = false
-    static let toolCardHeight: CGFloat = 170
+    static let toolCardHeight: CGFloat = 168
 }
 
 enum MainClipboardPreviewKind: Equatable {
@@ -640,6 +1003,7 @@ struct ClipboardHistoryIconView: View {
             if let icon = appIcons.icon(for: bundleID) {
                 Image(nsImage: icon)
                     .resizable()
+                    .saturation(0.75)
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .overlay(
@@ -677,7 +1041,7 @@ struct MainHeaderShortcutDisplay: View {
                 if let issueMessage {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(MAYNTheme.warning)
+                        .foregroundStyle(MAYNTheme.strongBorder)
                         .accessibilityLabel(issueMessage)
                 }
             }

@@ -34,7 +34,7 @@ final class MainWindowController {
 
     private func makeWindow(controller: AppController) -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 750),
+            contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -42,7 +42,9 @@ final class MainWindowController {
         window.title = "Mac All You Need"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.minSize = NSSize(width: 820, height: 560)
+        window.isOpaque = true
+        window.backgroundColor = NSColor.windowBackgroundColor
+        window.minSize = NSSize(width: 920, height: 640)
         window.center()
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(

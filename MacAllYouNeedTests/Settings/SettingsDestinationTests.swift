@@ -189,6 +189,36 @@ final class SettingsDestinationTests: XCTestCase {
         )
     }
 
+    func testReturnShortcutDefersWhileIMEIsComposing() {
+        XCTAssertFalse(
+            MAYNTextEditingShortcutPolicy.shouldConsumeReturnForAppShortcut(isIMEComposing: true)
+        )
+        XCTAssertTrue(
+            MAYNTextEditingShortcutPolicy.shouldConsumeReturnForAppShortcut(isIMEComposing: false)
+        )
+    }
+
+    func testSpaceShortcutDefersWhileIMEIsComposingOrTextFieldIsFocused() {
+        XCTAssertFalse(
+            MAYNTextEditingShortcutPolicy.shouldConsumeSpaceForAppShortcut(
+                isIMEComposing: true,
+                isTextEditingFirstResponder: false
+            )
+        )
+        XCTAssertFalse(
+            MAYNTextEditingShortcutPolicy.shouldConsumeSpaceForAppShortcut(
+                isIMEComposing: false,
+                isTextEditingFirstResponder: true
+            )
+        )
+        XCTAssertTrue(
+            MAYNTextEditingShortcutPolicy.shouldConsumeSpaceForAppShortcut(
+                isIMEComposing: false,
+                isTextEditingFirstResponder: false
+            )
+        )
+    }
+
     func testSharedControlMetricsKeepInputsAndInlineTabsAligned() {
         XCTAssertEqual(MAYNControlMetrics.controlHeight, 30)
         XCTAssertEqual(MAYNControlMetrics.inlineTabHeight, MAYNControlMetrics.controlHeight)

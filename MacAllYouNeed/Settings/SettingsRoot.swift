@@ -280,14 +280,18 @@ struct DisabledFeatureBanner: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "info.circle")
-                .foregroundStyle(MAYNTheme.warning)
+                .foregroundStyle(.secondary)
             Text("This feature is disabled. Settings here will apply when you re-enable it.")
                 .font(.callout)
             Spacer()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(MAYNTheme.warning.opacity(0.12))
+        .background(MAYNTheme.panel)
+        .overlay(
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
+                .stroke(MAYNTheme.hairline, lineWidth: 1)
+        )
     }
 }
 

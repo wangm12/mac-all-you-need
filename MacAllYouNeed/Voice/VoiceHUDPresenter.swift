@@ -99,8 +99,7 @@ final class VoiceHUDPresenter {
     func showError(_ message: String, onDismiss: @escaping () -> Void) {
         cancelSlowProcessingWatch()
         cancelWarmupCaptionTask()
-        showBlockingAlertIfNeeded(for: message)
-        present(.error(message), onPrimary: onDismiss)
+        presentFailure(message, onPrimary: onDismiss)
     }
 
     func showClipboardFallbackNotice() {
@@ -258,8 +257,7 @@ final class VoiceHUDPresenter {
         cancelSlowProcessingWatch()
         cancelWarmupCaptionTask()
         stopLevelUpdates()
-        showBlockingAlertIfNeeded(for: message)
-        present(.error(message), onPrimary: makeDismissAction(onStateReset: onStateReset))
+        presentFailure(message, onPrimary: makeDismissAction(onStateReset: onStateReset))
         errorDismissTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(VoiceHUDCopy.Timing.terminalAutoDismiss))
             guard let self else { return }
@@ -297,6 +295,17 @@ final class VoiceHUDPresenter {
     }
 
     // MARK: - Private
+
+    private func presentFailure(_ message: String, onPrimary: (() -> Void)?) {
+        chrome.alerts.dismiss()
+        present(.error(message), onPrimary: onPrimary)
+        if let caption = VoiceHUDCopy.captionMessage(forFailure: message) {
+            showCaption(caption, priority: .terminal, duration: nil)
+        } else {
+            showBlockingAlertIfNeeded(for: message)
+        }
+        chrome.syncAlertAnchor()
+    }
 
     private func present(
         _ state: MiniVoiceHUD.State,

@@ -114,13 +114,40 @@ enum VoiceHUDCopy {
 
     // MARK: - Pill label mapping
 
+    /// Failures that read better as a caption chip above the hub pill.
+    static func routesFailureMessageToCaptionAbovePill(_ message: String) -> Bool {
+        isTranscribeFailure(message) || isAvailabilityFailure(message)
+    }
+
+    static func isAvailabilityFailure(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("no asr model")
+            || lower.contains("voice unavailable")
+            || lower.contains("download a model")
+            || (lower.contains("model") && lower.contains("unavailable"))
+    }
+
+    static func isTranscribeFailure(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("couldn't transcribe")
+            || (lower.contains("asr") && lower.contains("fail"))
+    }
+
+    static func captionMessage(forFailure message: String) -> String? {
+        guard routesFailureMessageToCaptionAbovePill(message) else { return nil }
+        return pillLabel(for: message)
+    }
+
     static func pillLabel(for message: String) -> String {
         let lower = message.lowercased()
         if lower.contains("permission") {
             if lower.contains("accessibility") { return Pill.accessibilityNeeded }
             return Pill.micPermission
         }
-        if lower.contains("voice unavailable") || lower.contains("model") && lower.contains("unavailable") {
+        if lower.contains("voice unavailable")
+            || lower.contains("no asr model")
+            || lower.contains("download a model")
+            || lower.contains("model") && lower.contains("unavailable") {
             return Pill.voiceUnavailable
         }
         if lower.contains("microphone") || lower.contains("mic unavailable") {
@@ -160,8 +187,8 @@ enum VoiceHUDCopy {
         if lower.contains("paste") && (lower.contains("clipboard") || lower.contains("⌘v")) {
             return (Blocking.pasteFallbackTitle, Blocking.pasteFallbackBody)
         }
-        if lower.contains("couldn't transcribe") || lower.contains("asr") {
-            return (Blocking.transcribeFailedTitle, Blocking.transcribeFailedBody)
+        if isTranscribeFailure(message) {
+            return nil
         }
         if lower.contains("secure input") {
             return (Blocking.secureInputTitle, Blocking.secureInputBody)

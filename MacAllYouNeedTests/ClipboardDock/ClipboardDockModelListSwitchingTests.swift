@@ -120,7 +120,7 @@ final class ClipboardDockModelListSwitchingTests: XCTestCase {
 
         XCTAssertEqual(model.activeList, .pinboard(pinned.id))
         XCTAssertEqual(model.search, "")
-        XCTAssertEqual(model.focusedIndex, 0)
+        XCTAssertEqual(model.focusedIndex, ClipboardDockModel.noCardFocus)
     }
 
     func testHistorySearchPassesQueryToXPC() async {

@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mayn Voice HUD — Liquid Glass V3</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
+    --ease-in: cubic-bezier(.7, 0, .84, 0);
+    --hud-w: 392px;
+    --hud-h: 58px;
+    --hud-radius: 999px;
+    --slot: 64px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; font-family: var(--font); }
+  body {
+    background: #f5f5f2;
+    color: #0b0b0b;
+  }
+
+  .page {
+    min-height: 100vh;
+    padding: 28px;
+    display: grid;
+    gap: 22px;
+  }
+
+  .header {
+    max-width: 1120px;
+    width: 100%;
+    margin: 0 auto;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+  }
+
+  .header h1 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    line-height: 1.1;
+    letter-spacing: -0.045em;
+    font-weight: 760;
+  }
+
+  .header p {
+    margin: 0;
+    max-width: 760px;
+    color: rgba(0,0,0,.54);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.45;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,.1);
+    background: rgba(255,255,255,.64);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 8px 22px rgba(0,0,0,.06);
+    backdrop-filter: blur(18px) saturate(1.25);
+    -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  }
+
+  .seg button {
+    border: 0;
+    border-radius: 999px;
+    height: 28px;
+    padding: 0 11px;
+    font: 650 12px var(--font);
+    color: rgba(0,0,0,.58);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .seg button.active {
+    color: #fff;
+    background: #090909;
+    box-shadow: 0 1px 2px rgba(0,0,0,.15);
+  }
+
+  .stage-grid {
+    max-width: 1120px;
+    width: 100%;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+
+  .stage-card {
+    position: relative;
+    min-height: 352px;
+    overflow: hidden;
+    border-radius: 28px;
+    border: 1px solid rgba(0,0,0,.1);
+    box-shadow: 0 24px 70px rgba(0,0,0,.12), inset 0 1px 0 rgba(255,255,255,.76);
+  }
+
+  .stage-card.light {
+    background:
+      radial-gradient(circle at 50% 26%, rgba(255,255,255,.96), rgba(255,255,255,.24) 44%, rgba(246,246,242,.72) 78%),
+      linear-gradient(180deg, #fafaf7, #ecece7);
+  }
+
+  .stage-card.dark {
+    background:
+      radial-gradient(circle at 50% 25%, rgba(78,78,82,.34), rgba(12,12,13,.18) 42%, rgba(5,5,6,.92) 78%),
+      linear-gradient(180deg, #141416, #050506);
+    border-color: rgba(255,255,255,.13);
+    box-shadow: 0 24px 80px rgba(0,0,0,.44), inset 0 1px 0 rgba(255,255,255,.12);
+  }
+
+  .stage-label {
+    position: absolute;
+    left: 20px;
+    top: 18px;
+    z-index: 3;
+    font-size: 11px;
+    font-weight: 760;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: rgba(0,0,0,.34);
+  }
+  .dark .stage-label { color: rgba(255,255,255,.35); }
+
+  .desktop-lines {
+    position: absolute;
+    inset: 0;
+    opacity: .74;
+    pointer-events: none;
+  }
+
+  .desktop-lines::before,
+  .desktop-lines::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(to right, transparent 0 19%, rgba(0,0,0,.08) 19.15% 19.28%, transparent 19.45% 49.5%, rgba(0,0,0,.07) 49.65% 49.8%, transparent 49.95% 79.6%, rgba(0,0,0,.06) 79.75% 79.9%, transparent 80.05%),
+      linear-gradient(to bottom, transparent 0 28%, rgba(0,0,0,.065) 28.2% 28.55%, transparent 28.75% 60%, rgba(0,0,0,.055) 60.2% 60.55%, transparent 60.75%);
+  }
+  .dark .desktop-lines::before,
+  .dark .desktop-lines::after {
+    background:
+      linear-gradient(to right, transparent 0 19%, rgba(255,255,255,.08) 19.15% 19.28%, transparent 19.45% 49.5%, rgba(255,255,255,.07) 49.65% 49.8%, transparent 49.95% 79.6%, rgba(255,255,255,.06) 79.75% 79.9%, transparent 80.05%),
+      linear-gradient(to bottom, transparent 0 28%, rgba(255,255,255,.07) 28.2% 28.55%, transparent 28.75% 60%, rgba(255,255,255,.06) 60.2% 60.55%, transparent 60.75%);
+  }
+  .desktop-lines::after {
+    inset: 54px 44px auto 44px;
+    height: 246px;
+    border-radius: 22px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.42), rgba(255,255,255,.16)),
+      repeating-linear-gradient(to bottom, transparent 0 55px, rgba(0,0,0,.06) 56px, transparent 57px);
+    filter: blur(.1px);
+  }
+  .dark .desktop-lines::after {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.015)),
+      repeating-linear-gradient(to bottom, transparent 0 55px, rgba(255,255,255,.05) 56px, transparent 57px);
+  }
+
+  .content-bars {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .content-bars span {
+    position: absolute;
+    left: var(--x);
+    top: var(--y);
+    width: var(--w);
+    height: var(--h);
+    border-radius: 999px;
+    background: rgba(0,0,0,.055);
+  }
+  .dark .content-bars span { background: rgba(255,255,255,.055); }
+
+  .hud-anchor {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    z-index: 4;
+  }
+
+  .hud {
+    --fg: #1d1d1f;
+    --muted: rgba(29,29,31,.44);
+    --rim: rgba(255,255,255,.9);
+    --rim-soft: rgba(0,0,0,.10);
+    --progress: rgba(0,0,0,.078);
+    --action-bg: rgba(255,255,255,.48);
+    --action-rim: rgba(0,0,0,.15);
+    --action-shadow: rgba(0,0,0,.14);
+    position: relative;
+    width: var(--hud-w);
+    height: var(--hud-h);
+    border-radius: var(--hud-radius);
+    color: var(--fg);
+    display: grid;
+    grid-template-columns: var(--slot) 1fr var(--slot);
+    align-items: center;
+    overflow: hidden;
+    isolation: isolate;
+    transform-origin: center;
+    animation: hudIn 150ms var(--ease-out) both;
+
+    background:
+      radial-gradient(120% 140% at 50% -36%, rgba(255,255,255,.98) 0%, rgba(255,255,255,.76) 38%, rgba(255,255,255,.50) 84%),
+      linear-gradient(180deg, rgba(255,255,255,.68), rgba(249,249,246,.53));
+    border: 1px solid rgba(255,255,255,.88);
+    backdrop-filter: blur(30px) saturate(1.48) brightness(1.04);
+    -webkit-backdrop-filter: blur(30px) saturate(1.48) brightness(1.04);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.96),
+      inset 0 -1px 0 rgba(0,0,0,.105),
+      0 1px 2px rgba(0,0,0,.16),
+      0 18px 48px rgba(0,0,0,.20),
+      0 42px 100px rgba(0,0,0,.12);
+  }
+
+  .dark .hud {
+    --fg: rgba(255,255,255,.94);
+    --muted: rgba(255,255,255,.48);
+    --rim: rgba(255,255,255,.16);
+    --rim-soft: rgba(0,0,0,.56);
+    --progress: rgba(255,255,255,.108);
+    --action-bg: rgba(255,255,255,.08);
+    --action-rim: rgba(255,255,255,.16);
+    --action-shadow: rgba(0,0,0,.54);
+    background:
+      radial-gradient(120% 140% at 50% -32%, rgba(255,255,255,.22) 0%, rgba(255,255,255,.12) 28%, rgba(255,255,255,.035) 78%),
+      linear-gradient(180deg, rgba(52,52,55,.58), rgba(22,22,24,.50));
+    border: 1px solid rgba(255,255,255,.18);
+    backdrop-filter: blur(32px) saturate(1.35) brightness(1.05);
+    -webkit-backdrop-filter: blur(32px) saturate(1.35) brightness(1.05);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.16),
+      inset 0 -1px 0 rgba(0,0,0,.55),
+      0 1px 2px rgba(0,0,0,.55),
+      0 20px 56px rgba(0,0,0,.56),
+      0 44px 110px rgba(0,0,0,.42);
+  }
+
+  .hud::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.78) 0%, rgba(255,255,255,.18) 8%, transparent 28%, transparent 72%, rgba(0,0,0,.07) 100%),
+      radial-gradient(80px 36px at 18% 0%, rgba(255,255,255,.62), transparent 80%),
+      radial-gradient(100px 42px at 82% 0%, rgba(255,255,255,.36), transparent 80%);
+    opacity: .72;
+    box-shadow:
+      inset 0 0 0 1px var(--rim),
+      inset 0 -1px 0 var(--rim-soft);
+  }
+  .dark .hud::before {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.18) 0%, rgba(255,255,255,.08) 9%, transparent 34%, transparent 72%, rgba(0,0,0,.38) 100%),
+      radial-gradient(76px 34px at 18% 0%, rgba(255,255,255,.24), transparent 80%),
+      radial-gradient(110px 42px at 82% 0%, rgba(255,255,255,.12), transparent 80%);
+    opacity: .86;
+  }
+
+  .hud::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+      linear-gradient(110deg, transparent 0 26%, rgba(255,255,255,.26) 38%, transparent 50% 100%);
+    opacity: .36;
+    transform: translateX(-24%);
+  }
+
+  .progress-fill {
+    position: absolute;
+    z-index: 0;
+    inset: 0 auto 0 0;
+    width: var(--p, 0%);
+    border-radius: inherit;
+    background:
+      linear-gradient(90deg, var(--progress), rgba(255,255,255,.08));
+    transition: width 360ms var(--ease-out);
+    box-shadow: inset -1px 0 0 rgba(255,255,255,.18);
+  }
+  .dark .progress-fill {
+    background: linear-gradient(90deg, rgba(255,255,255,.13), rgba(255,255,255,.045));
+    box-shadow: inset -1px 0 0 rgba(255,255,255,.06);
+  }
+
+  .hud.transcribing .progress-fill {
+    animation: processingWipe 2100ms var(--ease-out) infinite alternate;
+  }
+
+  .slot,
+  .label,
+  .action {
+    position: relative;
+    z-index: 4;
+  }
+
+  .slot {
+    width: var(--slot);
+    height: var(--hud-h);
+    display: grid;
+    place-items: center;
+  }
+  .slot.left { padding-left: 8px; }
+  .slot.right { padding-right: 8px; }
+
+  .label {
+    min-width: 0;
+    text-align: center;
+    font-size: 22px;
+    font-weight: 740;
+    letter-spacing: -0.042em;
+    line-height: 1;
+    color: var(--fg);
+    text-shadow: 0 1px 0 rgba(255,255,255,.18);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transform: translateY(-.5px);
+  }
+  .dark .label { text-shadow: 0 1px 0 rgba(0,0,0,.35); }
+  .label.small { font-size: 20px; letter-spacing: -0.038em; }
+
+  .wave {
+    width: 44px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--muted);
+  }
+
+  .wave span {
+    width: 4px;
+    height: var(--h);
+    border-radius: 999px;
+    background: currentColor;
+    transform-origin: center;
+    animation: wave 820ms ease-in-out infinite;
+    animation-delay: var(--d);
+  }
+  .transcribing .wave span { animation: none; opacity: .45; }
+  .inserted .wave span { animation: none; opacity: .6; }
+
+  .state-icon {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    color: var(--fg);
+    opacity: .86;
+  }
+  .state-icon svg { width: 23px; height: 23px; display: block; overflow: visible; }
+  .state-icon .stroke { stroke: currentColor; stroke-width: 2.55; fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .state-icon .fill { fill: currentColor; }
+
+  .action {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--action-rim);
+    display: grid;
+    place-items: center;
+    color: var(--fg);
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255,255,255,.58), rgba(255,255,255,.10) 46%, transparent 100%),
+      var(--action-bg);
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.56),
+      inset 0 -1px 0 rgba(0,0,0,.12),
+      0 1px 2px var(--action-shadow);
+  }
+  .dark .action {
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255,255,255,.18), rgba(255,255,255,.05) 48%, transparent 100%),
+      var(--action-bg);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.13),
+      inset 0 -1px 0 rgba(0,0,0,.45),
+      0 1px 2px var(--action-shadow);
+  }
+  .action svg {
+    width: 20px;
+    height: 20px;
+    display: block;
+    overflow: visible;
+  }
+  .action .stroke,
+  .action .ring {
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    vector-effect: non-scaling-stroke;
+  }
+  .action .stroke { stroke-width: 2.2; }
+  .action .ring { stroke-width: 1.8; opacity: .34; }
+  .action .ring-progress {
+    stroke: currentColor;
+    stroke-width: 1.8;
+    opacity: .62;
+    stroke-dasharray: 75;
+    stroke-dashoffset: 20;
+    animation: countdown 5s linear infinite;
+    fill: none;
+    transform-origin: 12px 12px;
+    transform: rotate(-90deg);
+  }
+
+  .action.stop .stop-square {
+    width: 11px;
+    height: 11px;
+    border-radius: 2.6px;
+    background: currentColor;
+    opacity: .86;
+  }
+
+  .note {
+    max-width: 1120px;
+    width: 100%;
+    margin: 0 auto;
+    border-radius: 20px;
+    padding: 16px 18px;
+    background: rgba(255,255,255,.72);
+    border: 1px solid rgba(0,0,0,.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.72);
+    color: rgba(0,0,0,.64);
+    line-height: 1.55;
+    font-size: 13px;
+  }
+  .note strong { color: #0b0b0b; }
+  .note code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: rgba(0,0,0,.055);
+    border-radius: 6px;
+    padding: 1px 5px;
+    color: rgba(0,0,0,.72);
+  }
+
+  .state-strip {
+    max-width: 1120px;
+    width: 100%;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .mini {
+    min-height: 122px;
+    border-radius: 20px;
+    padding: 14px;
+    background: rgba(255,255,255,.62);
+    border: 1px solid rgba(0,0,0,.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.72);
+    display: grid;
+    place-items: center;
+  }
+  .mini .hud { animation: none; transform: scale(.74); }
+  .mini-title {
+    align-self: start;
+    justify-self: start;
+    margin-bottom: -14px;
+    font-size: 11px;
+    font-weight: 760;
+    color: rgba(0,0,0,.42);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+
+  @keyframes wave {
+    0%, 100% { transform: scaleY(.62); opacity: .52; }
+    50% { transform: scaleY(1.04); opacity: .92; }
+  }
+
+  @keyframes countdown {
+    to { stroke-dashoffset: 75; }
+  }
+
+  @keyframes processingWipe {
+    0% { width: 18%; }
+    100% { width: 86%; }
+  }
+
+  @keyframes hudIn {
+    from { opacity: 0; transform: translateY(8px) scale(.94); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @media (max-width: 920px) {
+    .stage-grid { grid-template-columns: 1fr; }
+    .header { align-items: flex-start; flex-direction: column; }
+    .controls { justify-content: flex-start; }
+    .state-strip { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 1ms !important;
+      transition-duration: 1ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <div>
+        <h1>Mayn Voice HUD — Liquid Glass V3</h1>
+        <p>Production target: one fixed-size centered pill, full-bleed glass background/progress, icon-only actions, centered SF-style symbols, light/dark parity.</p>
+      </div>
+      <div class="controls" aria-label="Preview controls">
+        <div class="seg" role="group" aria-label="State">
+          <button class="state active" data-state="listening">Listening</button>
+          <button class="state" data-state="transcribing">Transcribing</button>
+          <button class="state" data-state="cancelled">Cancelled</button>
+          <button class="state" data-state="failed">Failed</button>
+          <button class="state" data-state="inserted">Inserted</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="stage-grid" aria-label="Light and dark mode preview">
+      <div class="stage-card light" data-theme="light">
+        <div class="stage-label">Light / Liquid Glass</div>
+        <div class="desktop-lines"></div>
+        <div class="content-bars">
+          <span style="--x:8%;--y:14%;--w:74%;--h:14px"></span>
+          <span style="--x:12%;--y:30%;--w:64%;--h:14px"></span>
+          <span style="--x:10%;--y:70%;--w:50%;--h:14px"></span>
+        </div>
+        <div class="hud-anchor" id="lightAnchor"></div>
+      </div>
+
+      <div class="stage-card dark" data-theme="dark">
+        <div class="stage-label">Dark / Liquid Glass</div>
+        <div class="desktop-lines"></div>
+        <div class="content-bars">
+          <span style="--x:8%;--y:14%;--w:74%;--h:14px"></span>
+          <span style="--x:12%;--y:30%;--w:64%;--h:14px"></span>
+          <span style="--x:10%;--y:70%;--w:50%;--h:14px"></span>
+        </div>
+        <div class="hud-anchor" id="darkAnchor"></div>
+      </div>
+    </section>
+
+    <section class="state-strip" aria-label="Fixed-size state reference">
+      <div class="mini"><div class="mini-title">Full-bleed progress</div><div class="hud-host mini-transcribing"></div></div>
+      <div class="mini"><div class="mini-title">Centered undo action</div><div class="hud-host mini-cancelled"></div></div>
+      <div class="mini"><div class="mini-title">Centered retry action</div><div class="hud-host mini-failed"></div></div>
+    </section>
+
+    <section class="note">
+      <strong>Production decisions:</strong> HUD is always <code>392 × 58</code>; left and right slots are both <code>64px</code>, so text stays optically centered. The transcribing progress is a full-bleed background wipe clipped by the capsule, not an inner loading line. Right-side actions are icon-only circular glass controls, centered with SVG viewBox/grid alignment. No nested glass, no ghost ring, no text buttons.
+    </section>
+  </main>
+
+<script>
+  const ICONS = {
+    wave: `<div class="wave" aria-hidden="true">
+      <span style="--h:13px;--d:-.32s"></span>
+      <span style="--h:21px;--d:-.20s"></span>
+      <span style="--h:28px;--d:-.08s"></span>
+      <span style="--h:21px;--d:.04s"></span>
+      <span style="--h:13px;--d:.16s"></span>
+    </div>`,
+    x: `<div class="state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="stroke" d="M7 7L17 17M17 7L7 17"/></svg></div>`,
+    warn: `<div class="state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="stroke" d="M12 6.2v7.2"/><circle class="fill" cx="12" cy="18" r="1.35"/></svg></div>`,
+    check: `<div class="state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="stroke" d="M5.8 12.4l4.2 4.1L18.7 7.2"/></svg></div>`,
+    dot: `<div class="state-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle class="fill" cx="12" cy="12" r="3.1"/></svg></div>`,
+    stop: `<div class="action stop" role="button" aria-label="Stop"><div class="stop-square"></div></div>`,
+    undo: `<div class="action undo" role="button" aria-label="Undo"><svg viewBox="0 0 24 24"><circle class="ring" cx="12" cy="12" r="9.2"/><circle class="ring-progress" cx="12" cy="12" r="9.2"/><path class="stroke" d="M10.1 7.7H6.2V3.8"/><path class="stroke" d="M6.5 7.7A7.05 7.05 0 1 1 8.4 17.6"/></svg></div>`,
+    retry: `<div class="action retry" role="button" aria-label="Try again"><svg viewBox="0 0 24 24"><path class="stroke" d="M17.4 7.4A7.2 7.2 0 1 0 18 16"/><path class="stroke" d="M17.2 3.9v3.8h-3.8"/></svg></div>`
+  };
+
+  const STATES = {
+    listening: { label: 'Listening', cls: 'listening', left: ICONS.wave, right: ICONS.stop, p: '0%' },
+    transcribing: { label: 'Transcribing', cls: 'transcribing', left: ICONS.wave, right: '', p: '42%' },
+    cancelled: { label: 'Cancelled', cls: 'cancelled', left: ICONS.x, right: ICONS.undo, p: '0%' },
+    failed: { label: 'Couldn\u2019t transcribe', small: true, cls: 'failed', left: ICONS.warn, right: ICONS.retry, p: '0%' },
+    inserted: { label: 'Inserted', cls: 'inserted', left: ICONS.check, right: '', p: '100%' },
+    starting: { label: 'Starting', cls: 'starting', left: ICONS.dot, right: '', p: '0%' }
+  };
+
+  function renderHUD(stateName) {
+    const s = STATES[stateName] || STATES.listening;
+    return `<div class="hud ${s.cls}" style="--p:${s.p}">
+      <div class="progress-fill"></div>
+      <div class="slot left">${s.left || ''}</div>
+      <div class="label ${s.small ? 'small' : ''}">${s.label}</div>
+      <div class="slot right">${s.right || ''}</div>
+    </div>`;
+  }
+
+  const lightAnchor = document.getElementById('lightAnchor');
+  const darkAnchor = document.getElementById('darkAnchor');
+  function setState(state) {
+    lightAnchor.innerHTML = renderHUD(state);
+    darkAnchor.innerHTML = renderHUD(state);
+    document.querySelectorAll('.state').forEach(b => b.classList.toggle('active', b.dataset.state === state));
+  }
+
+  document.querySelectorAll('.state').forEach(btn => btn.addEventListener('click', () => setState(btn.dataset.state)));
+  document.querySelector('.mini-transcribing').innerHTML = renderHUD('transcribing');
+  document.querySelector('.mini-cancelled').innerHTML = renderHUD('cancelled');
+  document.querySelector('.mini-failed').innerHTML = renderHUD('failed');
+  setState('listening');
+</script>
+</body>
+</html>

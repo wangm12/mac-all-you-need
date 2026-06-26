@@ -10,6 +10,99 @@ final class MiniVoiceHUDTests: XCTestCase {
         XCTAssertEqual(MiniVoiceHUDLayout.maxPillWidth, 180)
     }
 
+    func testPillAnchorsBottomCenterAboveDock() {
+        let visibleFrame = NSRect(x: 0, y: 100, width: 1440, height: 900)
+        let screenFrame = NSRect(x: 0, y: 0, width: 1440, height: 1000)
+        let size = CGSize(width: 144, height: 32)
+        let origin = MiniVoiceHUDLayout.pillOrigin(
+            in: visibleFrame,
+            screenFrame: screenFrame,
+            size: size
+        )
+
+        XCTAssertEqual(origin.x, 648, accuracy: 0.5)
+        XCTAssertEqual(
+            origin.y,
+            visibleFrame.minY + MiniVoiceHUDLayout.bottomInsetAboveDock,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            MiniVoiceHUDLayout.defaultPillBottomY(in: visibleFrame, screenFrame: screenFrame),
+            origin.y,
+            accuracy: 0.5
+        )
+    }
+
+    func testPillLiftsAboveClipboardDockObstruction() {
+        let visibleFrame = NSRect(x: 0, y: 100, width: 1440, height: 900)
+        let screenFrame = NSRect(x: 0, y: 0, width: 1440, height: 1000)
+        let size = CGSize(width: 144, height: 32)
+        let obstruction: CGFloat = 372
+        let origin = MiniVoiceHUDLayout.pillOrigin(
+            in: visibleFrame,
+            screenFrame: screenFrame,
+            size: size,
+            bottomObstruction: obstruction
+        )
+
+        XCTAssertEqual(
+            origin.y,
+            visibleFrame.minY + MiniVoiceHUDLayout.bottomInsetAboveDock + obstruction,
+            accuracy: 0.5
+        )
+    }
+
+    func testCaptionStacksAbovePill() {
+        let pillBottomY: CGFloat = 200
+        let size = CGSize(width: 180, height: MiniVoiceHUDLayout.captionShellHeight)
+        let origin = MiniVoiceHUDLayout.captionOrigin(
+            pillBottomY: pillBottomY,
+            size: size,
+            centerX: 400
+        )
+
+        XCTAssertEqual(origin.y, pillBottomY + MiniVoiceHUDLayout.pillHeight + MiniVoiceHUDLayout.captionGap, accuracy: 0.5)
+        XCTAssertEqual(origin.x, 310, accuracy: 0.5)
+    }
+
+    func testTranscribeFailureRoutesMessageToCaptionAbovePill() {
+        let message = "Couldn't transcribe"
+        let pill = MiniVoiceHUDPill(state: .error(message))
+
+        XCTAssertTrue(VoiceHUDCopy.routesFailureMessageToCaptionAbovePill(message))
+        XCTAssertEqual(VoiceHUDCopy.captionMessage(forFailure: message), VoiceHUDCopy.Pill.couldntTranscribe)
+        XCTAssertNil(VoiceHUDCopy.blockingAlert(for: message))
+        XCTAssertEqual(pill.label, "")
+        XCTAssertEqual(pill.leading, .warningTriangle)
+    }
+
+    func testAvailabilityFailureRoutesMessageToCaptionAbovePill() {
+        let message = "No ASR model installed. Download a model from Voice → Models before dictating."
+        let pill = MiniVoiceHUDPill(state: .error(message))
+
+        XCTAssertTrue(VoiceHUDCopy.routesFailureMessageToCaptionAbovePill(message))
+        XCTAssertEqual(VoiceHUDCopy.captionMessage(forFailure: message), VoiceHUDCopy.Pill.voiceUnavailable)
+        XCTAssertEqual(pill.label, "")
+        XCTAssertEqual(pill.leading, .warningTriangle)
+    }
+
+    func testVoiceHUDAppearanceFallsBackToGlass() {
+        XCTAssertEqual(VoiceHUDAppearance(rawValue: "glass"), .glass)
+        XCTAssertEqual(VoiceHUDAppearance(rawValue: "graphite"), .graphite)
+        XCTAssertEqual(VoiceHUDAppearance(rawValue: "invalid") ?? .glass, .glass)
+    }
+
+    func testVoiceHUDWindowLayeringIsAboveClipboardDock() {
+        XCTAssertGreaterThan(
+            VoiceHUDWindowLayering.windowLevel.rawValue,
+            NSWindow.Level.popUpMenu.rawValue
+        )
+        XCTAssertGreaterThan(
+            VoiceHUDWindowLayering.windowLevel.rawValue,
+            FloatingHUDWindowLayering.windowLevel.rawValue
+        )
+    }
+
     func testDefaultStatesUseCenteredNativeWidths() {
         let recordingSize = CGSize(width: 144, height: 32)
         XCTAssertEqual(MiniVoiceHUDLayout.size(for: .startingMic), recordingSize)

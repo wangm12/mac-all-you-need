@@ -11,6 +11,7 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
     let subtitle: String
     let tabs: [Tab]
     @Binding var selection: Tab
+    var tabStripMaxWidth: CGFloat?
     @ViewBuilder let toolbar: Toolbar
     @ViewBuilder let content: Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -21,6 +22,7 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
         subtitle: String,
         tabs: [Tab] = Array(Tab.allCases),
         selection: Binding<Tab>,
+        tabStripMaxWidth: CGFloat? = nil,
         @ViewBuilder toolbar: () -> Toolbar,
         @ViewBuilder content: () -> Content
     ) {
@@ -28,6 +30,7 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
         self.subtitle = subtitle
         self.tabs = tabs
         _selection = selection
+        self.tabStripMaxWidth = tabStripMaxWidth
         self.toolbar = toolbar()
         self.content = content()
     }
@@ -54,6 +57,7 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
                 FunctionSegmentedTabStrip(tabs: tabs, selection: selection) { tab in
                     selectTab(tab)
                 }
+                    .frame(maxWidth: tabStripMaxWidth, alignment: .leading)
                     .padding(.horizontal, 32)
                     .padding(.bottom, 14)
             }
@@ -216,6 +220,8 @@ struct FunctionSegmentedTabStrip<Tab: SegmentedTabDestination>: View {
     let size: Size
     let onSelect: (Tab) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
     @Namespace private var selectionNamespace
 
     init(
@@ -251,6 +257,26 @@ struct FunctionSegmentedTabStrip<Tab: SegmentedTabDestination>: View {
     }
 
     private var strip: some View {
+        Group {
+            if reduceTransparency {
+                stripBody
+                    .background(MAYNTheme.contentPanelElevated(colorScheme), in: Capsule())
+                    .overlay(Capsule().stroke(MAYNTheme.strongBorder, lineWidth: 1))
+            } else if #available(macOS 26.0, *) {
+                GlassEffectContainer {
+                    stripBody
+                        .glassEffect(.regular, in: Capsule())
+                        .overlay(Capsule().stroke(MAYNTheme.strongBorder, lineWidth: 1))
+                }
+            } else {
+                stripBody
+                    .background(MAYNMaterial.panel.material, in: Capsule())
+                    .overlay(Capsule().stroke(MAYNTheme.strongBorder, lineWidth: 1))
+            }
+        }
+    }
+
+    private var stripBody: some View {
         HStack(spacing: 4) {
             ForEach(tabs) { tab in
                 FunctionSegmentedTabButton(
@@ -266,8 +292,6 @@ struct FunctionSegmentedTabStrip<Tab: SegmentedTabDestination>: View {
         }
         .padding(size.outerPadding)
         .frame(height: size.outerHeight)
-        .background(MAYNTheme.panel, in: Capsule())
-        .overlay(Capsule().stroke(MAYNTheme.strongBorder, lineWidth: 1))
     }
 }
 
@@ -291,10 +315,11 @@ private struct FunctionSegmentedTabButton<Tab: SegmentedTabDestination>: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: expandsToFillSegment ? .infinity : nil)
-            .foregroundStyle(isSelected ? .primary : .secondary)
+            .foregroundStyle(MAYNSelectionLabelStyle.foreground(isSelected: isSelected))
+            .fontWeight(MAYNSelectionLabelStyle.weight(isSelected: isSelected))
             .padding(.horizontal, size.horizontalPadding)
             .frame(height: size.innerHeight)
-            .background(tabBackground)
+            .background { tabBackground }
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -308,14 +333,10 @@ private struct FunctionSegmentedTabButton<Tab: SegmentedTabDestination>: View {
     @ViewBuilder
     private var tabBackground: some View {
         if isSelected {
-            Capsule()
-                .fill(MAYNTheme.tabSelectedFill)
-                .overlay(Capsule().stroke(MAYNTheme.tabSelectedBorder, lineWidth: 1))
-                .shadow(color: MAYNTheme.tabSelectedShadow, radius: 2, x: 0, y: 1)
+            MAYNSelectionGlassBackground(isSelected: true, isHovering: false, shape: .capsule)
                 .matchedGeometryEffect(id: "function-tab-selection", in: namespace)
         } else if isHovering {
-            Capsule()
-                .fill(MAYNTheme.hover)
+            MAYNSelectionGlassBackground(isSelected: false, isHovering: true, shape: .capsule)
         }
     }
 }

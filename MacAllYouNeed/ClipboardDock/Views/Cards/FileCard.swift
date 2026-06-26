@@ -56,7 +56,7 @@ struct FileCard: View {
         VStack(spacing: 4) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 18))
-                .foregroundStyle(.orange)
+                .foregroundStyle(MAYNTheme.warning)
             Text("File not found")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
