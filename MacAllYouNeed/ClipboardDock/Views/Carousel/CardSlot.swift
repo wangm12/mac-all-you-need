@@ -133,6 +133,7 @@ struct CardSlot: View {
     let onLocalReorderDragChanged: (String, CGPoint) -> Void
     let onLocalReorderDragEnded: (String, CGPoint) -> Void
     @Environment(ClipboardDockModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingRename = false
     @State private var isCardDropTarget = false
 
@@ -159,20 +160,18 @@ struct CardSlot: View {
             fileThumbnailLoader: fileThumbnailLoader,
             favicons: favicons,
             cardBackground: cardBackground,
+            isHighlighted: isHighlighted,
             showsPasteShortcutChip: index < 9
         )
         .frame(width: DockCardShellPresentation.width, height: DockCardShellPresentation.height)
-        // Selection border. Any selected card gets the neutral stroke — single
-        // or multi-select look identical, matching Paste-style UX. Focus
-        // (arrow-key target) shares the indicator since the focused card is
-        // always the most-recently single-selected one.
-        .overlay(
-            RoundedRectangle(cornerRadius: DockCardShellPresentation.cornerRadius, style: .continuous)
-                .stroke(
-                    isHighlighted ? MAYNTheme.focusRing : .clear,
-                    lineWidth: DockCardShellPresentation.focusedBorderWidth
-                )
+        .maynSelectionBackground(
+            isSelected: isHighlighted,
+            shape: .rounded(DockCardShellPresentation.cornerRadius)
         )
+        .clipShape(
+            RoundedRectangle(cornerRadius: DockCardShellPresentation.cornerRadius, style: .continuous)
+        )
+        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHighlighted)
         .overlay(alignment: .bottomLeading) {
             if index < 9 {
                 ShortcutChip(text: "⌘\(index + 1)", height: HotkeyChipPresentation.compactHeight)

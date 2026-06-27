@@ -355,6 +355,7 @@ enum MAYNSpacing {
 }
 
 enum MAYNMotionDuration {
+    static let instant: TimeInterval = 0.08
     static let press: TimeInterval = 0.12
     static let hover: TimeInterval = 0.16
     static let control: TimeInterval = 0.18
@@ -367,9 +368,22 @@ enum MAYNMotionDuration {
     static let paletteMorph: TimeInterval = 0.18
     static let sidebarSelection: TimeInterval = 0.14
     static let badgePopoverDelay: TimeInterval = 0.18
+    static let hudEnter: TimeInterval = 0.15
+    static let hudExit: TimeInterval = 0.12
+    static let paletteRowStagger: TimeInterval = 0.008
+    static let paletteSelection: TimeInterval = 0.095
+    static let paletteRowStaggerCap: TimeInterval = 0.08
+    static let rowInsert: TimeInterval = 0.18
+}
+
+enum MAYNMotionScale {
+    static let hudEnterStart: CGFloat = 0.94
+    static let hudExitEnd: CGFloat = 0.985
+    static let paletteEnterStart: CGFloat = 0.975
 }
 
 enum MAYNMotionKind {
+    case instant
     case press
     case hover
     case control
@@ -381,9 +395,14 @@ enum MAYNMotionKind {
     case paletteClose
     case paletteMorph
     case sidebarSelection
+    case hudEnter
+    case hudExit
+    case paletteSelection
+    case rowInsert
 
     var duration: TimeInterval {
         switch self {
+        case .instant: MAYNMotionDuration.instant
         case .press: MAYNMotionDuration.press
         case .hover: MAYNMotionDuration.hover
         case .control: MAYNMotionDuration.control
@@ -395,6 +414,10 @@ enum MAYNMotionKind {
         case .paletteClose: MAYNMotionDuration.paletteClose
         case .paletteMorph: MAYNMotionDuration.paletteMorph
         case .sidebarSelection: MAYNMotionDuration.sidebarSelection
+        case .hudEnter: MAYNMotionDuration.hudEnter
+        case .hudExit: MAYNMotionDuration.hudExit
+        case .paletteSelection: MAYNMotionDuration.paletteSelection
+        case .rowInsert: MAYNMotionDuration.rowInsert
         }
     }
 }
@@ -408,6 +431,10 @@ enum MAYNMotion {
     static let instruction = Animation.easeOut(duration: MAYNMotionDuration.instruction)
     static let toastIn = Animation.easeOut(duration: MAYNMotionDuration.toastIn)
     static let toastOut = Animation.easeOut(duration: MAYNMotionDuration.toastOut)
+
+    static let paletteMorph = Animation.timingCurve(0.16, 1, 0.3, 1, duration: MAYNMotionDuration.paletteMorph)
+    static let hudEnter = Animation.easeOut(duration: MAYNMotionDuration.hudEnter)
+    static let hudExit = Animation.easeOut(duration: MAYNMotionDuration.hudExit)
 
     static let fast = press
     static let normal = control
@@ -463,6 +490,18 @@ enum MAYNMotion {
     static func paletteCloseAnimation(reduceMotion: Bool) -> Animation? {
         animation(.paletteClose, reduceMotion: reduceMotion)
     }
+
+    static func paletteSelectionAnimation(reduceMotion: Bool) -> Animation? {
+        animation(.paletteSelection, reduceMotion: reduceMotion)
+    }
+
+    static func rowInsertAnimation(reduceMotion: Bool) -> Animation? {
+        animation(.rowInsert, reduceMotion: reduceMotion)
+    }
+
+    static func paletteRowStaggerDelay(for index: Int) -> TimeInterval {
+        min(Double(index) * MAYNMotionDuration.paletteRowStagger, MAYNMotionDuration.paletteRowStaggerCap)
+    }
 }
 
 enum MAYNMotionBridge {
@@ -497,12 +536,12 @@ enum MAYNControlMetrics {
     static let hotkeyHeight: CGFloat = 22
     /// Command palette / list row keycaps (design §7.8).
     static let keycapHeight: CGFloat = 24
-    static let searchFieldHeight: CGFloat = 38
+    static let searchFieldHeight: CGFloat = 36
     static let toolbarHeight: CGFloat = 56
     static let sidebarItemHeight: CGFloat = 40
     static let sidebarWidth: CGFloat = 260
     static let controlRadius: CGFloat = 10
-    static let keycapRadius: CGFloat = 6
+    static let keycapRadius: CGFloat = 7
     static let cardRadius: CGFloat = 16
     static let panelRadius: CGFloat = 16
     static let hudRadius: CGFloat = 22
@@ -516,7 +555,7 @@ enum MAYNControlMetrics {
     static let widePickerWidth: CGFloat = 220
     static let textFieldWidth: CGFloat = 260
     static let wideTextFieldWidth: CGFloat = 300
-    static let attentionPillHeight: CGFloat = 34
+    static let attentionPillHeight: CGFloat = 36
     static let statusPillHeight: CGFloat = 20
     static let statusPillHorizontalPadding: CGFloat = 7
     static let statusTagFontSize: CGFloat = 10

@@ -69,6 +69,9 @@ struct VoiceDestinationView: View {
     @State private var pickerSelectedEngineID: VoiceEngineID
     @State private var pickerFilter: VoiceEnginePickerFilter = .all
     @State private var pickerSearchText = ""
+    @State private var isPageActive = false
+    @State private var modelDownloadTask: Task<Void, Never>?
+    @State private var cloudTestTask: Task<Void, Never>?
     private let microphoneRefreshTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     init(controller: AppController) {
@@ -247,17 +250,35 @@ struct VoiceDestinationView: View {
                 }
             }
         }
-        .onAppear(perform: reload)
+        .task {
+            isPageActive = true
+            await loadVoicePageData()
+        }
+        .onDisappear {
+            isPageActive = false
+            toastClearTask?.cancel()
+            toastClearTask = nil
+            modelDownloadTask?.cancel()
+            modelDownloadTask = nil
+            cloudTestTask?.cancel()
+            cloudTestTask = nil
+            downloadingModelID = nil
+            isTestingCloud = false
+        }
         .onReceive(NotificationCenter.default.publisher(for: .voiceTranscriptAppended)) { _ in
+            guard isPageActive else { return }
             reloadVoiceTranscripts()
         }
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
+            guard isPageActive else { return }
             refreshMicrophoneOptions()
         }
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in
+            guard isPageActive else { return }
             refreshMicrophoneOptions()
         }
         .onReceive(microphoneRefreshTimer) { _ in
+            guard isPageActive else { return }
             refreshMicrophoneOptions()
         }
         .onChange(of: cleanupEnabled) { _, _ in
@@ -437,6 +458,18 @@ struct VoiceDestinationView: View {
     }
 
     private func reload() {
+        guard isPageActive else { return }
+        applyVoicePageReload()
+    }
+
+    @MainActor
+    private func loadVoicePageData() async {
+        await Task.yield()
+        guard !Task.isCancelled, isPageActive else { return }
+        applyVoicePageReload()
+    }
+
+    private func applyVoicePageReload() {
         onboardingProgress = VoiceOnboardingProgressStore.load()
         let asrSettings = VoiceASRSettingsStore.load()
         let cloudSettings = VoiceCloudASRSettingsStore.load()
@@ -470,6 +503,7 @@ struct VoiceDestinationView: View {
     }
 
     private func reloadVoiceTranscripts(resetPage: Bool = false) {
+        guard isPageActive else { return }
         transcripts = controller.listRecentVoiceTranscripts(limit: 500)
         if resetPage {
             transcriptPage = 0
@@ -563,17 +597,17 @@ struct VoiceDestinationView: View {
         let settings = cloudASRSettingsDraft.updating(modelID: cloudASRSettingsDraft.modelID(for: cloudSetupProviderKind))
         let providerKind = cloudSetupProviderKind
         let key = cloudAPIKeys[providerKind] ?? ""
-        Task {
+        cloudTestTask?.cancel()
+        cloudTestTask = Task { @MainActor in
+            defer { isTestingCloud = false }
             let result = await controller.testCloudASRSettings(settings, providerKind: providerKind, apiKey: key)
-            await MainActor.run {
-                if result.localizedCaseInsensitiveContains("succeeded") {
-                    cloudModelID = settings.modelID
-                    asrProviderKind = providerKind
-                    applyCloudProviderSettings(successMessage: "Connection succeeded. Future dictations will use \(providerKind.label).")
-                } else {
-                    cloudStatusMessage = result
-                }
-                isTestingCloud = false
+            guard isPageActive else { return }
+            if result.localizedCaseInsensitiveContains("succeeded") {
+                cloudModelID = settings.modelID
+                asrProviderKind = providerKind
+                applyCloudProviderSettings(successMessage: "Connection succeeded. Future dictations will use \(providerKind.label).")
+            } else {
+                cloudStatusMessage = result
             }
         }
     }
@@ -708,6 +742,7 @@ struct VoiceDestinationView: View {
             defer { retryingTranscriptIDs.remove(transcript.id) }
             do {
                 _ = try await controller.retryVoiceTranscript(id: transcript.id)
+                guard isPageActive else { return }
                 reload()
                 CopyHUD.show("Retry succeeded", symbol: "checkmark.circle.fill")
             } catch {
@@ -814,7 +849,10 @@ struct VoiceDestinationView: View {
         if controller.voiceCoordinator.state == .recording {
             Task {
                 await controller.voiceCoordinator.stopRecordingAndPaste()
-                await MainActor.run { reload() }
+                await MainActor.run {
+                    guard isPageActive else { return }
+                    reload()
+                }
             }
         } else {
             Task { await controller.voiceCoordinator.startRecording() }
@@ -869,31 +907,37 @@ struct VoiceDestinationView: View {
         downloadingModelID = modelID
         modelDownloadFractions[modelID] = 0
         modelDownloadStatus[modelID] = "Preparing download..."
-        Task {
+        modelDownloadTask?.cancel()
+        modelDownloadTask = Task { @MainActor in
+            defer {
+                modelDownloadTask = nil
+                if !isPageActive {
+                    downloadingModelID = nil
+                }
+            }
             do {
                 try await VoiceModelManager.downloadLocalASRModel(
                     modelID,
                     progressHandler: { progress in
                         Task { @MainActor in
+                            guard isPageActive else { return }
                             modelDownloadStatus[modelID] = VoiceModelDownloadPresenter.describe(progress)
                             modelDownloadFractions[modelID] = progress.fractionCompleted
                         }
                     }
                 )
-                await MainActor.run {
-                    downloadingModelID = nil
-                    modelDownloadFractions[modelID] = nil
-                    modelDownloadStatus[modelID] = "Downloaded."
-                    if selectWhenReady {
-                        useModel(modelID)
-                    }
+                guard isPageActive else { return }
+                downloadingModelID = nil
+                modelDownloadFractions[modelID] = nil
+                modelDownloadStatus[modelID] = "Downloaded."
+                if selectWhenReady {
+                    useModel(modelID)
                 }
             } catch {
-                await MainActor.run {
-                    downloadingModelID = nil
-                    modelDownloadFractions[modelID] = nil
-                    modelDownloadStatus[modelID] = error.localizedDescription
-                }
+                guard isPageActive else { return }
+                downloadingModelID = nil
+                modelDownloadFractions[modelID] = nil
+                modelDownloadStatus[modelID] = error.localizedDescription
             }
         }
     }

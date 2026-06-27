@@ -23,9 +23,9 @@ enum DockLocalKeyEventScope {
 
 enum DockHeightPreviewLayering {
     static func invokerLevel(above dockLevel: NSWindow.Level) -> NSWindow.Level {
-        let draggingLevel = Int(CGWindowLevelForKey(.draggingWindow))
-        let raisedLevel = min(dockLevel.rawValue + 1, draggingLevel - 1)
-        return NSWindow.Level(rawValue: raisedLevel)
+        let raisedLevel = dockLevel.rawValue + 1
+        let voiceCap = VoiceHUDWindowLayering.windowLevel.rawValue - 1
+        return NSWindow.Level(rawValue: min(raisedLevel, voiceCap))
     }
 }
 
@@ -45,6 +45,7 @@ final class DockWindowController {
     private var dragMonitor: NSEventMonitorHandle?
     private var dragSurfaceClearTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
+    private var keyWindowObserver: NSObjectProtocol?
     private let dockNotifications: DockNotificationObservers
     private var ignoreOutsideClicksUntil: Date = .distantPast
     private weak var heightPreviewInvokerWindow: NSWindow?
@@ -104,10 +105,12 @@ final class DockWindowController {
 
     func debugTearDownForTesting() {
         restoreHeightPreviewInvokerWindowLevel()
+        ClipboardDockWindowLayering.restoreSiblingWindowLevels()
         stopOutsideClickMonitor()
         stopDragMonitor()
         stopKeyMonitor()
         stopSpaceChangeMonitor()
+        stopKeyWindowObserver()
         stopPasteIntentObserver()
         stopHideRequestObserver()
         window?.contentView?.layer?.removeAllAnimations()
@@ -180,19 +183,22 @@ final class DockWindowController {
         hosting.frame = NSRect(origin: .zero, size: frame.size)
         hosting.autoresizingMask = [.width, .height]
         panel.contentView = hosting
+        ClipboardDockWindowLayering.configure(panel)
 
         window = panel
 
         syncFloatingObstruction(for: screen)
-        panel.orderFrontRegardless()
+        ClipboardDockWindowLayering.orderFront(panel)
         focusDockPanelForKeyboardInput(panel)
         raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
         DockAnimator.slideUp(panel, finalOrigin: NSPoint(x: frame.minX, y: frame.minY)) { [weak self, weak panel, log] in
+            if let panel {
+                ClipboardDockWindowLayering.orderFront(panel)
+            }
             if self?.heightPreviewInvokerWindow == nil {
                 if let panel {
                     self?.focusDockPanelForKeyboardInput(panel)
                 }
-                self?.model.requestSearchFocus()
             } else {
                 self?.raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
             }
@@ -205,8 +211,12 @@ final class DockWindowController {
         startDragMonitor()
         startKeyMonitor()
         startSpaceChangeMonitor()
+        startKeyWindowObserver()
         startPasteIntentObserver()
         startHideRequestObserver()
+        if let panel = window {
+            ClipboardDockWindowLayering.schedulePresentationRefresh(for: panel)
+        }
     }
 
     func keepHeightPreviewInvokerAboveDockPanel(_ invokerWindow: NSWindow?) {
@@ -239,10 +249,9 @@ final class DockWindowController {
         panel.alphaValue = 1
         panel.setFrame(frame, display: true)
         panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
-        panel.orderFrontRegardless()
+        ClipboardDockWindowLayering.orderFront(panel)
         if heightPreviewInvokerWindow == nil {
             focusDockPanelForKeyboardInput(panel)
-            model.requestSearchFocus()
         } else {
             raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
         }
@@ -251,8 +260,10 @@ final class DockWindowController {
         startDragMonitor()
         startKeyMonitor()
         startSpaceChangeMonitor()
+        startKeyWindowObserver()
         startPasteIntentObserver()
         startHideRequestObserver()
+        ClipboardDockWindowLayering.schedulePresentationRefresh(for: panel)
     }
 
     private func resizeVisiblePanelForCurrentHeight() {
@@ -275,10 +286,12 @@ final class DockWindowController {
         ClipboardSystemQuickLookCoordinator.shared.dismiss()
         model.isQuickLooking = false
         restoreHeightPreviewInvokerWindowLevel()
+        ClipboardDockWindowLayering.restoreSiblingWindowLevels()
         stopOutsideClickMonitor()
         stopDragMonitor()
         stopKeyMonitor()
         stopSpaceChangeMonitor()
+        stopKeyWindowObserver()
         stopPasteIntentObserver()
         stopHideRequestObserver()
         guard let window else { return }
@@ -418,6 +431,38 @@ final class DockWindowController {
         }
     }
 
+    /// Re-promote the dock when another in-app window becomes key while the
+    /// panel is visible. macOS 26 can paint the main window above runtime
+    /// overlays unless sibling levels are reasserted after key changes.
+    private func startKeyWindowObserver() {
+        stopKeyWindowObserver()
+        keyWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let panel = self.window,
+                  panel.isVisible,
+                  let keyWindow = note.object as? NSWindow,
+                  keyWindow !== panel
+            else { return }
+            ClipboardDockWindowLayering.orderFront(panel)
+            if self.heightPreviewInvokerWindow === keyWindow {
+                self.raiseHeightPreviewInvokerAboveDockPanelIfNeeded()
+            } else if self.heightPreviewInvokerWindow == nil {
+                panel.makeKey()
+            }
+        }
+    }
+
+    private func stopKeyWindowObserver() {
+        if let keyWindowObserver {
+            NotificationCenter.default.removeObserver(keyWindowObserver)
+            self.keyWindowObserver = nil
+        }
+    }
+
     /// Listens for `dockPasteRequested` posted by `CardContextMenu`. Routes
     /// through `triggerPaste(at:modifiers:)` so dock-dismiss + 80 ms focus
     /// restore are reused.
@@ -441,7 +486,7 @@ final class DockWindowController {
     }
 
     private func focusDockPanelForKeyboardInput(_ panel: BottomDockWindow) {
-        panel.makeKeyAndOrderFront(nil)
+        ClipboardDockWindowLayering.orderFront(panel)
         panel.makeKey()
     }
 
@@ -627,7 +672,6 @@ final class DockWindowController {
                 )
                 if case .consume(let newQuery) = decision {
                     model.search = newQuery
-                    model.requestSearchFocus()
                     return nil
                 }
             }

@@ -14,6 +14,22 @@ struct CommandPaletteAttentionSnapshot: Equatable {
             || !missingPermissions.isEmpty
             || voiceSetupNeeded
     }
+
+    var badgeTitle: String? {
+        if voiceSetupNeeded {
+            return "Complete Voice setup"
+        }
+        if let permissionsAttentionTitle {
+            return permissionsAttentionTitle
+        }
+        if failedDownloadCount > 0 {
+            return "Review \(failedDownloadCount) downloads"
+        }
+        if orphanCacheCount > 0 {
+            return "Review \(orphanCacheCount) orphan caches"
+        }
+        return nil
+    }
 }
 
 @MainActor

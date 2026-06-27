@@ -181,6 +181,15 @@ enum MAYNSelectionLabelStyle {
         return isSelected ? .primary : .secondary
     }
 
+    static func foreground(isSelected: Bool, isDisabled: Bool = false, scheme: ColorScheme) -> Color {
+        if isDisabled { return MAYNTheme.textDisabled(scheme) }
+        return isSelected ? MAYNTheme.textPrimary(scheme) : MAYNTheme.textSecondary(scheme)
+    }
+
+    static func subtitle(isSelected: Bool, scheme: ColorScheme) -> Color {
+        isSelected ? MAYNTheme.textSecondary(scheme) : MAYNTheme.textTertiary(scheme)
+    }
+
     static func weight(isSelected: Bool) -> Font.Weight {
         isSelected ? .semibold : .regular
     }
@@ -188,6 +197,7 @@ enum MAYNSelectionLabelStyle {
 
 /// Selected = `glassEffect` on macOS 26+; subtle `selected` fill on earlier macOS.
 struct MAYNSelectionGlassBackground: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let isSelected: Bool
     let isHovering: Bool
     let shape: MAYNSelectionShape
@@ -206,7 +216,9 @@ struct MAYNSelectionGlassBackground: View {
 
     @ViewBuilder
     private var selectedBackground: some View {
-        if #available(macOS 26.0, *) {
+        if reduceTransparency {
+            opaqueSelectedBackground
+        } else if #available(macOS 26.0, *) {
             switch shape {
             case .capsule:
                 Color.clear.glassEffect(.regular, in: Capsule())
@@ -224,12 +236,44 @@ struct MAYNSelectionGlassBackground: View {
     }
 
     @ViewBuilder
+    private var opaqueSelectedBackground: some View {
+        switch shape {
+        case .capsule:
+            Capsule().fill(MAYNTheme.selected)
+        case .rounded(let radius):
+            RoundedRectangle(cornerRadius: radius, style: .continuous).fill(MAYNTheme.selected)
+        }
+    }
+
+    @ViewBuilder
     private var hoverBackground: some View {
         switch shape {
         case .capsule:
             Capsule().fill(MAYNTheme.hover)
         case .rounded(let radius):
             RoundedRectangle(cornerRadius: radius, style: .continuous).fill(MAYNTheme.hover)
+        }
+    }
+}
+
+/// Sidebar rows use opaque fills — animating `glassEffect` across many sidebar buttons
+/// has triggered SwiftUI crashes on macOS 26 during rapid selection changes.
+struct MAYNSidebarSelectionBackground: View {
+    let isSelected: Bool
+    let isHovering: Bool
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        Group {
+            if isSelected {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(MAYNTheme.selected)
+            } else if isHovering {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(MAYNTheme.hover)
+            } else {
+                Color.clear
+            }
         }
     }
 }
@@ -245,7 +289,21 @@ extension View {
         }
     }
 
-    /// Keyboard-focus inversion (sidebar, command palette rows).
+    func maynSidebarSelectionBackground(
+        isSelected: Bool,
+        isHovering: Bool = false,
+        cornerRadius: CGFloat = MAYNControlMetrics.sidebarItemRadius
+    ) -> some View {
+        background {
+            MAYNSidebarSelectionBackground(
+                isSelected: isSelected,
+                isHovering: isHovering,
+                cornerRadius: cornerRadius
+            )
+        }
+    }
+
+    /// Legacy solid inversion — copy toasts and other non-glass pills only.
     func maynInversionSelectionBackground(
         isSelected: Bool,
         isHovering: Bool = false,

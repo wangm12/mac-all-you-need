@@ -28,11 +28,19 @@ struct WindowHubBrowseView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading) {
                         ForEach(selectedGroup?.visibleTargets ?? [], id: \.id) { target in
-                            WindowHubTargetRowView(target: target) {
-                                Task { await coordinator.activate(target: target) }
-                            } onAction: { action in
-                                coordinator.requestDirectAction(action, target: target)
-                            }
+                            WindowHubTargetRowView(
+                                target: target,
+                                isSelected: coordinator.selectedTargetID == target.id,
+                                onActivate: {
+                                    Task { await coordinator.activate(target: target) }
+                                },
+                                onSelect: {
+                                    coordinator.selectTarget(target)
+                                },
+                                onAction: { action in
+                                    coordinator.requestDirectAction(action, target: target)
+                                }
+                            )
                         }
                     }
                 }

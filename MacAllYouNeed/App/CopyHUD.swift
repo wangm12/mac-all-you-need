@@ -12,12 +12,13 @@ enum FloatingHUDWindowLayering {
     ]
 
     static func configure(_ panel: NSPanel, acceptsMouseEvents: Bool) {
-        panel.level = windowLevel
         panel.collectionBehavior = collectionBehavior
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = true
         panel.ignoresMouseEvents = !acceptsMouseEvents
+        // Must follow `isFloatingPanel` — AppKit otherwise snaps the level to `.floating`.
+        panel.level = windowLevel
     }
 
     static func orderFront(_ panel: NSPanel) {
@@ -26,10 +27,49 @@ enum FloatingHUDWindowLayering {
     }
 }
 
-/// Voice pill, captions, and alerts sit above the clipboard dock (`.popUpMenu`) and
-/// other `.screenSaver` floating HUDs so dictation chrome is never occluded.
+/// Clipboard dock sits above generic runtime HUDs so it can paint over the app's
+/// own main window on macOS 26 while staying below Voice HUD chrome.
+///
+/// Document windows (main window, settings sheets) are left untouched — only
+/// the dock panel's level/z-order changes so the app stays visible.
+@MainActor
+enum ClipboardDockWindowLayering {
+    static let windowLevel = NSWindow.Level(
+        rawValue: FloatingHUDWindowLayering.windowLevel.rawValue + 2
+    )
+    static let collectionBehavior = FloatingHUDWindowLayering.collectionBehavior
+
+    static func configure(_ panel: NSPanel) {
+        FloatingHUDWindowLayering.configure(panel, acceptsMouseEvents: true)
+        panel.level = windowLevel
+    }
+
+    static func orderFront(_ panel: NSPanel) {
+        panel.level = windowLevel
+        panel.orderFrontRegardless()
+    }
+
+    /// macOS 26 can briefly repromote the main window after in-app triggers
+    /// (Open Dock button, toolbar actions). Reassert once the current event
+    /// finishes so the dock stays above document chrome.
+    static func schedulePresentationRefresh(for panel: NSPanel) {
+        DispatchQueue.main.async {
+            guard panel.isVisible else { return }
+            orderFront(panel)
+        }
+    }
+
+    static func reassertLevel(_ panel: NSPanel) {
+        panel.level = windowLevel
+    }
+
+    static func restoreSiblingWindowLevels() {}
+}
+
+/// Voice pill, captions, and alerts sit above the clipboard dock and other
+/// `.screenSaver` floating HUDs so dictation chrome is never occluded.
 enum VoiceHUDWindowLayering {
-    static let windowLevel = NSWindow.Level(rawValue: FloatingHUDWindowLayering.windowLevel.rawValue + 2)
+    static let windowLevel = NSWindow.Level(rawValue: FloatingHUDWindowLayering.windowLevel.rawValue + 4)
     static let collectionBehavior = FloatingHUDWindowLayering.collectionBehavior
 
     static func configure(_ panel: NSPanel, acceptsMouseEvents: Bool) {

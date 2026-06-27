@@ -2,9 +2,13 @@ import SwiftUI
 
 struct WindowHubTargetRowView: View {
     let target: WindowHubTarget
+    var isSelected: Bool = false
     let onActivate: () -> Void
+    let onSelect: () -> Void
     let onAction: (WindowHubDirectAction) -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
     private var canClose: Bool {
@@ -29,7 +33,10 @@ struct WindowHubTargetRowView: View {
                 .frame(width: 6, height: 6)
 
             Text(target.displayTitle)
-                .font(.system(size: 12))
+                .font(.system(size: 12, weight: MAYNSelectionLabelStyle.weight(isSelected: isSelected)))
+                .foregroundStyle(
+                    MAYNSelectionLabelStyle.foreground(isSelected: isSelected, scheme: colorScheme)
+                )
                 .lineLimit(1)
                 .truncationMode(.tail)
 
@@ -38,7 +45,9 @@ struct WindowHubTargetRowView: View {
             if let domain = target.domain, !domain.isEmpty {
                 Text(domain)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(
+                        MAYNSelectionLabelStyle.subtitle(isSelected: isSelected, scheme: colorScheme)
+                    )
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: 120, alignment: .trailing)
@@ -53,20 +62,28 @@ struct WindowHubTargetRowView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 18, height: 18)
                         .background(MAYNTheme.hover, in: Circle())
-                        .opacity(isHovering ? 1 : 0)
+                        .opacity(isHovering || isSelected ? 1 : 0)
                 }
                 .buttonStyle(.plain)
                 .help(target.kind == .tab ? "Close tab" : "Close window")
             }
         }
         .padding(.horizontal, 8)
-        .frame(height: 28)
-        .contentShape(Rectangle())
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(isHovering ? MAYNTheme.hover : Color.clear)
+        .frame(height: 32)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .maynSelectionBackground(
+            isSelected: isSelected,
+            isHovering: isHovering && !isSelected,
+            shape: .rounded(8)
         )
-        .onHover { isHovering = $0 }
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering {
+                onSelect()
+            }
+        }
         .onTapGesture(perform: onActivate)
+        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isSelected)
+        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
     }
 }

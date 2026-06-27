@@ -29,6 +29,8 @@ private struct VoiceHUDSurfaceModifier: ViewModifier {
     let isGraphite: Bool
     let cornerRadius: CGFloat
     let isCapsule: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func body(content: Content) -> some View {
         Group {
@@ -75,7 +77,9 @@ private struct VoiceHUDSurfaceModifier: ViewModifier {
 
     @ViewBuilder
     private var glassFill: some View {
-        if isCapsule {
+        if reduceTransparency {
+            opaqueGlassFill
+        } else if isCapsule {
             if #available(macOS 26.0, *) {
                 ZStack {
                     Capsule().fill(Color.clear)
@@ -103,6 +107,22 @@ private struct VoiceHUDSurfaceModifier: ViewModifier {
                 shape.stroke(MAYNMaterial.panel.borderColor, lineWidth: 1)
             }
             .clipShape(shape)
+        }
+    }
+
+    @ViewBuilder
+    private var opaqueGlassFill: some View {
+        if isCapsule {
+            ZStack {
+                Capsule().fill(MAYNTheme.contentPanelElevated(colorScheme))
+                Capsule().stroke(MAYNTheme.hairline, lineWidth: 1)
+            }
+        } else {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            ZStack {
+                shape.fill(MAYNTheme.contentPanelElevated(colorScheme))
+                shape.stroke(MAYNTheme.hairline, lineWidth: 1)
+            }
         }
     }
 }

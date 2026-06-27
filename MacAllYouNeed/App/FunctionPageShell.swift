@@ -15,7 +15,6 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
     @ViewBuilder let toolbar: Toolbar
     @ViewBuilder let content: Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var flowDirection: FunctionTabFlowDirection = .forward
 
     init(
         title: String,
@@ -40,7 +39,7 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(title)
-                        .font(.system(size: 26, weight: .semibold))
+                        .font(MAYNTypography.pageTitle())
                     Text(subtitle)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -49,7 +48,7 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
 
                 toolbar
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, MAYNSpacing.pageHorizontal)
             .padding(.top, 28)
             .padding(.bottom, 14)
 
@@ -58,7 +57,7 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
                     selectTab(tab)
                 }
                     .frame(maxWidth: tabStripMaxWidth, alignment: .leading)
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, MAYNSpacing.pageHorizontal)
                     .padding(.bottom, 14)
             }
 
@@ -76,16 +75,6 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
             .animation(MAYNMotion.tabAnimation(reduceMotion: reduceMotion), value: selection.rawValue)
         }
         .background(MAYNTheme.window)
-        .onChange(of: selection.rawValue) { oldValue, newValue in
-            guard let oldSelection = tabs.first(where: { $0.rawValue == oldValue }),
-                  let newSelection = tabs.first(where: { $0.rawValue == newValue }),
-                  let direction = FunctionTabFlow.direction(from: oldSelection, to: newSelection, in: tabs)
-            else {
-                return
-            }
-
-            flowDirection = direction
-        }
     }
 
     private var contentTransition: AnyTransition {
@@ -93,34 +82,30 @@ struct FunctionPageShell<Tab: FunctionTabDestination, Toolbar: View, Content: Vi
 
         return .asymmetric(
             insertion: .modifier(
-                active: FunctionTabContentTransitionModifier(
-                    opacity: 0,
-                    xOffset: FunctionTabFlow.contentInsertionOffset(for: flowDirection)
-                ),
-                identity: FunctionTabContentTransitionModifier(opacity: 1, xOffset: 0)
+                active: FunctionTabContentTransitionModifier(opacity: 0, yOffset: 8),
+                identity: FunctionTabContentTransitionModifier(opacity: 1, yOffset: 0)
             ),
-            removal: .opacity
+            removal: .modifier(
+                active: FunctionTabContentTransitionModifier(opacity: 0, yOffset: -4),
+                identity: FunctionTabContentTransitionModifier(opacity: 1, yOffset: 0)
+            )
         )
     }
 
     private func selectTab(_ tab: Tab) {
         guard selection.rawValue != tab.rawValue else { return }
-
-        if let direction = FunctionTabFlow.direction(from: selection, to: tab, in: tabs) {
-            flowDirection = direction
-        }
         selection = tab
     }
 }
 
 private struct FunctionTabContentTransitionModifier: ViewModifier {
     let opacity: Double
-    let xOffset: Double
+    let yOffset: Double
 
     func body(content: Content) -> some View {
         content
             .opacity(opacity)
-            .offset(x: xOffset)
+            .offset(y: yOffset)
     }
 }
 
@@ -154,7 +139,7 @@ struct FunctionPageScrollContent<Content: View>: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(minHeight: proxy.size.height, alignment: .topLeading)
-                .padding(.horizontal, 32)
+                .padding(.horizontal, MAYNSpacing.pageHorizontal)
                 .padding(.vertical, 26)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

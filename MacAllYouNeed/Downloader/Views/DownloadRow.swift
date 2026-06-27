@@ -191,11 +191,15 @@ struct DownloadJobRow: View {
     let isSelected: Bool
     var isCompact = false
     var showsThumbnail = true
+    var isNewlyInserted = false
+    var onEntranceComplete: (() -> Void)? = nil
     let onTap: () -> Void
     let onPrimaryAction: () -> Void
     let onDelete: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
+    @State private var hasEntered = false
 
     private var thumbnailSize: CGSize {
         isCompact ? CGSize(width: 56, height: 34) : CGSize(width: 82, height: 48)
@@ -219,18 +223,40 @@ struct DownloadJobRow: View {
         }
         .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
         .padding(.vertical, isCompact ? 8 : 12)
-        .background(rowBackground)
-        .overlay(MAYNDivider(), alignment: .bottom)
-        .overlay(
-            RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous)
-                .stroke(isSelected ? MAYNTheme.focusRing : Color.clear, lineWidth: 1)
+        .maynSelectionBackground(
+            isSelected: isSelected,
+            isHovering: isHovering,
+            shape: .rounded(MAYNControlMetrics.controlRadius)
         )
+        .overlay(MAYNDivider(), alignment: .bottom)
         .contentShape(Rectangle())
         .downloadRowHelp(DownloadJobRowHoverPresentation.rowHelpText(for: model))
+        .opacity(showRow ? 1 : 0)
+        .offset(x: showRow ? 0 : 12)
+        .onAppear(perform: handleEntrance)
         .onTapGesture { onTap() }
         .onHover { isHovering = $0 }
         .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
+        .animation(MAYNMotion.paletteSelectionAnimation(reduceMotion: reduceMotion), value: isSelected)
         .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: model.progress)
+    }
+
+    private var showRow: Bool {
+        !isNewlyInserted || hasEntered
+    }
+
+    private func handleEntrance() {
+        guard isNewlyInserted, !reduceMotion else {
+            hasEntered = true
+            if isNewlyInserted { onEntranceComplete?() }
+            return
+        }
+        withAnimation(MAYNMotion.rowInsertAnimation(reduceMotion: false)) {
+            hasEntered = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + MAYNMotionDuration.rowInsert) {
+            onEntranceComplete?()
+        }
     }
 
     private var titleLine: some View {
@@ -341,19 +367,13 @@ struct DownloadJobRow: View {
         }
     }
 
-    private var rowBackground: Color {
-        if isSelected { return MAYNTheme.selected }
-        if isHovering { return MAYNTheme.hover }
-        return Color.clear
-    }
-
     private var progressColor: Color {
         switch model.state {
         case .completed: MAYNTheme.success
         case .failed: MAYNTheme.danger
         case .paused: MAYNTheme.warning
         case .running: MAYNTheme.progress
-        case .queued: .secondary
+        case .queued: Color.secondary.opacity(0.55)
         }
     }
 }

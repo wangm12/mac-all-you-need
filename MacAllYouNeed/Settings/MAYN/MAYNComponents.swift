@@ -1132,10 +1132,10 @@ struct StatusPill: View {
     private var leadingIcon: some View {
         switch kind {
         case .needsPermission:
-            Image(systemName: "lock.fill")
+            Image(systemName: "exclamationmark.circle")
                 .font(.system(size: 8, weight: .semibold))
         case .failed, .danger:
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 8, weight: .semibold))
         case .paused:
             Image(systemName: "pause.fill")
@@ -1186,32 +1186,106 @@ extension VoiceASRModelRowPresentation.StatusKind {
 
 // MARK: - Switch toggle
 
+private enum MAYNSwitchMetrics {
+    static let trackWidth: CGFloat = 36
+    static let trackHeight: CGFloat = 20
+    static let thumbSize: CGFloat = 16
+    static let thumbPadding: CGFloat = 2
+}
+
+private struct MAYNSwitchControl: View {
+    let isOn: Bool
+    let action: () -> Void
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                track
+                thumb
+            }
+            .frame(width: MAYNSwitchMetrics.trackWidth, height: MAYNSwitchMetrics.trackHeight)
+        }
+        .buttonStyle(.plain)
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: isOn)
+        .accessibilityAddTraits(.isButton)
+    }
+
+    @ViewBuilder
+    private var track: some View {
+        if usesOpaqueChrome {
+            Capsule()
+                .fill(isOn ? MAYNTheme.activeFill : MAYNTheme.statusMutedFill)
+                .overlay(trackBorder)
+        } else if #available(macOS 26.0, *) {
+            Capsule()
+                .fill(Color.clear)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .glassEffect(.regular, in: Capsule())
+                .overlay {
+                    if isOn {
+                        Capsule()
+                            .fill(MAYNTheme.activeFill.opacity(0.9))
+                    }
+                }
+                .overlay(trackBorder)
+        }
+    }
+
+    @ViewBuilder
+    private var thumb: some View {
+        Group {
+            if usesOpaqueChrome {
+                Circle()
+                    .fill(MAYNTheme.activeText)
+            } else if #available(macOS 26.0, *) {
+                if isOn {
+                    Circle()
+                        .fill(MAYNTheme.activeText)
+                } else {
+                    Circle()
+                        .fill(Color.clear)
+                        .glassEffect(.regular, in: Circle())
+                        .overlay {
+                            Circle()
+                                .fill(Color.primary.opacity(0.18))
+                        }
+                }
+            }
+        }
+        .frame(width: MAYNSwitchMetrics.thumbSize, height: MAYNSwitchMetrics.thumbSize)
+        .padding(MAYNSwitchMetrics.thumbPadding)
+    }
+
+    private var trackBorder: some View {
+        Capsule()
+            .stroke(MAYNTheme.hairline, lineWidth: 1)
+    }
+
+    private var usesOpaqueChrome: Bool {
+        if reduceTransparency { return true }
+        if #available(macOS 26.0, *) { return false }
+        return true
+    }
+}
+
 private struct MAYNMonochromeSwitchToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack {
             configuration.label
             Spacer(minLength: 0)
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(configuration.isOn ? MAYNTheme.activeFill : MAYNTheme.statusMutedFill)
-                .frame(width: 36, height: 20)
-                .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-                    Circle()
-                        .fill(MAYNTheme.activeText)
-                        .frame(width: 16, height: 16)
-                        .padding(2)
-                }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(MAYNTheme.hairline, lineWidth: 1)
-                )
-                .onTapGesture { configuration.isOn.toggle() }
-                .accessibilityAddTraits(.isButton)
+            MAYNSwitchControl(isOn: configuration.isOn) {
+                configuration.isOn.toggle()
+            }
         }
     }
 }
 
 extension View {
     /// Monochrome switch styling for settings and dashboard feature cards.
+    /// macOS 26+: Liquid Glass track and thumb; opaque fallback on earlier releases and Reduce Transparency.
     func maynSwitchToggleStyle() -> some View {
         toggleStyle(MAYNMonochromeSwitchToggleStyle())
     }
@@ -1435,6 +1509,64 @@ struct MAYNToast: View {
 
     var body: some View {
         MAYNToastContent(message: message, symbol: symbol, isDestructive: isDestructive)
+    }
+}
+
+// MARK: - MAYNCommandPaletteShell
+
+enum MAYNCommandPaletteMetrics {
+    static let cornerRadius: CGFloat = 28
+    static let shellPadding: CGFloat = 8
+}
+
+struct MAYNCommandPaletteShell<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        let radius = MAYNCommandPaletteMetrics.cornerRadius
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        Group {
+            if reduceTransparency {
+                shellBody(shape: shape, radius: radius)
+                    .background { shape.fill(MAYNTheme.contentPanelElevated(colorScheme)) }
+            } else if #available(macOS 26.0, *) {
+                GlassEffectContainer {
+                    shellBody(shape: shape, radius: radius)
+                        .glassEffect(.regular, in: .rect(cornerRadius: radius))
+                }
+            } else {
+                shellBody(shape: shape, radius: radius)
+                    .background { shape.fill(.regularMaterial) }
+            }
+        }
+        .overlay { innerHighlightStroke(shape: shape) }
+        .overlay { shape.strokeBorder(MAYNTheme.commandPaletteBorder(colorScheme), lineWidth: 1) }
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.68 : 0.28), radius: colorScheme == .dark ? 45 : 40, x: 0, y: colorScheme == .dark ? 30 : 28)
+        .shadow(color: .black.opacity(colorScheme == .dark ? 0.6 : 0.08), radius: 2, x: 0, y: 1)
+    }
+
+    private func shellBody(shape: RoundedRectangle, radius: CGFloat) -> some View {
+        content
+            .padding(MAYNCommandPaletteMetrics.shellPadding)
+            .background {
+                shape.fill(MAYNTheme.commandPaletteGradient(colorScheme))
+            }
+    }
+
+    private func innerHighlightStroke(shape: RoundedRectangle) -> some View {
+        shape.strokeBorder(
+            LinearGradient(
+                colors: [
+                    MAYNTheme.commandPaletteInnerHighlightTop(colorScheme),
+                    MAYNTheme.commandPaletteInnerShadowBottom(colorScheme),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            ),
+            lineWidth: 1
+        )
     }
 }
 

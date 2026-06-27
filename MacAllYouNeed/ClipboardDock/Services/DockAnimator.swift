@@ -30,22 +30,28 @@ enum DockAnimator {
         }
         window.alphaValue = 1
 
-        let height = finalFrame.height
         let translate = CABasicAnimation(keyPath: "transform.translation.y")
-        translate.fromValue = -height
+        translate.fromValue = 16
         translate.toValue = 0
-        translate.duration = MAYNMotionBridge.effectiveDuration(.panel, reduceMotion: reduceMotion)
-        translate.timingFunction = MAYNMotionBridge.timingFunction(.panel)
+        translate.duration = MAYNMotionBridge.effectiveDuration(.control, reduceMotion: reduceMotion)
+        translate.timingFunction = MAYNMotionBridge.timingFunction(.control)
+
+        let scale = CABasicAnimation(keyPath: "transform.scale")
+        scale.fromValue = 0.96
+        scale.toValue = 1
+        scale.duration = MAYNMotionBridge.effectiveDuration(.control, reduceMotion: reduceMotion)
+        scale.timingFunction = MAYNMotionBridge.timingFunction(.control)
 
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
-        fade.duration = MAYNMotionBridge.effectiveDuration(.panel, reduceMotion: reduceMotion)
-        fade.timingFunction = MAYNMotionBridge.timingFunction(.panel)
+        fade.duration = MAYNMotionBridge.effectiveDuration(.control, reduceMotion: reduceMotion)
+        fade.timingFunction = MAYNMotionBridge.timingFunction(.control)
 
         CATransaction.begin()
         CATransaction.setCompletionBlock(completion)
         layer.add(translate, forKey: "slide-up-y")
+        layer.add(scale, forKey: "slide-up-scale")
         layer.add(fade, forKey: "slide-up-opacity")
         CATransaction.commit()
     }
@@ -64,19 +70,18 @@ enum DockAnimator {
             return
         }
 
-        let height = window.frame.height
         let translate = CABasicAnimation(keyPath: "transform.translation.y")
         translate.fromValue = 0
-        translate.toValue = -height
-        translate.duration = MAYNMotionBridge.effectiveDuration(.toastOut, reduceMotion: reduceMotion)
-        translate.timingFunction = MAYNMotionBridge.timingFunction(.toastOut)
+        translate.toValue = 10
+        translate.duration = MAYNMotionBridge.effectiveDuration(.toastIn, reduceMotion: reduceMotion)
+        translate.timingFunction = MAYNMotionBridge.timingFunction(.toastIn)
         translate.fillMode = .forwards
         translate.isRemovedOnCompletion = false
 
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue = 0
-        fade.duration = MAYNMotionBridge.effectiveDuration(.toastOut, reduceMotion: reduceMotion)
+        fade.duration = MAYNMotionBridge.effectiveDuration(.toastIn, reduceMotion: reduceMotion)
         fade.timingFunction = MAYNMotionBridge.timingFunction(.toastOut)
         fade.fillMode = .forwards
         fade.isRemovedOnCompletion = false

@@ -3,15 +3,16 @@ import SwiftUI
 struct WindowHubOverlayView: View {
     @Bindable var coordinator: WindowHubCoordinator
     @FocusState private var searchFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @State private var isShellVisible = false
+
+    private static let shellRadius: CGFloat = 28
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
-                        .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
-                )
+            shellBackdrop
 
             VStack(alignment: .leading, spacing: 0) {
                 toolbar
@@ -26,7 +27,7 @@ struct WindowHubOverlayView: View {
                         .padding(.horizontal, 12)
                         .padding(.bottom, 10)
                 }
-                Divider().overlay(MAYNTheme.subtleBorder)
+                Divider().overlay(MAYNTheme.hairline)
                 content
             }
 
@@ -34,10 +35,38 @@ struct WindowHubOverlayView: View {
                 aiOrganizingOverlay
             }
         }
+        .clipShape(shellShape)
+        .overlay {
+            shellShape.stroke(MAYNTheme.hairline, lineWidth: 1)
+        }
+        .shadow(
+            color: .black.opacity(colorScheme == .dark ? 0.68 : 0.24),
+            radius: colorScheme == .dark ? 45 : 40,
+            y: colorScheme == .dark ? 30 : 28
+        )
+        .scaleEffect(isShellVisible ? 1 : 0.96)
+        .opacity(isShellVisible ? 1 : 0)
+        .offset(y: isShellVisible ? 0 : -6)
         .frame(minWidth: 720, minHeight: 460)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            coordinator.syncSelectionToNavigableTargets()
+            withAnimation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion)) {
+                isShellVisible = true
+            }
             searchFocused = true
+        }
+        .onKeyPress(.upArrow) {
+            coordinator.moveSelection(delta: -1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            coordinator.moveSelection(delta: 1)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            Task { await coordinator.activateSelectedTarget() }
+            return .handled
         }
         .sheet(isPresented: actionConfirmationBinding) {
             if let plan = coordinator.pendingPlan {
@@ -50,6 +79,22 @@ struct WindowHubOverlayView: View {
         }
         .sheet(isPresented: aiOrganizeBinding) {
             WindowHubAIOrganizeSheetView(coordinator: coordinator)
+        }
+    }
+
+    private var shellShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Self.shellRadius, style: .continuous)
+    }
+
+    @ViewBuilder
+    private var shellBackdrop: some View {
+        if reduceTransparency {
+            shellShape.fill(MAYNTheme.contentPanelElevated(colorScheme))
+        } else if #available(macOS 26.0, *) {
+            shellShape.fill(Color.clear)
+                .glassEffect(.regular, in: shellShape)
+        } else {
+            shellShape.fill(.ultraThinMaterial)
         }
     }
 
@@ -89,8 +134,11 @@ struct WindowHubOverlayView: View {
                     Label("AI Organize", systemImage: "sparkles")
                 }
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
             .disabled(coordinator.isAIOrganizing)
             Button("Browse all apps…") { coordinator.showBrowseColumns() }
+                .buttonStyle(.plain)
         }
     }
 
@@ -102,13 +150,14 @@ struct WindowHubOverlayView: View {
             Button("Open Settings") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
             }
+            .buttonStyle(.plain)
         }
         .font(.caption)
         .padding(10)
         .background(MAYNTheme.panel)
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(MAYNTheme.strongBorder, lineWidth: 1)
+                .stroke(MAYNTheme.hairline, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
@@ -131,7 +180,7 @@ struct WindowHubOverlayView: View {
         .background(MAYNTheme.panel)
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(MAYNTheme.strongBorder, lineWidth: 1)
+                .stroke(MAYNTheme.hairline, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
@@ -145,16 +194,28 @@ struct WindowHubOverlayView: View {
                     .font(.subheadline.weight(.medium))
             }
             .padding(20)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background {
+                if reduceTransparency {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(MAYNTheme.contentPanelElevated(colorScheme))
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(MAYNTheme.hairline, lineWidth: 1)
+            }
         }
-        .clipShape(RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous))
+        .clipShape(shellShape)
     }
 
     @ViewBuilder
     private var content: some View {
         switch coordinator.mode {
         case .dashboard, .actionConfirmation:
-            WindowHubMasonryDashboardView(coordinator: coordinator)
+            WindowHubGroupedDashboardView(coordinator: coordinator)
         case .searchResults:
             WindowHubSearchResultsView(coordinator: coordinator)
         case .browseColumns:

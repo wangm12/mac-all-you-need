@@ -4,6 +4,8 @@ struct WindowHubWindowGroupView: View {
     let group: WindowHubWindowGroup
     let appName: String
     var tabsPerWindow = 10
+    var selectedTargetID: WindowHubTargetID?
+    let onSelect: (WindowHubTarget) -> Void
     let onActivate: (WindowHubTarget) -> Void
     let onAction: (WindowHubDirectAction, WindowHubTarget) -> Void
 
@@ -39,11 +41,13 @@ struct WindowHubWindowGroupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(shownTargets, id: \.id) { target in
-                WindowHubTargetRowView(target: target) {
-                    onActivate(target)
-                } onAction: { action in
-                    onAction(action, target)
-                }
+                WindowHubTargetRowView(
+                    target: target,
+                    isSelected: selectedTargetID == target.id,
+                    onActivate: { onActivate(target) },
+                    onSelect: { onSelect(target) },
+                    onAction: { action in onAction(action, target) }
+                )
             }
 
             if canExpand {
@@ -54,7 +58,7 @@ struct WindowHubWindowGroupView: View {
 
     private var expandRow: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.12)) { isExpanded.toggle() }
+            withAnimation(MAYNMotion.fast) { isExpanded.toggle() }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
@@ -63,7 +67,7 @@ struct WindowHubWindowGroupView: View {
                     .font(.system(size: 12))
                 Spacer(minLength: 6)
             }
-            .foregroundStyle(MAYNTheme.progress)
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 8)
             .frame(height: 28)
             .contentShape(Rectangle())

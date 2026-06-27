@@ -47,7 +47,7 @@ final class FunctionTabsTests: XCTestCase {
     func testRadialMenuSettingsPresentationSectionsWhenEnabled() {
         XCTAssertEqual(
             RadialMenuSettingsPresentation.sectionTitles(whenEnabled: true),
-            ["Radial Menu", "Preview", "Trigger", "Selection", "Target Highlight", "Layout Actions"]
+            ["Radial Puck", "Preview", "Trigger", "Selection", "Target Highlight", "Layout Actions"]
         )
     }
 
@@ -202,7 +202,7 @@ final class FunctionTabsTests: XCTestCase {
         let emptyState = DownloadsEmptyStatePresentation.model(for: .activeQueue)
 
         XCTAssertEqual(emptyState.title, "No downloads queued")
-        XCTAssertEqual(emptyState.subtitle, "Add a URL, paste with ⌘V, or send a link from the optional Chrome Companion.")
+        XCTAssertEqual(emptyState.subtitle, "Add a URL, paste with ⌘V, or send a link from the optional Mac All You Need Companion.")
         XCTAssertEqual(emptyState.primaryActionTitle, "Add URL")
         XCTAssertEqual(emptyState.secondaryActionTitle, "Paste URL")
     }
@@ -214,7 +214,7 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(DownloadsSettingsPresentation.cookieProfileTitle, "Cookie profiles")
         XCTAssertEqual(
             DownloadsSettingsPresentation.cookieProfileSubtitle,
-            "Use Browser Auto by default. Chrome Companion is optional for exact tab-session cookie sync."
+            "Import browser cookies or use the Companion extension for authenticated downloads."
         )
         XCTAssertEqual(DownloadsSettingsPresentation.bundledAssetsTitle, "Bundled downloader assets")
         XCTAssertEqual(DownloadConcurrencyControlPresentation.range, 1...10)
@@ -238,7 +238,7 @@ final class FunctionTabsTests: XCTestCase {
     }
 
     func testFolderPreviewMainPageHidesRedundantSingleSettingsTab() {
-        XCTAssertFalse(FunctionPageShellPresentation.showsTabStrip(tabCount: Array(FolderPreviewFunctionTab.allCases).count))
+        XCTAssertTrue(FunctionPageShellPresentation.showsTabStrip(tabCount: Array(FolderPreviewFunctionTab.allCases).count))
         XCTAssertTrue(FunctionPageShellPresentation.showsTabStrip(tabCount: Array(DownloadsFunctionTab.allCases).count))
     }
 
@@ -321,6 +321,12 @@ final class FunctionTabsTests: XCTestCase {
         )
     }
 
+    func testClipboardHistoryLoadPolicyOnlyLoadsOnHistoryTab() {
+        XCTAssertTrue(ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: .history))
+        XCTAssertFalse(ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: .snippets))
+        XCTAssertFalse(ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: .settings))
+    }
+
     func testClipboardFunctionTabMigratesLegacySnippetsSelection() {
         XCTAssertEqual(ClipboardFunctionTab.storedSelection("library"), .snippets)
     }
@@ -387,9 +393,9 @@ final class FunctionTabsTests: XCTestCase {
             "AI File Organizer",
             "Window Layouts",
             "Window Grab",
-            "Windows"
+            "Windows Hub"
         ])
-        XCTAssertEqual(tiles.first?.detail, "Capture, search, pin, and paste clipboard history.")
+        XCTAssertEqual(tiles.first?.detail, "Capture, search, pin, paste, and expand snippets.")
         XCTAssertEqual(tiles.first?.metric, "30")
     }
 
@@ -408,7 +414,7 @@ final class FunctionTabsTests: XCTestCase {
             "Rename and re-file messy folders using on-device content extraction.",
             "Arrange, snap, and restore windows.",
             "Move windows by holding a modifier and dragging.",
-            "See window thumbnails when hovering an app's Dock icon."
+            "Search apps, windows, and tabs. Switch, clean up, or organize with AI."
         ])
         XCTAssertFalse(tiles.map(\.detail).contains("1 queue item"))
     }
@@ -419,7 +425,7 @@ final class FunctionTabsTests: XCTestCase {
             downloadsQueueCount: 0
         )
 
-        XCTAssertEqual(tiles.map(\.metric), ["30", nil, nil, nil, "0", nil, nil, nil, nil])
+        XCTAssertEqual(tiles.map(\.metric), ["30", nil, nil, "0", nil, nil, nil, nil, nil])
     }
 
     func testDashboardWindowLayoutTileSurfacesOnlyActionableStatus() {
@@ -550,7 +556,7 @@ final class FunctionTabsTests: XCTestCase {
             nil,
             nil,
             nil,
-            nil
+            "⌥⇧W"
         ])
     }
 
@@ -603,7 +609,8 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(HotkeysSettingsPresentation.groups.first?.actions, [
             .clipboard,
             .browseFolder,
-            .finderHistory
+            .finderHistory,
+            .windowHub
         ])
         XCTAssertTrue(HotkeysSettingsPresentation.groups[1].actions.contains(.windowLeftHalf))
         XCTAssertTrue(HotkeysSettingsPresentation.groups[1].actions.contains(.windowRestore))
@@ -706,8 +713,9 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(DashboardRenderingPresentation.toolCardHeight, 168)
     }
 
-    func testMainWindowRootTypeErasesDetailViews() {
-        XCTAssertTrue(MainWindowRootPresentation.usesTypeErasedDetailViews)
+    func testMainWindowRootUsesStableDetailViewRouting() {
+        XCTAssertTrue(MainWindowRootPresentation.usesStableDetailViewRouting)
+        XCTAssertTrue(MainWindowRootPresentation.sidebarUsesOpaqueSelectionChrome)
     }
 
     func testMainWindowRootObservesFeatureStatePublisherForSidebarDisabledState() {
@@ -768,9 +776,9 @@ final class FunctionTabsTests: XCTestCase {
         XCTAssertEqual(
             DashboardToolSettingsNavigation.route(for: .snippets),
             DashboardToolSettingsRoute(
-                destination: .clipboard,
-                tabStorageKey: ClipboardFunctionTab.storageKey,
-                tabRawValue: ClipboardFunctionTab.snippets.rawValue
+                destination: .snippets,
+                tabStorageKey: SnippetsFunctionTab.storageKey,
+                tabRawValue: SnippetsFunctionTab.library.rawValue
             )
         )
         XCTAssertEqual(

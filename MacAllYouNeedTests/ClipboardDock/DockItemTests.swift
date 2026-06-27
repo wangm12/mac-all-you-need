@@ -1,4 +1,5 @@
 @testable import MacAllYouNeed
+import AppKit
 import Core
 import XCTest
 
@@ -84,15 +85,53 @@ final class DockItemTests: XCTestCase {
         XCTAssertEqual(ClipCardAccentPresentation.dividerAccentOpacity, 0)
     }
 
-    func testClipCardsUseDistinctStableAccentsForDifferentApps() {
-        XCTAssertNotEqual(
-            ClipCardAccentPresentation.stableAccentKey(forBundleID: "com.google.Chrome"),
-            ClipCardAccentPresentation.stableAccentKey(forBundleID: "com.openai.codex")
+    func testClipCardAccentFallsBackWithoutSourceAppIcon() {
+        let meta = ClipboardXPCMeta(
+            id: "accent-1",
+            modified: Date(),
+            kind: "clipboardItem",
+            preview: "hello"
         )
-        XCTAssertNotEqual(
-            ClipCardAccentPresentation.stableAccentKey(forBundleID: "com.apple.dt.Xcode"),
-            ClipCardAccentPresentation.stableAccentKey(forBundleID: "com.tinyspeck.slackmacgap")
+        let item = DockItem(from: meta, sourceApp: nil, isPinned: false)
+        XCTAssertEqual(
+            ClipCardAccentPresentation.accent(for: item),
+            ClipCardAccentPresentation.fallbackAccent
         )
+    }
+
+    func testClipCardAccentUsesDominantColorFromSourceAppIcon() {
+        let redIcon = solidTestIcon(red: 0.92, green: 0.12, blue: 0.10)
+        let blueIcon = solidTestIcon(red: 0.08, green: 0.40, blue: 0.92)
+        let redItem = dockItem(bundleID: "com.example.red", icon: redIcon)
+        let blueItem = dockItem(bundleID: "com.example.blue", icon: blueIcon)
+
+        let redAccent = ClipCardAccentPresentation.accent(for: redItem)
+        let blueAccent = ClipCardAccentPresentation.accent(for: blueItem)
+
+        XCTAssertNotEqual(redAccent, ClipCardAccentPresentation.fallbackAccent)
+        XCTAssertNotEqual(blueAccent, ClipCardAccentPresentation.fallbackAccent)
+        XCTAssertNotEqual(redAccent, blueAccent)
+    }
+
+    private func dockItem(bundleID: String, icon: NSImage) -> DockItem {
+        let meta = ClipboardXPCMeta(
+            id: "accent-\(bundleID)",
+            modified: Date(),
+            kind: "clipboardItem",
+            preview: "hello"
+        )
+        let source = SourceApp(bundleID: bundleID, displayName: bundleID, icon: icon)
+        return DockItem(from: meta, sourceApp: source, isPinned: false)
+    }
+
+    private func solidTestIcon(red: CGFloat, green: CGFloat, blue: CGFloat) -> NSImage {
+        let size = NSSize(width: 32, height: 32)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor(srgbRed: red, green: green, blue: blue, alpha: 1).setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+        image.unlockFocus()
+        return image
     }
 
     func testDockListTabsKeepAddButtonOutsideTabPill() {

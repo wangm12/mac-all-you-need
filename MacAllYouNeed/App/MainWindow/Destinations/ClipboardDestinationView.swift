@@ -19,7 +19,13 @@ struct ClipboardDestinationView: View {
     @State private var historyItems: [ClipboardItemMeta] = []
     @State private var historySearch = ""
     @State private var historyPage = 0
+    @State private var historyTypeFilter: ClipboardHistoryTypeFilter = .all
+    @State private var historySortMode: ClipboardHistorySortMode = .recent
     @State private var isHistoryLoading = false
+    @State private var historyLoadTask: Task<Void, Never>?
+    @State private var storeChangeSyncTask: Task<Void, Never>?
+    /// Cached once per history refresh — never hit the pinboard DB from SwiftUI body.
+    @State private var pinnedHistoryItemIDs: Set<String> = []
     /// Bundle ID of the app that was frontmost when the main window was last
     /// opened. Used for context-aware ranking of clipboard history items.
     @State private var contextBundleID: String?
@@ -37,6 +43,10 @@ struct ClipboardDestinationView: View {
         SnippetExpansionMode(rawValue: expansionModeRaw) ?? SnippetExpansionSettings.defaultMode
     }
 
+    private var activeClipboardTab: ClipboardFunctionTab {
+        ClipboardFunctionTab.storedSelection(selectedTabRaw)
+    }
+
     var body: some View {
         FunctionPageShell(
             title: "Clipboard",
@@ -45,7 +55,6 @@ struct ClipboardDestinationView: View {
             tabStripMaxWidth: 560,
             toolbar: {
                 Button {
-                    NSApp.activate(ignoringOtherApps: true)
                     controller.clipboardDock.show()
                 } label: {
                     HStack(spacing: 6) {
@@ -81,24 +90,47 @@ struct ClipboardDestinationView: View {
             contextBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             hotkeyMap = HotkeyMapStore.load()
             blockedApps = ExcludedAppsStore.load()
-            reloadClipboardHistory()
+            seedHistoryPreviewFromReader()
+            if ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: activeClipboardTab) {
+                scheduleClipboardHistoryReload()
+            }
+        }
+        .onDisappear {
+            historyLoadTask?.cancel()
+            historyLoadTask = nil
+            storeChangeSyncTask?.cancel()
+            storeChangeSyncTask = nil
+            isHistoryLoading = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .clipboardStoreDidChange)) { _ in
-            reloadClipboardHistory()
+            scheduleStoreChangeHistorySync()
         }
-        .onChange(of: controller.clipboardReader.items.map(\.id.rawValue)) { _, _ in
-            reloadClipboardHistory()
+        .onChange(of: selectedTabRaw) { _, _ in
+            if ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: activeClipboardTab) {
+                seedHistoryPreviewFromReader()
+                scheduleClipboardHistoryReload()
+            } else {
+                cancelClipboardHistoryLoad()
+            }
         }
         .onChange(of: historySearch) { _, _ in
             historyPage = 0
-            reloadClipboardHistory()
+            guard ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: activeClipboardTab) else { return }
+            scheduleClipboardHistoryReload(debounceMilliseconds: 300)
+        }
+        .onChange(of: historyTypeFilter) { _, _ in
+            historyPage = 0
+        }
+        .onChange(of: historySortMode) { _, _ in
+            historyPage = 0
         }
         .onChange(of: historyItems.map(\.id.rawValue)) { _, _ in
             clampClipboardHistoryPage()
         }
         .onChange(of: maxAgeDays) { _, _ in
             postRetentionSettingsChangedDarwin()
-            reloadClipboardHistory()
+            guard ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: activeClipboardTab) else { return }
+            scheduleClipboardHistoryReload()
         }
     }
 
@@ -113,6 +145,11 @@ struct ClipboardDestinationView: View {
                 ClipboardHistorySearchBar(
                     query: $historySearch,
                     resultText: state.totalItems == 1 ? "1 item" : "\(state.totalItems) items"
+                )
+
+                ClipboardHistoryFilterChips(
+                    typeFilter: $historyTypeFilter,
+                    sortMode: $historySortMode
                 )
 
                 MAYNDivider()
@@ -131,26 +168,40 @@ struct ClipboardDestinationView: View {
                         EmptyView()
                     }
                 } else {
-                    ForEach(Array(state.visibleItems.enumerated()), id: \.element.id.rawValue) { index, item in
-                        if index > 0 { MAYNDivider() }
-                        MainClipboardRecentRow(
-                            item: item,
-                            imageLoader: controller.clipboardDeps.imageLoader,
-                            appIcons: controller.clipboardDeps.appIcons,
-                            isSelected: controller.clipboardReader.selectedIDs.contains(item.id.rawValue),
-                            onSelect: {
-                                selectClipboardHistoryItem(item)
-                            },
-                            onCopy: {
-                                copyClipboardHistoryItems(ids: [item.id.rawValue])
-                            },
-                            onPin: {
-                                pinClipboardHistoryItem(item)
-                            },
-                            onDelete: {
-                                deleteClipboardHistoryItem(item)
-                            }
-                        )
+                    let sections = clipboardHistorySections(from: state.visibleItems)
+                    ForEach(sections) { section in
+                        if !section.title.isEmpty {
+                            Text(section.title)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 16)
+                                .padding(.top, section.id == sections.first?.id ? 4 : 12)
+                                .padding(.bottom, 4)
+                        }
+                        ForEach(Array(section.items.enumerated()), id: \.element.id.rawValue) { index, item in
+                            if index > 0 || !section.title.isEmpty { MAYNDivider() }
+                            let flatIndex = flatClipboardHistoryIndex(for: item, in: state.visibleItems)
+                            MainClipboardRecentRow(
+                                item: item,
+                                imageLoader: controller.clipboardDeps.imageLoader,
+                                appIcons: controller.clipboardDeps.appIcons,
+                                isSelected: controller.clipboardReader.selectedIDs.contains(item.id.rawValue),
+                                quickShortcut: flatIndex.flatMap { $0 < 9 ? "⌘\($0 + 1)" : nil },
+                                onSelect: {
+                                    selectClipboardHistoryItem(item)
+                                },
+                                onCopy: {
+                                    copyClipboardHistoryItems(ids: [item.id.rawValue])
+                                },
+                                onPin: {
+                                    pinClipboardHistoryItem(item)
+                                },
+                                onDelete: {
+                                    deleteClipboardHistoryItem(item)
+                                },
+                                onReveal: clipboardRevealAction(for: item)
+                            )
+                        }
                     }
 
                     MAYNDivider()
@@ -173,12 +224,54 @@ struct ClipboardDestinationView: View {
         let ranked = historySearch.isEmpty
             ? ContextAwareRanker.rank(historyItems, forBundleID: contextBundleID)
             : historyItems
+        let filtered = ClipboardHistoryPresentation.filtered(
+            ranked,
+            typeFilter: historyTypeFilter
+        )
+        let sorted = ClipboardHistoryPresentation.sorted(
+            filtered,
+            mode: historySortMode,
+            contextBundleID: contextBundleID
+        )
         return MainClipboardHistoryPresentation.state(
-            items: ranked,
+            items: sorted,
             query: "",
             requestedPage: historyPage,
             pageSize: Self.historyPageSize
         )
+    }
+
+    private func clipboardHistorySections(from items: [ClipboardItemMeta]) -> [ClipboardHistorySectionModel] {
+        ClipboardHistoryPresentation.sections(
+            items: items,
+            isPinned: { pinnedHistoryItemIDs.contains($0.id.rawValue) }
+        )
+    }
+
+    private func refreshPinnedHistoryItemIDs() {
+        guard let pinned = try? PinnedPinboard.findOrCreate(in: controller.clipboardDeps.pinboardStore) else {
+            pinnedHistoryItemIDs = []
+            return
+        }
+        pinnedHistoryItemIDs = Set(pinned.itemIDs.map(\.rawValue))
+    }
+
+    private func flatClipboardHistoryIndex(for item: ClipboardItemMeta, in items: [ClipboardItemMeta]) -> Int? {
+        items.firstIndex(where: { $0.id == item.id })
+    }
+
+    private func clipboardRevealAction(for item: ClipboardItemMeta) -> (() -> Void)? {
+        guard ClipboardHistoryPresentation.isFileItem(item) else { return nil }
+        return {
+            Task {
+                guard let urls = await controller.clipboardDeps.fileLoader.urls(recordID: item.id.rawValue),
+                      let url = urls.first
+                else { return }
+                await MainActor.run {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
+        }
     }
 
     private var filteredClipboardHistoryItems: [ClipboardItemMeta] {
@@ -426,45 +519,94 @@ struct ClipboardDestinationView: View {
         }
     }
 
-    private func reloadClipboardHistory() {
-        guard let store = controller.clipboardReader.store else {
-            historyItems = controller.clipboardReader.items
+    /// Show dock/reader items immediately so History never sits on an empty spinner.
+    private func seedHistoryPreviewFromReader() {
+        guard historyItems.isEmpty else { return }
+        let preview = controller.clipboardReader.items
+        guard !preview.isEmpty else { return }
+        let limit = ClipboardHistoryWindow.listParameters().fetchLimit
+        historyItems = LocalClipboardReader.deduplicate(preview, limit: limit)
+    }
+
+    private func scheduleClipboardHistoryReload(debounceMilliseconds: UInt64 = 0) {
+        guard ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: activeClipboardTab) else { return }
+        historyLoadTask?.cancel()
+        historyLoadTask = Task { @MainActor in
+            if debounceMilliseconds > 0 {
+                try? await Task.sleep(for: .milliseconds(debounceMilliseconds))
+            }
+            guard !Task.isCancelled else { return }
+            await loadClipboardHistory()
+        }
+    }
+
+    private func cancelClipboardHistoryLoad() {
+        historyLoadTask?.cancel()
+        historyLoadTask = nil
+        isHistoryLoading = false
+    }
+
+    private func scheduleStoreChangeHistorySync() {
+        guard ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: activeClipboardTab) else { return }
+        storeChangeSyncTask?.cancel()
+        storeChangeSyncTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            // Avoid restarting the initial load while the spinner is still up.
+            guard !(isHistoryLoading && historyItems.isEmpty) else { return }
+            scheduleClipboardHistoryReload()
+        }
+    }
+
+    @MainActor
+    private func loadClipboardHistory() async {
+        guard ClipboardHistoryLoadPolicy.shouldLoadFullHistory(for: activeClipboardTab) else { return }
+
+        seedHistoryPreviewFromReader()
+
+        guard controller.clipboardReader.store != nil else {
+            if historyItems.isEmpty {
+                historyItems = controller.clipboardReader.items
+            }
+            isHistoryLoading = false
             return
         }
+
+        let showSpinner = historyItems.isEmpty
+        if showSpinner {
+            isHistoryLoading = true
+        }
+        defer { isHistoryLoading = false }
+
+        guard !Task.isCancelled else { return }
 
         let params = ClipboardHistoryWindow.listParameters()
         let limit = params.fetchLimit
         let trimmedSearch = historySearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        let worker = controller.clipboardDeps.clipboardWorker
-        isHistoryLoading = true
-        Task {
-            let fuzzyEnabled = AppGroupSettings.defaults.object(forKey: "search.fuzzy") as? Bool ?? false
-            let result: Result<[ClipboardItemMeta], Error>
-            if trimmedSearch.isEmpty {
-                let items = await worker.loadHistoryMetas(
-                    query: nil,
-                    limit: limit,
-                    fuzzyEnabled: false
-                )
-                result = .success(LocalClipboardReader.deduplicate(items, limit: limit))
-            } else {
-                let items = await worker.loadHistoryMetas(
-                    query: trimmedSearch,
-                    limit: limit,
-                    fuzzyEnabled: fuzzyEnabled
-                )
-                result = .success(items)
-            }
+        let fuzzyEnabled = AppGroupSettings.defaults.object(forKey: "search.fuzzy") as? Bool ?? false
 
-            switch result {
-            case let .success(fetched):
-                historyItems = fetched
-            case .failure:
-                historyItems = controller.clipboardReader.items
-            }
-            isHistoryLoading = false
-            clampClipboardHistoryPage()
-        }
+        // Coalesce with other clipboard reads on `ClipboardWorker` instead of opening a
+        // second concurrent GRDB reader that can wedge the shared database queue.
+        let loaded = await controller.clipboardDeps.clipboardWorker.loadHistoryMetas(
+            query: trimmedSearch.isEmpty ? nil : trimmedSearch,
+            limit: limit,
+            fuzzyEnabled: fuzzyEnabled
+        )
+
+        guard !Task.isCancelled else { return }
+
+        refreshPinnedHistoryItemIDs()
+
+        let fetched = trimmedSearch.isEmpty
+            ? LocalClipboardReader.deduplicate(loaded, limit: limit)
+            : loaded
+
+        historyItems = fetched
+        clampClipboardHistoryPage()
+    }
+
+    private func reloadClipboardHistory() {
+        scheduleClipboardHistoryReload()
     }
 
     private func clampClipboardHistoryPage() {
@@ -520,6 +662,13 @@ struct ClipboardDestinationView: View {
             return .handled
         }
 
+        if keyPress.modifiers.contains(.command), let digit = Int(String(raw)), (1 ... 9).contains(digit) {
+            let items = visibleClipboardHistoryItems
+            guard items.indices.contains(digit - 1) else { return .ignored }
+            copyClipboardHistoryItems(ids: [items[digit - 1].id.rawValue])
+            return .handled
+        }
+
         switch raw {
         case " ":
             if ClipboardSystemQuickLookCoordinator.shared.isVisible {
@@ -570,6 +719,7 @@ struct ClipboardDestinationView: View {
     private func pinClipboardHistoryItem(_ item: ClipboardItemMeta) {
         Task {
             await controller.clipboardDeps.dockModel.togglePin(itemID: item.id.rawValue)
+            refreshPinnedHistoryItemIDs()
         }
     }
 
@@ -582,7 +732,6 @@ struct ClipboardDestinationView: View {
                 if controller.clipboardReader.anchorID == id {
                     controller.clipboardReader.anchorID = nil
                 }
-                reloadClipboardHistory()
             }
         }
     }
@@ -663,6 +812,189 @@ struct ClipboardDestinationView: View {
     }
 }
 
+private enum ClipboardHistoryTypeFilter: String, CaseIterable, Identifiable {
+    case all
+    case text
+    case link
+    case file
+    case image
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .text: "Text"
+        case .link: "Link"
+        case .file: "File"
+        case .image: "Image"
+        }
+    }
+}
+
+private enum ClipboardHistorySortMode: String, CaseIterable, Identifiable {
+    case recent
+    case oldest
+    case app
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .recent: "Recent"
+        case .oldest: "Oldest"
+        case .app: "App"
+        }
+    }
+}
+
+private enum ClipboardHistoryPresentation {
+    static func isFileItem(_ item: ClipboardItemMeta) -> Bool {
+        if case .symbol("doc") = MainClipboardItemPresentation.previewKind(for: item) {
+            return true
+        }
+        return item.preview.hasPrefix("(") && item.preview.localizedCaseInsensitiveContains("file")
+    }
+
+    static func filtered(
+        _ items: [ClipboardItemMeta],
+        typeFilter: ClipboardHistoryTypeFilter
+    ) -> [ClipboardItemMeta] {
+        guard typeFilter != .all else { return items }
+        return items.filter { matchesType($0, filter: typeFilter) }
+    }
+
+    static func sorted(
+        _ items: [ClipboardItemMeta],
+        mode: ClipboardHistorySortMode,
+        contextBundleID: String?
+    ) -> [ClipboardItemMeta] {
+        switch mode {
+        case .recent:
+            return items.sorted { $0.modified > $1.modified }
+        case .oldest:
+            return items.sorted { $0.modified < $1.modified }
+        case .app:
+            return ContextAwareRanker.rank(items, forBundleID: contextBundleID)
+        }
+    }
+
+    static func sections(
+        items: [ClipboardItemMeta],
+        isPinned: (ClipboardItemMeta) -> Bool
+    ) -> [ClipboardHistorySectionModel] {
+        let pinned = items.filter(isPinned)
+        let unpinned = items.filter { !isPinned($0) }
+        let today = unpinned.filter { Calendar.current.isDateInToday($0.modified) }
+        let older = unpinned.filter { !Calendar.current.isDateInToday($0.modified) }
+
+        var result: [ClipboardHistorySectionModel] = []
+        if !pinned.isEmpty {
+            result.append(.init(id: "pinned", title: "Pinned", items: pinned))
+        }
+        if !today.isEmpty {
+            result.append(.init(id: "today", title: "Today", items: today))
+        }
+        if !older.isEmpty {
+            let title = pinned.isEmpty && today.isEmpty ? "" : "Earlier"
+            result.append(.init(id: "earlier", title: title, items: older))
+        }
+        if result.isEmpty, !items.isEmpty {
+            result.append(.init(id: "all", title: "", items: items))
+        }
+        return result
+    }
+
+    private static func matchesType(_ item: ClipboardItemMeta, filter: ClipboardHistoryTypeFilter) -> Bool {
+        switch filter {
+        case .all:
+            return true
+        case .text:
+            if case .symbol("doc.plaintext") = MainClipboardItemPresentation.previewKind(for: item) { return true }
+            return !isFileItem(item) && !item.preview.hasPrefix("http")
+                && MainClipboardItemPresentation.previewKind(for: item) != .imageThumbnail(recordID: item.id.rawValue)
+        case .link:
+            return item.preview.hasPrefix("http")
+        case .file:
+            return isFileItem(item)
+        case .image:
+            if case .imageThumbnail = MainClipboardItemPresentation.previewKind(for: item) { return true }
+            return false
+        }
+    }
+}
+
+private struct ClipboardHistorySectionModel: Identifiable {
+    let id: String
+    let title: String
+    let items: [ClipboardItemMeta]
+}
+
+private struct ClipboardHistoryFilterChips: View {
+    @Binding var typeFilter: ClipboardHistoryTypeFilter
+    @Binding var sortMode: ClipboardHistorySortMode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Text("Type:")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(ClipboardHistoryTypeFilter.allCases) { option in
+                    ClipboardHistoryFilterChip(
+                        title: option.title,
+                        isSelected: typeFilter == option
+                    ) {
+                        typeFilter = option
+                    }
+                }
+            }
+            HStack(spacing: 6) {
+                Text("Sort:")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(ClipboardHistorySortMode.allCases) { option in
+                    ClipboardHistoryFilterChip(
+                        title: option.title,
+                        isSelected: sortMode == option
+                    ) {
+                        sortMode = option
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: typeFilter)
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: sortMode)
+    }
+}
+
+private struct ClipboardHistoryFilterChip: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(MAYNSelectionLabelStyle.weight(isSelected: isSelected)))
+                .foregroundStyle(MAYNSelectionLabelStyle.foreground(isSelected: isSelected))
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .maynSelectionBackground(isSelected: isSelected, isHovering: isHovering, shape: .capsule)
+                .overlay(Capsule().stroke(MAYNTheme.subtleBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
+    }
+}
+
 private struct ClipboardHistorySearchBar: View {
     @Binding var query: String
     let resultText: String
@@ -718,10 +1050,12 @@ private struct MainClipboardRecentRow: View {
     let imageLoader: ImageBlobLoader
     let appIcons: AppIconResolver
     let isSelected: Bool
+    var quickShortcut: String? = nil
     let onSelect: () -> Void
     let onCopy: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
+    var onReveal: (() -> Void)? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
@@ -739,7 +1073,9 @@ private struct MainClipboardRecentRow: View {
                 onSelect: onSelect,
                 onCopy: onCopy,
                 onPin: onPin,
-                onDelete: onDelete
+                onDelete: onDelete,
+                onReveal: onReveal,
+                quickShortcut: quickShortcut
             )
             .onHover { isHovering = $0 }
         case let .symbol(symbol):
@@ -751,9 +1087,10 @@ private struct MainClipboardRecentRow: View {
                     Text(CompactTimestamp.format(item.modified))
                         .font(.caption)
                         .foregroundStyle(
-                            isSelected
-                                ? MAYNTheme.selectionInversionSubtitle(colorScheme)
-                                : MAYNTheme.textSecondary(colorScheme)
+                            MAYNSelectionLabelStyle.subtitle(
+                                isSelected: isSelected,
+                                scheme: colorScheme
+                            )
                         )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -763,7 +1100,9 @@ private struct MainClipboardRecentRow: View {
                         isSelected: isSelected,
                         onCopy: onCopy,
                         onPin: onPin,
-                        onDelete: onDelete
+                        onDelete: onDelete,
+                        onReveal: onReveal,
+                        quickShortcut: quickShortcut
                     )
                 }
 
@@ -780,16 +1119,12 @@ private struct MainClipboardRecentRow: View {
             .padding(.vertical, 10)
             .frame(minHeight: 56)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .maynInversionSelectionBackground(
+            .maynSelectionBackground(
                 isSelected: isSelected,
                 isHovering: isHovering,
                 shape: .rounded(10)
             )
-            .foregroundStyle(
-                isSelected
-                    ? MAYNTheme.selectionInversionForeground(colorScheme)
-                    : MAYNTheme.textPrimary(colorScheme)
-            )
+            .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
             .contentShape(Rectangle())
             .onTapGesture(perform: onSelect)
             .simultaneousGesture(
@@ -808,19 +1143,24 @@ private struct ClipboardHistoryRowActions: View {
     let onCopy: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
+    var onReveal: (() -> Void)? = nil
+    var quickShortcut: String? = nil
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 4) {
             rowActionButton(symbol: "doc.on.doc", label: "Copy", action: onCopy)
+            if let onReveal {
+                rowActionButton(symbol: "folder", label: "Reveal in Finder", action: onReveal)
+            }
             rowActionButton(symbol: "pin", label: "Pin", action: onPin)
             rowActionButton(symbol: "trash", label: "Delete", action: onDelete)
+            if let quickShortcut {
+                MAYNKeycap(text: quickShortcut)
+                    .accessibilityLabel("Shortcut \(quickShortcut)")
+            }
         }
-        .foregroundStyle(
-            isSelected
-                ? MAYNTheme.selectionInversionSubtitle(colorScheme)
-                : MAYNTheme.textSecondary(colorScheme)
-        )
+        .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
     }
 
     private func rowActionButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
@@ -847,6 +1187,8 @@ private struct MainClipboardImageRecentRow: View {
     let onCopy: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
+    var onReveal: (() -> Void)? = nil
+    var quickShortcut: String? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -866,9 +1208,10 @@ private struct MainClipboardImageRecentRow: View {
                 Text("\(item.preview) - \(CompactTimestamp.format(item.modified))")
                     .font(.caption)
                     .foregroundStyle(
-                        isSelected
-                            ? MAYNTheme.selectionInversionSubtitle(colorScheme)
-                            : MAYNTheme.textSecondary(colorScheme)
+                        MAYNSelectionLabelStyle.subtitle(
+                            isSelected: isSelected,
+                            scheme: colorScheme
+                        )
                     )
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -879,7 +1222,9 @@ private struct MainClipboardImageRecentRow: View {
                     isSelected: isSelected,
                     onCopy: onCopy,
                     onPin: onPin,
-                    onDelete: onDelete
+                    onDelete: onDelete,
+                    onReveal: onReveal,
+                    quickShortcut: quickShortcut
                 )
             }
 
@@ -898,16 +1243,12 @@ private struct MainClipboardImageRecentRow: View {
         .padding(.vertical, 10)
         .frame(minHeight: 82)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .maynInversionSelectionBackground(
+        .maynSelectionBackground(
             isSelected: isSelected,
             isHovering: isHovering,
             shape: .rounded(10)
         )
-        .foregroundStyle(
-            isSelected
-                ? MAYNTheme.selectionInversionForeground(colorScheme)
-                : MAYNTheme.textPrimary(colorScheme)
-        )
+        .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .simultaneousGesture(
@@ -956,10 +1297,9 @@ private struct MainClipboardThumbnailView: View {
             image = nil
             failed = false
             let loadedImage = await imageLoader.thumbnail(recordID: recordID, maxDim: maxDim)
-            await MainActor.run {
-                image = loadedImage
-                failed = loadedImage == nil
-            }
+            guard !Task.isCancelled else { return }
+            image = loadedImage
+            failed = loadedImage == nil
         }
     }
 }

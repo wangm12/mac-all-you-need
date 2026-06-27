@@ -9,7 +9,11 @@ struct DockRootView: View {
     let dismiss: () -> Void
     let onPaste: (Int, EventModifiers) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var snippetEditorMode: DockSnippetEditorMode?
+
+    private static let shellCornerRadius = MAYNControlMetrics.hudRadius
 
     /// Height permanently reserved below the tab bar for the multi-select
     /// action bar (44pt bar + 1pt divider). Allocating it always — instead
@@ -43,6 +47,11 @@ struct DockRootView: View {
                     )
                 }
             }
+            // Same opaque panel color as DockTopBar + MultiSelectBar so the
+            // carousel/snippets area reads as one solid surface. The outer
+            // shell uses Liquid Glass on macOS 26; without this fill the
+            // desktop bleeds through between cards.
+            .background(Color(nsColor: .controlBackgroundColor))
             .id(model.activeList.animationID)
             .transition(contentTransition)
             .animation(MAYNMotion.tabAnimation(reduceMotion: reduceMotion), value: model.activeList.animationID)
@@ -55,21 +64,11 @@ struct DockRootView: View {
         // outer VStack didn't claim.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(model)
-        // No outer `.animation(value: model.selection.isEmpty)` — that
-        // modifier propagates implicit animation to every descendant that
-        // re-renders on the same diff, which made the per-card selection
-        // border fade in over ~180ms after each click. The MultiSelectBar's
-        // appearance is animated locally via `transition`-aware
-        // `withAnimation` calls in the selection mutators (clearSelection /
-        // selectOnly etc.) only when it actually changes appearance state.
-        .background(
-            // Fully opaque panel surface. `windowBackgroundColor` was still
-            // letting the desktop/terminal bleed through faintly (it carries
-            // a vibrancy alpha on macOS). `controlBackgroundColor` is the
-            // explicit "card/panel" surface and is solid.
-            Color(nsColor: .controlBackgroundColor)
-        )
-        .clipShape(RoundedCorners(radius: 12, corners: [.topLeft, .topRight]))
+        .background { dockShellBackdrop }
+        .clipShape(dockShellShape)
+        .overlay {
+            dockShellShape.stroke(MAYNTheme.hairline, lineWidth: 1)
+        }
         .overlay {
             if model.showTransformMenu {
                 TransformMenu(model: model, isPresented: $model.showTransformMenu)
@@ -95,6 +94,29 @@ struct DockRootView: View {
             if model.activeList != .snippets {
                 dismissSnippetEditor()
             }
+        }
+    }
+
+    private var dockShellShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: Self.shellCornerRadius,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: Self.shellCornerRadius,
+            style: .continuous
+        )
+    }
+
+    @ViewBuilder
+    private var dockShellBackdrop: some View {
+        let shape = dockShellShape
+        if reduceTransparency {
+            shape.fill(MAYNTheme.contentPanelElevated(colorScheme))
+        } else if #available(macOS 26.0, *) {
+            shape.fill(Color.clear)
+                .glassEffect(.regular, in: shape)
+        } else {
+            shape.fill(MAYNMaterial.overlay.material)
         }
     }
 

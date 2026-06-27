@@ -2,6 +2,7 @@
 import Core
 import CryptoKit
 import Platform
+import SwiftUI
 import XCTest
 
 @MainActor
@@ -186,7 +187,7 @@ final class ClipboardDockModelTests: XCTestCase {
         XCTAssertTrue(controller.debugHasGlobalOutsideClickMonitorForTesting)
         XCTAssertTrue(controller.debugHasLocalOutsideClickMonitorForTesting)
         XCTAssertTrue(controller.debugHasGlobalKeyMonitorForTesting)
-        XCTAssertEqual(model.searchFocusRequestID, 1)
+        XCTAssertEqual(model.searchFocusRequestID, 0)
     }
 
     func testRequestSearchFocusIncrementsToken() {
@@ -199,38 +200,92 @@ final class ClipboardDockModelTests: XCTestCase {
         XCTAssertEqual(model.searchFocusRequestID, 2)
     }
 
-    func testDockWindowUsesLevelAboveSystemDockAndBelowNativeDragPreview() {
+    func testDockWindowLevelSurvivesContentViewAssignmentAndResize() {
+        let frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+        let panel = BottomDockWindow(contentRect: frame)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.level, ClipboardDockWindowLayering.windowLevel)
+
+        let hosting = NSHostingView(rootView: Text("probe"))
+        hosting.frame = NSRect(origin: .zero, size: frame.size)
+        panel.contentView = hosting
+        XCTAssertEqual(
+            panel.level,
+            ClipboardDockWindowLayering.windowLevel,
+            "contentView assignment must not demote the dock below runtime overlays"
+        )
+
+        panel.setFrame(frame, display: true)
+        XCTAssertEqual(
+            panel.level,
+            ClipboardDockWindowLayering.windowLevel,
+            "setFrame must not demote the dock below runtime overlays"
+        )
+    }
+
+    func testDockWindowUsesRuntimeOverlayLevelAboveSystemDock() {
         let panel = BottomDockWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 180))
         defer { panel.close() }
 
+        XCTAssertEqual(panel.level, ClipboardDockWindowLayering.windowLevel)
+        XCTAssertEqual(
+            ClipboardDockWindowLayering.windowLevel.rawValue,
+            FloatingHUDWindowLayering.windowLevel.rawValue + 2
+        )
         XCTAssertGreaterThan(
             panel.level.rawValue,
             NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow))).rawValue
         )
-        XCTAssertLessThan(
-            panel.level.rawValue,
-            NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.draggingWindow))).rawValue
-        )
+        XCTAssertGreaterThan(panel.level.rawValue, NSWindow.Level.normal.rawValue)
+        XCTAssertLessThan(panel.level.rawValue, VoiceHUDWindowLayering.windowLevel.rawValue)
+        XCTAssertTrue(ClipboardDockWindowLayering.collectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(ClipboardDockWindowLayering.collectionBehavior.contains(.fullScreenAuxiliary))
+        XCTAssertTrue(ClipboardDockWindowLayering.collectionBehavior.contains(.ignoresCycle))
     }
 
-    func testHeightPreviewInvokerLevelSitsAboveDockPanelAndBelowNativeDragPreview() {
+    func testHeightPreviewInvokerLevelSitsAboveDockPanel() {
         let panel = BottomDockWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 180))
         defer { panel.close() }
         let dockLevel = panel.level
         let invokerLevel = DockHeightPreviewLayering.invokerLevel(above: dockLevel)
 
         XCTAssertGreaterThan(invokerLevel.rawValue, dockLevel.rawValue)
-        XCTAssertLessThan(
-            invokerLevel.rawValue,
-            NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.draggingWindow))).rawValue
-        )
+        XCTAssertLessThan(invokerLevel.rawValue, VoiceHUDWindowLayering.windowLevel.rawValue)
     }
 
-    func testSystemQuickLookLevelSitsAboveDockPanelAndCanJoinFullScreenSpaces() {
+    func testDockPresentationOrdersAboveMainWindowWithoutChangingMainLevel() {
+        let main = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        let panel = BottomDockWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 180))
+        defer {
+            panel.close()
+            main.close()
+        }
+
+        main.makeKeyAndOrderFront(nil)
+        let originalMainLevel = main.level
+
+        ClipboardDockWindowLayering.orderFront(panel)
+
+        XCTAssertGreaterThan(panel.level.rawValue, main.level.rawValue)
+        XCTAssertEqual(main.level, originalMainLevel)
+        XCTAssertEqual(main.level, .normal)
+
+        panel.makeKey()
+        XCTAssertGreaterThan(panel.level.rawValue, main.level.rawValue)
+        XCTAssertEqual(main.level, .normal)
+    }
+
+    func testSystemQuickLookLevelSitsAtOrAboveDockPanelAndCanJoinFullScreenSpaces() {
         let panel = BottomDockWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 180))
         defer { panel.close() }
 
-        XCTAssertGreaterThan(
+        XCTAssertGreaterThanOrEqual(
             ClipboardSystemQuickLookLayering.panelLevel.rawValue,
             panel.level.rawValue
         )

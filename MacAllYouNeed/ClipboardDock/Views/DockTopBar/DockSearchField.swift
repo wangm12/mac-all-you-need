@@ -4,30 +4,37 @@ struct DockSearchField: View {
     @Binding var query: String
     let focusRequestID: Int
     @FocusState private var focused: Bool
-    @State private var expanded = false
+    @State private var explicitExpand = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private static let expandedFieldWidth: CGFloat = 280
+
+    private var isActive: Bool {
+        explicitExpand || !query.isEmpty
+    }
+
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: isActive ? 6 : 0) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .frame(width: 22, height: 22)
                 .onTapGesture {
-                    focusSearchField()
+                    activateSearchField()
                 }
 
-            if expanded || !query.isEmpty {
-                TextField("Search…", text: $query)
-                    .textFieldStyle(.plain)
-                    .focused($focused)
-                    .font(.callout)
-                    .frame(width: 280)
-                    .onChange(of: focused) { _, isFocused in
-                        if !isFocused, query.isEmpty {
-                            expanded = false
-                        }
+            TextField("Search…", text: $query)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .font(.callout)
+                .frame(width: isActive ? Self.expandedFieldWidth : 0, alignment: .leading)
+                .opacity(isActive ? 1 : 0)
+                .clipped()
+                .allowsHitTesting(isActive)
+                .onChange(of: focused) { _, isFocused in
+                    if !isFocused, query.isEmpty {
+                        explicitExpand = false
                     }
-            }
+                }
         }
         .padding(.horizontal, 8)
         .frame(height: MAYNControlMetrics.controlHeight)
@@ -36,14 +43,20 @@ struct DockSearchField: View {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .stroke(focused ? MAYNTheme.focusRing : MAYNTheme.subtleBorder, lineWidth: 1)
         )
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: isActive)
         .onChange(of: focusRequestID) { _, _ in
-            focusSearchField()
+            activateSearchField()
         }
-        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: expanded)
+        .onChange(of: query) { _, newValue in
+            guard !newValue.isEmpty else { return }
+            DispatchQueue.main.async {
+                focused = true
+            }
+        }
     }
 
-    private func focusSearchField() {
-        expanded = true
+    private func activateSearchField() {
+        explicitExpand = true
         DispatchQueue.main.async {
             focused = true
         }

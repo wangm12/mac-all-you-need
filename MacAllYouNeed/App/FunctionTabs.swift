@@ -79,6 +79,13 @@ enum ClipboardFunctionTab: String, FunctionTabDestination {
     }
 }
 
+/// Full clipboard DB history loads are expensive — only run on the History tab.
+enum ClipboardHistoryLoadPolicy {
+    static func shouldLoadFullHistory(for tab: ClipboardFunctionTab) -> Bool {
+        tab == .history
+    }
+}
+
 enum VoiceFunctionTab: String, FunctionTabDestination, CaseIterable {
     case history
     case models

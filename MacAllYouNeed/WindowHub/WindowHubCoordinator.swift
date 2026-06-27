@@ -100,6 +100,7 @@ final class WindowHubCoordinator {
             loadingPIDs = []
         }
         refreshIndex()
+        syncSelectionToNavigableTargets()
     }
 
     func closePanel() {
@@ -116,6 +117,56 @@ final class WindowHubCoordinator {
     func updateSearchQuery(_ query: String) {
         searchQuery = query
         mode = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .dashboard : .searchResults
+        syncSelectionToNavigableTargets()
+    }
+
+    var navigableTargets: [WindowHubTarget] {
+        switch mode {
+        case .searchResults:
+            return filteredTargets
+        case .dashboard, .actionConfirmation:
+            return snapshot.flatTargets
+        case .browseColumns:
+            return snapshot.flatTargets
+        }
+    }
+
+    func selectTarget(_ target: WindowHubTarget) {
+        selectedTargetID = target.id
+    }
+
+    func moveSelection(delta: Int) {
+        let targets = navigableTargets
+        guard !targets.isEmpty else {
+            selectedTargetID = nil
+            return
+        }
+        let currentIndex = selectedTargetID.flatMap { id in
+            targets.firstIndex(where: { $0.id == id })
+        } ?? -1
+        let nextIndex = min(max(0, currentIndex + delta), targets.count - 1)
+        selectedTargetID = targets[nextIndex].id
+    }
+
+    func activateSelectedTarget() async {
+        guard let selectedTargetID,
+              let target = navigableTargets.first(where: { $0.id == selectedTargetID })
+        else { return }
+        await activate(target: target)
+    }
+
+    func syncSelectionToNavigableTargets() {
+        let targets = navigableTargets
+        guard !targets.isEmpty else {
+            selectedTargetID = nil
+            return
+        }
+        if let selectedTargetID,
+           targets.contains(where: { $0.id == selectedTargetID })
+        {
+            return
+        }
+        self.selectedTargetID = targets.first?.id
     }
 
     func refreshIndex() {
@@ -277,6 +328,7 @@ final class WindowHubCoordinator {
         }
         loadingPIDs = loadingPIDs.intersection(refreshEnumeratedPIDs)
         reconcileLoadingAfterFullPass(settings: settings)
+        syncSelectionToNavigableTargets()
     }
 
     private func canonicalSnapshot(from built: WindowHubSnapshot) -> WindowHubSnapshot {

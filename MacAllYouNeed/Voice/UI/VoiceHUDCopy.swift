@@ -17,7 +17,10 @@ enum VoiceHUDCopy {
     // MARK: - Main pill
 
     enum Pill {
+        static let starting = "Starting"
+        static let listening = "Listening"
         static let transcribing = "Transcribing"
+        static let inserted = "Inserted"
         static let stillWorking = "Still working..."
         static let clipboardFallback = "⌘V to paste"
         static let reminderAdded = "Added to reminder"
@@ -108,6 +111,7 @@ enum VoiceHUDCopy {
         static let slowCaptionThreshold: TimeInterval = 6.0
         static let clipboardFallbackDuration: TimeInterval = 4.0
         static let reminderAddedDuration: TimeInterval = 2.0
+        static let insertedDuration: TimeInterval = 0.75
         static let terminalAutoDismiss: TimeInterval = 3.0
         static let previousPendingThrottle: TimeInterval = 2.0
     }

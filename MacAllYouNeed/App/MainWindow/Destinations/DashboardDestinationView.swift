@@ -31,7 +31,7 @@ struct DashboardDestinationView: View {
                 toolGrid
             }
             .frame(maxWidth: 1120, alignment: .leading)
-            .padding(.horizontal, 48)
+            .padding(.horizontal, MAYNSpacing.pageHorizontal)
             .padding(.top, 30)
             .padding(.bottom, 48)
         }
@@ -46,7 +46,7 @@ struct DashboardDestinationView: View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Dashboard")
-                    .font(.system(size: 26, weight: .semibold))
+                    .font(MAYNTypography.pageTitle())
                     .lineLimit(1)
                 Text("Local tools, shortcuts, and current activity.")
                     .font(.callout)
@@ -57,30 +57,23 @@ struct DashboardDestinationView: View {
     }
 
     private var statusStrip: some View {
-        MAYNMetricStrip {
-            MAYNMetricCell(
-                title: "Status",
-                value: nextPendingFeatureID == nil ? "Ready" : "Setup",
-                detail: nextPendingFeatureID == nil ? "All onboarding complete" : "Finish feature setup"
-            )
-            MAYNMetricCell(
-                title: "Active tools",
-                value: "\(enabledFeatureCount)",
-                detail: "Enabled in this install"
-            )
-            MAYNMetricCell(
-                title: "Clipboard",
-                value: "\(controller.clipboardReader.items.count)",
-                detail: "Items saved locally"
-            )
-            if failedDownloadCount > 0 {
-                MAYNMetricCell(
-                    title: "Attention",
-                    value: "\(failedDownloadCount)",
-                    detail: "Downloads need review"
-                )
-            }
+        Text(inlineStatusSentence)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var inlineStatusSentence: String {
+        var parts: [String] = []
+        parts.append(nextPendingFeatureID == nil ? "Ready" : "Setup")
+        parts.append("\(enabledFeatureCount) tools active")
+        let clipboardCount = controller.clipboardReader.items.count
+        parts.append("\(clipboardCount) saved \(clipboardCount == 1 ? "item" : "items")")
+        if failedDownloadCount > 0 {
+            parts.append("Review \(failedDownloadCount) downloads")
         }
+        return parts.joined(separator: " · ")
     }
 
     private var failedDownloadCount: Int {
@@ -188,7 +181,7 @@ struct DashboardDestinationView: View {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        StatusPill(text: "Setup remaining", kind: .warning)
+                        StatusPill(text: "Setup remaining", kind: .needsPermission)
                         Text("\(completedFeatureCount)/\(enabledFeatureCount) complete")
                             .font(.caption)
                             .foregroundStyle(.secondary)

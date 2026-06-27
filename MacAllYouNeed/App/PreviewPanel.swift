@@ -99,7 +99,7 @@ enum ClipboardSystemQuickLookMaterializationError: Error {
 }
 
 enum ClipboardSystemQuickLookLayering {
-    static let panelLevel = NSWindow.Level.screenSaver
+    static let panelLevel = ClipboardDockWindowLayering.windowLevel
     // `.stationary` prevents the window server from moving the panel into a
     // fullscreen Space — removed so the panel follows the active Space correctly.
     // `.canJoinAllSpaces` + `.fullScreenAuxiliary` are sufficient for the dock

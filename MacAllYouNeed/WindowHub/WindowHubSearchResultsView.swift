@@ -12,19 +12,25 @@ struct WindowHubSearchResultsView: View {
                     description: Text("Try an app name, window title, or tab title.")
                 )
             } else {
-                LazyVStack(alignment: .leading, spacing: 4) {
+                LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(coordinator.filteredTargets, id: \.id) { target in
-                        WindowHubTargetRowView(target: target) {
-                            Task { await coordinator.activate(target: target) }
-                        } onAction: { action in
-                            coordinator.requestDirectAction(action, target: target)
-                        }
-                        Text(target.breadcrumb)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 4)
+                        WindowHubTargetRowView(
+                            target: target,
+                            isSelected: coordinator.selectedTargetID == target.id,
+                            onActivate: {
+                                Task { await coordinator.activate(target: target) }
+                            },
+                            onSelect: {
+                                coordinator.selectTarget(target)
+                            },
+                            onAction: { action in
+                                coordinator.requestDirectAction(action, target: target)
+                            }
+                        )
                     }
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
             }
         }
     }

@@ -6,19 +6,24 @@ import SwiftUI
 
 struct MainWindowRoot: View {
     let controller: AppController
-    private var statePublisher: FeatureStatePublisher
     @State private var selectedDestination: MainAppDestination = MainAppDestination.load(from: AppGroupSettings.defaults)
     @State private var pendingOrphans: [OrphanCacheScanner.Orphan] = []
     @State private var showWhatsNew = false
     @State private var whatsNewReport: MigrationReport?
     @State private var isSidebarCollapsed = false
     @State private var isCommandPalettePresented = false
-    @Namespace private var commandSearchNamespace
+    @State private var cachedAttention = CommandPaletteAttentionSnapshot(
+        failedDownloadCount: 0,
+        orphanCacheCount: 0,
+        missingPermissions: [],
+        permissionsAttentionTitle: nil,
+        voiceSetupNeeded: false
+    )
+    @State private var cachedOrphanCount = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(controller: AppController) {
         self.controller = controller
-        self.statePublisher = controller.featureStatePublisher
     }
 
     private var selection: Binding<MainAppDestination> {
@@ -36,9 +41,6 @@ struct MainWindowRoot: View {
         .tint(MAYNTheme.controlTint)
         .accentColor(.gray)
         .maynDismissTextFocusOnOutsideClick()
-        .onAppear {
-            selectedDestination = MainAppDestination.load(from: AppGroupSettings.defaults)
-        }
         .background {
             CommandPaletteKeyboardMonitor(
                 isPresented: $isCommandPalettePresented,
@@ -47,6 +49,7 @@ struct MainWindowRoot: View {
         }
         .onChange(of: selectedDestination) { _, destination in
             MainAppDestination.persist(destination, to: AppGroupSettings.defaults)
+            applyDestinationTabDefaults(for: destination)
         }
         .onReceive(NotificationCenter.default.publisher(for: .globalSettingsOpenRequested)) { note in
             if DockSettingsNavigation.isClipboardRulesRoute(note.object as? String) {
@@ -59,6 +62,8 @@ struct MainWindowRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: .orphanCachesFound)) { note in
             guard let orphans = note.userInfo?["orphans"] as? [OrphanCacheScanner.Orphan] else { return }
             pendingOrphans = orphans
+            cachedOrphanCount = orphans.count
+            refreshShellAttentionCache()
         }
         .sheet(isPresented: Binding(
             get: { !pendingOrphans.isEmpty },
@@ -84,6 +89,7 @@ struct MainWindowRoot: View {
                 showWhatsNew = true
                 controller.pendingMigrationReport = nil
             }
+            refreshShellAttentionCache()
         }
         .sheet(isPresented: $showWhatsNew) {
             if let report = whatsNewReport {
@@ -118,81 +124,77 @@ struct MainWindowRoot: View {
                             : MainSidebarMetrics.expandedWidth
                     )
             } detail: {
-                detailView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(MAYNTheme.window)
-                    .toolbar(removing: .sidebarToggle)
-                    .toolbar { mainToolbarItems }
+                MainWindowDetailView(
+                    destination: selectedDestination,
+                    controller: controller,
+                    openDestination: openMainDestination
+                )
+                .equatable()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(MAYNTheme.window)
+                .toolbar(removing: .sidebarToggle)
+                .toolbar { mainToolbarItems }
             }
             .toolbar(removing: .sidebarToggle)
 
-            CommandPaletteOverlay(
-                isPresented: $isCommandPalettePresented,
-                sections: CommandPaletteCatalog.sections(context: commandPaletteContext),
-                onSelect: handleCommandPaletteSelection,
-                searchNamespace: commandSearchNamespace
-            )
-            .opacity(isCommandPalettePresented ? 1 : 0)
-            .allowsHitTesting(isCommandPalettePresented)
-            .accessibilityHidden(!isCommandPalettePresented)
+            if isCommandPalettePresented {
+                CommandPaletteOverlay(
+                    isPresented: $isCommandPalettePresented,
+                    sections: CommandPaletteCatalog.sections(context: commandPaletteContext),
+                    onSelect: handleCommandPaletteSelection
+                )
+                .transition(.opacity)
+            }
         }
+    }
+
+    /// Lightweight attention refresh — never walks disk; orphan count comes from
+    /// `AppController`'s background scan via `.orphanCachesFound`.
+    private func refreshShellAttentionCache() {
+        cachedAttention = CommandPaletteAttentionPlanner.snapshot(
+            registry: controller.runtime.registry,
+            stateFor: { controller.featureStatePublisher.state(for: $0) },
+            failedDownloadCount: controller.downloaderVM.rows.filter { $0.state == .failed }.count,
+            orphanCacheCount: cachedOrphanCount
+        )
+    }
+
+    private func refreshOrphanCacheCountForPalette() {
+        let registry = controller.runtime.registry
+        Task.detached(priority: .utility) {
+            let scanner = OrphanCacheScanner.makeForRegistry(registry)
+            let count = OrphanCacheDismissal.unseen(scanner.scan()).count
+            await MainActor.run {
+                cachedOrphanCount = count
+                refreshShellAttentionCache()
+            }
+        }
+    }
+
+    private var commandPaletteContext: CommandPaletteContext {
+        let enabledDestinations = Set(
+            MainAppDestination.primarySidebarDestinations.filter { !isFeatureDisabled(for: $0) }
+                + [.settings]
+        )
+        return CommandPaletteContext(
+            destination: selectedDestination,
+            hotkeys: HotkeyMapStore.load(),
+            voiceShortcut: VoiceActivationSettingsStore.load().shortcut.display,
+            voiceMode: VoiceActivationSettingsStore.load().mode,
+            failedDownloadCount: cachedAttention.failedDownloadCount,
+            enabledDestinations: enabledDestinations,
+            attention: cachedAttention,
+            recentActionIDs: CommandPaletteRecentStore.load()
+        )
     }
 
     private func setCommandPalettePresented(_ presented: Bool) {
+        if presented {
+            refreshShellAttentionCache()
+            refreshOrphanCacheCountForPalette()
+        }
         withAnimation(MAYNMotion.paletteMorphAnimation(reduceMotion: reduceMotion)) {
             isCommandPalettePresented = presented
-        }
-    }
-
-    private var detailView: AnyView {
-        let destination = selectedDestination
-
-        // Prefer descriptor-driven page factory when the destination maps to a feature
-        // with a registered mainPageViewFactory. Falls back to the explicit switch below.
-        if let featureID = MainSidebarDestinationPresentation.featureID(for: destination),
-           let factory = controller.runtime.registry.descriptor(for: featureID)?.mainPageViewFactory {
-            return factory()
-        }
-
-        switch destination {
-        case .dashboard:
-            return AnyView(DashboardDestinationView(
-                controller: controller,
-                openDestination: openMainDestination
-            ))
-        case .clipboard:
-            return AnyView(ClipboardDestinationView(controller: controller))
-        case .voice:
-            return AnyView(VoiceDestinationView(controller: controller))
-        case .voiceReminders:
-            AppGroupSettings.defaults.set(VoiceFunctionTab.settings.rawValue, forKey: VoiceFunctionTab.storageKey)
-            return AnyView(VoiceDestinationView(controller: controller))
-        case .downloads:
-            return AnyView(DownloadsDestinationView(controller: controller))
-        case .aiFileOrganizer:
-            return AnyView(AIFileOrganizerPage(controller: controller))
-        case .folderPreview:
-            return AnyView(FolderPreviewDestinationView(controller: controller))
-        case .finderHistory:
-            AppGroupSettings.defaults.set(
-                FolderPreviewFunctionTab.history.rawValue,
-                forKey: FolderPreviewFunctionTab.storageKey
-            )
-            return AnyView(FolderPreviewDestinationView(controller: controller))
-        case .snippets:
-            AppGroupSettings.defaults.set(
-                ClipboardFunctionTab.snippets.rawValue,
-                forKey: ClipboardFunctionTab.storageKey
-            )
-            return AnyView(ClipboardDestinationView(controller: controller))
-        case .windowLayouts:
-            return AnyView(WindowLayoutsDestinationView(controller: controller))
-        case .grabAnywhere:
-            return AnyView(WindowGrabDestinationView(controller: controller))
-        case .windowHub:
-            return AnyView(WindowHubPage(controller: controller))
-        case .settings:
-            return AnyView(SettingsDestinationView(controller: controller))
         }
     }
 
@@ -215,29 +217,28 @@ struct MainWindowRoot: View {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private var commandPaletteContext: CommandPaletteContext {
-        let enabledDestinations = Set(
-            MainAppDestination.primarySidebarDestinations.filter { !isFeatureDisabled(for: $0) }
-                + [.settings]
-        )
-        let attention = CommandPaletteAttentionPlanner.snapshot(
-            registry: controller.runtime.registry,
-            stateFor: { statePublisher.state(for: $0) },
-            failedDownloadCount: controller.downloaderVM.rows.filter { $0.state == .failed }.count,
-            orphanCacheCount: unseenOrphanCaches().count
-        )
-        return CommandPaletteContext(
-            destination: selectedDestination,
-            hotkeys: HotkeyMapStore.load(),
-            voiceShortcut: VoiceActivationSettingsStore.load().shortcut.display,
-            voiceMode: VoiceActivationSettingsStore.load().mode,
-            failedDownloadCount: attention.failedDownloadCount,
-            enabledDestinations: enabledDestinations,
-            attention: attention
-        )
+    /// Tab defaults for destinations that share a detail view with another sidebar entry.
+    private func applyDestinationTabDefaults(for destination: MainAppDestination) {
+        switch destination {
+        case .voiceReminders:
+            AppGroupSettings.defaults.set(VoiceFunctionTab.settings.rawValue, forKey: VoiceFunctionTab.storageKey)
+        case .finderHistory:
+            AppGroupSettings.defaults.set(
+                FolderPreviewFunctionTab.history.rawValue,
+                forKey: FolderPreviewFunctionTab.storageKey
+            )
+        case .snippets:
+            AppGroupSettings.defaults.set(
+                SnippetsFunctionTab.library.rawValue,
+                forKey: SnippetsFunctionTab.storageKey
+            )
+        default:
+            break
+        }
     }
 
     private func handleCommandPaletteSelection(_ action: CommandPaletteAction) {
+        CommandPaletteRecentStore.record(action.id)
         guard isCommandPaletteActionAllowed(action) else { return }
         switch action.kind {
         case .openDestination(let destination):
@@ -258,23 +259,22 @@ struct MainWindowRoot: View {
             AppGroupSettings.defaults.set(ClipboardFunctionTab.history.rawValue, forKey: ClipboardFunctionTab.storageKey)
             openMainDestination(.clipboard)
         case .openClipboardDock:
-            NSApp.activate(ignoringOtherApps: true)
             controller.clipboardDock.show()
         case .openClipboardSnippets:
-            AppGroupSettings.defaults.set(ClipboardFunctionTab.snippets.rawValue, forKey: ClipboardFunctionTab.storageKey)
-            openMainDestination(.clipboard)
+            AppGroupSettings.defaults.set(SnippetsFunctionTab.library.rawValue, forKey: SnippetsFunctionTab.storageKey)
+            openMainDestination(.snippets)
         case .openPermissionsSettings:
             openSettingsInMain(.permissions)
         case .reviewOrphanCaches:
-            let orphans = unseenOrphanCaches()
-            guard !orphans.isEmpty else { return }
-            pendingOrphans = orphans
+            presentOrphanCachesSheetIfNeeded()
         case .completeVoiceSetup:
             if !PermissionGateProbe.isGranted(.microphone) || !PermissionGateProbe.isGranted(.accessibility) {
                 controller.showFeatureOnboardingIfNeeded(for: .voice)
             }
             AppGroupSettings.defaults.set(VoiceFunctionTab.settings.rawValue, forKey: VoiceFunctionTab.storageKey)
             openMainDestination(.voice)
+        case .openSettings(let destination):
+            openSettingsInMain(destination)
         }
     }
 
@@ -288,7 +288,7 @@ struct MainWindowRoot: View {
             return !isFeatureDisabled(for: .clipboard)
         case .reviewFailedDownloads:
             return !isFeatureDisabled(for: .downloads)
-        case .openPermissionsSettings, .reviewOrphanCaches:
+        case .openPermissionsSettings, .reviewOrphanCaches, .openSettings:
             return true
         }
     }
@@ -297,35 +297,85 @@ struct MainWindowRoot: View {
 
     private func isFeatureDisabled(for destination: MainAppDestination) -> Bool {
         !MainSidebarDestinationPresentation.isFeatureEnabled(for: destination) { id in
-            statePublisher.state(for: id)
+            controller.featureStatePublisher.state(for: id)
         }
-    }
-
-    private func unseenOrphanCaches() -> [OrphanCacheScanner.Orphan] {
-        let scanner = OrphanCacheScanner.makeForRegistry(controller.runtime.registry)
-        return OrphanCacheDismissal.unseen(scanner.scan())
     }
 
     @ToolbarContentBuilder
     private var mainToolbarItems: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            CommandPaletteToolbarSearch(
-                isSidebarCollapsed: isSidebarCollapsed,
-                isPalettePresented: isCommandPalettePresented,
-                searchNamespace: commandSearchNamespace,
-                onOpen: { setCommandPalettePresented(true) }
-            )
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .principal) {
+                CommandPaletteToolbarSearch(
+                    isSidebarCollapsed: isSidebarCollapsed,
+                    isPalettePresented: isCommandPalettePresented,
+                    onOpen: { setCommandPalettePresented(true) }
+                )
+            }
+            .sharedBackgroundVisibility(isCommandPalettePresented ? .hidden : .automatic)
+        } else {
+            ToolbarItem(placement: .principal) {
+                CommandPaletteToolbarSearch(
+                    isSidebarCollapsed: isSidebarCollapsed,
+                    isPalettePresented: isCommandPalettePresented,
+                    onOpen: { setCommandPalettePresented(true) }
+                )
+            }
         }
         if !isCommandPalettePresented {
             ToolbarItem(placement: .primaryAction) {
                 MainAttentionBadge(
                     controller: controller,
-                    onReviewDownloads: {
-                        openMainDestination(.downloads)
-                    }
+                    attention: cachedAttention,
+                    onTap: handleAttentionBadgeTap
                 )
             }
         }
+    }
+
+    private func handleAttentionBadgeTap() {
+        let attention = cachedAttention
+        if attention.voiceSetupNeeded, !isFeatureDisabled(for: .voice) {
+            handleCommandPaletteSelection(
+                CommandPaletteAction(
+                    id: "attention-voice-setup",
+                    title: "Complete Voice setup",
+                    symbolName: "mic",
+                    section: .attention,
+                    kind: .completeVoiceSetup
+                )
+            )
+            return
+        }
+        if attention.permissionsAttentionTitle != nil {
+            openSettingsInMain(.permissions)
+            return
+        }
+        if attention.failedDownloadCount > 0, !isFeatureDisabled(for: .downloads) {
+            openMainDestination(.downloads)
+            return
+        }
+        if attention.orphanCacheCount > 0 {
+            presentOrphanCachesSheetIfNeeded()
+        }
+    }
+
+    private func presentOrphanCachesSheetIfNeeded() {
+        guard pendingOrphans.isEmpty else { return }
+        let registry = controller.runtime.registry
+        Task.detached(priority: .utility) {
+            let scanner = OrphanCacheScanner.makeForRegistry(registry)
+            let orphans = OrphanCacheDismissal.unseen(scanner.scan())
+            guard !orphans.isEmpty else { return }
+            await MainActor.run {
+                pendingOrphans = orphans
+                cachedOrphanCount = orphans.count
+                refreshShellAttentionCache()
+            }
+        }
+    }
+
+    private var activeDownloadCount: Int {
+        MainSidebarBadgePresentation.inProgressDownloadCount(in: controller.downloaderVM.rows)
     }
 
     private var mainSidebar: some View {
@@ -348,15 +398,16 @@ struct MainWindowRoot: View {
                     let isDisabled = isFeatureDisabled(for: destination)
                     MainSidebarButton(
                         destination: destination,
-                        isSelected: selection.wrappedValue == destination,
+                        isSelected: selectedDestination == destination,
                         isDisabled: isDisabled,
                         isCollapsed: isSidebarCollapsed,
                         badge: MainSidebarBadgePresentation.badgeText(
                             for: destination,
-                            records: controller.downloaderVM.rows
+                            activeDownloadCount: activeDownloadCount
                         )
                     ) {
-                        selection.wrappedValue = destination
+                        guard selectedDestination != destination else { return }
+                        selectedDestination = destination
                     }
                 }
             }
@@ -405,8 +456,61 @@ enum MainSidebarMetrics {
     static let collapsedWidth: CGFloat = 56
 }
 
+/// Stable detail column — avoids re-instantiating `AnyView` on every shell re-render
+/// (downloader ticks, clipboard poll, feature-state refresh) which was tearing down
+/// destination `.task` / async work and freezing or crashing on sidebar navigation.
+private struct MainWindowDetailView: View, Equatable {
+    let destination: MainAppDestination
+    let controller: AppController
+    let openDestination: (MainAppDestination) -> Void
+
+    static func == (lhs: MainWindowDetailView, rhs: MainWindowDetailView) -> Bool {
+        lhs.destination == rhs.destination
+    }
+
+    var body: some View {
+        if let featureID = MainSidebarDestinationPresentation.featureID(for: destination),
+           let factory = controller.runtime.registry.descriptor(for: featureID)?.mainPageViewFactory {
+            factory()
+        } else {
+            routedDetail
+        }
+    }
+
+    @ViewBuilder
+    private var routedDetail: some View {
+        switch destination {
+        case .dashboard:
+            DashboardDestinationView(controller: controller, openDestination: openDestination)
+        case .clipboard:
+            ClipboardDestinationView(controller: controller)
+        case .voice, .voiceReminders:
+            VoiceDestinationView(controller: controller)
+                .id(destination)
+        case .downloads:
+            DownloadsDestinationView(controller: controller)
+        case .aiFileOrganizer:
+            AIFileOrganizerPage(controller: controller)
+        case .folderPreview, .finderHistory:
+            FolderPreviewDestinationView(controller: controller)
+        case .snippets:
+            SnippetsDestinationView(controller: controller)
+        case .windowLayouts:
+            WindowLayoutsDestinationView(controller: controller)
+        case .grabAnywhere:
+            WindowGrabDestinationView(controller: controller)
+        case .windowHub:
+            WindowHubPage(controller: controller)
+        case .settings:
+            SettingsDestinationView(controller: controller)
+        }
+    }
+}
+
 enum MainWindowRootPresentation {
-    static let usesTypeErasedDetailViews = true
+    static let usesStableDetailViewRouting = true
+    /// Sidebar selection uses opaque fills — not animated `glassEffect` (macOS 26 crash workaround).
+    static let sidebarUsesOpaqueSelectionChrome = true
     static let observesFeatureStatePublisher = true
     static let disabledSidebarItemsAreNonClickable = true
     static let disabledSidebarItemsIgnoreHover = true
@@ -462,27 +566,26 @@ private struct MainSidebarButton: View {
                 }
             }
             .foregroundStyle(
-                MAYNSelectionInversionLabelStyle.foreground(
+                MAYNSelectionLabelStyle.foreground(
                     isSelected: isSelected && !isDisabled,
                     isDisabled: isDisabled,
                     scheme: colorScheme
                 )
             )
-            .fontWeight(MAYNSelectionInversionLabelStyle.weight(isSelected: isSelected && !isDisabled))
+            .fontWeight(MAYNSelectionLabelStyle.weight(isSelected: isSelected && !isDisabled))
             .frame(maxWidth: .infinity)
             .padding(.horizontal, isCollapsed ? 0 : 12)
             .frame(height: MAYNControlMetrics.sidebarItemHeight)
-            .maynInversionSelectionBackground(
+            .maynSidebarSelectionBackground(
                 isSelected: isSelected && !isDisabled,
                 isHovering: isHovering && !isDisabled,
-                shape: .rounded(MAYNControlMetrics.sidebarItemRadius)
+                cornerRadius: MAYNControlMetrics.sidebarItemRadius
             )
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .help(destination.title)
         .onHover { isHovering = $0 }
-        .animation(MAYNMotion.sidebarSelectionAnimation(reduceMotion: reduceMotion), value: isSelected)
         .accessibilityLabel(accessibilityLabel)
     }
 
@@ -573,32 +676,32 @@ private struct MainSidebarSettingsButton: View {
                 }
             }
             .foregroundStyle(
-                MAYNSelectionInversionLabelStyle.foreground(
+                MAYNSelectionLabelStyle.foreground(
                     isSelected: isSelected,
                     isDisabled: false,
                     scheme: colorScheme
                 )
             )
-            .fontWeight(MAYNSelectionInversionLabelStyle.weight(isSelected: isSelected))
+            .fontWeight(MAYNSelectionLabelStyle.weight(isSelected: isSelected))
             .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
             .padding(.horizontal, isCollapsed ? 0 : 12)
             .frame(height: MAYNControlMetrics.sidebarItemHeight)
-            .maynInversionSelectionBackground(
+            .maynSidebarSelectionBackground(
                 isSelected: isSelected,
                 isHovering: isHovering,
-                shape: .rounded(MAYNControlMetrics.sidebarItemRadius)
+                cornerRadius: MAYNControlMetrics.sidebarItemRadius
             )
         }
         .buttonStyle(.plain)
         .help("Settings")
         .onHover { isHovering = $0 }
-        .animation(MAYNMotion.sidebarSelectionAnimation(reduceMotion: reduceMotion), value: isSelected)
     }
 }
 
 private struct MainAttentionBadge: View {
     let controller: AppController
-    let onReviewDownloads: () -> Void
+    let attention: CommandPaletteAttentionSnapshot
+    let onTap: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var showsPopover = false
     @State private var hoverWorkItem: DispatchWorkItem?
@@ -608,14 +711,10 @@ private struct MainAttentionBadge: View {
         case .recording:
             listeningPill
         default:
-            if failedDownloadCount > 0 {
-                attentionPill
+            if let badgeTitle = attention.badgeTitle {
+                attentionPill(title: badgeTitle)
             }
         }
-    }
-
-    private var failedDownloadCount: Int {
-        controller.downloaderVM.rows.filter { $0.state == .failed }.count
     }
 
     private var listeningPill: some View {
@@ -636,16 +735,17 @@ private struct MainAttentionBadge: View {
         .accessibilityLabel("Voice listening")
     }
 
-    private var attentionPill: some View {
-        Button(action: onReviewDownloads) {
+    private func attentionPill(title: String) -> some View {
+        Button(action: onTap) {
             HStack(spacing: 7) {
                 Circle()
                     .fill(MAYNTheme.textPrimary(colorScheme))
                     .frame(width: 6, height: 6)
-                Text("Review \(failedDownloadCount) downloads")
+                Text(title)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
                     .lineLimit(1)
+                    .frame(maxWidth: 210, alignment: .leading)
             }
             .padding(.horizontal, 12)
             .frame(height: MAYNControlMetrics.attentionPillHeight)
@@ -657,28 +757,46 @@ private struct MainAttentionBadge: View {
         }
         .onHover(perform: handleAttentionHover)
         .popover(isPresented: $showsPopover, arrowEdge: .bottom) {
-            attentionPopover
+            attentionPopover(title: title)
         }
-        .help("Open downloads needing attention")
-        .accessibilityLabel("Review \(failedDownloadCount) downloads")
+        .help(title)
+        .accessibilityLabel(title)
     }
 
-    private var attentionPopover: some View {
+    private func attentionPopover(title: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("\(failedDownloadCount) downloads failed")
+            Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
-            Text("Open the queue to retry or remove failed items.")
+            Text(attentionPopoverDetail)
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
                 .fixedSize(horizontal: false, vertical: true)
             MAYNButton("Review", role: .primary) {
                 showsPopover = false
-                onReviewDownloads()
+                onTap()
             }
         }
         .padding(14)
         .frame(width: 240)
+        .maynGlassSurface(.panel, cornerRadius: MAYNControlMetrics.panelRadius, showsShadow: false)
+        .overlay {
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
+                .strokeBorder(MAYNTheme.hairline, lineWidth: 1)
+        }
+    }
+
+    private var attentionPopoverDetail: String {
+        if attention.failedDownloadCount > 0 {
+            return "Open the queue to retry or remove failed items."
+        }
+        if attention.orphanCacheCount > 0 {
+            return "Review leftover cache folders from disabled features."
+        }
+        if attention.voiceSetupNeeded {
+            return "Finish microphone and Accessibility setup for Voice."
+        }
+        return "Open settings to grant the permissions Mayn needs."
     }
 
     private func handleAttentionHover(_ hovering: Bool) {

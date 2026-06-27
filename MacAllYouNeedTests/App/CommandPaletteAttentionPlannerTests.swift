@@ -34,13 +34,25 @@ final class CommandPaletteAttentionPlannerTests: XCTestCase {
                 missingPermissions: [.microphone],
                 permissionsAttentionTitle: "Grant Microphone",
                 voiceSetupNeeded: false
-            )
+            ),
+            recentActionIDs: []
         )
         let section = CommandPaletteCatalog.sections(context: context)
             .first(where: { $0.section == .attention })
         let titles = section?.items.map(\.title) ?? []
-        XCTAssertTrue(titles.contains(where: { $0.contains("downloads needing attention") }))
+        XCTAssertTrue(titles.contains(where: { $0 == "Review 2 downloads" }))
         XCTAssertTrue(titles.contains("Review 3 orphan caches"))
         XCTAssertTrue(titles.contains(where: { $0.contains("Grant Microphone") }))
+    }
+
+    func testSnapshotBadgeTitlePrioritizesVoiceSetup() {
+        let snapshot = CommandPaletteAttentionSnapshot(
+            failedDownloadCount: 4,
+            orphanCacheCount: 2,
+            missingPermissions: [.microphone],
+            permissionsAttentionTitle: "Grant Microphone",
+            voiceSetupNeeded: true
+        )
+        XCTAssertEqual(snapshot.badgeTitle, "Complete Voice setup")
     }
 }

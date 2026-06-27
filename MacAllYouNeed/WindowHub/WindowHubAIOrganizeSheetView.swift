@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WindowHubAIOrganizeSheetView: View {
     @Bindable var coordinator: WindowHubCoordinator
+    @Environment(\.colorScheme) private var colorScheme
     @State private var selectedStepIDs: Set<String> = []
     @State private var expandedGroups: Set<String> = []
 
@@ -241,7 +242,7 @@ struct WindowHubAIOrganizeSheetView: View {
             }
             .keyboardShortcut(.defaultAction)
             .buttonStyle(.borderedProminent)
-            .tint(MAYNTheme.danger)
+            .tint(MAYNTheme.textPrimary(colorScheme))
             .disabled(executableSelectedCount == 0)
         }
         .padding(16)

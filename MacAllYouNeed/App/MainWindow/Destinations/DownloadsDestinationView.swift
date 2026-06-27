@@ -30,18 +30,27 @@ struct DownloadsDestinationView: View {
             subtitle: "Manage active and completed downloads, and tune downloader behavior.",
             selection: selectedTab,
             toolbar: {
-                MainHeaderShortcutDisplay(
-                    text: MainToolHeaderShortcutModel.display(
-                        for: .downloads,
-                        hotkeys: hotkeyMap,
-                        voiceSettings: VoiceActivationSettingsStore.load()
-                    ),
-                    issueMessage: MainToolHeaderShortcutModel.issue(
-                        for: .downloads,
-                        hotkeys: hotkeyMap,
-                        voiceSettings: VoiceActivationSettingsStore.load()
+                HStack(spacing: 10) {
+                    Button(action: openDefaultDownloadFolder) {
+                        Text("Open Downloads Folder")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reveal the default downloads folder in Finder")
+
+                    MainHeaderShortcutDisplay(
+                        text: MainToolHeaderShortcutModel.display(
+                            for: .downloads,
+                            hotkeys: hotkeyMap,
+                            voiceSettings: VoiceActivationSettingsStore.load()
+                        ),
+                        issueMessage: MainToolHeaderShortcutModel.issue(
+                            for: .downloads,
+                            hotkeys: hotkeyMap,
+                            voiceSettings: VoiceActivationSettingsStore.load()
+                        )
                     )
-                )
+                }
             }
         ) {
             switch DownloadsFunctionTab.storedSelection(selectedTabRaw) {
@@ -172,6 +181,16 @@ struct DownloadsDestinationView: View {
     private func dismissClipboardBanner(for url: String) {
         dismissedClipboardURL = url
         detectedClipboardURL = nil
+    }
+
+    private func openDefaultDownloadFolder() {
+        let target = DownloadFolderOpenTarget.defaultDownloadFolder(downloadDir: downloadDir)
+        let url = target.selectionURL
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func refreshDetectedClipboardURL() {

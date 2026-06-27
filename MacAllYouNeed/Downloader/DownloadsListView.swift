@@ -22,6 +22,8 @@ struct DownloadsListView: View {
     @State private var statusFilter: DownloadsStatusFilter = .all
     @State private var collectionItemFilters: [String: DownloadCollectionItemFilter] = [:]
     @State private var pendingDeleteFiles = false
+    @State private var seenRowIDs: Set<String> = []
+    @State private var didSeedSeenRows = false
     private let visibleItemCap = 5
     private let listInset: CGFloat = MAYNControlMetrics.rowControlSpacing
     private let cardInnerPadding: CGFloat = MAYNControlMetrics.rowControlSpacing
@@ -122,6 +124,10 @@ struct DownloadsListView: View {
             listFocused = true
             installKeyMonitor()
             clearStaleExtensionCookieWarningIfNeeded()
+            if !didSeedSeenRows {
+                seenRowIDs = Set(visibleRowsForCurrentFilter().map(\.id.rawValue))
+                didSeedSeenRows = true
+            }
         }
         .onChange(of: cookieMode) { _, _ in
             clearStaleExtensionCookieWarningIfNeeded()
@@ -525,16 +531,20 @@ struct DownloadsListView: View {
     }
 
     private func row(for record: DownloadRecord, indent: Bool, showsThumbnail: Bool) -> some View {
+        let rowID = record.id.rawValue
+        let isNew = didSeedSeenRows && !seenRowIDs.contains(rowID)
         return DownloadJobRow(
             model: DownloadJobRowModel(
                 record: record,
                 progress: vm.liveProgress[record.id.rawValue],
                 statusText: vm.liveStatus[record.id.rawValue]
             ),
-            isSelected: vm.selectedIDs.contains(record.id.rawValue),
+            isSelected: vm.selectedIDs.contains(rowID),
             isCompact: surface == .commandCenter,
             showsThumbnail: showsThumbnail,
-            onTap: { handleTap(id: record.id.rawValue) },
+            isNewlyInserted: isNew,
+            onEntranceComplete: { seenRowIDs.insert(rowID) },
+            onTap: { handleTap(id: rowID) },
             onPrimaryAction: { performPrimaryAction(for: record) },
             onDelete: { Task { await vm.delete(ids: [record.id]) } }
         )

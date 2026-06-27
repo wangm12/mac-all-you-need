@@ -9,12 +9,16 @@ enum CommandPaletteSection: String, CaseIterable, Equatable {
     case navigation
     case currentContext
     case attention
+    case recent
+    case settings
 
     var title: String {
         switch self {
         case .navigation: "Navigation"
         case .currentContext: "Current Context"
         case .attention: "Attention"
+        case .recent: "Recent"
+        case .settings: "Settings"
         }
     }
 }
@@ -31,6 +35,7 @@ enum CommandPaletteKind: Equatable {
     case openPermissionsSettings
     case reviewOrphanCaches
     case completeVoiceSetup
+    case openSettings(SettingsDestination)
 }
 
 struct CommandPaletteAction: Identifiable, Equatable {
@@ -75,6 +80,7 @@ struct CommandPaletteContext: Equatable {
     let failedDownloadCount: Int
     let enabledDestinations: Set<MainAppDestination>
     let attention: CommandPaletteAttentionSnapshot
+    let recentActionIDs: [String]
 
     func isDestinationEnabled(_ destination: MainAppDestination) -> Bool {
         enabledDestinations.contains(destination)
@@ -114,8 +120,20 @@ enum CommandPaletteCatalog {
         }
 
         let navigation = navigationItems(context: context).filter { isActionEnabled($0, context: context) }
+        let settings = settingsItems().filter { isActionEnabled($0, context: context) }
+        let recentPool = contextual + attention + navigation + settings
+        let recent = recentItems(from: recentPool, ids: context.recentActionIDs)
+            .filter { isActionEnabled($0, context: context) }
+        if !recent.isEmpty {
+            result.append(CommandPaletteSectionModel(section: .recent, items: recent))
+        }
+
         if !navigation.isEmpty {
             result.append(CommandPaletteSectionModel(section: .navigation, items: navigation))
+        }
+
+        if !settings.isEmpty {
+            result.append(CommandPaletteSectionModel(section: .settings, items: settings))
         }
 
         return result
@@ -164,15 +182,48 @@ enum CommandPaletteCatalog {
             return context.attention.orphanCacheCount > 0
         case .completeVoiceSetup:
             return context.isDestinationEnabled(.voice)
+        case .openSettings:
+            return true
         }
+    }
+
+    private static func recentItems(
+        from pool: [CommandPaletteAction],
+        ids: [String]
+    ) -> [CommandPaletteAction] {
+        let map = Dictionary(uniqueKeysWithValues: pool.map { ($0.id, $0) })
+        return ids.compactMap { map[$0] }
+    }
+
+    private static func settingsItems() -> [CommandPaletteAction] {
+        [
+            CommandPaletteAction(
+                id: "settings-general",
+                title: "General",
+                symbolName: "gearshape",
+                section: .settings,
+                kind: .openSettings(.general)
+            ),
+            CommandPaletteAction(
+                id: "settings-permissions",
+                title: "Permissions",
+                symbolName: "checkmark.shield",
+                section: .settings,
+                kind: .openSettings(.permissions)
+            ),
+            CommandPaletteAction(
+                id: "settings-hotkeys",
+                title: "Hotkeys",
+                symbolName: "keyboard",
+                section: .settings,
+                kind: .openSettings(.hotkeys)
+            ),
+        ]
     }
 
     private static func navigationItems(context: CommandPaletteContext) -> [CommandPaletteAction] {
         var items = MainAppDestination.primarySidebarDestinations.compactMap {
             navigationAction(for: $0, context: context)
-        }
-        if let settings = navigationAction(for: .settings, context: context) {
-            items.append(settings)
         }
         return items
     }
@@ -348,7 +399,7 @@ enum CommandPaletteCatalog {
             items.append(
                 CommandPaletteAction(
                     id: "attention-downloads",
-                    title: "Review \(snapshot.failedDownloadCount) downloads needing attention",
+                    title: "Review \(snapshot.failedDownloadCount) downloads",
                     symbolName: "arrow.down.circle",
                     section: .attention,
                     kind: .reviewFailedDownloads
@@ -372,71 +423,18 @@ enum CommandPaletteCatalog {
     }
 }
 
-// MARK: - Shell
-
-private struct CommandPaletteShell<Content: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        let radius = CommandPaletteLayout.cornerRadius
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        Group {
-            if reduceTransparency {
-                shellBody(shape: shape, radius: radius)
-                    .background { shape.fill(MAYNTheme.contentPanelElevated(colorScheme)) }
-            } else if #available(macOS 26.0, *) {
-                GlassEffectContainer {
-                    shellBody(shape: shape, radius: radius)
-                        .glassEffect(.regular, in: .rect(cornerRadius: radius))
-                }
-            } else {
-                shellBody(shape: shape, radius: radius)
-                    .background { shape.fill(.regularMaterial) }
-            }
-        }
-        .overlay { innerHighlightStroke(shape: shape) }
-        .overlay { shape.strokeBorder(MAYNTheme.commandPaletteBorder(colorScheme), lineWidth: 1) }
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.68 : 0.28), radius: colorScheme == .dark ? 45 : 40, x: 0, y: colorScheme == .dark ? 30 : 28)
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.6 : 0.08), radius: 2, x: 0, y: 1)
-    }
-
-    private func shellBody(shape: RoundedRectangle, radius: CGFloat) -> some View {
-        content
-            .padding(CommandPaletteLayout.shellPadding)
-            .background {
-                shape.fill(MAYNTheme.commandPaletteGradient(colorScheme))
-            }
-    }
-
-    private func innerHighlightStroke(shape: RoundedRectangle) -> some View {
-        shape.strokeBorder(
-            LinearGradient(
-                colors: [
-                    MAYNTheme.commandPaletteInnerHighlightTop(colorScheme),
-                    MAYNTheme.commandPaletteInnerShadowBottom(colorScheme),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            ),
-            lineWidth: 1
-        )
-    }
-}
-
 // MARK: - Overlay
 
 struct CommandPaletteOverlay: View {
     @Binding var isPresented: Bool
     let sections: [CommandPaletteSectionModel]
     let onSelect: (CommandPaletteAction) -> Void
-    var searchNamespace: Namespace.ID
 
     @State private var query = ""
     @State private var selectedActionID: String?
     @State private var isClosing = false
     @State private var closeWorkItem: DispatchWorkItem?
+    @State private var rowsRevealed = false
     @FocusState private var isSearchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -460,41 +458,49 @@ struct CommandPaletteOverlay: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            MAYNTheme.commandPaletteBackdrop(colorScheme)
-                .ignoresSafeArea()
-                .opacity(isPresented ? 1 : 0)
-                .onTapGesture { dismiss() }
+        GeometryReader { geo in
+            let panelWidth = min(CommandPaletteLayout.panelWidth, geo.size.width - 160)
 
-            VStack(spacing: 0) {
-                CommandPaletteShell {
-                    VStack(spacing: 0) {
-                        searchHeader
-                        paletteDivider
-                        resultsBody
+            ZStack(alignment: .top) {
+                MAYNTheme.commandPaletteBackdrop(colorScheme)
+                    .ignoresSafeArea()
+                    .opacity(isPresented ? 1 : 0)
+                    .onTapGesture { dismiss() }
+
+                VStack(spacing: 0) {
+                    MAYNCommandPaletteShell {
+                        VStack(spacing: 0) {
+                            searchHeader
+                            paletteDivider
+                            resultsBody
+                        }
                     }
-                }
-                .frame(width: CommandPaletteLayout.panelWidth)
-                .frame(maxHeight: CommandPaletteLayout.panelMaxHeight)
-                .fixedSize(horizontal: true, vertical: true)
-                .scaleEffect(paletteScale, anchor: .top)
-                .opacity(isPresented ? 1 : 0)
-                .offset(y: isPresented || reduceMotion ? 0 : -8)
+                    .frame(width: panelWidth)
+                    .frame(maxHeight: CommandPaletteLayout.panelMaxHeight)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .scaleEffect(paletteScale, anchor: .top)
+                    .opacity(isPresented ? 1 : 0)
+                    .offset(y: isPresented || reduceMotion ? 0 : -8)
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, CommandPaletteLayout.topOffset)
             }
-            .padding(.top, CommandPaletteLayout.topOffset)
         }
         .onAppear {
             syncSelection()
             if isPresented {
                 focusSearchField()
+                revealRows()
             }
         }
         .onChange(of: isPresented) { _, presented in
             if presented {
                 syncSelection()
                 focusSearchField()
+                revealRows()
+            } else {
+                rowsRevealed = false
             }
         }
         .onChange(of: query) {
@@ -519,6 +525,19 @@ struct CommandPaletteOverlay: View {
     private var paletteScale: CGFloat {
         if reduceMotion || isPresented { return 1 }
         return isClosing ? 0.985 : 0.975
+    }
+
+    private func revealRows() {
+        guard !reduceMotion else {
+            rowsRevealed = true
+            return
+        }
+        rowsRevealed = false
+        DispatchQueue.main.async {
+            withAnimation(MAYNMotion.paletteMorphAnimation(reduceMotion: false)) {
+                rowsRevealed = true
+            }
+        }
     }
 
     private func focusSearchField() {
@@ -547,11 +566,6 @@ struct CommandPaletteOverlay: View {
         .padding(.horizontal, CommandPaletteLayout.searchHorizontalPadding)
         .frame(height: CommandPaletteLayout.searchHeight)
         .frame(maxWidth: .infinity)
-        .matchedGeometryEffect(
-            id: CommandPaletteMorphID.searchChrome,
-            in: searchNamespace,
-            isSource: isPresented
-        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Command palette search")
         .accessibilityHint("Type to filter actions. Press Escape to close.")
@@ -573,11 +587,14 @@ struct CommandPaletteOverlay: View {
                             if !presentation.isFiltering {
                                 CommandPaletteSectionHeader(title: sectionModel.section.title)
                             }
-                            ForEach(sectionModel.items) { action in
+                            ForEach(Array(sectionModel.items.enumerated()), id: \.element.id) { itemIndex, action in
+                                let revealIndex = flatIndex(for: action.id) ?? itemIndex
                                 CommandPaletteRow(
                                     action: action,
                                     isSelected: selectedActionID == action.id,
-                                    quickShortcut: flatIndex(for: action.id).flatMap { quickShortcut(forFlatIndex: $0) }
+                                    quickShortcut: flatIndex(for: action.id).flatMap { quickShortcut(forFlatIndex: $0) },
+                                    rowRevealIndex: revealIndex,
+                                    rowsRevealed: rowsRevealed
                                 ) {
                                     select(action)
                                 }
@@ -667,7 +684,7 @@ struct CommandPaletteOverlay: View {
             return
         }
 
-        withAnimation(MAYNMotion.paletteMorphAnimation(reduceMotion: false)) {
+        withAnimation(MAYNMotion.paletteCloseAnimation(reduceMotion: reduceMotion)) {
             isPresented = false
         }
         let work = DispatchWorkItem {
@@ -679,7 +696,7 @@ struct CommandPaletteOverlay: View {
             closeWorkItem = nil
         }
         closeWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + MAYNMotionDuration.paletteMorph, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + MAYNMotionDuration.paletteClose, execute: work)
     }
 }
 
@@ -704,11 +721,19 @@ private struct CommandPaletteRow: View {
     let action: CommandPaletteAction
     let isSelected: Bool
     var quickShortcut: String?
+    let rowRevealIndex: Int
+    let rowsRevealed: Bool
     let onSelect: () -> Void
 
     @State private var isHovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+
+    private var rowRevealAnimation: Animation? {
+        guard !reduceMotion else { return nil }
+        return MAYNMotion.controlAnimation(reduceMotion: false)?
+            .delay(MAYNMotion.paletteRowStaggerDelay(for: rowRevealIndex))
+    }
 
     var body: some View {
         Button(action: onSelect) {
@@ -716,7 +741,7 @@ private struct CommandPaletteRow: View {
                 Image(systemName: action.symbolName)
                     .font(.system(size: 15, weight: isSelected ? .semibold : .medium))
                     .foregroundStyle(
-                        MAYNSelectionInversionLabelStyle.foreground(
+                        MAYNSelectionLabelStyle.foreground(
                             isSelected: isSelected,
                             scheme: colorScheme
                         )
@@ -725,9 +750,9 @@ private struct CommandPaletteRow: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(action.title)
-                        .font(.system(size: 14.5, weight: MAYNSelectionInversionLabelStyle.weight(isSelected: isSelected)))
+                        .font(.system(size: 14.5, weight: MAYNSelectionLabelStyle.weight(isSelected: isSelected)))
                         .foregroundStyle(
-                            MAYNSelectionInversionLabelStyle.foreground(
+                            MAYNSelectionLabelStyle.foreground(
                                 isSelected: isSelected,
                                 scheme: colorScheme
                             )
@@ -738,7 +763,7 @@ private struct CommandPaletteRow: View {
                         Text(subtitle)
                             .font(.system(size: 12.5, weight: .medium))
                             .foregroundStyle(
-                                MAYNSelectionInversionLabelStyle.subtitle(
+                                MAYNSelectionLabelStyle.subtitle(
                                     isSelected: isSelected,
                                     scheme: colorScheme
                                 )
@@ -750,13 +775,13 @@ private struct CommandPaletteRow: View {
                 Spacer(minLength: 8)
 
                 if let shortcut = action.shortcut ?? quickShortcut {
-                    CommandPaletteKeycap(text: shortcut, isInverted: isSelected)
+                    CommandPaletteKeycap(text: shortcut)
                 }
             }
             .padding(.horizontal, CommandPaletteLayout.rowHorizontalPadding)
             .frame(height: CommandPaletteLayout.rowHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .maynInversionSelectionBackground(
+            .maynSelectionBackground(
                 isSelected: isSelected,
                 isHovering: isHovering,
                 shape: .rounded(CommandPaletteLayout.rowRadius)
@@ -765,9 +790,12 @@ private struct CommandPaletteRow: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, CommandPaletteLayout.rowInset)
+        .opacity(rowsRevealed || reduceMotion ? 1 : 0)
+        .offset(y: rowsRevealed || reduceMotion ? 0 : 3)
+        .animation(rowRevealAnimation, value: rowsRevealed)
         .onHover { isHovering = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isSelected)
+        .animation(MAYNMotion.paletteSelectionAnimation(reduceMotion: reduceMotion), value: isSelected)
         .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHovering)
     }
 }
@@ -784,9 +812,9 @@ private struct CommandPaletteKeycap: View {
             .padding(.horizontal, 8)
             .frame(minWidth: 28)
             .frame(height: MAYNControlMetrics.keycapHeight)
-            .background(keycapBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(keycapBackground, in: RoundedRectangle(cornerRadius: MAYNControlMetrics.keycapRadius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: MAYNControlMetrics.keycapRadius, style: .continuous)
                     .strokeBorder(keycapBorder, lineWidth: 1)
             }
             .foregroundStyle(keycapForeground)
@@ -890,58 +918,57 @@ private struct CommandPaletteKeyCapture: NSViewRepresentable {
     }
 }
 
-enum CommandPaletteMorphID {
-    static let searchChrome = "command-search-chrome"
-}
-
 private enum CommandPaletteSearchMetrics {
     static let chromeCornerRadius: CGFloat = 11
-    static let toolbarHeight: CGFloat = 34
+    static let toolbarWidth: CGFloat = 380
 }
 
 struct CommandPaletteToolbarSearch: View {
     let isSidebarCollapsed: Bool
     let isPalettePresented: Bool
-    let searchNamespace: Namespace.ID
     let onOpen: () -> Void
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(spacing: MAYNSpacing.xs) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 13, weight: .medium))
-                if !isSidebarCollapsed {
-                    Text("Search Mayn")
-                        .font(MAYNTypography.caption())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }
-                MAYNKeycap(text: "⌘K")
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-            .padding(.horizontal, MAYNSpacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: CommandPaletteSearchMetrics.toolbarHeight)
+            searchContent
+                .opacity(isPalettePresented ? 0 : 1)
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: 380)
-        .maynGlassSurface(
-            .panel,
-            cornerRadius: CommandPaletteSearchMetrics.chromeCornerRadius,
-            showsShadow: false,
-            morphID: CommandPaletteMorphID.searchChrome,
-            morphNamespace: searchNamespace
-        )
-        .matchedGeometryEffect(
-            id: CommandPaletteMorphID.searchChrome,
-            in: searchNamespace,
-            isSource: !isPalettePresented
-        )
-        .opacity(isPalettePresented ? 0 : 1)
+        .frame(maxWidth: CommandPaletteSearchMetrics.toolbarWidth)
+        .frame(height: MAYNControlMetrics.searchFieldHeight)
+        .background {
+            if !isPalettePresented {
+                Color.clear
+                    .maynGlassSurface(
+                        .panel,
+                        cornerRadius: CommandPaletteSearchMetrics.chromeCornerRadius,
+                        showsShadow: false
+                    )
+            }
+        }
         .allowsHitTesting(!isPalettePresented)
+        .accessibilityHidden(isPalettePresented)
         .accessibilityLabel("Open command palette")
         .accessibilityHint("Opens the command palette. Type in the palette search field, not here.")
         .help("Open command palette (⌘K)")
+    }
+
+    private var searchContent: some View {
+        HStack(spacing: MAYNSpacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .medium))
+            if !isSidebarCollapsed {
+                Text("Search Mayn")
+                    .font(MAYNTypography.caption())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+            MAYNKeycap(text: "⌘K")
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        }
+        .padding(.horizontal, MAYNSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: MAYNControlMetrics.searchFieldHeight)
     }
 }

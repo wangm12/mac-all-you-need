@@ -25,7 +25,8 @@ final class CommandPaletteCatalogTests: XCTestCase {
                 missingPermissions: [],
                 permissionsAttentionTitle: nil,
                 voiceSetupNeeded: false
-            )
+            ),
+            recentActionIDs: []
         )
     }
 
@@ -71,7 +72,7 @@ final class CommandPaletteCatalogTests: XCTestCase {
         let titles = Set(voiceItems.map(\.title))
         XCTAssertTrue(titles.contains("Dashboard"))
         XCTAssertTrue(titles.contains("Clipboard"))
-        XCTAssertTrue(titles.contains("Settings"))
+        XCTAssertTrue(titles.contains("General"))
         XCTAssertTrue(titles.contains("AI File Organizer"))
         XCTAssertTrue(titles.contains("Window Layouts"))
         XCTAssertTrue(titles.contains("Windows Hub"))
@@ -109,7 +110,37 @@ final class CommandPaletteCatalogTests: XCTestCase {
         )
         XCTAssertTrue(sections.contains(where: { $0.section == .attention }))
         let attentionItems = sections.first(where: { $0.section == .attention })?.items ?? []
-        XCTAssertEqual(attentionItems.first?.title, "Review 4 downloads needing attention")
+        XCTAssertEqual(attentionItems.first?.title, "Review 4 downloads")
+    }
+
+    func testCatalogIncludesSettingsSection() {
+        let sections = CommandPaletteCatalog.sections(context: context())
+        XCTAssertTrue(sections.contains(where: { $0.section == .settings }))
+        let settingsTitles = sections.first(where: { $0.section == .settings })?.items.map(\.title) ?? []
+        XCTAssertTrue(settingsTitles.contains("General"))
+        XCTAssertTrue(settingsTitles.contains("Permissions"))
+        XCTAssertTrue(settingsTitles.contains("Hotkeys"))
+    }
+
+    func testCatalogIncludesRecentSectionWhenStored() {
+        let context = CommandPaletteContext(
+            destination: .dashboard,
+            hotkeys: [:],
+            voiceShortcut: "⌥Space",
+            voiceMode: .toggle,
+            failedDownloadCount: 0,
+            enabledDestinations: allEnabled,
+            attention: CommandPaletteAttentionSnapshot(
+                failedDownloadCount: 0,
+                orphanCacheCount: 0,
+                missingPermissions: [],
+                permissionsAttentionTitle: nil,
+                voiceSetupNeeded: false
+            ),
+            recentActionIDs: ["nav-clipboard"]
+        )
+        let sections = CommandPaletteCatalog.sections(context: context)
+        XCTAssertTrue(sections.contains(where: { $0.section == .recent }))
     }
 
     func testCatalogOmitsDisabledFeatureActions() {

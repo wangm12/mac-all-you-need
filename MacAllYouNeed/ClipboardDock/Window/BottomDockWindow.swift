@@ -11,17 +11,19 @@ final class BottomDockWindow: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        hidesOnDeactivate = false
-        isReleasedWhenClosed = false
         becomesKeyOnlyIfNeeded = false
-        isFloatingPanel = true
-        // Sit above the system Dock, but below macOS's native drag-preview
-        // window. `.screenSaver` covers the Dock too, but it also covers
-        // native drag previews, making card drags appear behind this panel.
-        level = .popUpMenu
+        ClipboardDockWindowLayering.configure(self)
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func orderFront(_ sender: Any?) {
+        ClipboardDockWindowLayering.orderFront(self)
+    }
+
+    override func makeKey() {
+        super.makeKey()
+        ClipboardDockWindowLayering.reassertLevel(self)
+    }
 }

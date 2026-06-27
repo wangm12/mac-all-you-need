@@ -9,7 +9,7 @@ final class MainAppDestinationTests: XCTestCase {
         XCTAssertEqual(MainAppDestination.storedSelection("voice"), .voice)
         XCTAssertEqual(MainAppDestination.storedSelection("downloads"), .downloads)
         XCTAssertEqual(MainAppDestination.storedSelection("folderPreview"), .folderPreview)
-        XCTAssertEqual(MainAppDestination.storedSelection("snippets"), .clipboard)
+        XCTAssertEqual(MainAppDestination.storedSelection("snippets"), .snippets)
         XCTAssertEqual(MainAppDestination.storedSelection("finderHistory"), .folderPreview)
         XCTAssertEqual(MainAppDestination.storedSelection("windowLayouts"), .windowLayouts)
         XCTAssertEqual(MainAppDestination.storedSelection("grabAnywhere"), .grabAnywhere)
@@ -99,7 +99,7 @@ final class MainAppDestinationTests: XCTestCase {
         )
         XCTAssertEqual(
             MainWindowDestinationRouter.detailViewTypeName(for: .snippets),
-            "ClipboardDestinationView"
+            "SnippetsDestinationView"
         )
         XCTAssertEqual(
             MainWindowDestinationRouter.detailViewTypeName(for: .finderHistory),

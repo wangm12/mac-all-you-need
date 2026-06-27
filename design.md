@@ -47,7 +47,7 @@ The main app window is for configuration, review, and history. The runtime overl
 ### Design sentence
 
 ```text
-A black-and-white native macOS command center with stable content surfaces, restrained Liquid Glass controls, crisp inversion selection, and fast keyboard-first overlays.
+A black-and-white native macOS command center with stable content surfaces, Liquid Glass controls and selection, and fast keyboard-first overlays.
 ```
 
 ### What must be visible in every screen
@@ -60,7 +60,7 @@ A black-and-white native macOS command center with stable content surfaces, rest
 - Visible shortcut hints
 - No decorative color
 - No muddy full-window blur
-- No glass-over-text selection
+- Selected rows use Liquid Glass, not solid inversion fills
 
 ---
 
@@ -149,43 +149,38 @@ Do not use Liquid Glass for:
 Rule:
 
 ```text
-Glass is the control material.
-Inversion is the selection language.
+Glass is the control and selection material.
 Stable panels are the content layer.
 ```
 
-### 1.4 Inversion selection, not glass selection
+### 1.4 Liquid Glass selection
 
-Keyboard-focused navigation rows must be sharp and high contrast.
+Keyboard-focused and pointer-selected interactive rows use **Liquid Glass** — not solid black/white inversion fills.
 
-Use inversion fills for:
+Follow [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass):
+
+- Apply `glassEffect(.regular, in: shape)` to the selected row/chip via `MAYNSelectionGlassBackground` / `maynSelectionBackground`.
+- Keep labels **`.primary`** on glass selection (`MAYNSelectionLabelStyle`) — do not invert text to white-on-black.
+- Use `GlassEffectContainer` only when multiple glass controls morph together (toolbar search → command palette, attention badge → popover).
+- Do not stack a parent glass shell and a child glass selection on the same pixel without a sharp opaque content layer between them.
+
+Use Liquid Glass selection for:
 
 - selected sidebar item
 - selected command palette row
 - selected clipboard history row
 - selected Window Hub row
-- selected Clipboard Dock row
-- focused destructive confirmation row
-
-Light mode selected row:
-
-```text
-black / near-black fill + white label
-```
-
-Dark mode selected row:
-
-```text
-white / near-white fill + black label
-```
-
-Use glass selection only for:
-
+- selected Clipboard Dock card
 - segmented control selected tab
 - feature-picker tile during onboarding
-- transient pointer hover on floating controls
+- filter chips and compact list rows
 
-Never put text-heavy rows on top of another glass effect.
+Reserve solid inversion fills only for:
+
+- copy / action toasts (`CopyHUD`)
+- rare destructive confirmation emphasis when glass would be illegible
+
+Never put opaque inversion fills on routine navigation rows.
 
 ### 1.5 Keyboard-first
 
@@ -252,7 +247,7 @@ Do not wrap NavigationSplitView in GlassEffectContainer.
 Do not wrap page content in GlassEffectContainer.
 Do not place glassEffect on every card.
 Do not stack glassEffect on a panel and also on the search field inside it.
-Do not use glassEffect for selected rows.
+Use glassEffect for selected rows via MAYNSelectionGlassBackground — one glass layer per selected control.
 ```
 
 Use `GlassEffectContainer` only when multiple glass controls need to visually belong together or morph:
@@ -295,7 +290,7 @@ Use rounded rectangle for:
 | command palette shell | `GlassEffectContainer` + shaped glass | `regularMaterial` + hairline + shadow |
 | dense content cards | opaque content tokens | opaque content tokens |
 | clipboard list | opaque list panel | opaque list panel |
-| selected rows | inversion fill | inversion fill |
+| selected rows | `glassEffect(.regular, in: rowShape)` via `maynSelectionBackground` | `MAYNTheme.selected` fill |
 | Voice HUD | shaped glass in borderless panel | `NSVisualEffectView` in non-activating panel |
 | copy toast | solid inversion pill | solid inversion pill |
 
@@ -305,7 +300,7 @@ When Reduce Transparency is enabled:
 
 - replace glass surfaces with opaque elevated panels
 - keep borders and shadows subtle
-- preserve black / white inversion selection
+- replace glass selection with `MAYNTheme.selected` opaque fill
 - remove background sampling effects
 - keep toolbar search and command palette visually distinct with elevation and border
 
@@ -490,26 +485,20 @@ enum MAYNTheme {
 
 Do not hard-code `.blue`, `.green`, `.purple`, `.orange`, or `.red` in normal Mayn UI.
 
-### 3.5 Status without feature colors
+### 3.5 Status tags
 
-Status should be understandable without color.
+Status pills use small semantic color families (success, warning, danger, progress, neutral) via `MAYNStatusTagPalette`. Pair color with icon + text; never rely on color alone.
 
 | Status | Visual | Icon | Copy |
 |---|---|---|---|
-| Ready / Enabled | filled inversion pill | checkmark optional | `Ready`, `Enabled` |
-| Running / Active | animated monochrome dot + label | dot | `Running`, `Listening` |
-| Paused | muted outline pill | pause | `Paused` |
-| Needs setup | outline pill, stronger border | exclamationmark.circle | `Needs Setup` |
-| Failed | strong outline + warning icon | exclamationmark.triangle | `Failed`, `Review` |
-| Processing | thin progress line + label | none or dot | `Processing` |
+| Ready / Enabled | green-tinted pill | checkmark optional | `Ready`, `Enabled` |
+| Running / Active | blue-tinted pill or dot + label | dot | `Running`, `Listening` |
+| Paused | amber outline pill | pause | `Paused` |
+| Needs setup | amber outline pill | exclamationmark.circle | `Needs Setup` |
+| Failed | red-tinted pill + warning icon | exclamationmark.triangle | `Failed`, `Review` |
+| Processing | blue progress line + label | none or dot | `Processing` |
 
-Optional color rule:
-
-```text
-Only use muted system color for safety-critical or platform-required states. If used, it must be small, desaturated, and paired with icon + text. Do not use color as the only signal.
-```
-
-Default Mayn status pills are monochrome.
+Download progress bars use `MAYNTheme.success`, `.danger`, `.warning`, and `.progress` — not monochrome primary fills.
 
 ---
 
@@ -794,7 +783,7 @@ Use hairline borders for structure, not decoration.
 - content panel: hairline
 - list panel: hairline
 - card: hairline
-- selected card: stronger monochrome border or inversion
+- selected card: Liquid Glass via `maynSelectionBackground` on dock cards; hairline focus ring optional
 - floating control: glass highlight + subtle border
 - command palette: gradient/hairline border + shadow
 
@@ -997,15 +986,15 @@ Specs:
 - row height: 44-64 px depending content
 - divider: hairline
 - hover: subtle fill
-- selection: inversion fill
+- selection: Liquid Glass via `maynSelectionBackground` (`glassEffect(.regular, in: rowShape)` on macOS 26+)
 - metadata: right aligned where possible
 - actions: reveal on hover/focus unless critical
 
 Clipboard / command / hub row selection:
 
 ```text
-Light: black fill / white text
-Dark: white fill / black text
+Selected row: glassEffect background, primary text (MAYNSelectionLabelStyle)
+Reduce Transparency: MAYNTheme.selected opaque fill
 ```
 
 Do not use glass row backgrounds for long lists.
@@ -1202,19 +1191,13 @@ Filtered query:
 
 ### 8.8 Selected row
 
-Mandatory inversion.
+Mandatory Liquid Glass selection per §1.4.
 
-Dark mode:
-
-```text
-white gradient fill + black text
+```swift
+.maynSelectionBackground(isSelected: isSelected, isHovering: isHovering, shape: .rounded(radius))
 ```
 
-Light mode:
-
-```text
-black gradient fill + white text
-```
+Labels stay `.primary` / `MAYNSelectionLabelStyle` — never invert to white-on-black for routine rows.
 
 Selected row should be inset, not full-bleed.
 
@@ -1313,7 +1296,7 @@ Specs:
 - height: 260-360 px
 - radius: 22 px top corners / 24 px floating if detached
 - shell: Liquid Glass if over desktop, standard panel if inside app
-- selected row: inversion
+- selected row: Liquid Glass (`maynSelectionBackground`)
 - first 9 rows show `⌘1` to `⌘9`
 
 ### 9.3 Window Hub
@@ -1339,7 +1322,7 @@ Specs:
 - max height: 620 px
 - radius: 28 px
 - shell: Liquid Glass
-- row selection: inversion
+- row selection: Liquid Glass (`maynSelectionBackground`)
 - grouped list preferred over masonry unless scanability stays high
 
 ### 9.4 Radial layout menu
@@ -1425,7 +1408,7 @@ Rules:
 - list is opaque and sharp, not blurry glass
 - app icons may be colored but small and secondary
 - source app metadata should not dominate
-- selected row uses inversion
+- selected row uses Liquid Glass selection (§1.4)
 - hover actions: Copy, Pin, Delete, Reveal
 
 ### 10.3 Voice
@@ -1763,7 +1746,7 @@ Press:
 ### 11.8 Toggle animation
 
 - knob slide: 140 ms
-- track inversion: 120 ms
+- track glass slide: 120 ms
 - no bounce
 - label update after 40 ms if present
 
@@ -2094,8 +2077,7 @@ Runtime HUD `NSPanel`s may be transparent because they intentionally float over 
 
 - use `NavigationSplitView` and `.toolbar`
 - keep page content on stable surfaces
-- use Liquid Glass only for control chrome and runtime shells
-- use inversion fills for keyboard selection
+- use Liquid Glass for control chrome, runtime shells, and keyboard selection
 - keep command palette compact and context-aware
 - show shortcuts for frequent actions
 - use dense, sharp lists
@@ -2129,7 +2111,7 @@ Before shipping any screen, verify:
 - Does it feel native on macOS?
 - Does content remain sharp and stable?
 - Is glass limited to controls / navigation / HUD shells?
-- Are selected rows inversion-based?
+- Are selected rows Liquid Glass (`maynSelectionBackground`) with primary labels?
 - Is the command palette useful before typing?
 - Is the current context first in command palette?
 - Are attention items inside command palette when it opens?
@@ -2150,7 +2132,7 @@ Before shipping any screen, verify:
 Use this prompt when generating Mayn UI:
 
 ```text
-Build Mayn as a monochrome native macOS productivity app. Use black, white, and grayscale as the brand system. Use NavigationSplitView and native .toolbar for app chrome. Use Liquid Glass only for floating controls and HUD shells: toolbar search, attention badge, command palette shell, segmented track, popovers, Voice HUD (single 392×58 Liquid Glass capsule per V3 spec — not stacked caption+hub), Clipboard Dock, and Window Hub. Keep dashboard cards, settings rows, clipboard lists, and dense content on stable standard surfaces, not glass. Keyboard-focused rows use inversion: light mode black fill with white text, dark mode white fill with black text. Do not use colored feature cards, gradients, emoji, thick custom scrollbars, or glass-over-text selection. The app should feel like a native macOS utility: compact, sharp, keyboard-first, and fast.
+Build Mayn as a monochrome native macOS productivity app. Use black, white, and grayscale as the brand system. Use NavigationSplitView and native .toolbar for app chrome. Use Liquid Glass for floating controls, runtime shells, and selected rows: toolbar search, attention badge, command palette shell and rows, segmented track, sidebar selection, list row selection, popovers, Voice HUD (single 392×58 Liquid Glass capsule per V3 spec — not stacked caption+hub), Clipboard Dock, and Window Hub. Keep dashboard cards, settings groups, and dense list content on stable standard surfaces — selection is a single glass layer per row via `MAYNSelectionGlassBackground`, not inversion fills. Status pills and download progress use semantic color families. Do not use colored feature cards, gradients, emoji, or thick custom scrollbars. Follow [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass). The app should feel like a native macOS utility: compact, sharp, keyboard-first, and fast.
 ```
 
 Animation prompt:

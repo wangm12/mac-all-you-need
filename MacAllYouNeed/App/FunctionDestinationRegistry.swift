@@ -249,7 +249,7 @@ enum DashboardToolTilePresentation {
             ),
             DashboardToolTileItem(
                 destination: .windowHub,
-                title: "Windows",
+                title: "Windows Hub",
                 metric: nil,
                 detail: "Search apps, windows, and tabs. Switch, clean up, or organize with AI.",
                 symbolName: "macwindow.on.rectangle",
@@ -341,15 +341,18 @@ enum DashboardDownloadSummaryPresentation {
 }
 
 enum MainSidebarBadgePresentation {
-    static func badgeText(for destination: MainAppDestination, records: [DownloadRecord]) -> String? {
+    static func badgeText(for destination: MainAppDestination, activeDownloadCount: Int) -> String? {
         switch destination {
         case .downloads:
-            let count = inProgressDownloadCount(in: records)
-            return count > 0 ? "\(count)" : nil
+            return activeDownloadCount > 0 ? "\(activeDownloadCount)" : nil
         case .dashboard, .clipboard, .voice, .voiceReminders, .folderPreview, .finderHistory,
              .snippets, .windowLayouts, .grabAnywhere, .windowHub, .aiFileOrganizer, .settings:
             return nil
         }
+    }
+
+    static func badgeText(for destination: MainAppDestination, records: [DownloadRecord]) -> String? {
+        badgeText(for: destination, activeDownloadCount: inProgressDownloadCount(in: records))
     }
 
     static func inProgressDownloadCount(in records: [DownloadRecord]) -> Int {
@@ -459,9 +462,9 @@ enum DashboardToolSettingsNavigation {
             )
         case .snippets:
             DashboardToolSettingsRoute(
-                destination: .clipboard,
-                tabStorageKey: ClipboardFunctionTab.storageKey,
-                tabRawValue: ClipboardFunctionTab.snippets.rawValue
+                destination: .snippets,
+                tabStorageKey: SnippetsFunctionTab.storageKey,
+                tabRawValue: SnippetsFunctionTab.library.rawValue
             )
         case .windowLayouts, .grabAnywhere, .dashboard, .settings,
              .voiceReminders, .finderHistory, .aiFileOrganizer, .windowHub:

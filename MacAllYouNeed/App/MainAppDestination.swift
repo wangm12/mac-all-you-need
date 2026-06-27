@@ -42,10 +42,10 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .aiFileOrganizer: "AI File Organizer"
         case .folderPreview: "Enhanced Finder"
         case .finderHistory: "Enhanced Finder"
-        case .snippets: "Clipboard"
+        case .snippets: "Snippets"
         case .windowLayouts: "Window Layouts"
         case .grabAnywhere: "Window Grab"
-        case .windowHub: "Windows"
+        case .windowHub: "Windows Hub"
         case .settings: "Settings"
         }
     }
@@ -60,7 +60,7 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
         case .aiFileOrganizer: "Rename and organize files with AI"
         case .folderPreview: "Quick Look previews, browse folder, and visit history"
         case .finderHistory: "Quick Look previews, browse folder, and visit history"
-        case .snippets: "Clipboard history, snippets, and paste behavior"
+        case .snippets: "Reusable text and expansion triggers"
         case .windowLayouts: "Keyboard shortcuts and edge snapping"
         case .grabAnywhere: "Modifier-drag windows"
         case .windowHub: "Search apps, windows, and tabs"
@@ -94,8 +94,8 @@ enum MainAppDestination: String, CaseIterable, Identifiable {
             return .windowHub
         }
         if raw == "snippets" {
-            AppGroupSettings.defaults.set(ClipboardFunctionTab.snippets.rawValue, forKey: ClipboardFunctionTab.storageKey)
-            return .clipboard
+            AppGroupSettings.defaults.set(SnippetsFunctionTab.library.rawValue, forKey: SnippetsFunctionTab.storageKey)
+            return .snippets
         }
         if raw == "finderHistory" {
             AppGroupSettings.defaults.set(FolderPreviewFunctionTab.history.rawValue, forKey: FolderPreviewFunctionTab.storageKey)

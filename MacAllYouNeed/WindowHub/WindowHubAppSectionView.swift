@@ -36,6 +36,8 @@ struct WindowHubAppSectionView: View {
                         group: group,
                         appName: section.appName,
                         tabsPerWindow: tabsPerWindow,
+                        selectedTargetID: nil,
+                        onSelect: { _ in },
                         onActivate: onActivate,
                         onAction: onAction
                     )

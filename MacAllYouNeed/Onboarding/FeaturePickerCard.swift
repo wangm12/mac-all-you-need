@@ -9,6 +9,7 @@ struct FeaturePickerCard: View {
     @Binding var isSelected: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
 
     private var tile: DashboardToolTileItem? {
@@ -45,12 +46,12 @@ struct FeaturePickerCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.system(size: 14, weight: MAYNSelectionLabelStyle.weight(isSelected: isSelected)))
-                        .foregroundStyle(MAYNSelectionLabelStyle.foreground(isSelected: isSelected))
+                        .foregroundStyle(MAYNSelectionLabelStyle.foreground(isSelected: isSelected, scheme: colorScheme))
                         .lineLimit(1)
 
                     Text(subtitle)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MAYNSelectionLabelStyle.subtitle(isSelected: isSelected, scheme: colorScheme))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)

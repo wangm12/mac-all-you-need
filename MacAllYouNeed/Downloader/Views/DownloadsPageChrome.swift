@@ -88,10 +88,9 @@ private struct DownloadsStatusChip: View {
     private var dotFill: Color {
         switch dotColor {
         case .neutral: Color.secondary.opacity(0.55)
-        case .success: MAYNTheme.success
-        case .progress: MAYNTheme.progress
-        case .warning: MAYNTheme.warning
-        case .danger: MAYNTheme.danger
+        case .success, .danger: Color.primary
+        case .progress: Color.primary.opacity(0.85)
+        case .warning: Color.primary.opacity(0.55)
         }
     }
 }
@@ -136,7 +135,7 @@ struct DownloadsFailedBanner: View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.callout)
-                .foregroundStyle(MAYNTheme.danger)
+                .foregroundStyle(MAYNTheme.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text(DownloadsPagePresentation.failedBannerTitle(failedCount: failedCount))
                     .font(.callout.weight(.semibold))
@@ -153,7 +152,7 @@ struct DownloadsFailedBanner: View {
         .padding(.vertical, MAYNControlMetrics.rowVerticalPadding)
         .background(MAYNTheme.panel)
         .overlay(
-            Rectangle()
+            RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
                 .stroke(MAYNTheme.strongBorder, lineWidth: 1)
         )
     }
@@ -206,10 +205,9 @@ private struct DownloadsStatCell: View {
     private var dotFill: Color {
         switch dotColor {
         case .neutral: Color.secondary.opacity(0.55)
-        case .success: MAYNTheme.success
-        case .progress: MAYNTheme.progress
-        case .warning: MAYNTheme.warning
-        case .danger: MAYNTheme.danger
+        case .success, .danger: Color.primary
+        case .progress: Color.primary.opacity(0.85)
+        case .warning: Color.primary.opacity(0.55)
         }
     }
 }

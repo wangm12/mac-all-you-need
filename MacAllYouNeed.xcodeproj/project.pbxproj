@@ -520,6 +520,7 @@
 		C03B44BBD91CD75588F142C9 /* RadialPuckVisualTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BABB0C60992F7FCF6A38C34 /* RadialPuckVisualTokens.swift */; };
 		C0953F6D9B400C12513CBDAC /* VoiceCleanupPickerPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E8516DEA3847647CD04250 /* VoiceCleanupPickerPresentation.swift */; };
 		C0AA24AFD9A1A480A92E8A7B /* FolderHistorySettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5DF1FB42B8F2D3E13DFE0B3 /* FolderHistorySettingsStore.swift */; };
+		C0AE275A64C47561723D67C9 /* WindowHubGroupedDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F98F16915CECE5B365D1376 /* WindowHubGroupedDashboardView.swift */; };
 		C1050B33FF0CFDC3DD1315CD /* VoicePillErrorLabels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68EB214A6917D306979DD7C /* VoicePillErrorLabels.swift */; };
 		C12C8B648DBF69A0D2999AF2 /* FunctionTabsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E444AD4FF1939B4AE78A34D /* FunctionTabsTests.swift */; };
 		C142BDC1AE98EC30F923AC53 /* WindowHubFeatureStateMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29868CCAD2021241C94C663D /* WindowHubFeatureStateMigration.swift */; };
@@ -685,6 +686,7 @@
 		F5E03EB399452C4E983D46B1 /* WindowScrollResizeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883E25A28CFBD3F1602E56C4 /* WindowScrollResizeController.swift */; };
 		F659A663B60D7C5C4E42B08F /* AIFileOrganizerSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B831CCC110E63E0B7FA1481 /* AIFileOrganizerSettings.swift */; };
 		F69338AAC016914D04D87230 /* RemindersPermissionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12A48478F7A43FCA55D8BEB /* RemindersPermissionRow.swift */; };
+		F6BFA6376DDB0137E71F3312 /* CommandPaletteRecentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD8E20886EF812521C7C468 /* CommandPaletteRecentStore.swift */; };
 		F783295239B9353247B64E4F /* CardContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 837289CB6522B643D1E95BDC /* CardContextMenu.swift */; };
 		F7E8566EEB79E3E0AB27A657 /* VoiceReminderShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA6679BAAB8A8B832A70D4D /* VoiceReminderShortcutSettings.swift */; };
 		F836E34A7DBD02A630B0D1DC /* MicrophoneStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3975F96989EF6A534D8B932E /* MicrophoneStepView.swift */; };
@@ -943,6 +945,7 @@
 		3F4FDE372D9F9E6D2C1E2F1E /* SearchFilterSubModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchFilterSubModel.swift; sourceTree = "<group>"; };
 		3F54FBA5351413C6C7420303 /* SettingsRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRoot.swift; sourceTree = "<group>"; };
 		3F5E63ABF5E9EDC9B8C43838 /* WindowSnapOverlayPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSnapOverlayPanel.swift; sourceTree = "<group>"; };
+		3F98F16915CECE5B365D1376 /* WindowHubGroupedDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowHubGroupedDashboardView.swift; sourceTree = "<group>"; };
 		402B9DB7054121852FCC1E91 /* TransformsSubModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransformsSubModel.swift; sourceTree = "<group>"; };
 		4054DC082BCC990839FC3E96 /* VoiceAPIKeySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAPIKeySection.swift; sourceTree = "<group>"; };
 		407ECF5B94C9578CD9D79532 /* MacAllYouNeedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MacAllYouNeedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1216,6 +1219,7 @@
 		AA1F55159B8A707BD0F2A698 /* VoiceEnginePickerPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceEnginePickerPresentationTests.swift; sourceTree = "<group>"; };
 		AA96843CBA430D555D38B317 /* VoiceCoordinatorPersonalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCoordinatorPersonalizationTests.swift; sourceTree = "<group>"; };
 		AB8CE7FE6CCC6092249E565E /* DashboardDestinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardDestinationView.swift; sourceTree = "<group>"; };
+		ABD8E20886EF812521C7C468 /* CommandPaletteRecentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteRecentStore.swift; sourceTree = "<group>"; };
 		ABF6466E93D9092EAED357FA /* CompactTimestamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactTimestamp.swift; sourceTree = "<group>"; };
 		AC167632E28CCFE03EE35FF4 /* OnboardingShortcutSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingShortcutSection.swift; sourceTree = "<group>"; };
 		AC457C1856583EC4590A7EAD /* SettingsDestinationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDestinationTests.swift; sourceTree = "<group>"; };
@@ -2201,6 +2205,7 @@
 			children = (
 				AE852F2E18F5B11E90B7C125 /* CommandPaletteAttentionPlanner.swift */,
 				55BC8851FB4566E4B1D7E246 /* CommandPaletteOverlay.swift */,
+				ABD8E20886EF812521C7C468 /* CommandPaletteRecentStore.swift */,
 			);
 			path = CommandPalette;
 			sourceTree = "<group>";
@@ -2398,6 +2403,7 @@
 				265BBFA891E40E25A51E23CE /* WindowHubEnumerator.swift */,
 				44080EFA581E88F6B6869316 /* WindowHubFeatureActivator.swift */,
 				91129BBC94265F3BE060A0C2 /* WindowHubFuzzyMatcher.swift */,
+				3F98F16915CECE5B365D1376 /* WindowHubGroupedDashboardView.swift */,
 				8B4F0C8676EBF09976253398 /* WindowHubMasonryDashboardView.swift */,
 				94035CF60E74CBE196BAACB0 /* WindowHubModels.swift */,
 				BCA90919B704CAFF72861DB7 /* WindowHubOverlayView.swift */,
@@ -3737,6 +3743,7 @@
 				8BA28186CE9452C83F4E35B0 /* CommandCenterDisabledPlaceholder.swift in Sources */,
 				2EFAEAEAD7CA693A634F5B18 /* CommandPaletteAttentionPlanner.swift in Sources */,
 				9865C56B3C690FF937361B77 /* CommandPaletteOverlay.swift in Sources */,
+				F6BFA6376DDB0137E71F3312 /* CommandPaletteRecentStore.swift in Sources */,
 				85F75A4267CFE9A02106ABC9 /* CompactTimestamp.swift in Sources */,
 				7DBA90AA4B5BFC54CAF58C3F /* CompanionDownloadDeepLink.swift in Sources */,
 				1051354C7BB1202F5A51488F /* ContentExtractor.swift in Sources */,
@@ -4150,6 +4157,7 @@
 				AC57A4985A00187721A46402 /* WindowHubFeatureActivator.swift in Sources */,
 				C142BDC1AE98EC30F923AC53 /* WindowHubFeatureStateMigration.swift in Sources */,
 				48AE92FDFE99B99E84AFF4B3 /* WindowHubFuzzyMatcher.swift in Sources */,
+				C0AE275A64C47561723D67C9 /* WindowHubGroupedDashboardView.swift in Sources */,
 				A2B832D911C45E65FC31EF19 /* WindowHubMasonryDashboardView.swift in Sources */,
 				FB6D8D83D8C258B220E7E08B /* WindowHubModels.swift in Sources */,
 				8922A0CF573C60B99A8824C7 /* WindowHubOnboardingWizardView.swift in Sources */,
