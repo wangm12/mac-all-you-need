@@ -16,7 +16,15 @@ struct ClipboardPopoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            popoverHeader
+            CommandCenterPageHeader(
+                title: "Clipboard History",
+                subtitle: "Copy, preview, delete, or jump to the full Clipboard page.",
+                actionTitle: "Open Clipboard",
+                onAction: {
+                    controller.showMainWindow(destination: .clipboard)
+                    NotificationCenter.default.post(name: .menuBarPopoverDismissRequested, object: nil)
+                }
+            )
             Group {
                 if reader.items.isEmpty {
                     Text("No items yet")
@@ -26,6 +34,7 @@ struct ClipboardPopoverView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVStack(spacing: 0) {
+                                CommandCenterSectionLabel(title: "Recent")
                                 ForEach(reader.items, id: \.id.rawValue) { item in
                                     ClipboardItemRow2(
                                         item: item,
@@ -45,9 +54,10 @@ struct ClipboardPopoverView: View {
                                         }
                                     )
                                     .id(item.id.rawValue)
-                                    Divider().opacity(0.4)
                                 }
                             }
+                            .padding(.trailing, 8)
+                            .padding(.bottom, 10)
                         }
                         .onChange(of: reader.anchorID) { _, newID in
                             guard let newID else { return }
@@ -91,28 +101,6 @@ struct ClipboardPopoverView: View {
                 reader.anchorID = nil
             }
         }
-    }
-
-    private var popoverHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Clipboard History")
-                    .font(.headline.weight(.semibold))
-                Text("Copy, preview, delete, or jump to the full Clipboard page for snippets and settings.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            MAYNButton("Open Clipboard", role: .primary, height: HotkeyChipPresentation.compactHeight) {
-                controller.showMainWindow(destination: .clipboard)
-                NotificationCenter.default.post(name: .menuBarPopoverDismissRequested, object: nil)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
-        .background(MAYNTheme.panel)
     }
 
     // MARK: - Selection
@@ -412,6 +400,7 @@ private struct ClipboardItemRow2: View {
     let onActivate: () -> Void
     let onCopy: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
 
     private var isImage: Bool { item.preview.hasPrefix("(image ") }
@@ -464,12 +453,14 @@ private struct ClipboardItemRow2: View {
 
             Text(displayText)
                 .lineLimit(2)
-                .font(.callout)
+                .font(.system(size: 13, weight: .semibold))
                 .truncationMode(.tail)
             Spacer(minLength: 0)
             Text(CompactTimestamp.format(item.modified))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(
+                    MAYNSelectionLabelStyle.subtitle(isSelected: isSelected, scheme: colorScheme)
+                )
                 .monospacedDigit()
             DownloadIconButton(
                 symbolName: "doc.on.doc",
@@ -480,16 +471,16 @@ private struct ClipboardItemRow2: View {
             .help("Copy")
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
         .contentShape(Rectangle())
-        .background(rowBackground)
-        .overlay(alignment: .leading) {
-            // 3pt stripe keeps selected rows visible in the monochrome popover.
-            Rectangle()
-                .fill(isSelected ? Color.primary.opacity(0.65) : .clear)
-                .frame(width: 3)
-        }
+        .maynSelectionBackground(
+            isSelected: isSelected,
+            isHovering: isHovering,
+            shape: .rounded(14)
+        )
+        .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+        .padding(.horizontal, 6)
         .onHover { isHovering = $0 }
         .onTapGesture { onTap() }
         // Double-click = activate (copy + dismiss popover). Same
@@ -498,12 +489,6 @@ private struct ClipboardItemRow2: View {
         .simultaneousGesture(
             TapGesture(count: 2).onEnded { onActivate() }
         )
-    }
-
-    private var rowBackground: Color {
-        if isSelected { return Color.primary.opacity(0.10) }
-        if isHovering { return Color.primary.opacity(0.06) }
-        return .clear
     }
 }
 

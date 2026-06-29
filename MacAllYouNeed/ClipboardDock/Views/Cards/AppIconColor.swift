@@ -19,12 +19,14 @@ enum AppIconColor {
     /// Silicon, comparable to a single SwiftUI text layout pass.
     static func dominant(of image: NSImage) -> NSColor? {
         if let cached = cache.object(forKey: image) { return cached }
-        guard let color = computeDominant(of: image) else { return nil }
+        guard let color = computeDominant(of: image, saturatedOnly: true)
+            ?? computeDominant(of: image, saturatedOnly: false)
+        else { return nil }
         cache.setObject(color, forKey: image)
         return color
     }
 
-    private static func computeDominant(of image: NSImage) -> NSColor? {
+    private static func computeDominant(of image: NSImage, saturatedOnly: Bool) -> NSColor? {
         let target = 32
         let width = target
         let height = target
@@ -65,11 +67,13 @@ enum AppIconColor {
             let r = pixels[i]
             let g = pixels[i + 1]
             let b = pixels[i + 2]
-            // Skip near-grayscale pixels so the average reflects branded
-            // color, not the white/grey background.
-            let mn = min(r, g, b)
-            let mx = max(r, g, b)
-            if mx - mn < 12 { continue }
+            if saturatedOnly {
+                // Skip near-grayscale pixels so the average reflects branded
+                // color, not the white/grey background.
+                let mn = min(r, g, b)
+                let mx = max(r, g, b)
+                if mx - mn < 12 { continue }
+            }
             sumR += UInt64(r)
             sumG += UInt64(g)
             sumB += UInt64(b)

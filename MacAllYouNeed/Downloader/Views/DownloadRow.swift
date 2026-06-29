@@ -221,14 +221,20 @@ struct DownloadJobRow: View {
                 captionView
             }
         }
-        .padding(.horizontal, MAYNControlMetrics.rowHorizontalPadding)
-        .padding(.vertical, isCompact ? 8 : 12)
+        .padding(.horizontal, isCompact ? 10 : MAYNControlMetrics.rowHorizontalPadding)
+        .padding(.vertical, isCompact ? 9 : 12)
+        .frame(minHeight: isCompact ? 58 : nil)
         .maynSelectionBackground(
             isSelected: isSelected,
             isHovering: isHovering,
-            shape: .rounded(MAYNControlMetrics.controlRadius)
+            shape: .rounded(isCompact ? 14 : MAYNControlMetrics.controlRadius)
         )
-        .overlay(MAYNDivider(), alignment: .bottom)
+        .padding(.horizontal, isCompact ? 6 : 0)
+        .overlay(alignment: .bottom) {
+            if !isCompact {
+                MAYNDivider()
+            }
+        }
         .contentShape(Rectangle())
         .downloadRowHelp(DownloadJobRowHoverPresentation.rowHelpText(for: model))
         .opacity(showRow ? 1 : 0)

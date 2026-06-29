@@ -10,7 +10,6 @@ final class MenuBarPopoverRegistryTests: XCTestCase {
             .clipboard,
             .voice,
             .downloads,
-            .layouts,
             .reminders,
         ]
         XCTAssertEqual(AppMenuBarContent.Tab.allCases, expected,
@@ -21,7 +20,6 @@ final class MenuBarPopoverRegistryTests: XCTestCase {
         XCTAssertEqual(AppMenuBarContent.Tab.clipboard.rawValue, "Clipboard")
         XCTAssertEqual(AppMenuBarContent.Tab.voice.rawValue, "Voice")
         XCTAssertEqual(AppMenuBarContent.Tab.downloads.rawValue, "Downloads")
-        XCTAssertEqual(AppMenuBarContent.Tab.layouts.rawValue, "Layouts")
         XCTAssertEqual(AppMenuBarContent.Tab.reminders.rawValue, "Reminders")
     }
 
@@ -29,7 +27,6 @@ final class MenuBarPopoverRegistryTests: XCTestCase {
         XCTAssertEqual(AppMenuBarContent.Tab.clipboard.symbolName, "doc.on.clipboard")
         XCTAssertEqual(AppMenuBarContent.Tab.voice.symbolName, "waveform")
         XCTAssertEqual(AppMenuBarContent.Tab.downloads.symbolName, "arrow.down.circle")
-        XCTAssertEqual(AppMenuBarContent.Tab.layouts.symbolName, "rectangle.3.group")
         XCTAssertEqual(AppMenuBarContent.Tab.reminders.symbolName, "checklist")
     }
 
@@ -41,7 +38,7 @@ final class MenuBarPopoverRegistryTests: XCTestCase {
     }
 
     func testFooterModelOtherTabsDoNotShowCapturePause() {
-        for tab in [AppMenuBarContent.Tab.voice, .downloads, .layouts, .reminders] {
+        for tab in [AppMenuBarContent.Tab.voice, .downloads, .reminders] {
             let model = CommandCenterFooterPresentation.model(for: tab)
             XCTAssertFalse(model.showsCapturePause, "Tab \(tab.rawValue) must not show Pause")
         }

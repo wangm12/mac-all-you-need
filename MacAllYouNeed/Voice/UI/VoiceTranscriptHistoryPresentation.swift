@@ -6,7 +6,7 @@ enum VoiceTranscriptHistoryMetadata {
         detailLine(for: transcript, now: now)
     }
 
-    /// Metadata without the status label — status is shown as a row tag.
+    /// Metadata line for history rows (time, language, model, duration).
     static func detailLine(for transcript: VoiceTranscript, now: Date = Date()) -> String {
         let parts = [
             clockTime(transcript.endedAt, now: now),

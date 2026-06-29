@@ -82,12 +82,16 @@ private struct VoiceHUDSurfaceModifier: ViewModifier {
         } else if isCapsule {
             if #available(macOS 26.0, *) {
                 ZStack {
+                    Capsule()
+                        .fill(MiniVoiceHUDPalette.pillGraphite.opacity(MiniVoiceHUDPalette.glassUnderlayOpacity))
                     Capsule().fill(Color.clear)
                         .glassEffect(.regular, in: Capsule())
                     Capsule().stroke(MAYNMaterial.panel.borderColor, lineWidth: 1)
                 }
             } else {
                 ZStack {
+                    Capsule()
+                        .fill(MiniVoiceHUDPalette.pillGraphite.opacity(MiniVoiceHUDPalette.glassUnderlayOpacity))
                     VoiceHUDWindowBackdrop()
                     Capsule().stroke(MAYNMaterial.panel.borderColor, lineWidth: 1)
                 }
@@ -96,6 +100,7 @@ private struct VoiceHUDSurfaceModifier: ViewModifier {
         } else if #available(macOS 26.0, *) {
             let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             ZStack {
+                shape.fill(MiniVoiceHUDPalette.pillGraphite.opacity(MiniVoiceHUDPalette.glassUnderlayOpacity))
                 shape.fill(Color.clear)
                     .glassEffect(.regular, in: shape)
                 shape.stroke(MAYNMaterial.panel.borderColor, lineWidth: 1)
@@ -103,6 +108,7 @@ private struct VoiceHUDSurfaceModifier: ViewModifier {
         } else {
             let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             ZStack {
+                shape.fill(MiniVoiceHUDPalette.pillGraphite.opacity(MiniVoiceHUDPalette.glassUnderlayOpacity))
                 VoiceHUDWindowBackdrop()
                 shape.stroke(MAYNMaterial.panel.borderColor, lineWidth: 1)
             }
@@ -114,13 +120,13 @@ private struct VoiceHUDSurfaceModifier: ViewModifier {
     private var opaqueGlassFill: some View {
         if isCapsule {
             ZStack {
-                Capsule().fill(MAYNTheme.contentPanelElevated(colorScheme))
+                Capsule().fill(MiniVoiceHUDPalette.pillGraphite)
                 Capsule().stroke(MAYNTheme.hairline, lineWidth: 1)
             }
         } else {
             let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             ZStack {
-                shape.fill(MAYNTheme.contentPanelElevated(colorScheme))
+                shape.fill(MiniVoiceHUDPalette.pillGraphite)
                 shape.stroke(MAYNTheme.hairline, lineWidth: 1)
             }
         }

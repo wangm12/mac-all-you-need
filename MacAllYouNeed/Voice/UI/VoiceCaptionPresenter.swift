@@ -3,7 +3,7 @@ import Core
 import SwiftUI
 import UI
 
-/// Caption-style helper above the voice pill — compact blur chip for legibility on busy desktops.
+/// Rectangular helper chip above the voice pill — wider popup for detail, compact for short hints.
 @MainActor
 final class VoiceCaptionPresenter {
     private var panelController: NonActivatingFloatingPanelController<VoiceCaptionView>?
@@ -49,7 +49,7 @@ final class VoiceCaptionPresenter {
                 styleMask: [.borderless, .nonactivatingPanel],
                 level: VoiceHUDWindowLayering.windowLevel + 1,
                 collectionBehavior: VoiceHUDWindowLayering.collectionBehavior,
-                hasShadow: false,
+                hasShadow: true,
                 backgroundColor: .clear,
                 showAnimationDuration: 0,
                 hideAnimationDuration: MAYNMotionBridge.effectiveDuration(.toastOut),
@@ -124,10 +124,7 @@ final class VoiceCaptionPresenter {
     }
 
     private static func size(for message: String) -> CGSize {
-        let font = NSFont.systemFont(ofSize: MiniVoiceHUDLayout.captionFontSize, weight: .medium)
-        let textWidth = (message as NSString).size(withAttributes: [.font: font]).width
-        let width = min(320, textWidth + MiniVoiceHUDLayout.captionHorizontalPadding * 2)
-        return CGSize(width: max(120, width), height: MiniVoiceHUDLayout.captionShellHeight)
+        MiniVoiceHUDLayout.captionSize(for: message)
     }
 }
 
@@ -140,24 +137,31 @@ struct VoiceCaptionView: View {
         (VoiceHUDAppearance(rawValue: appearanceRaw) ?? .glass) == .graphite
     }
 
+    private var lineLimit: Int {
+        MiniVoiceHUDLayout.captionLineLimit(for: message)
+    }
+
     var body: some View {
         Text(message)
             .font(.system(size: MiniVoiceHUDLayout.captionFontSize, weight: .medium))
-            .foregroundStyle(
-                usesGraphiteChrome
-                    ? MiniVoiceHUDPalette.pillText.opacity(0.92)
-                    : Color.primary.opacity(0.88)
-            )
-            .lineLimit(1)
-            .truncationMode(.middle)
+            .foregroundStyle(VoiceHUDInk.foregroundSecondary)
+            .lineLimit(lineLimit)
+            .truncationMode(.tail)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: MiniVoiceHUDLayout.captionMaxWidth - MiniVoiceHUDLayout.captionHorizontalPadding * 2)
             .padding(.horizontal, MiniVoiceHUDLayout.captionHorizontalPadding)
             .padding(.vertical, MiniVoiceHUDLayout.captionVerticalPadding)
             .voiceHubCaptionChrome(isGraphite: usesGraphiteChrome)
             .compositingGroup()
             .clipShape(
                 RoundedRectangle(cornerRadius: MiniVoiceHUDLayout.captionCornerRadius, style: .continuous)
+            )
+            .shadow(
+                color: .black.opacity(usesGraphiteChrome ? 0.22 : 0.10),
+                radius: usesGraphiteChrome ? 14 : 8,
+                x: 0,
+                y: usesGraphiteChrome ? 8 : 4
             )
     }
 }

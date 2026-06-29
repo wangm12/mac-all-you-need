@@ -21,10 +21,23 @@ struct VoiceTranscriptHistoryRowView: View {
     let onDelete: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
 
     private var hasAudio: Bool {
         transcript.audioPath != nil
+    }
+
+    private var isSuccessfulTranscript: Bool {
+        transcript.status == .success
+    }
+
+    private var showsCopyAction: Bool {
+        isSuccessfulTranscript
+    }
+
+    private var showsRetryAction: Bool {
+        !isSuccessfulTranscript
     }
 
     private var accessoryOpacity: Double {
@@ -36,33 +49,38 @@ struct VoiceTranscriptHistoryRowView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayText)
-                    .font(.callout)
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(2)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    StatusPill(text: statusPresentation.label, kind: statusPillKind)
-                    Text(metadataLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                Text(metadataLine)
+                    .font(.caption)
+                    .foregroundStyle(
+                        MAYNSelectionLabelStyle.subtitle(
+                            isSelected: isSelected,
+                            scheme: colorScheme
+                        )
+                    )
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            DownloadIconButton(
-                symbolName: "doc.on.doc",
-                role: .secondary,
-                accessibilityLabel: "Copy transcript",
-                action: onCopy
-            )
-            .help("Copy transcript")
-            .opacity(accessoryOpacity)
-            .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
-            .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
+            if showsCopyAction {
+                DownloadIconButton(
+                    symbolName: "doc.on.doc",
+                    role: .secondary,
+                    accessibilityLabel: "Copy transcript",
+                    action: onCopy
+                )
+                .help("Copy transcript")
+                .opacity(accessoryOpacity)
+                .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
+                .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
+            }
 
             switch surface {
             case .main:
                 VoiceTranscriptRowMenu(
                     hasAudio: hasAudio,
+                    showsRetry: showsRetryAction,
                     retryEnabled: !isRetrying,
                     onRetry: onRetry,
                     onDownload: onDownload,
@@ -72,28 +90,45 @@ struct VoiceTranscriptHistoryRowView: View {
                 .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
                 .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
             case .commandCenter:
-                DownloadIconButton(
-                    symbolName: "arrow.clockwise",
-                    role: .secondary,
-                    accessibilityLabel: "Retry transcription",
-                    action: onRetry
-                )
-                .disabled(!hasAudio || isRetrying)
-                .help(
-                    hasAudio
-                        ? (isRetrying ? "Retrying..." : "Retry transcription")
-                        : "Audio recording wasn't saved for this transcript"
-                )
+                if showsRetryAction {
+                    DownloadIconButton(
+                        symbolName: "arrow.clockwise",
+                        role: .secondary,
+                        accessibilityLabel: "Retry transcription",
+                        action: onRetry
+                    )
+                    .disabled(!hasAudio || isRetrying)
+                    .help(
+                        hasAudio
+                            ? (isRetrying ? "Retrying..." : "Retry transcription")
+                            : "Audio recording wasn't saved for this transcript"
+                    )
+                }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(minHeight: 62)
+        .padding(.horizontal, surface == .commandCenter ? 10 : 14)
+        .padding(.vertical, surface == .commandCenter ? 9 : 10)
+        .frame(minHeight: surface == .commandCenter ? 58 : 62)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground)
+        .background {
+            if surface == .main {
+                rowBackground
+            }
+        }
+        .maynSelectionBackground(
+            isSelected: surface == .commandCenter && isSelected,
+            isHovering: isHovering,
+            shape: .rounded(surface == .commandCenter ? 14 : 10)
+        )
+        .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+        .padding(.horizontal, surface == .commandCenter ? 6 : 0)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
-        .simultaneousGesture(TapGesture(count: 2).onEnded { onCopy() })
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                if showsCopyAction { onCopy() }
+            }
+        )
         .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isHovering)
         .animation(MAYNMotion.normalAnimation(reduceMotion: reduceMotion), value: isSelected)
         .onHover { isHovering = $0 }
@@ -105,19 +140,6 @@ struct VoiceTranscriptHistoryRowView: View {
 
     private var metadataLine: String {
         VoiceTranscriptHistoryMetadata.detailLine(for: transcript)
-    }
-
-    private var statusPresentation: VoiceTranscriptStatusPresentation {
-        VoiceTranscriptHistoryMetadata.statusPresentation(for: transcript)
-    }
-
-    private var statusPillKind: StatusPill.Kind {
-        switch statusPresentation {
-        case .success: .success
-        case .retried: .neutral
-        case .cancelled: .warning
-        case .failed: .danger
-        }
     }
 
     private var rowBackground: Color {

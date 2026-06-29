@@ -374,7 +374,7 @@ private final class AppStatusItemController: NSObject, NSPopoverDelegate {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        popover.contentSize = NSSize(width: 500, height: 600)
+        popover.contentSize = NSSize(width: CommandCenterMetrics.width, height: CommandCenterMetrics.height)
         popover.contentViewController = NSHostingController(rootView: AppMenuBarContent(controller: controller))
         popover.delegate = self
         return popover
@@ -537,4 +537,5 @@ private func MAYNIsRunningUnderXCTest() -> Bool {
 extension Notification.Name {
     static let menuBarPopoverDismissRequested = Notification.Name("menuBarPopoverDismissRequested")
     static let menuBarPopoverReanchorRequested = Notification.Name("menuBarPopoverReanchorRequested")
+    static let commandPaletteOpenRequested = Notification.Name("commandPaletteOpenRequested")
 }

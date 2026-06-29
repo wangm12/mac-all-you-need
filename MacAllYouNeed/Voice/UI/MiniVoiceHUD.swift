@@ -26,7 +26,6 @@ final class MiniVoiceThinkingProgressBridge: ObservableObject {
     private enum ProgressPolicy {
         static let bootCap = 0.63
         static let bootTickNanos: UInt64 = 50_000_000
-        static let completionSnapThreshold = 0.995
         /// Typeless-style keyframes: fast early motion, asymptotic cap at ~63% @10s.
         static let bootKeyframes: [(time: Double, progress: Double)] = [
             (0, 0),
@@ -96,18 +95,19 @@ final class MiniVoiceThinkingProgressBridge: ObservableObject {
     func applyStreamProgress(_ progress: Double) {
         let clamped = min(1, max(0, progress))
         streamProgress = max(streamProgress, clamped)
-        if streamProgress > bootProgress, bootTask != nil {
+        if streamProgress >= bootProgress, bootTask != nil {
             bootTask?.cancel()
             bootTask = nil
-            bootProgress = 0
         }
         recombine()
     }
 
     private func recombine() {
-        var next = min(1, max(bootProgress, streamProgress))
-        if next >= ProgressPolicy.completionSnapThreshold {
-            next = 1
+        let combined = min(1, max(bootProgress, streamProgress))
+        let next: Double = if combined >= 1 || streamProgress >= 1 {
+            1
+        } else {
+            max(displayWipe, combined)
         }
         if abs(next - displayWipe) > 1e-12 {
             displayWipe = next
@@ -350,10 +350,12 @@ final class MiniVoiceHUD {
         thinkingProgressBridge.applyStreamProgress(progress)
     }
 
-    /// Snap wipe to 100%, show Inserted briefly, then dismiss (success path).
+    /// Snap wipe to 100%, hold briefly, then dismiss (success path).
     func dismissAfterSuccessHold() async {
         thinkingProgressBridge.applyStreamProgress(1.0)
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let wipeSettle = reduceMotion ? 0 : MiniVoiceHUDLayout.wipeProgressDuration
+        try? await Task.sleep(for: .seconds(wipeSettle + VoiceHUDCopy.Timing.successWipeHold))
         show(.inserted, chrome: chromeOptions, onCancel: nil, onPrimary: nil, onFinish: nil)
         let holdNs = UInt64((reduceMotion ? 0.6 : VoiceHUDCopy.Timing.insertedDuration) * 1_000_000_000)
         try? await Task.sleep(nanoseconds: holdNs)
@@ -398,23 +400,21 @@ final class MiniVoiceHUD {
 }
 
 enum MiniVoiceHUDLayout {
-  /// V3 fixed capsule geometry — identical in every visible state.
-  static let pillWidth: CGFloat = 392
-  static let pillHeight: CGFloat = 58
-  static let sideSlotWidth: CGFloat = 64
-  static let actionButtonSize: CGFloat = 40
+  static let recordingWidth: CGFloat = 144
+  static let transcribingWidth: CGFloat = 164
+  static let slowProcessingWidth: CGFloat = 172
+  static let clipboardFallbackWidth: CGFloat = 144
+  static let terminalMinWidth: CGFloat = 160
+  static let terminalMaxWidth: CGFloat = 180
+  static let cancelledWidth: CGFloat = 184
+  /// Legacy alias used by tests.
+  static let pillWidth: CGFloat = recordingWidth
+  static let maxPillWidth: CGFloat = terminalMaxWidth
+  static let pillHeight: CGFloat = 32
+  static let actionButtonSize: CGFloat = 26
   static let waveformBoxWidth: CGFloat = 44
-  static let waveformBoxHeight: CGFloat = 28
+  static let waveformBoxHeight: CGFloat = 22
   static let pillSize = CGSize(width: pillWidth, height: pillHeight)
-  /// Legacy aliases — all states share one width now.
-  static let recordingWidth: CGFloat = pillWidth
-  static let transcribingWidth: CGFloat = pillWidth
-  static let slowProcessingWidth: CGFloat = pillWidth
-  static let clipboardFallbackWidth: CGFloat = pillWidth
-  static let terminalMinWidth: CGFloat = pillWidth
-  static let terminalMaxWidth: CGFloat = pillWidth
-  static let cancelledWidth: CGFloat = pillWidth
-  static let maxPillWidth: CGFloat = pillWidth
   /// Gap above the macOS Dock / bottom screen edge — Typeless-style bottom-center anchor.
   static let bottomInsetAboveDock: CGFloat = 28
   /// When the Dock autohides, `visibleFrame` includes the dock strip until it slides in.
@@ -447,25 +447,63 @@ enum MiniVoiceHUDLayout {
       bottomObstruction: bottomObstruction
     ).y
   }
-  static let cornerRadius: CGFloat = pillHeight / 2
-  static let iconSize: CGFloat = 14
-  static let centerLabelFontSize: CGFloat = 13
-  static let labelHorizontalPadding: CGFloat = 0
+  static let cornerRadius: CGFloat = 16
+  static let iconSize: CGFloat = 12
+  static let centerLabelFontSize: CGFloat = 11
+  static let labelHorizontalPadding: CGFloat = 12
   static let fontSize: CGFloat = centerLabelFontSize
-  static let captionFontSize: CGFloat = 10.5
+  static let captionFontSize: CGFloat = 11
   static let captionHeight: CGFloat = 16
-  static let captionHorizontalPadding: CGFloat = 10
-  static let captionVerticalPadding: CGFloat = 4
-  static let captionCornerRadius: CGFloat = 8
+  static let captionHorizontalPadding: CGFloat = 12
+  static let captionVerticalPadding: CGFloat = 8
+  static let captionCornerRadius: CGFloat = 10
+  static let captionMinWidth: CGFloat = 120
+  static let captionMaxWidth: CGFloat = 360
+  static let captionMaxLines: Int = 2
   static let captionShellHeight: CGFloat = captionHeight + captionVerticalPadding * 2
-  static let captionGap: CGFloat = 5
+  static let captionGap: CGFloat = 8
   static let alertGapAboveCaption: CGFloat = 8
+  /// Matches centered-final HTML wipe transition (`.18s linear`).
+  static let wipeProgressDuration: TimeInterval = MAYNMotionDuration.control
 
   static func captionOrigin(pillBottomY: CGFloat, size: CGSize, centerX: CGFloat) -> NSPoint {
     NSPoint(
       x: centerX - size.width / 2,
       y: pillBottomY + pillHeight + captionGap
     )
+  }
+
+  static func captionLineLimit(for message: String) -> Int {
+    message.count > 42 ? captionMaxLines : 1
+  }
+
+  static func captionSize(for message: String) -> CGSize {
+    let font = NSFont.systemFont(ofSize: captionFontSize, weight: .medium)
+    let lineLimit = captionLineLimit(for: message)
+    let maxTextWidth = captionMaxWidth - captionHorizontalPadding * 2
+
+    let paragraphStyle = NSMutableParagraphStyle()
+    paragraphStyle.lineBreakMode = .byWordWrapping
+    paragraphStyle.alignment = .center
+
+    let attributes: [NSAttributedString.Key: Any] = [
+      .font: font,
+      .paragraphStyle: paragraphStyle,
+    ]
+
+    let bounds = (message as NSString).boundingRect(
+      with: CGSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
+      options: [.usesLineFragmentOrigin, .usesFontLeading],
+      attributes: attributes
+    )
+
+    let lineHeight = font.ascender - font.descender + font.leading
+    let cappedTextHeight = min(ceil(bounds.height), lineHeight * CGFloat(lineLimit))
+    let textWidth = min(maxTextWidth, ceil(bounds.width))
+    let width = min(captionMaxWidth, max(captionMinWidth, textWidth + captionHorizontalPadding * 2))
+    let height = cappedTextHeight + captionVerticalPadding * 2
+
+    return CGSize(width: width, height: max(captionShellHeight, height))
   }
 
   static func alertOrigin(
@@ -493,10 +531,49 @@ enum MiniVoiceHUDLayout {
     label: String,
     chrome: MiniVoiceHUD.ChromeOptions
   ) -> CGFloat {
-    _ = state
-    _ = label
     _ = chrome
-    return pillWidth
+    switch state.normalizedForDisplay {
+    case .startingMic:
+      return label.isEmpty ? recordingWidth : labeledPillWidth(label: label, leading: true, trailingAction: false)
+    case .recording:
+      return labeledPillWidth(label: label, leading: true, trailingAction: true)
+    case let .transcribing(_, isSlow):
+      return isSlow ? slowProcessingWidth : transcribingWidth
+    case .inserted, .reminderAdded:
+      return labeledPillWidth(label: label, leading: true, trailingAction: false)
+    case .clipboardFallback:
+      return clipboardFallbackWidth
+    case .cancelled:
+      return cancelledWidth
+    case .noSpeech:
+      return labeledPillWidth(label: label, leading: true, trailingAction: false)
+    case .error:
+      let message = if case let .error(message) = state.normalizedForDisplay { message } else { label }
+      let hasRetry = VoiceHUDCopy.isTranscribeFailure(message)
+        || message.localizedCaseInsensitiveContains("paste timed out")
+      return labeledPillWidth(label: label, leading: true, trailingAction: hasRetry)
+    case .idlePreview:
+      return recordingWidth
+    }
+  }
+
+  private static func labeledPillWidth(
+    label: String,
+    leading: Bool,
+    trailingAction: Bool
+  ) -> CGFloat {
+    let font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
+    let textWidth = label.isEmpty
+      ? 0
+      : (label as NSString).size(withAttributes: [.font: font]).width
+    var width = labelHorizontalPadding * 2 + textWidth
+    if leading {
+      width += max(iconSize, waveformBoxWidth) + 6
+    }
+    if trailingAction {
+      width += actionButtonSize + 4
+    }
+    return min(terminalMaxWidth, max(terminalMinWidth, width))
   }
 }
 
@@ -550,9 +627,19 @@ enum MiniVoiceHUDPalette {
   static let pillBorder = Color.clear
   static let pillBorderHover = Color.clear
   static let pillText = Color.white.opacity(0.96)
+  /// Dark tint under Liquid Glass so ink stays legible over arbitrary desktops.
+  static let glassUnderlayOpacity: CGFloat = 0.84
   /// Legacy aliases for tests / gradual migration.
   static let pillBlack = pillGraphite
   static let pillThinkingTrack = pillGraphite
+}
+
+/// Monochrome ink for floating voice HUD surfaces (graphite + glass).
+enum VoiceHUDInk {
+  static let foreground = MiniVoiceHUDPalette.pillText
+  static let foregroundSecondary = MiniVoiceHUDPalette.pillText.opacity(0.88)
+  static let waveform = Color.white.opacity(0.96)
+  static let actionButtonFill = Color.white.opacity(0.14)
 }
 
 struct MiniVoiceHUDPill: Equatable {
@@ -757,31 +844,28 @@ struct MiniVoiceHUDView: View {
     }
 
     private var contentForeground: Color {
-        usesGraphiteChrome ? MiniVoiceHUDPalette.pillText : Color.primary
+        VoiceHUDInk.foreground
     }
 
     private var waveformBarColor: Color {
-        usesGraphiteChrome ? Color.white.opacity(0.96) : Color.primary.opacity(0.92)
+        VoiceHUDInk.waveform
     }
 
     private var pillWidth: CGFloat {
-        MiniVoiceHUDLayout.pillWidth
+        MiniVoiceHUDLayout.computedWidth(for: state, label: pill.label, chrome: chrome)
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .leading) {
             if showsTranscribingProgressWipe {
                 transcribingWipeOverlay
             }
 
-            HStack(spacing: 0) {
-                leftSlot
-                    .frame(width: MiniVoiceHUDLayout.sideSlotWidth, height: MiniVoiceHUDLayout.pillHeight)
-                centerSlot
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                rightSlot
-                    .frame(width: MiniVoiceHUDLayout.sideSlotWidth, height: MiniVoiceHUDLayout.pillHeight)
-            }
+            compactRow
+                .padding(.horizontal, MiniVoiceHUDLayout.labelHorizontalPadding)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
         }
         .frame(width: pillWidth, height: MiniVoiceHUDLayout.pillHeight)
         .voiceHubPillChrome(isGraphite: usesGraphiteChrome)
@@ -789,26 +873,84 @@ struct MiniVoiceHUDView: View {
         .clipShape(Capsule())
         .shadow(
             color: .black.opacity(usesGraphiteChrome ? 0.26 : 0.08),
-            radius: usesGraphiteChrome ? 18 : 8,
+            radius: usesGraphiteChrome ? 12 : 6,
             x: 0,
-            y: usesGraphiteChrome ? 14 : 4
+            y: usesGraphiteChrome ? 8 : 3
         )
         .contentShape(Capsule())
         .onTapGesture(perform: handleBackgroundTap)
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
-        .transaction { transaction in
-            transaction.animation = nil
+    }
+
+    private var hasTrailingAction: Bool {
+        switch pill.actionAvailability {
+        case .cancel, .restore, .retry, .finish:
+            return true
+        case .none, .dismissTerminal:
+            return false
+        }
+    }
+
+    private var trailingActionInset: CGFloat {
+        MiniVoiceHUDLayout.actionButtonSize + 4
+    }
+
+    @ViewBuilder
+    private var compactRow: some View {
+        ZStack {
+            centeredCore
+                .offset(x: hasTrailingAction ? -trailingActionInset / 2 : 0)
+
+            if hasTrailingAction {
+                HStack {
+                    Spacer(minLength: 0)
+                    compactTrailing
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var centeredCore: some View {
+        HStack(spacing: 6) {
+            compactLeading
+            if !pill.label.isEmpty {
+                Text(pill.label)
+                    .font(.system(size: MiniVoiceHUDLayout.centerLabelFontSize, weight: .semibold))
+                    .foregroundStyle(contentForeground.opacity(0.92))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .id(pill.labelTransitionSlot)
+            }
         }
     }
 
     @ViewBuilder
-    private var leftSlot: some View {
-        HStack {
-            Spacer(minLength: 0)
+    private var compactLeading: some View {
+        switch pill.leading {
+        case .none:
+            EmptyView()
+        default:
             leftSlotContent
-            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var compactTrailing: some View {
+        switch pill.actionAvailability {
+        case .cancel:
+            voiceActionButton(icon: "stop.fill", accessibilityLabel: "Stop", action: { onCancel?() })
+        case .restore:
+            undoActionButton
+        case .retry:
+            voiceActionButton(icon: "arrow.clockwise", accessibilityLabel: "Retry", action: { onPrimary?() })
+        case .finish:
+            voiceActionButton(icon: "checkmark", accessibilityLabel: "Finish", action: { onFinish?() })
+        case .none, .dismissTerminal:
+            EmptyView()
         }
     }
 
@@ -835,19 +977,19 @@ struct MiniVoiceHUDView: View {
             )
         case .checkInCircle:
             Image(systemName: "checkmark")
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: MiniVoiceHUDLayout.iconSize, weight: .bold))
                 .foregroundStyle(contentForeground.opacity(0.92))
         case .xInCircle:
             Image(systemName: "xmark")
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: MiniVoiceHUDLayout.iconSize, weight: .bold))
                 .foregroundStyle(contentForeground.opacity(0.92))
         case .warningTriangle:
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: MiniVoiceHUDLayout.iconSize, weight: .semibold))
                 .foregroundStyle(contentForeground.opacity(0.92))
         case .aiSparkle:
             Image(systemName: "sparkles")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: MiniVoiceHUDLayout.iconSize, weight: .semibold))
                 .foregroundStyle(contentForeground.opacity(0.85))
         case .none:
             Color.clear
@@ -856,40 +998,16 @@ struct MiniVoiceHUDView: View {
     }
 
     @ViewBuilder
-    private var centerSlot: some View {
-        if pill.label.isEmpty {
-            Color.clear
-        } else {
-            Text(pill.label)
-                .font(.system(size: MiniVoiceHUDLayout.centerLabelFontSize, weight: .semibold))
-                .foregroundStyle(contentForeground.opacity(0.92))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .id(pill.labelTransitionSlot)
-                .frame(maxWidth: .infinity)
-                .multilineTextAlignment(.center)
-        }
-    }
-
-    @ViewBuilder
-    private var rightSlot: some View {
-        HStack {
-            Spacer(minLength: 0)
-            switch pill.actionAvailability {
-            case .cancel:
-                voiceActionButton(icon: "stop.fill", accessibilityLabel: "Stop", action: { onCancel?() })
-            case .restore:
-                undoActionButton
-            case .retry:
-                voiceActionButton(icon: "arrow.clockwise", accessibilityLabel: "Retry", action: { onPrimary?() })
-            case .finish:
-                voiceActionButton(icon: "checkmark", accessibilityLabel: "Finish", action: { onFinish?() })
-            case .none, .dismissTerminal:
-                Color.clear
-                    .frame(width: MiniVoiceHUDLayout.actionButtonSize, height: MiniVoiceHUDLayout.actionButtonSize)
-            }
-            Spacer(minLength: 0)
-        }
+    private var transcribingWipeOverlay: some View {
+        let w = min(1, max(0, thinkingProgress.displayWipe))
+        Capsule()
+            .fill(MiniVoiceHUDPalette.pillWipeOverlay)
+            .frame(width: max(0, pillWidth * w), height: MiniVoiceHUDLayout.pillHeight)
+            .animation(
+                MAYNMotion.controlAnimation(reduceMotion: reduceMotion),
+                value: w
+            )
+            .allowsHitTesting(false)
     }
 
     private var undoActionButton: some View {
@@ -928,36 +1046,16 @@ struct MiniVoiceHUDView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(contentForeground.opacity(0.92))
                 .frame(width: MiniVoiceHUDLayout.actionButtonSize, height: MiniVoiceHUDLayout.actionButtonSize)
                 .background(
                     Circle()
-                        .fill(
-                            usesGraphiteChrome
-                                ? Color.white.opacity(0.14)
-                                : Color.primary.opacity(0.08)
-                        )
+                        .fill(VoiceHUDInk.actionButtonFill)
                 )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
-    }
-
-    @ViewBuilder
-    private var transcribingWipeOverlay: some View {
-        let w = min(1, max(0, thinkingProgress.displayWipe))
-        GeometryReader { geo in
-            Capsule()
-                .fill(
-                    usesGraphiteChrome
-                        ? MiniVoiceHUDPalette.pillWipeOverlay
-                        : Color.primary.opacity(0.12)
-                )
-                .frame(width: geo.size.width * w, height: geo.size.height)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
-        .allowsHitTesting(false)
     }
 
     private var showsTranscribingProgressWipe: Bool {

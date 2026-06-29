@@ -262,6 +262,7 @@ struct MAYNSidebarSelectionBackground: View {
     let isSelected: Bool
     let isHovering: Bool
     let cornerRadius: CGFloat
+    var horizontalInset: CGFloat = 0
 
     var body: some View {
         Group {
@@ -275,6 +276,7 @@ struct MAYNSidebarSelectionBackground: View {
                 Color.clear
             }
         }
+        .padding(.horizontal, horizontalInset)
     }
 }
 
@@ -292,13 +294,15 @@ extension View {
     func maynSidebarSelectionBackground(
         isSelected: Bool,
         isHovering: Bool = false,
-        cornerRadius: CGFloat = MAYNControlMetrics.sidebarItemRadius
+        cornerRadius: CGFloat = MAYNControlMetrics.sidebarItemRadius,
+        horizontalInset: CGFloat = 0
     ) -> some View {
         background {
             MAYNSidebarSelectionBackground(
                 isSelected: isSelected,
                 isHovering: isHovering,
-                cornerRadius: cornerRadius
+                cornerRadius: cornerRadius,
+                horizontalInset: horizontalInset
             )
         }
     }

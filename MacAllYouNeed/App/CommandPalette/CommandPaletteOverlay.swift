@@ -924,7 +924,6 @@ private enum CommandPaletteSearchMetrics {
 }
 
 struct CommandPaletteToolbarSearch: View {
-    let isSidebarCollapsed: Bool
     let isPalettePresented: Bool
     let onOpen: () -> Void
 
@@ -957,15 +956,11 @@ struct CommandPaletteToolbarSearch: View {
         HStack(spacing: MAYNSpacing.xs) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 13, weight: .medium))
-            if !isSidebarCollapsed {
-                Text("Search Mayn")
-                    .font(MAYNTypography.caption())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
+            Text("Search Mayn")
+                .font(MAYNTypography.caption())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             MAYNKeycap(text: "⌘K")
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
         }
         .padding(.horizontal, MAYNSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)

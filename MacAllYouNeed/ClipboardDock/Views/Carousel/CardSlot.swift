@@ -70,6 +70,9 @@ enum DockCardShellPresentation {
     static let height: CGFloat = 240
     static let cornerRadius: CGFloat = MAYNControlMetrics.cardRadius
     static let focusedBorderWidth: CGFloat = 2
+    static let unfocusedBorderWidth: CGFloat = 1
+    /// Per-app accent tints read better with a neutral focus ring than Liquid Glass.
+    static let usesNeutralFocusRingForSelection = true
     /// `CardSlot` paints a ⌘1…⌘9 chip over the bottom-leading corner; smart
     /// text footers reserve this much **extra** leading inset so labels never
     /// draw under the chip (chip pad 6 + ~⌘9 width + margin).
@@ -152,6 +155,14 @@ struct CardSlot: View {
         return false
     }
 
+    private var borderColor: Color {
+        isHighlighted ? MAYNTheme.focusRing : MAYNTheme.subtleBorder
+    }
+
+    private var borderWidth: CGFloat {
+        isHighlighted ? DockCardShellPresentation.focusedBorderWidth : DockCardShellPresentation.unfocusedBorderWidth
+    }
+
     var body: some View {
         ClipCard(
             item: item,
@@ -160,16 +171,12 @@ struct CardSlot: View {
             fileThumbnailLoader: fileThumbnailLoader,
             favicons: favicons,
             cardBackground: cardBackground,
-            isHighlighted: isHighlighted,
             showsPasteShortcutChip: index < 9
         )
         .frame(width: DockCardShellPresentation.width, height: DockCardShellPresentation.height)
-        .maynSelectionBackground(
-            isSelected: isHighlighted,
-            shape: .rounded(DockCardShellPresentation.cornerRadius)
-        )
-        .clipShape(
+        .overlay(
             RoundedRectangle(cornerRadius: DockCardShellPresentation.cornerRadius, style: .continuous)
+                .stroke(borderColor, lineWidth: borderWidth)
         )
         .animation(MAYNMotion.hoverAnimation(reduceMotion: reduceMotion), value: isHighlighted)
         .overlay(alignment: .bottomLeading) {

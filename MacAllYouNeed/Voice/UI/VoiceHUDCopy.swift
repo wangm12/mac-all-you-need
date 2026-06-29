@@ -112,6 +112,7 @@ enum VoiceHUDCopy {
         static let clipboardFallbackDuration: TimeInterval = 4.0
         static let reminderAddedDuration: TimeInterval = 2.0
         static let insertedDuration: TimeInterval = 0.75
+        static let successWipeHold: TimeInterval = 0.30
         static let terminalAutoDismiss: TimeInterval = 3.0
         static let previousPendingThrottle: TimeInterval = 2.0
     }
@@ -138,8 +139,25 @@ enum VoiceHUDCopy {
     }
 
     static func captionMessage(forFailure message: String) -> String? {
-        guard routesFailureMessageToCaptionAbovePill(message) else { return nil }
-        return pillLabel(for: message)
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let pill = pillLabel(for: message)
+        if trimmed.caseInsensitiveCompare(pill) == .orderedSame {
+            return nil
+        }
+
+        // Availability failures use a short pill label; keep the full failure text in the caption.
+        if isAvailabilityFailure(message) {
+            return trimmed
+        }
+
+        // Transcribe failures already read clearly from the pill label alone.
+        if isTranscribeFailure(message) {
+            return nil
+        }
+
+        return nil
     }
 
     static func pillLabel(for message: String) -> String {

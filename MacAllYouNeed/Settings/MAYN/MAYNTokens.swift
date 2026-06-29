@@ -367,6 +367,11 @@ enum MAYNMotionDuration {
     static let paletteClose: TimeInterval = 0.12
     static let paletteMorph: TimeInterval = 0.18
     static let sidebarSelection: TimeInterval = 0.14
+    static let sidebarWidth: TimeInterval = 0.26
+    static let sidebarLabelOut: TimeInterval = 0.09
+    static let sidebarLabelIn: TimeInterval = 0.14
+    static let sidebarLabelInDelay: TimeInterval = 0.06
+    static let sidebarSelectionMorph: TimeInterval = 0.20
     static let badgePopoverDelay: TimeInterval = 0.18
     static let hudEnter: TimeInterval = 0.15
     static let hudExit: TimeInterval = 0.12
@@ -395,6 +400,10 @@ enum MAYNMotionKind {
     case paletteClose
     case paletteMorph
     case sidebarSelection
+    case sidebarWidth
+    case sidebarLabelOut
+    case sidebarLabelIn
+    case sidebarSelectionMorph
     case hudEnter
     case hudExit
     case paletteSelection
@@ -414,6 +423,10 @@ enum MAYNMotionKind {
         case .paletteClose: MAYNMotionDuration.paletteClose
         case .paletteMorph: MAYNMotionDuration.paletteMorph
         case .sidebarSelection: MAYNMotionDuration.sidebarSelection
+        case .sidebarWidth: MAYNMotionDuration.sidebarWidth
+        case .sidebarLabelOut: MAYNMotionDuration.sidebarLabelOut
+        case .sidebarLabelIn: MAYNMotionDuration.sidebarLabelIn
+        case .sidebarSelectionMorph: MAYNMotionDuration.sidebarSelectionMorph
         case .hudEnter: MAYNMotionDuration.hudEnter
         case .hudExit: MAYNMotionDuration.hudExit
         case .paletteSelection: MAYNMotionDuration.paletteSelection
@@ -474,9 +487,28 @@ enum MAYNMotion {
             return .easeIn(duration: kind.duration)
         case .paletteMorph:
             return .timingCurve(0.16, 1, 0.3, 1, duration: kind.duration)
+        case .sidebarWidth, .sidebarSelectionMorph:
+            return .timingCurve(0.22, 1, 0.36, 1, duration: kind.duration)
         default:
             return .easeOut(duration: kind.duration)
         }
+    }
+
+    static func sidebarWidthAnimation(reduceMotion: Bool) -> Animation? {
+        animation(.sidebarWidth, reduceMotion: reduceMotion)
+    }
+
+    static func sidebarLabelAnimation(collapsing: Bool, reduceMotion: Bool) -> Animation? {
+        guard !reduceMotion else { return nil }
+        if collapsing {
+            return animation(.sidebarLabelOut, reduceMotion: false)
+        }
+        return animation(.sidebarLabelIn, reduceMotion: false)?
+            .delay(MAYNMotionDuration.sidebarLabelInDelay)
+    }
+
+    static func sidebarSelectionMorphAnimation(reduceMotion: Bool) -> Animation? {
+        animation(.sidebarSelectionMorph, reduceMotion: reduceMotion)
     }
 
     static func paletteMorphAnimation(reduceMotion: Bool) -> Animation? {

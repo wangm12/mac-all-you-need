@@ -18,7 +18,14 @@ struct VoicePopoverView: View {
         Group {
             if transcripts.isEmpty {
                 VStack(spacing: 14) {
-                    popoverHeader
+                    CommandCenterPageHeader(
+                        title: "Voice History",
+                        subtitle: "Copy a transcript, retry cleanup, or open the full Voice page.",
+                        actionTitle: "Open Voice",
+                        onAction: {
+                            controller.showMainWindow(destination: .voice)
+                        }
+                    )
                     ContentUnavailableView(
                         "No transcripts yet",
                         systemImage: "waveform",
@@ -28,9 +35,23 @@ struct VoicePopoverView: View {
                 }
             } else {
                 VStack(spacing: 0) {
-                    popoverHeader
+                    CommandCenterPageHeader(
+                        title: "Voice History",
+                        subtitle: "Copy a transcript, retry cleanup, or open the full Voice page.",
+                        actionTitle: "Open Voice",
+                        onAction: {
+                            controller.showMainWindow(destination: .voice)
+                        }
+                    )
+                    if voiceIsReady {
+                        CommandCenterAttentionStrip(
+                            title: "Voice is ready",
+                            detail: "Hold the shortcut, speak, then release to insert."
+                        )
+                    }
                     ScrollView {
                         LazyVStack(spacing: 0) {
+                            CommandCenterSectionLabel(title: "Today")
                             ForEach(transcripts, id: \.id) { transcript in
                                 VoiceTranscriptHistoryRowView(
                                     transcript: transcript,
@@ -45,12 +66,13 @@ struct VoicePopoverView: View {
                                 )
                             }
                         }
+                        .padding(.trailing, 8)
+                        .padding(.bottom, 10)
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MAYNTheme.window)
         .focusable()
         .focusEffectDisabled()
         .focused($listFocused)
@@ -64,25 +86,9 @@ struct VoicePopoverView: View {
         }
     }
 
-    private var popoverHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Voice History")
-                    .font(.headline.weight(.semibold))
-                Text("Copy a transcript here, or open the full Voice page for dictionary, personalization, and setup.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            MAYNButton("Open Voice", role: .primary, height: HotkeyChipPresentation.compactHeight) {
-                controller.showMainWindow(destination: .voice)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
-        .background(MAYNTheme.panel)
+    private var voiceIsReady: Bool {
+        PermissionGateProbe.isGranted(.microphone)
+            && PermissionGateProbe.isGranted(.accessibility)
     }
 
     private var voiceTranscriptIDs: [String] {

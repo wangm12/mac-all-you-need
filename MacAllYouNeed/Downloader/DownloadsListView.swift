@@ -253,12 +253,9 @@ struct DownloadsListView: View {
 
     private var commandCenterFailedBanner: some View {
         let failedCount = visibleRowsForCurrentFilter().filter { $0.state == .failed }.count
-        return DownloadsFailedBanner(
-            failedCount: max(failedCount, 1),
-            onShowFailed: {},
-            onRetryFailed: {
-                Task { await vm.retryFailed(in: visibleRowsForCurrentFilter()) }
-            }
+        return CommandCenterAttentionStrip(
+            title: "Review \(max(failedCount, 1)) downloads",
+            detail: "Some videos could not be downloaded. Retry failed items from the footer."
         )
     }
 

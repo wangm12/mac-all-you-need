@@ -4,24 +4,23 @@ import SwiftUI
 import XCTest
 
 final class MiniVoiceHUDTests: XCTestCase {
-    func testV3FixedPillSize() {
-        XCTAssertEqual(MiniVoiceHUDLayout.pillWidth, 392)
-        XCTAssertEqual(MiniVoiceHUDLayout.pillHeight, 58)
-        XCTAssertEqual(MiniVoiceHUDLayout.sideSlotWidth, 64)
-        XCTAssertEqual(MiniVoiceHUDLayout.actionButtonSize, 40)
+    func testMinimumPillSize() {
+        XCTAssertEqual(MiniVoiceHUDLayout.pillWidth, 144)
+        XCTAssertEqual(MiniVoiceHUDLayout.pillHeight, 32)
+        XCTAssertEqual(MiniVoiceHUDLayout.maxPillWidth, 180)
     }
 
     func testPillAnchorsBottomCenterAboveDock() {
         let visibleFrame = NSRect(x: 0, y: 100, width: 1440, height: 900)
         let screenFrame = NSRect(x: 0, y: 0, width: 1440, height: 1000)
-        let size = MiniVoiceHUDLayout.pillSize
+        let size = CGSize(width: 144, height: 32)
         let origin = MiniVoiceHUDLayout.pillOrigin(
             in: visibleFrame,
             screenFrame: screenFrame,
             size: size
         )
 
-        XCTAssertEqual(origin.x, 524, accuracy: 0.5)
+        XCTAssertEqual(origin.x, 648, accuracy: 0.5)
         XCTAssertEqual(
             origin.y,
             visibleFrame.minY + MiniVoiceHUDLayout.bottomInsetAboveDock,
@@ -32,7 +31,7 @@ final class MiniVoiceHUDTests: XCTestCase {
     func testPillLiftsAboveClipboardDockObstruction() {
         let visibleFrame = NSRect(x: 0, y: 100, width: 1440, height: 900)
         let screenFrame = NSRect(x: 0, y: 0, width: 1440, height: 1000)
-        let size = MiniVoiceHUDLayout.pillSize
+        let size = CGSize(width: 144, height: 32)
         let obstruction: CGFloat = 372
         let origin = MiniVoiceHUDLayout.pillOrigin(
             in: visibleFrame,
@@ -48,15 +47,32 @@ final class MiniVoiceHUDTests: XCTestCase {
         )
     }
 
-    func testAllVisibleStatesShareIdenticalSize() {
-        let expected = CGSize(width: 392, height: 58)
-        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .startingMic), expected)
-        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .recording(level: 0.4)), expected)
-        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .transcribing(.asr)), expected)
-        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .transcribing(.asr, isSlow: true)), expected)
-        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .inserted), expected)
-        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .clipboardFallback), expected)
-        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .cancelled), expected)
+    func testDefaultStatesUseCenteredNativeWidths() {
+        let recordingSize = CGSize(width: 144, height: 32)
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .startingMic), recordingSize)
+        XCTAssertGreaterThanOrEqual(MiniVoiceHUDLayout.size(for: .recording(level: 0.4)).width, recordingSize.width)
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .transcribing(.asr)), CGSize(width: 164, height: 32))
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .transcribing(.asr, isSlow: true)), CGSize(width: 172, height: 32))
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .clipboardFallback), recordingSize)
+        XCTAssertEqual(MiniVoiceHUDLayout.size(for: .cancelled), CGSize(width: 184, height: 32))
+    }
+
+    func testDetailCaptionWrapsWithoutMiddleTruncationWidth() {
+        let message = "No ASR model installed. Download a model from Voice → Models before dictating."
+        let size = MiniVoiceHUDLayout.captionSize(for: message)
+
+        XCTAssertEqual(MiniVoiceHUDLayout.captionLineLimit(for: message), 2)
+        XCTAssertGreaterThan(size.width, 280)
+        XCTAssertLessThanOrEqual(size.width, MiniVoiceHUDLayout.captionMaxWidth)
+        XCTAssertGreaterThan(size.height, MiniVoiceHUDLayout.captionShellHeight)
+    }
+
+    func testShortCaptionStaysSingleLine() {
+        let message = "Starting microphone..."
+        let size = MiniVoiceHUDLayout.captionSize(for: message)
+
+        XCTAssertEqual(MiniVoiceHUDLayout.captionLineLimit(for: message), 1)
+        XCTAssertEqual(size.height, MiniVoiceHUDLayout.captionShellHeight, accuracy: 0.5)
     }
 
     func testStartingMicMapsToStartingLabelAndPulsingDot() {
@@ -143,12 +159,24 @@ final class MiniVoiceHUDTests: XCTestCase {
     }
 
     @MainActor
-    func testThinkingProgressIsMonotonicAndSnapsAtCompletion() {
+    func testThinkingProgressIsMonotonicAndCompletesAtOne() {
         let bridge = MiniVoiceThinkingProgressBridge()
         bridge.applyStreamProgress(0.2)
         XCTAssertEqual(bridge.displayWipe, 0.2, accuracy: 0.0001)
         bridge.applyStreamProgress(0.996)
+        XCTAssertEqual(bridge.displayWipe, 0.996, accuracy: 0.0001)
+        bridge.applyStreamProgress(1.0)
         XCTAssertEqual(bridge.displayWipe, 1.0, accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testThinkingProgressNeverRegressesWhenStreamStartsBelowBoot() {
+        let bridge = MiniVoiceThinkingProgressBridge()
+        bridge.beginThinkingSession(reduceMotion: true)
+        XCTAssertGreaterThanOrEqual(bridge.displayWipe, 0.3)
+        let bootLevel = bridge.displayWipe
+        bridge.applyStreamProgress(0.05)
+        XCTAssertEqual(bridge.displayWipe, bootLevel, accuracy: 0.0001)
     }
 
     @MainActor

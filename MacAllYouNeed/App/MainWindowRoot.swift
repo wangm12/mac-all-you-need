@@ -20,6 +20,7 @@ struct MainWindowRoot: View {
         voiceSetupNeeded: false
     )
     @State private var cachedOrphanCount = 0
+    @State private var titlebarTopInset: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(controller: AppController) {
@@ -37,7 +38,6 @@ struct MainWindowRoot: View {
         mainWindowContent
             .animation(MAYNMotion.paletteMorphAnimation(reduceMotion: reduceMotion), value: isCommandPalettePresented)
         .background(MAYNTheme.window.ignoresSafeArea())
-        .animation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion), value: isSidebarCollapsed)
         .tint(MAYNTheme.controlTint)
         .accentColor(.gray)
         .maynDismissTextFocusOnOutsideClick()
@@ -58,6 +58,9 @@ struct MainWindowRoot: View {
             }
             let destination = SettingsDestination.legacySelection(note.object as? String)
             openSettingsInMain(destination)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .commandPaletteOpenRequested)) { _ in
+            setCommandPalettePresented(true)
         }
         .onReceive(NotificationCenter.default.publisher(for: .orphanCachesFound)) { note in
             guard let orphans = note.userInfo?["orphans"] as? [OrphanCacheScanner.Orphan] else { return }
@@ -115,11 +118,7 @@ struct MainWindowRoot: View {
             NavigationSplitView {
                 mainSidebar
                     .navigationSplitViewColumnWidth(
-                        min: MainSidebarMetrics.collapsedWidth,
-                        ideal: isSidebarCollapsed
-                            ? MainSidebarMetrics.collapsedWidth
-                            : MainSidebarMetrics.expandedWidth,
-                        max: isSidebarCollapsed
+                        isSidebarCollapsed
                             ? MainSidebarMetrics.collapsedWidth
                             : MainSidebarMetrics.expandedWidth
                     )
@@ -133,9 +132,10 @@ struct MainWindowRoot: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(MAYNTheme.window)
                 .toolbar(removing: .sidebarToggle)
-                .toolbar { mainToolbarItems }
             }
             .toolbar(removing: .sidebarToggle)
+            .toolbar { mainToolbarItems }
+            .navigationSplitViewStyle(.balanced)
 
             if isCommandPalettePresented {
                 CommandPaletteOverlay(
@@ -306,7 +306,6 @@ struct MainWindowRoot: View {
         if #available(macOS 26.0, *) {
             ToolbarItem(placement: .principal) {
                 CommandPaletteToolbarSearch(
-                    isSidebarCollapsed: isSidebarCollapsed,
                     isPalettePresented: isCommandPalettePresented,
                     onOpen: { setCommandPalettePresented(true) }
                 )
@@ -315,7 +314,6 @@ struct MainWindowRoot: View {
         } else {
             ToolbarItem(placement: .principal) {
                 CommandPaletteToolbarSearch(
-                    isSidebarCollapsed: isSidebarCollapsed,
                     isPalettePresented: isCommandPalettePresented,
                     onOpen: { setCommandPalettePresented(true) }
                 )
@@ -385,15 +383,23 @@ struct MainWindowRoot: View {
                 .padding(.bottom, 2)
 
             ForEach(MainSidebarGroup.allCases) { group in
-                if !isSidebarCollapsed {
-                    Text(group.title)
-                        .font(MAYNTypography.sidebarGroup())
-                        .kerning(MAYNTypography.sidebarGroupTracking)
-                        .foregroundStyle(.tertiary)
-                        .textCase(.uppercase)
-                        .padding(.horizontal, 4)
-                        .padding(.top, group == .core ? 0 : 8)
-                }
+                Text(group.title)
+                    .font(MAYNTypography.sidebarGroup())
+                    .kerning(MAYNTypography.sidebarGroupTracking)
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+                    .padding(.horizontal, 4)
+                    .padding(.top, group == .core ? 0 : 8)
+                    .opacity(isSidebarCollapsed ? 0 : 1)
+                    .frame(height: isSidebarCollapsed ? 0 : nil)
+                    .clipped()
+                    .animation(
+                        MAYNMotion.sidebarLabelAnimation(
+                            collapsing: isSidebarCollapsed,
+                            reduceMotion: reduceMotion
+                        ),
+                        value: isSidebarCollapsed
+                    )
                 ForEach(group.destinations) { destination in
                     let isDisabled = isFeatureDisabled(for: destination)
                     MainSidebarButton(
@@ -425,17 +431,20 @@ struct MainWindowRoot: View {
             }
         }
         .padding(.horizontal, isSidebarCollapsed ? 8 : 10)
-        .padding(.top, 10)
+        .padding(.top, MainSidebarMetrics.sidebarTopClearance(measuredTitlebarInset: titlebarTopInset))
         .padding(.bottom, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isSidebarCollapsed ? .top : .topLeading)
+        .background {
+            MainWindowTitlebarInsetReader(topInset: $titlebarTopInset)
+        }
         .toolbar(removing: .sidebarToggle)
     }
 
     private var sidebarCollapseButton: some View {
         HStack {
-            if !isSidebarCollapsed { Spacer(minLength: 0) }
+            Spacer(minLength: 0)
             Button {
-                withAnimation(MAYNMotion.panelAnimation(reduceMotion: reduceMotion)) {
+                withAnimation(MAYNMotion.sidebarWidthAnimation(reduceMotion: reduceMotion)) {
                     isSidebarCollapsed.toggle()
                 }
             } label: {
@@ -448,12 +457,93 @@ struct MainWindowRoot: View {
             .help(isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar")
             if isSidebarCollapsed { Spacer(minLength: 0) }
         }
+        .frame(maxWidth: .infinity)
     }
 }
 
 enum MainSidebarMetrics {
     static let expandedWidth: CGFloat = MAYNControlMetrics.sidebarWidth
-    static let collapsedWidth: CGFloat = 56
+    static let collapsedWidth: CGFloat = 92
+    /// Pre-window fallback only; once attached we use AppKit titlebar inset.
+    static let sidebarTopPaddingFallback: CGFloat = 10
+    /// The collapsed icon rail is 92pt wide so the toggle and traffic lights have
+    /// comfortable clearance. The clearance floor guarantees the toggle (and every
+    /// first item) always sits below the lights, while the ceiling keeps the gap
+    /// tight. Both collapsed and expanded use the *same* value so the rail never
+    /// shifts vertically when toggling.
+    static let trafficLightClearanceFloor: CGFloat = 38
+    static let trafficLightClearanceCeiling: CGFloat = 44
+    static let collapsedHorizontalPadding: CGFloat = 8
+
+    static func sidebarTopPadding(measuredTitlebarInset: CGFloat) -> CGFloat {
+        measuredTitlebarInset > 0 ? measuredTitlebarInset : sidebarTopPaddingFallback
+    }
+
+    /// A single, deterministic top inset shared by both sidebar states. Clamped
+    /// so it always clears the traffic lights yet never balloons if the measured
+    /// titlebar inset over-reports.
+    static func sidebarTopClearance(measuredTitlebarInset: CGFloat) -> CGFloat {
+        let base = sidebarTopPadding(measuredTitlebarInset: measuredTitlebarInset)
+        return min(max(base, trafficLightClearanceFloor), trafficLightClearanceCeiling)
+    }
+
+    /// Horizontal inset for the selected-row background when collapsed — centers a
+    /// square matching `sidebarItemHeight` inside the padded rail content area.
+    static func selectionHorizontalInset(isCollapsed: Bool) -> CGFloat {
+        guard isCollapsed else { return 0 }
+        let contentWidth = collapsedWidth - (collapsedHorizontalPadding * 2)
+        return max(0, (contentWidth - MAYNControlMetrics.sidebarItemHeight) / 2)
+    }
+}
+
+/// Reads the host `NSWindow` titlebar inset so sidebar content clears traffic lights once,
+/// without stacking a second manual spacer on top of SwiftUI safe area.
+private struct MainWindowTitlebarInsetReader: NSViewRepresentable {
+    @Binding var topInset: CGFloat
+
+    func makeNSView(context: Context) -> TitlebarInsetProbe {
+        let probe = TitlebarInsetProbe()
+        probe.onInsetChange = { topInset = $0 }
+        return probe
+    }
+
+    func updateNSView(_ nsView: TitlebarInsetProbe, context: Context) {
+        nsView.reportInset()
+    }
+
+    final class TitlebarInsetProbe: NSView {
+        var onInsetChange: ((CGFloat) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            reportInset()
+        }
+
+        override func layout() {
+            super.layout()
+            reportInset()
+        }
+
+        func reportInset() {
+            guard let window else { return }
+            let measured = MainWindowTitlebarMetrics.topInset(for: window)
+            guard measured > 0 else { return }
+            onInsetChange?(measured)
+        }
+    }
+}
+
+enum MainWindowTitlebarMetrics {
+    static func topInset(for window: NSWindow) -> CGFloat {
+        if let contentView = window.contentView, contentView.safeAreaInsets.top > 0 {
+            return contentView.safeAreaInsets.top
+        }
+
+        let layoutRect = window.contentLayoutRect
+        let frameHeight = window.frame.height
+        let titlebarHeight = frameHeight - layoutRect.maxY
+        return max(titlebarHeight, 0)
+    }
 }
 
 /// Stable detail column — avoids re-instantiating `AnyView` on every shell re-render
@@ -520,6 +610,12 @@ enum MainWindowRootPresentation {
     static let ownsSidebarCollapseControlInSidebarColumn = true
     /// Main shell uses `NavigationSplitView` so sidebar/toolbar pick up system Liquid Glass.
     static let usesNavigationSplitView = true
+    /// Global search + attention badge live on the split view, not only the detail column.
+    static let usesWindowLevelToolbar = true
+    /// Command palette search pill does not resize or hide its label when the sidebar collapses.
+    static let commandPaletteSearchDecoupledFromSidebar = true
+    /// Sidebar top padding follows AppKit titlebar inset instead of a fixed spacer band.
+    static let usesAppKitTitlebarInsetForSidebar = true
 }
 
 /// Test contract: maps each `MainAppDestination` to the typename of the View
@@ -560,9 +656,30 @@ private struct MainSidebarButton: View {
         Button(action: action) {
             Group {
                 if isCollapsed {
-                    collapsedLabel
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        destinationIcon
+                        Spacer(minLength: 0)
+                    }
                 } else {
-                    expandedLabel
+                    HStack(spacing: 9) {
+                        destinationIcon
+
+                        Text(destination.title)
+                            .font(.system(size: 13.5, weight: .medium))
+                            .lineLimit(1)
+                            .animation(
+                                MAYNMotion.sidebarLabelAnimation(
+                                    collapsing: isCollapsed,
+                                    reduceMotion: reduceMotion
+                                ),
+                                value: isCollapsed
+                            )
+
+                        Spacer(minLength: 8)
+
+                        trailingAccessory
+                    }
                 }
             }
             .foregroundStyle(
@@ -573,54 +690,48 @@ private struct MainSidebarButton: View {
                 )
             )
             .fontWeight(MAYNSelectionLabelStyle.weight(isSelected: isSelected && !isDisabled))
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, isCollapsed ? 0 : 12)
             .frame(height: MAYNControlMetrics.sidebarItemHeight)
             .maynSidebarSelectionBackground(
                 isSelected: isSelected && !isDisabled,
                 isHovering: isHovering && !isDisabled,
-                cornerRadius: MAYNControlMetrics.sidebarItemRadius
+                cornerRadius: MAYNControlMetrics.sidebarItemRadius,
+                horizontalInset: MainSidebarMetrics.selectionHorizontalInset(isCollapsed: isCollapsed)
+            )
+            .animation(
+                MAYNMotion.sidebarSelectionMorphAnimation(reduceMotion: reduceMotion),
+                value: isCollapsed
             )
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
         .disabled(isDisabled)
         .help(destination.title)
         .onHover { isHovering = $0 }
         .accessibilityLabel(accessibilityLabel)
     }
 
-    private var expandedLabel: some View {
-        HStack(spacing: 9) {
-            destinationIcon
-            Text(destination.title)
-                .font(.system(size: 13.5, weight: .medium))
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            if isDisabled {
-                Text("Setup")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(MAYNTheme.textTertiary(colorScheme))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .overlay {
-                        Capsule().strokeBorder(MAYNTheme.hairline, lineWidth: 1)
-                    }
-            } else if let badge {
-                Text(badge)
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
-                    .padding(.horizontal, 6)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(MAYNTheme.statusMutedFill, in: Capsule())
-                    .accessibilityLabel("\(badge) downloads in progress")
-            }
+    @ViewBuilder
+    private var trailingAccessory: some View {
+        if isDisabled {
+            Text("Setup")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(MAYNTheme.textTertiary(colorScheme))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .overlay {
+                    Capsule().strokeBorder(MAYNTheme.hairline, lineWidth: 1)
+                }
+        } else if let badge {
+            Text(badge)
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
+                .padding(.horizontal, 6)
+                .frame(minWidth: 18, minHeight: 18)
+                .background(MAYNTheme.statusMutedFill, in: Capsule())
+                .accessibilityLabel("\(badge) downloads in progress")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var collapsedLabel: some View {
-        destinationIcon
-            .frame(maxWidth: .infinity)
     }
 
     private var destinationIcon: some View {
@@ -666,13 +777,30 @@ private struct MainSidebarSettingsButton: View {
         Button(action: action) {
             Group {
                 if isCollapsed {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(width: 16, height: 16)
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 14, weight: .medium))
+                            .frame(width: 16, height: 16)
+                        Spacer(minLength: 0)
+                    }
                 } else {
-                    Label("Settings", systemImage: "gearshape")
-                        .font(.system(size: 13.5, weight: .medium))
+                    HStack(spacing: 9) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 14, weight: .medium))
+                            .frame(width: 16, height: 16)
+
+                        Text("Settings")
+                            .font(.system(size: 13.5, weight: .medium))
+                            .lineLimit(1)
+                            .animation(
+                                MAYNMotion.sidebarLabelAnimation(
+                                    collapsing: isCollapsed,
+                                    reduceMotion: reduceMotion
+                                ),
+                                value: isCollapsed
+                            )
+                    }
                 }
             }
             .foregroundStyle(
@@ -683,16 +811,22 @@ private struct MainSidebarSettingsButton: View {
                 )
             )
             .fontWeight(MAYNSelectionLabelStyle.weight(isSelected: isSelected))
-            .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, isCollapsed ? 0 : 12)
             .frame(height: MAYNControlMetrics.sidebarItemHeight)
             .maynSidebarSelectionBackground(
                 isSelected: isSelected,
                 isHovering: isHovering,
-                cornerRadius: MAYNControlMetrics.sidebarItemRadius
+                cornerRadius: MAYNControlMetrics.sidebarItemRadius,
+                horizontalInset: MainSidebarMetrics.selectionHorizontalInset(isCollapsed: isCollapsed)
+            )
+            .animation(
+                MAYNMotion.sidebarSelectionMorphAnimation(reduceMotion: reduceMotion),
+                value: isCollapsed
             )
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
         .help("Settings")
         .onHover { isHovering = $0 }
     }

@@ -296,7 +296,7 @@ final class FunctionTabsTests: XCTestCase {
             CommandCenterFooterPresentation.model(for: .voice, voiceShortcut: "⌃⌥Space"),
             CommandCenterFooterModel(
                 shortcutText: "⌃⌥Space",
-                label: "transcript history",
+                label: "voice dictation",
                 openButtonTitle: "Open Voice",
                 showsCapturePause: false
             )
@@ -305,17 +305,8 @@ final class FunctionTabsTests: XCTestCase {
             CommandCenterFooterPresentation.model(for: .downloads),
             CommandCenterFooterModel(
                 shortcutText: nil,
-                label: "download queue",
+                label: "downloads",
                 openButtonTitle: "Open Downloads",
-                showsCapturePause: false
-            )
-        )
-        XCTAssertEqual(
-            CommandCenterFooterPresentation.model(for: .layouts),
-            CommandCenterFooterModel(
-                shortcutText: nil,
-                label: "window snap",
-                openButtonTitle: "Open Window Layouts",
                 showsCapturePause: false
             )
         )
@@ -733,6 +724,51 @@ final class FunctionTabsTests: XCTestCase {
     func testMainWindowRootUsesSingleInSidebarCollapseControl() {
         XCTAssertTrue(MainWindowRootPresentation.removesNativeSidebarToggle)
         XCTAssertTrue(MainWindowRootPresentation.ownsSidebarCollapseControlInSidebarColumn)
+    }
+
+    func testMainWindowRootUsesWindowLevelToolbar() {
+        XCTAssertTrue(MainWindowRootPresentation.usesWindowLevelToolbar)
+    }
+
+    func testMainWindowRootUsesAppKitTitlebarInsetForSidebar() {
+        XCTAssertTrue(MainWindowRootPresentation.usesAppKitTitlebarInsetForSidebar)
+        XCTAssertEqual(MainSidebarMetrics.sidebarTopPadding(measuredTitlebarInset: 0), 10)
+        XCTAssertEqual(MainSidebarMetrics.sidebarTopPadding(measuredTitlebarInset: 38), 38)
+    }
+
+    func testSidebarTopClearanceIsConsistentAndClearsTrafficLights() {
+        // Same value regardless of collapsed/expanded (the caller passes one inset),
+        // so the rail never jumps vertically when toggling.
+        // A zero/low measured inset is floored so the centered collapsed toggle
+        // still clears the traffic lights.
+        XCTAssertEqual(
+            MainSidebarMetrics.sidebarTopClearance(measuredTitlebarInset: 0),
+            MainSidebarMetrics.trafficLightClearanceFloor
+        )
+        // An over-reported inset is capped so the gap stays tight.
+        XCTAssertEqual(
+            MainSidebarMetrics.sidebarTopClearance(measuredTitlebarInset: 200),
+            MainSidebarMetrics.trafficLightClearanceCeiling
+        )
+        // An in-range inset passes through.
+        XCTAssertEqual(
+            MainSidebarMetrics.sidebarTopClearance(measuredTitlebarInset: 40),
+            40
+        )
+    }
+
+    func testCollapsedSidebarWidthClearsTrafficLights() {
+        XCTAssertGreaterThanOrEqual(MainSidebarMetrics.collapsedWidth, 88)
+        XCTAssertEqual(MainSidebarMetrics.collapsedWidth, 92)
+    }
+
+    func testSidebarSelectionHorizontalInsetCentersCollapsedHighlight() {
+        XCTAssertEqual(MainSidebarMetrics.selectionHorizontalInset(isCollapsed: false), 0)
+        XCTAssertEqual(MainSidebarMetrics.selectionHorizontalInset(isCollapsed: true), 18)
+    }
+
+    func testCommandPaletteSearchIsDecoupledFromSidebar() {
+        XCTAssertTrue(MainWindowRootPresentation.commandPaletteSearchDecoupledFromSidebar)
     }
 
     func testHotkeyMapStoreExposesPureDefaultMapForViewInitialization() {

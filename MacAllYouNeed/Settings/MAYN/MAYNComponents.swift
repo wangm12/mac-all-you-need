@@ -1271,6 +1271,14 @@ private struct MAYNSwitchControl: View {
     }
 }
 
+private struct MAYNCompactSwitchToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        MAYNSwitchControl(isOn: configuration.isOn) {
+            configuration.isOn.toggle()
+        }
+    }
+}
+
 private struct MAYNMonochromeSwitchToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack {
@@ -1288,6 +1296,11 @@ extension View {
     /// macOS 26+: Liquid Glass track and thumb; opaque fallback on earlier releases and Reduce Transparency.
     func maynSwitchToggleStyle() -> some View {
         toggleStyle(MAYNMonochromeSwitchToggleStyle())
+    }
+
+    /// Compact Liquid Glass switch for inline chrome (e.g. dashboard card header trailing).
+    func maynCompactSwitchToggleStyle() -> some View {
+        toggleStyle(MAYNCompactSwitchToggleStyle())
     }
 }
 

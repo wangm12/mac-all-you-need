@@ -6,6 +6,7 @@ import SwiftUI
 final class MainWindowController {
     private weak var controller: AppController?
     private var window: NSWindow?
+    private var hostingController: NSHostingController<AnyView>?
 
     init(controller: AppController) {
         self.controller = controller
@@ -19,11 +20,6 @@ final class MainWindowController {
 
         let window = window ?? makeWindow(controller: controller)
         self.window = window
-        if window.contentView == nil {
-            window.contentView = NSHostingView(
-                rootView: MainWindowRoot(controller: controller).scrollIndicators(.hidden)
-            )
-        }
 
         PreviewPanel.dismiss()
         ClipboardSystemQuickLookCoordinator.shared.dismiss()
@@ -42,14 +38,21 @@ final class MainWindowController {
         window.title = "Mac All You Need"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        if #available(macOS 11.0, *) {
+            window.toolbarStyle = .unified
+        }
         window.isOpaque = true
         window.backgroundColor = NSColor.windowBackgroundColor
         window.minSize = NSSize(width: 920, height: 640)
         window.center()
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(
-            rootView: MainWindowRoot(controller: controller).scrollIndicators(.hidden)
-        )
+
+        let rootView = AnyView(MainWindowRoot(controller: controller).scrollIndicators(.hidden))
+        let hostingController = NSHostingController(rootView: rootView)
+        self.hostingController = hostingController
+        window.contentViewController = hostingController
+
         return window
     }
 }

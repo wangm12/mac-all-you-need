@@ -138,7 +138,6 @@
 		322BC848FD051ADB897164C2 /* VoiceOnboardingStepTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68118F753D7238BD7FE4BAA9 /* VoiceOnboardingStepTests.swift */; };
 		3246190838F1D3EB49412EBC /* MockReminderWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13B93AE9C4D509BA2D38968C /* MockReminderWriter.swift */; };
 		33024A3FF865BE033F66CA18 /* WindowControlDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7267EF3FFCFF6BD13F17947 /* WindowControlDiagnosticsView.swift */; };
-		33274AB15FC410A630878E5A /* WindowLayoutsPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883234431F185F2BECF6FF2D /* WindowLayoutsPopoverView.swift */; };
 		336DFED373876A136CBC58A6 /* AppControllerNotificationDispatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2651FAD28FDAF1600C1E399 /* AppControllerNotificationDispatchTests.swift */; };
 		3373218FC4482EE38C532A9C /* ContextAwareRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15A50E5D3AC2A6567C8F1FF /* ContextAwareRanker.swift */; };
 		33B786B1242E57007C89613D /* HotkeyRecorderControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E2242BE0F1954EEEFB05FDD /* HotkeyRecorderControl.swift */; };
@@ -1109,7 +1108,6 @@
 		864C329B29B497271ED7DF41 /* FolderHistorySwitcherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderHistorySwitcherView.swift; sourceTree = "<group>"; };
 		87CB8E61647CF6DB81A081D0 /* RadialTargetHighlightView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialTargetHighlightView.swift; sourceTree = "<group>"; };
 		87D987ABFFCBCE9C47280888 /* VoicePersonalizationPrivacyFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePersonalizationPrivacyFilterTests.swift; sourceTree = "<group>"; };
-		883234431F185F2BECF6FF2D /* WindowLayoutsPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayoutsPopoverView.swift; sourceTree = "<group>"; };
 		883E25A28CFBD3F1602E56C4 /* WindowScrollResizeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScrollResizeController.swift; sourceTree = "<group>"; };
 		888B35A6B574394E28E673E7 /* AICleanupStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICleanupStepView.swift; sourceTree = "<group>"; };
 		88F478AB8437A1D1DE6174DC /* FeatureAboutContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureAboutContent.swift; sourceTree = "<group>"; };
@@ -1600,7 +1598,6 @@
 				774A65584FE2D9BB4FC31B63 /* DownloadsPopoverView.swift */,
 				B3CD47E8E891CEF6493A207F /* SnippetsPopoverView.swift */,
 				F2E45DBB88B37CADCC5FD38A /* VoicePopoverView.swift */,
-				883234431F185F2BECF6FF2D /* WindowLayoutsPopoverView.swift */,
 			);
 			path = Popovers;
 			sourceTree = "<group>";
@@ -4179,7 +4176,6 @@
 				AD3959D69980A423BE4800EF /* WindowLayoutsDescriptor.swift in Sources */,
 				68B2B862F1FB48630B93C2D6 /* WindowLayoutsDestinationView.swift in Sources */,
 				72761D06FA68697DC3F6A4AC /* WindowLayoutsOnboardingWizardView.swift in Sources */,
-				33274AB15FC410A630878E5A /* WindowLayoutsPopoverView.swift in Sources */,
 				F5E03EB399452C4E983D46B1 /* WindowScrollResizeController.swift in Sources */,
 				E28F04AC1E33360F7B86D2F8 /* WindowSnapOverlayPanel.swift in Sources */,
 			);

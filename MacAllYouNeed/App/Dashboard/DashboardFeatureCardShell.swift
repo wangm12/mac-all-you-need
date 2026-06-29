@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Shared dashboard / Dock Features card chrome: header, optional middle content, bottom control row.
-struct DashboardFeatureCardShell<Middle: View, Bottom: View>: View {
+struct DashboardFeatureCardShell<Middle: View, Bottom: View, HeaderTrailing: View>: View {
     let title: String
     let subtitle: String
     let symbolName: String
@@ -9,6 +9,7 @@ struct DashboardFeatureCardShell<Middle: View, Bottom: View>: View {
     let fixedHeight: CGFloat
     var isHighlighted: Bool = false
     var onHeaderTap: (() -> Void)?
+    @ViewBuilder let headerTrailing: () -> HeaderTrailing
     @ViewBuilder let middle: () -> Middle
     @ViewBuilder let bottom: () -> Bottom
 
@@ -49,32 +50,41 @@ struct DashboardFeatureCardShell<Middle: View, Bottom: View>: View {
     }
 
     private var header: some View {
-        Button {
-            onHeaderTap?()
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: symbolName)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(accent)
-                    .frame(width: 30, height: 30)
-                    .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: MAYNControlMetrics.controlRadius, style: .continuous))
+        HStack(alignment: .top, spacing: 12) {
+            Button {
+                onHeaderTap?()
+            } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: symbolName)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(accent)
+                        .frame(width: 30, height: 30)
+                        .background(
+                            accent.opacity(0.10),
+                            in: RoundedRectangle(
+                                cornerRadius: MAYNControlMetrics.controlRadius,
+                                style: .continuous
+                            )
+                        )
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-
-                Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.plain)
+            .disabled(onHeaderTap == nil)
+
+            headerTrailing()
         }
-        .buttonStyle(.plain)
-        .disabled(onHeaderTap == nil)
     }
 
     private var cardBackground: Color {

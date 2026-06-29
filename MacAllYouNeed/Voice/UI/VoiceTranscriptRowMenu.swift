@@ -2,6 +2,7 @@ import SwiftUI
 
 struct VoiceTranscriptRowMenu: View {
     let hasAudio: Bool
+    let showsRetry: Bool
     let retryEnabled: Bool
     let onRetry: () -> Void
     let onDownload: () -> Void
@@ -10,10 +11,12 @@ struct VoiceTranscriptRowMenu: View {
     var body: some View {
         Menu {
             if hasAudio {
-                Button(action: onRetry) {
-                    Label("Retry", systemImage: "arrow.clockwise")
+                if showsRetry {
+                    Button(action: onRetry) {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(!retryEnabled)
                 }
-                .disabled(!retryEnabled)
                 Button(action: onDownload) {
                     Label("Download audio", systemImage: "arrow.down.circle")
                 }

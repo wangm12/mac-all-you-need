@@ -16,7 +16,14 @@ struct RemindersPopoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            popoverHeader
+            CommandCenterPageHeader(
+                title: "Voice Reminders",
+                subtitle: "Speak a task and save it directly to Apple Reminders.",
+                actionTitle: "Open Voice",
+                onAction: {
+                    controller.showMainWindow(destination: .voice)
+                }
+            )
             Group {
                 if model.authorizationStatus != .fullAccess {
                     permissionView
@@ -44,34 +51,12 @@ struct RemindersPopoverView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MAYNTheme.window)
         .task { await model.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: .voiceReminderCreated)) { note in
             if let created = note.object as? CreatedReminder {
                 model.record(created)
             }
         }
-    }
-
-    private var popoverHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Reminders")
-                    .font(.headline.weight(.semibold))
-                Text("Voice-created reminders live here. Open the full Voice page for setup, dictation, and reminders flow.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            MAYNButton("Open Voice", role: .primary, height: HotkeyChipPresentation.compactHeight) {
-                controller.showMainWindow(destination: .voice)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
-        .background(MAYNTheme.panel)
     }
 
     @ViewBuilder
@@ -99,27 +84,13 @@ struct RemindersPopoverView: View {
     private var remindersList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                CommandCenterSectionLabel(title: "Recent")
                 ForEach(model.reminders) { reminder in
-                    HStack(spacing: 10) {
-                        Image(systemName: "circle")
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(reminder.title)
-                            if let due = reminder.dueDate {
-                                Text(Self.dueLabel(due))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        Text(reminder.listName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    RemindersPopoverRow(reminder: reminder)
                 }
             }
+            .padding(.trailing, 8)
+            .padding(.bottom, 10)
         }
     }
 
@@ -129,5 +100,66 @@ struct RemindersPopoverView: View {
             return base + String(format: " %02d:%02d", hour, due.minute ?? 0)
         }
         return base
+    }
+}
+
+private struct RemindersPopoverRow: View {
+    let reminder: CreatedReminder
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(MAYNTheme.panelSubtle)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(MAYNTheme.hairline, lineWidth: 1)
+                    }
+                Image(systemName: "checklist")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
+            }
+            .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(reminder.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(MAYNTheme.textTertiary(colorScheme))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if !relativeTime.isEmpty {
+                Text(relativeTime)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(MAYNTheme.textTertiary(colorScheme))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+        .maynSelectionBackground(
+            isSelected: false,
+            isHovering: isHovering,
+            shape: .rounded(14)
+        )
+        .padding(.horizontal, 6)
+        .onHover { isHovering = $0 }
+    }
+
+    private var subtitle: String {
+        if let due = reminder.dueDate {
+            return "Saved to \(reminder.listName) · \(RemindersPopoverView.dueLabel(due))"
+        }
+        return "Saved to \(reminder.listName)"
+    }
+
+    private var relativeTime: String {
+        CompactTimestamp.format(reminder.createdAt)
     }
 }

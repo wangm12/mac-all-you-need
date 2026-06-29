@@ -3,8 +3,8 @@ import FeatureCore
 
 /// A dashboard tool card with feature lifecycle UI aligned to Dock Features toggles.
 ///
-/// Feature-managed tiles use `DashboardFeatureCardShell` with a bottom switch for
-/// enable/disable. Install, download, and failure states keep status + action at
+/// Feature-managed tiles use `DashboardFeatureCardShell` with a Liquid Glass toggle in the
+/// bottom-right for enable/disable. Install, download, and failure states keep status + action at
 /// the bottom instead of a switch.
 struct FeatureToolCard<Footer: View>: View {
 
@@ -66,6 +66,7 @@ struct FeatureToolCard<Footer: View>: View {
             fixedHeight: fixedHeight,
             isHighlighted: visualState == .enabled,
             onHeaderTap: cardAction,
+            headerTrailing: { headerTrailingContent },
             middle: {
                 if showFooter {
                     toolFooter()
@@ -100,6 +101,30 @@ struct FeatureToolCard<Footer: View>: View {
         }
     }
 
+    // MARK: Header trailing
+
+    @ViewBuilder
+    private var headerTrailingContent: some View {
+        switch visualState {
+        case .unmanaged, .enabled, .disabled:
+            EmptyView()
+        case .notDownloaded:
+            StatusPill(text: "Needs Setup", kind: .needsPermission)
+        case .downloading:
+            StatusPill(text: "Installing", kind: .processing)
+        case .failed:
+            StatusPill(text: "Failed", kind: .failed)
+        }
+    }
+
+    private var featureToggle: some View {
+        Toggle("", isOn: enableBinding)
+            .labelsHidden()
+            .maynCompactSwitchToggleStyle()
+            .disabled(isPending)
+            .accessibilityLabel("\(title), \(visualState == .enabled ? "enabled" : "disabled")")
+    }
+
     // MARK: Bottom lifecycle control
 
     @ViewBuilder
@@ -108,15 +133,15 @@ struct FeatureToolCard<Footer: View>: View {
         case .unmanaged:
             EmptyView()
         case .enabled, .disabled:
-            Toggle("", isOn: enableBinding)
-                .labelsHidden()
-                .controlSize(.small)
-                .maynSwitchToggleStyle()
-                .disabled(isPending)
-                .accessibilityLabel("\(title), \(visualState == .enabled ? "enabled" : "disabled")")
+            HStack {
+                Spacer(minLength: 0)
+                featureToggle
+            }
         case .notDownloaded:
             HStack(spacing: 8) {
-                StatusPill(text: "Not installed", kind: .neutral)
+                Text("Not installed")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 MAYNButton("Install", role: .primary, action: { onInstall?() })
             }
@@ -128,7 +153,9 @@ struct FeatureToolCard<Footer: View>: View {
         case .failed(let reason):
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    StatusPill(text: "Failed", kind: .danger)
+                    Text("Download failed")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.secondary)
                         .accessibilityLabel("Download failed for \(title): \(reason)")
                     Spacer(minLength: 0)
                     MAYNButton("Retry", role: .primary, action: { onRetryInstall?() })

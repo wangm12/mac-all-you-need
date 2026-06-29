@@ -23,9 +23,6 @@ struct DashboardDestinationView: View {
                 dashboardHeader
                 statusStrip
                 setupPrompt
-                if showsQuickStartStrip {
-                    quickStartStrip
-                }
                 recommendedActions
                 recentActivityStrip
                 toolGrid
@@ -78,10 +75,6 @@ struct DashboardDestinationView: View {
 
     private var failedDownloadCount: Int {
         controller.downloaderVM.rows.filter { $0.state == .failed }.count
-    }
-
-    private var showsQuickStartStrip: Bool {
-        nextPendingFeatureID != nil
     }
 
     @ViewBuilder
@@ -209,70 +202,6 @@ struct DashboardDestinationView: View {
                     .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
             )
         }
-    }
-
-    private var quickStartStrip: some View {
-        HStack(alignment: .top, spacing: 14) {
-            quickStartItem(
-                step: "1",
-                title: "Pick one tool",
-                body: "Start with Clipboard, then move to Voice or Downloads. The shortcut chip is the fastest entry point."
-            ) { openDestination(.clipboard) }
-
-            quickStartItem(
-                step: "2",
-                title: "Grant permissions",
-                body: "When a tool needs Accessibility, Screen Recording, or Reminders, finish setup from its permissions page."
-            ) { openPermissions() }
-
-            quickStartItem(
-                step: "3",
-                title: "Use the default path",
-                body: "If you are unsure, keep the recommended settings. They are tuned for the fastest first successful run."
-            ) { openDestination(.downloads) }
-        }
-        .padding(14)
-        .background(MAYNTheme.contentPanel(colorScheme), in: RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: MAYNControlMetrics.panelRadius, style: .continuous)
-                .stroke(MAYNTheme.subtleBorder, lineWidth: 1)
-        )
-    }
-
-    private func quickStartItem(
-        step: String,
-        title: String,
-        body: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                Text(step)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
-                    .frame(width: 22, height: 22)
-                    .background(
-                        colorScheme == .dark
-                            ? Color.white.opacity(0.10)
-                            : Color.black.opacity(0.08),
-                        in: Circle()
-                    )
-                    .overlay {
-                        Circle().strokeBorder(MAYNTheme.hairline, lineWidth: 1)
-                    }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.callout.weight(.semibold))
-                    Text(body)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.plain)
     }
 
     private var toolGrid: some View {
@@ -477,14 +406,12 @@ private struct DashboardToolCardFooter: View {
     let tile: DashboardToolTileItem
     let voiceStatus: DashboardVoiceStatusPresentation.Status?
     let isRetrying: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
             if let metric = tile.metric {
-                Text(metric)
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.primary)
+                contextualMetricLine(metric: metric)
             } else if isRetrying {
                 StatusPill(text: "Retrying", kind: .progress)
             } else if tile.destination == .voice, let voiceStatus {
@@ -500,5 +427,44 @@ private struct DashboardToolCardFooter: View {
             }
         }
         .frame(height: 34, alignment: .center)
+    }
+
+    @ViewBuilder
+    private func contextualMetricLine(metric: String) -> some View {
+        let context = DashboardMetricPresentation.contextualLine(
+            metric: metric,
+            destination: tile.destination
+        )
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(context.value)
+                .font(MAYNTypography.body(strong: true))
+                .monospacedDigit()
+                .foregroundStyle(MAYNTheme.textPrimary(colorScheme))
+            if !context.unit.isEmpty {
+                Text(context.unit)
+                    .font(.caption)
+                    .foregroundStyle(MAYNTheme.textSecondary(colorScheme))
+            }
+        }
+    }
+}
+
+enum DashboardMetricPresentation {
+    struct ContextualLine: Equatable {
+        let value: String
+        let unit: String
+    }
+
+    static func contextualLine(metric: String, destination: MainAppDestination) -> ContextualLine {
+        switch destination {
+        case .clipboard:
+            let count = Int(metric) ?? 0
+            let unit = count == 1 ? "item saved" : "items saved"
+            return ContextualLine(value: metric, unit: unit)
+        case .downloads:
+            return ContextualLine(value: metric, unit: "in queue")
+        default:
+            return ContextualLine(value: metric, unit: "")
+        }
     }
 }

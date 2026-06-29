@@ -8,7 +8,14 @@ struct DownloadsPopoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            popoverHeader
+            CommandCenterPageHeader(
+                title: "Downloads",
+                subtitle: "Manage active downloads, failed items, and saved media.",
+                actionTitle: "Open Downloads",
+                onAction: {
+                    controller.showMainWindow(destination: .downloads)
+                }
+            )
             DownloadsListView(
                 vm: controller.downloaderVM,
                 surface: .commandCenter,
@@ -26,27 +33,6 @@ struct DownloadsPopoverView: View {
         .background {
             DownloadPickerHost(vm: controller.downloaderVM)
         }
-    }
-
-    private var popoverHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Downloads")
-                    .font(.headline.weight(.semibold))
-                Text("Queue links here, paste from clipboard, or open the full Downloads page for settings and history.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            MAYNButton("Open Downloads", role: .primary, height: HotkeyChipPresentation.compactHeight) {
-                controller.showMainWindow(destination: .downloads)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
-        .background(MAYNTheme.panel)
     }
 
     private func presentDownloadURLSheet(prefill: String?) {

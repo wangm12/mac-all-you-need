@@ -80,9 +80,41 @@ final class DockItemTests: XCTestCase {
         XCTAssertFalse(ClipCardAccentPresentation.shouldShowSourceAccent(hasSourceAppIcon: false))
         XCTAssertGreaterThanOrEqual(ClipCardAccentPresentation.cardTintOpacity, 0.14)
         XCTAssertGreaterThan(ClipCardAccentPresentation.headerTintOpacity, ClipCardAccentPresentation.cardTintOpacity)
-        XCTAssertGreaterThan(ClipCardAccentPresentation.iconStrokeOpacity, ClipCardAccentPresentation.headerTintOpacity)
+        XCTAssertGreaterThan(ClipCardAccentPresentation.iconStrokeOpacity, 0.3)
         XCTAssertEqual(ClipCardAccentPresentation.topAccentHeight, 0)
         XCTAssertEqual(ClipCardAccentPresentation.dividerAccentOpacity, 0)
+    }
+
+    func testClipCardAccentUsesKnownBundleIDForArc() {
+        XCTAssertEqual(
+            ClipCardAccentPresentation.stableAccentKey(forBundleID: "company.thebrowser.Browser"),
+            "purple"
+        )
+    }
+
+    func testClipCardAccentUsesStablePaletteForGrayscaleIcons() {
+        let grayIcon = solidTestIcon(red: 0.18, green: 0.18, blue: 0.18)
+        let arcItem = dockItem(bundleID: "company.thebrowser.Browser", icon: grayIcon)
+        let chromeItem = dockItem(bundleID: "com.google.Chrome", icon: grayIcon)
+
+        let arcAccent = ClipCardAccentPresentation.accent(for: arcItem)
+        let chromeAccent = ClipCardAccentPresentation.accent(for: chromeItem)
+
+        XCTAssertNotEqual(arcAccent, ClipCardAccentPresentation.fallbackAccent)
+        XCTAssertNotEqual(chromeAccent, ClipCardAccentPresentation.fallbackAccent)
+        XCTAssertNotEqual(arcAccent, chromeAccent)
+    }
+
+    func testClipCardAccentHashesUnknownBundleIDs() {
+        let grayIcon = solidTestIcon(red: 0.18, green: 0.18, blue: 0.18)
+        let first = ClipCardAccentPresentation.accent(for: dockItem(bundleID: "com.example.alpha", icon: grayIcon))
+        let second = ClipCardAccentPresentation.accent(for: dockItem(bundleID: "com.example.beta", icon: grayIcon))
+
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(
+            ClipCardAccentPresentation.accent(for: dockItem(bundleID: "com.example.alpha", icon: grayIcon)),
+            first
+        )
     }
 
     func testClipCardAccentFallsBackWithoutSourceAppIcon() {
@@ -102,15 +134,10 @@ final class DockItemTests: XCTestCase {
     func testClipCardAccentUsesDominantColorFromSourceAppIcon() {
         let redIcon = solidTestIcon(red: 0.92, green: 0.12, blue: 0.10)
         let blueIcon = solidTestIcon(red: 0.08, green: 0.40, blue: 0.92)
-        let redItem = dockItem(bundleID: "com.example.red", icon: redIcon)
-        let blueItem = dockItem(bundleID: "com.example.blue", icon: blueIcon)
 
-        let redAccent = ClipCardAccentPresentation.accent(for: redItem)
-        let blueAccent = ClipCardAccentPresentation.accent(for: blueItem)
-
-        XCTAssertNotEqual(redAccent, ClipCardAccentPresentation.fallbackAccent)
-        XCTAssertNotEqual(blueAccent, ClipCardAccentPresentation.fallbackAccent)
-        XCTAssertNotEqual(redAccent, blueAccent)
+        XCTAssertNotNil(AppIconColor.dominant(of: redIcon))
+        XCTAssertNotNil(AppIconColor.dominant(of: blueIcon))
+        XCTAssertNotEqual(AppIconColor.dominant(of: redIcon), AppIconColor.dominant(of: blueIcon))
     }
 
     private func dockItem(bundleID: String, icon: NSImage) -> DockItem {
@@ -164,6 +191,11 @@ final class DockItemTests: XCTestCase {
         XCTAssertTrue(DockCardReorderPresentation.acceptsUTF8PlainTextPayloads)
         XCTAssertEqual(DockCardReorderPresentation.dragPreviewStyle, .compactIcon)
         XCTAssertEqual(DockCardReorderPresentation.trailingDropTargetWidth, 56)
+    }
+
+    func testDockCardsUseNeutralFocusRingForSelection() {
+        XCTAssertTrue(DockCardShellPresentation.usesNeutralFocusRingForSelection)
+        XCTAssertEqual(DockCardShellPresentation.unfocusedBorderWidth, SnippetCardPresentation.unfocusedBorderWidth)
     }
 
     func testSnippetCardsUseClipboardCardShell() {

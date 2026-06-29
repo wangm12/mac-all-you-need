@@ -604,7 +604,7 @@ Default:
 - minimum width: 920 px
 - minimum height: 640 px
 - sidebar width: 260 px
-- collapsed sidebar: 56 px
+- collapsed sidebar: 92 px
 - page content max width: 1120 px
 - page side padding: 32 px
 - main content top padding: 32 px from toolbar
@@ -616,13 +616,20 @@ Sidebar should feel Finder-like, not like a web app rail.
 Specs:
 
 - width: 260 px
-- collapsed width: 56 px
+- collapsed width: 92 px
 - item height: 40 px
 - item radius: 12 px
 - item horizontal padding: 12 px
 - icon: 16 px SF Symbol, monochrome
 - label: 13.5 px / medium when selected
 - section label: 11 px / 600 / uppercase / 0.45 letter spacing
+
+Collapse / expand choreography (main window sidebar):
+
+- one `sidebarWidth` transaction drives column width and detail offset (260 ↔ 92 px, 260 ms cubic-bezier 0.22 / 1 / 0.36 / 1)
+- labels and section titles fade out first on collapse (90 ms ease-out, translate x −6 px); fade in after width on expand (140 ms ease-out, 60 ms delay)
+- selected-row background morphs in place via horizontal inset (full-width pill ↔ centered 40 px icon square, 200 ms, same easing); opaque fill only — no sidebar glass morph
+- Command-K search pill stays fixed width and keeps its label regardless of sidebar state
 
 Navigation groups:
 
@@ -677,6 +684,7 @@ Global search pill:
 - icon: magnifying glass, 14-15 px
 - placeholder: `Search Mayn`
 - right keycap: `⌘K`
+- does not resize or hide its label when the sidebar collapses
 - Liquid Glass, single layer
 
 Behavior:
