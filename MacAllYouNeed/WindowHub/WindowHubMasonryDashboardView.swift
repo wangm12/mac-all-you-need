@@ -2,84 +2,133 @@ import SwiftUI
 
 struct WindowHubMasonryDashboardView: View {
     @Bindable var coordinator: WindowHubCoordinator
-
-    /// Target width for one masonry column; column count flexes with the panel size.
-    private static let targetColumnWidth: CGFloat = 384
-    private static let maxColumns = 4
+    @State private var expandedGroupIDs: Set<String> = []
+    @State private var packedColumns: [[WindowHubAppSection]] = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { proxy in
+            let columns = packedColumns
             ScrollView {
                 if coordinator.isIndexing && coordinator.snapshot.sections.isEmpty {
                     ProgressView("Indexing windows…")
                         .frame(maxWidth: .infinity, minHeight: 180)
-                } else if coordinator.snapshot.sections.isEmpty {
+                } else if visibleSections.isEmpty, !coordinator.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    emptySearchState
+                } else if visibleSections.isEmpty {
                     ContentUnavailableView(
                         "No windows found",
                         systemImage: "macwindow",
                         description: Text("Open an app window or grant Accessibility permission.")
                     )
                 } else {
-                    masonry(columnCount: columnCount(for: proxy.size.width))
+                    masonry(columns: columns)
                         .opacity(coordinator.isIndexing ? 0.72 : 1)
                 }
+            }
+            .onAppear {
+                repack(width: proxy.size.width)
+            }
+            .onChange(of: proxy.size.width) { _, width in
+                repack(width: width)
+            }
+            .onChange(of: coordinator.snapshot.sections.map(\.id)) { _, _ in
+                repack(width: proxy.size.width)
+            }
+            .onChange(of: coordinator.searchQuery) { _, _ in
+                repack(width: proxy.size.width)
+            }
+            .onChange(of: expandedGroupIDs) { _, _ in
+                repack(width: proxy.size.width)
             }
         }
     }
 
-    private func columnCount(for width: CGFloat) -> Int {
-        let usable = max(0, width - 18)
-        let count = Int((usable / Self.targetColumnWidth).rounded(.down))
-        return min(Self.maxColumns, max(1, count))
+    private var visibleSections: [WindowHubAppSection] {
+        coordinator.filteredSections
     }
 
-    private func masonry(columnCount: Int) -> some View {
-        let columns = Self.distribute(sections: coordinator.snapshot.sections, columnCount: columnCount)
-        return HStack(alignment: .top, spacing: 9) {
+    private var emptySearchState: some View {
+        VStack(spacing: 8) {
+            Text("No matching windows or tabs")
+                .font(.system(size: 14, weight: .semibold))
+            Text("Try an app name, window title, tab title, or domain")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 180)
+    }
+
+    private func masonry(columns: [[WindowHubAppSection]]) -> some View {
+        HStack(alignment: .top, spacing: WindowHubMasonryPacker.columnGap) {
             ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
-                LazyVStack(alignment: .leading, spacing: 9) {
+                LazyVStack(alignment: .leading, spacing: WindowHubMasonryPacker.cardGap) {
                     ForEach(column) { section in
-                        WindowHubAppSectionView(
+                        WindowHubAppCardView(
                             section: section,
-                            tabsPerWindow: coordinator.settings.resolvedTabsPerWindow,
-                            isLoading: coordinator.isLoading(pid: section.pid)
-                        ) { target in
-                            Task { await coordinator.activate(target: target) }
-                        } onAction: { action, target in
-                            coordinator.requestDirectAction(action, target: target)
-                        }
+                            currentTargetID: coordinator.snapshot.currentTargetID,
+                            selectedTargetID: coordinator.selectedTargetID,
+                            expandedGroupIDs: expandedGroupIDs,
+                            isLoading: coordinator.isLoading(pid: section.pid),
+                            isPartial: coordinator.isSectionPartial(section),
+                            onToggleExpansion: toggleExpansion(for:),
+                            onSelect: { coordinator.selectTarget($0) },
+                            onActivate: { target in
+                                Task { await coordinator.activate(target: target) }
+                            },
+                            onAction: { action, target in
+                                coordinator.requestDirectAction(action, target: target)
+                            }
+                        )
+                        .transition(
+                            .opacity.combined(with: .offset(y: reduceMotion ? 0 : 4))
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
             }
         }
-        .padding(9)
+        .padding(WindowHubMasonryPacker.contentPadding)
+        .animation(MAYNMotion.controlAnimation(reduceMotion: reduceMotion), value: columns.map { $0.map(\.id) })
     }
 
-    /// Greedy masonry: append each section to the currently shortest column,
-    /// using an estimated row count as the height proxy (mirrors the design).
-    static func distribute(sections: [WindowHubAppSection], columnCount: Int) -> [[WindowHubAppSection]] {
-        guard columnCount > 0 else { return [sections] }
-        var columns = Array(repeating: [WindowHubAppSection](), count: columnCount)
-        var heights = Array(repeating: 0, count: columnCount)
-        for section in sections {
-            let index = heights.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
-            columns[index].append(section)
-            heights[index] += estimatedHeight(of: section)
+    private func repack(width: CGFloat) {
+        let count = WindowHubMasonryPacker.columnCount(for: width)
+        let sorted = WindowHubMasonryPacker.prioritySorted(
+            visibleSections,
+            frontPID: coordinator.frontmostPID,
+            currentTargetID: coordinator.snapshot.currentTargetID,
+            recentTargetIDs: coordinator.recentEntries.map(\.targetID)
+        )
+        let isBrowser = WindowHubSectionMetrics.isBrowserSection
+        packedColumns = WindowHubMasonryPacker.pack(
+            sections: sorted,
+            columnCount: count,
+            expandedGroupIDs: expandedGroupIDs,
+            isBrowser: isBrowser
+        )
+        let navigable = WindowHubMasonryPacker.flatTargets(
+            in: packedColumns,
+            expandedGroupIDs: expandedGroupIDs,
+            isBrowser: isBrowser
+        )
+        let columnTargets = packedColumns.map { column in
+            WindowHubMasonryPacker.flatTargets(
+                in: [column],
+                expandedGroupIDs: expandedGroupIDs,
+                isBrowser: isBrowser
+            )
         }
-        return columns
+        coordinator.updateMasonryNavigableTargets(navigable, columnTargets: columnTargets)
     }
 
-    private static func estimatedHeight(of section: WindowHubAppSection) -> Int {
-        // Section header ≈ 2 row-units.
-        var units = 2
-        for group in section.windowGroups {
-            let tabCount = group.visibleTargets.filter { $0.kind == .tab }.count
-            // primary line (1) + capped "other" tab rows (≈ default collapse cap)
-            let others = max(0, tabCount - 1)
-            let shownOthers = min(others, 9)
-            units += 1 + shownOthers + (others > shownOthers ? 1 : 0)
+    private func toggleExpansion(for groupID: String) {
+        withAnimation(MAYNMotion.fastAnimation(reduceMotion: reduceMotion)) {
+            if expandedGroupIDs.contains(groupID) {
+                expandedGroupIDs.remove(groupID)
+            } else {
+                expandedGroupIDs.insert(groupID)
+            }
         }
-        return units
     }
 }

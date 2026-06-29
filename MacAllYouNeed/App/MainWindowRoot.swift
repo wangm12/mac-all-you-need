@@ -463,10 +463,10 @@ struct MainWindowRoot: View {
 
 enum MainSidebarMetrics {
     static let expandedWidth: CGFloat = MAYNControlMetrics.sidebarWidth
-    static let collapsedWidth: CGFloat = 92
+    static let collapsedWidth: CGFloat = 88
     /// Pre-window fallback only; once attached we use AppKit titlebar inset.
     static let sidebarTopPaddingFallback: CGFloat = 10
-    /// The collapsed icon rail is 92pt wide so the toggle and traffic lights have
+    /// The collapsed icon rail is 88pt wide so the toggle and traffic lights have
     /// comfortable clearance. The clearance floor guarantees the toggle (and every
     /// first item) always sits below the lights, while the ceiling keeps the gap
     /// tight. Both collapsed and expanded use the *same* value so the rail never
@@ -654,33 +654,29 @@ private struct MainSidebarButton: View {
 
     var body: some View {
         Button(action: action) {
-            Group {
-                if isCollapsed {
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        destinationIcon
-                        Spacer(minLength: 0)
-                    }
-                } else {
-                    HStack(spacing: 9) {
-                        destinationIcon
+            HStack(spacing: 0) {
+                destinationIcon
 
-                        Text(destination.title)
-                            .font(.system(size: 13.5, weight: .medium))
-                            .lineLimit(1)
-                            .animation(
-                                MAYNMotion.sidebarLabelAnimation(
-                                    collapsing: isCollapsed,
-                                    reduceMotion: reduceMotion
-                                ),
-                                value: isCollapsed
-                            )
+                HStack(spacing: 9) {
+                    Text(destination.title)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .lineLimit(1)
 
-                        Spacer(minLength: 8)
+                    Spacer(minLength: 8)
 
-                        trailingAccessory
-                    }
+                    trailingAccessory
                 }
+                .padding(.leading, isCollapsed ? 0 : 9)
+                .frame(maxWidth: isCollapsed ? 0 : .infinity, alignment: .leading)
+                .opacity(isCollapsed ? 0 : 1)
+                .clipped()
+                .animation(
+                    MAYNMotion.sidebarLabelAnimation(
+                        collapsing: isCollapsed,
+                        reduceMotion: reduceMotion
+                    ),
+                    value: isCollapsed
+                )
             }
             .foregroundStyle(
                 MAYNSelectionLabelStyle.foreground(
@@ -690,7 +686,7 @@ private struct MainSidebarButton: View {
                 )
             )
             .fontWeight(MAYNSelectionLabelStyle.weight(isSelected: isSelected && !isDisabled))
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
             .padding(.horizontal, isCollapsed ? 0 : 12)
             .frame(height: MAYNControlMetrics.sidebarItemHeight)
             .maynSidebarSelectionBackground(
@@ -775,33 +771,25 @@ private struct MainSidebarSettingsButton: View {
 
     var body: some View {
         Button(action: action) {
-            Group {
-                if isCollapsed {
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 16, height: 16)
-                        Spacer(minLength: 0)
-                    }
-                } else {
-                    HStack(spacing: 9) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 16, height: 16)
+            HStack(spacing: 0) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 16, height: 16)
 
-                        Text("Settings")
-                            .font(.system(size: 13.5, weight: .medium))
-                            .lineLimit(1)
-                            .animation(
-                                MAYNMotion.sidebarLabelAnimation(
-                                    collapsing: isCollapsed,
-                                    reduceMotion: reduceMotion
-                                ),
-                                value: isCollapsed
-                            )
-                    }
-                }
+                Text("Settings")
+                    .font(.system(size: 13.5, weight: .medium))
+                    .lineLimit(1)
+                    .padding(.leading, isCollapsed ? 0 : 9)
+                    .frame(maxWidth: isCollapsed ? 0 : .infinity, alignment: .leading)
+                    .opacity(isCollapsed ? 0 : 1)
+                    .clipped()
+                    .animation(
+                        MAYNMotion.sidebarLabelAnimation(
+                            collapsing: isCollapsed,
+                            reduceMotion: reduceMotion
+                        ),
+                        value: isCollapsed
+                    )
             }
             .foregroundStyle(
                 MAYNSelectionLabelStyle.foreground(
@@ -811,7 +799,7 @@ private struct MainSidebarSettingsButton: View {
                 )
             )
             .fontWeight(MAYNSelectionLabelStyle.weight(isSelected: isSelected))
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
             .padding(.horizontal, isCollapsed ? 0 : 12)
             .frame(height: MAYNControlMetrics.sidebarItemHeight)
             .maynSidebarSelectionBackground(

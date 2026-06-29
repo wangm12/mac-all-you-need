@@ -73,6 +73,9 @@ final class WindowHubPanelController: NSWindowController {
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             if event.keyCode == 53 {
+                if self.coordinator.clearSearchIfNeeded() {
+                    return nil
+                }
                 self.dismiss()
                 return nil
             }

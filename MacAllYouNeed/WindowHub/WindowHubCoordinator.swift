@@ -10,22 +10,24 @@ final class WindowHubCoordinator {
     private(set) var searchQuery = ""
     private(set) var mode: WindowHubPanelMode = .dashboard
     private(set) var selectedTargetID: WindowHubTargetID?
-    private(set) var pendingPlan: WindowHubActionPlan?
-    private(set) var aiPlan: WindowHubAIPlan?
-    private(set) var executionState: WindowHubActionExecutionState = .idle
+    var pendingPlan: WindowHubActionPlan?
+    var aiPlan: WindowHubAIPlan?
+    var executionState: WindowHubActionExecutionState = .idle
     private(set) var lastSwitchResult: WindowHubSwitchResult?
     private(set) var isIndexing = false
-    private(set) var isAIOrganizing = false
-    private(set) var loadingPIDs: Set<pid_t> = []
+    var isAIOrganizing = false
+    var loadingPIDs: Set<pid_t> = []
     private(set) var settings = WindowHubSettingsStore.load()
     private(set) var recentEntries: [WindowHubRecentEntry] = []
 
-    private let actionExecutor = WindowHubActionExecutor()
+    let actionExecutor = WindowHubActionExecutor()
     private var indexingTask: Task<Void, Never>?
-    private var llmGenerate: ((String, String) async throws -> String)?
-    private var frontPID: pid_t?
-    private var refreshEnumeratedPIDs: Set<pid_t> = []
-    private var droppedStaleSections = false
+    var llmGenerate: ((String, String) async throws -> String)?
+    var frontPID: pid_t?
+    var refreshEnumeratedPIDs: Set<pid_t> = []
+    var droppedStaleSections = false
+    private var masonryNavigableTargets: [WindowHubTarget] = []
+    private var masonryColumnTargets: [[WindowHubTarget]] = []
     nonisolated(unsafe) private var terminateObserver: NSObjectProtocol?
     var onDismissForActivation: (() -> Void)?
 
@@ -53,6 +55,19 @@ final class WindowHubCoordinator {
 
     var filteredTargets: [WindowHubTarget] {
         WindowHubFuzzyMatcher.filter(targets: snapshot.flatTargets, query: searchQuery)
+    }
+
+    var filteredSections: [WindowHubAppSection] {
+        WindowHubSectionMerger.filteredSections(from: snapshot.sections, query: searchQuery)
+    }
+
+    var frontmostPID: pid_t? {
+        frontPID ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+
+    var currentBreadcrumb: String? {
+        guard let currentTargetID = snapshot.currentTargetID else { return nil }
+        return snapshot.flatTargets.first(where: { $0.id == currentTargetID })?.breadcrumb
     }
 
     var isAccessibilityGranted: Bool {
@@ -112,23 +127,49 @@ final class WindowHubCoordinator {
         pendingPlan = nil
         aiPlan = nil
         mode = .dashboard
+        masonryNavigableTargets = []
+        masonryColumnTargets = []
     }
 
     func updateSearchQuery(_ query: String) {
         searchQuery = query
-        mode = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .dashboard : .searchResults
+        if mode != .actionConfirmation {
+            mode = .dashboard
+        }
         syncSelectionToNavigableTargets()
     }
 
+    func clearSearchIfNeeded() -> Bool {
+        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        searchQuery = ""
+        syncSelectionToNavigableTargets()
+        return true
+    }
+
+    func updateMasonryNavigableTargets(
+        _ targets: [WindowHubTarget],
+        columnTargets: [[WindowHubTarget]]
+    ) {
+        masonryNavigableTargets = targets
+        masonryColumnTargets = columnTargets
+        syncSelectionToNavigableTargets()
+    }
+
+    func isSectionPartial(_ section: WindowHubAppSection) -> Bool {
+        !snapshot.timedOutProviders.isEmpty
+            && section.windowGroups.contains { group in
+                group.isHeavy || group.hiddenTabCount > 0
+            }
+    }
+
     var navigableTargets: [WindowHubTarget] {
-        switch mode {
-        case .searchResults:
-            return filteredTargets
-        case .dashboard, .actionConfirmation:
-            return snapshot.flatTargets
-        case .browseColumns:
-            return snapshot.flatTargets
+        if !masonryNavigableTargets.isEmpty {
+            return masonryNavigableTargets
         }
+        return WindowHubSectionMerger.filteredSections(from: snapshot.sections, query: searchQuery)
+            .flatMap(\.windowGroups)
+            .flatMap(\.visibleTargets)
     }
 
     func selectTarget(_ target: WindowHubTarget) {
@@ -136,16 +177,19 @@ final class WindowHubCoordinator {
     }
 
     func moveSelection(delta: Int) {
-        let targets = navigableTargets
-        guard !targets.isEmpty else {
-            selectedTargetID = nil
-            return
-        }
-        let currentIndex = selectedTargetID.flatMap { id in
-            targets.firstIndex(where: { $0.id == id })
-        } ?? -1
-        let nextIndex = min(max(0, currentIndex + delta), targets.count - 1)
-        selectedTargetID = targets[nextIndex].id
+        selectedTargetID = WindowHubMasonryNavigation.moveSelection(
+            selectedTargetID: selectedTargetID,
+            in: navigableTargets,
+            delta: delta
+        )
+    }
+
+    func moveSelectionHorizontal(delta: Int) {
+        selectedTargetID = WindowHubMasonryNavigation.moveSelectionHorizontal(
+            selectedTargetID: selectedTargetID,
+            columnTargets: masonryColumnTargets,
+            delta: delta
+        )
     }
 
     func activateSelectedTarget() async {
@@ -230,51 +274,6 @@ final class WindowHubCoordinator {
         mode = .dashboard
     }
 
-    var isAIOrganizePresented: Bool { aiPlan != nil }
-
-    func requestAIOrganize() async {
-        isAIOrganizing = true
-        defer { isAIOrganizing = false }
-
-        guard let llmGenerate else {
-            aiPlan = WindowHubAIPlan(summary: "AI provider is not configured.", steps: [])
-            pendingPlan = WindowHubActionPlan(title: "AI Organize", steps: [], requiresConfirmation: true, canUndo: false)
-            return
-        }
-        do {
-            let plan = try await WindowHubTabOrganizerLLMService.organize(
-                snapshot: snapshot,
-                settings: settings,
-                generate: llmGenerate
-            )
-            aiPlan = plan
-            pendingPlan = WindowHubTabOrganizerExecutor.executableSteps(from: plan, snapshot: snapshot)
-        } catch {
-            aiPlan = WindowHubAIPlan(summary: "AI organize failed: \(error.localizedDescription)", steps: [])
-            pendingPlan = WindowHubActionPlan(title: "AI Organize", steps: [], requiresConfirmation: true, canUndo: false)
-        }
-    }
-
-    func confirmAIOrganize(selectedStepIDs: Set<String>) async {
-        guard let plan = pendingPlan else { return }
-        let steps = plan.steps.filter { selectedStepIDs.contains($0.id) && $0.executable }
-        guard !steps.isEmpty else { return }
-        let filtered = WindowHubActionPlan(
-            title: plan.title,
-            steps: steps,
-            requiresConfirmation: plan.requiresConfirmation,
-            canUndo: plan.canUndo
-        )
-        executionState = await actionExecutor.execute(plan: filtered, snapshot: snapshot)
-        dismissAIOrganize()
-        refreshIndex()
-    }
-
-    func dismissAIOrganize() {
-        aiPlan = nil
-        pendingPlan = nil
-    }
-
     func reloadSettings() {
         settings = WindowHubSettingsStore.load()
     }
@@ -284,112 +283,7 @@ final class WindowHubCoordinator {
         WindowHubSettingsStore.save(newSettings)
     }
 
-    func showBrowseColumns() {
-        mode = .browseColumns
-    }
-
-    // MARK: - Private indexing helpers
-
-    private func mergeStreamedSection(_ section: WindowHubAppSection, streamPhase: WindowHubIndexingPhase) {
-        refreshEnumeratedPIDs.insert(section.pid)
-
-        var sections = snapshot.sections
-        if streamPhase != .shell, !droppedStaleSections {
-            sections = sections.filter { refreshEnumeratedPIDs.contains($0.pid) }
-            droppedStaleSections = true
-        }
-        WindowHubSectionMerger.upsert(section, into: &sections)
-        sections = WindowHubSectionMerger.sorted(sections, frontPID: frontPID)
-        let flatTargets = WindowHubSectionMerger.flatTargets(from: sections)
-        if streamPhase != .shell {
-            loadingPIDs.remove(section.pid)
-        }
-
-        let snapshotPhase: WindowHubIndexingPhase = switch streamPhase {
-        case .shell: .shell
-        case .complete: .complete
-        default: .incremental
-        }
-
-        snapshot = WindowHubSnapshot(
-            capturedAt: Date(),
-            phase: snapshotPhase,
-            currentTargetID: snapshot.currentTargetID,
-            sections: sections,
-            flatTargets: flatTargets,
-            timedOutProviders: snapshot.timedOutProviders
-        )
-    }
-
-    private func applyBuiltSnapshot(_ built: WindowHubSnapshot, settings: WindowHubSettings) {
-        snapshot = canonicalSnapshot(from: built)
-        loadingPIDs = loadingPIDs.filter { pid in
-            NSRunningApplication(processIdentifier: pid) != nil
-        }
-        loadingPIDs = loadingPIDs.intersection(refreshEnumeratedPIDs)
-        reconcileLoadingAfterFullPass(settings: settings)
-        syncSelectionToNavigableTargets()
-    }
-
-    private func canonicalSnapshot(from built: WindowHubSnapshot) -> WindowHubSnapshot {
-        WindowHubSnapshot(
-            capturedAt: built.capturedAt,
-            phase: built.phase,
-            currentTargetID: built.currentTargetID,
-            sections: built.sections,
-            flatTargets: WindowHubSectionMerger.flatTargets(from: built.sections),
-            timedOutProviders: built.timedOutProviders
-        )
-    }
-
-    private func reconcileLoadingAfterFullPass(settings: WindowHubSettings) {
-        loadingPIDs = loadingPIDs.filter { pid in
-            NSRunningApplication(processIdentifier: pid) != nil
-        }
-        guard settings.browserTabDiscoveryEnabled else {
-            loadingPIDs = []
-            return
-        }
-        let chromiumPIDs = snapshot.sections.compactMap { section -> pid_t? in
-            guard BrowserAppleScriptTabReader.isChromium(section.bundleIdentifier) else { return nil }
-            return section.pid
-        }
-        loadingPIDs = Set(chromiumPIDs)
-    }
-
-    private func runChromiumJXAUpgrade(settings: WindowHubSettings) async {
-        let chromiumPIDs = snapshot.sections.compactMap { section -> pid_t? in
-            guard BrowserAppleScriptTabReader.isChromium(section.bundleIdentifier) else { return nil }
-            return section.pid
-        }
-        guard !chromiumPIDs.isEmpty else {
-            loadingPIDs = []
-            return
-        }
-
-        await WindowHubEnumerator.upgradeChromiumApps(settings: settings, pids: chromiumPIDs) { section, streamPhase in
-            await self.mergeStreamedSection(section, streamPhase: streamPhase)
-        }
-
-        loadingPIDs = []
-        snapshot = canonicalSnapshot(
-            from: WindowHubSnapshot(
-                capturedAt: Date(),
-                phase: .complete,
-                currentTargetID: snapshot.currentTargetID,
-                sections: snapshot.sections,
-                flatTargets: snapshot.flatTargets,
-                timedOutProviders: snapshot.timedOutProviders
-            )
-        )
-    }
-
-    private func persistSnapshot() {
-        let cached = WindowHubCachedSnapshot(
-            capturedAt: snapshot.capturedAt,
-            currentTargetID: snapshot.currentTargetID,
-            sections: snapshot.sections
-        )
-        WindowHubSnapshotCache.save(cached)
+    func replaceSnapshot(_ snapshot: WindowHubSnapshot) {
+        self.snapshot = snapshot
     }
 }

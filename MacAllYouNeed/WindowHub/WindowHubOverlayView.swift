@@ -64,6 +64,14 @@ struct WindowHubOverlayView: View {
             coordinator.moveSelection(delta: 1)
             return .handled
         }
+        .onKeyPress(.leftArrow) {
+            coordinator.moveSelectionHorizontal(delta: -1)
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            coordinator.moveSelectionHorizontal(delta: 1)
+            return .handled
+        }
         .onKeyPress(.return) {
             Task { await coordinator.activateSelectedTarget() }
             return .handled
@@ -137,8 +145,13 @@ struct WindowHubOverlayView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.primary)
             .disabled(coordinator.isAIOrganizing)
-            Button("Browse all apps…") { coordinator.showBrowseColumns() }
-                .buttonStyle(.plain)
+            if let breadcrumb = coordinator.currentBreadcrumb {
+                Text("Current: \(breadcrumb)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 220, alignment: .trailing)
+            }
         }
     }
 
@@ -213,14 +226,7 @@ struct WindowHubOverlayView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch coordinator.mode {
-        case .dashboard, .actionConfirmation:
-            WindowHubGroupedDashboardView(coordinator: coordinator)
-        case .searchResults:
-            WindowHubSearchResultsView(coordinator: coordinator)
-        case .browseColumns:
-            WindowHubBrowseView(coordinator: coordinator)
-        }
+        WindowHubMasonryDashboardView(coordinator: coordinator)
     }
 
     private var actionConfirmationBinding: Binding<Bool> {

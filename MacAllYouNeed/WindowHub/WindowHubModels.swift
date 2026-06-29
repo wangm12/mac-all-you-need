@@ -205,6 +205,46 @@ enum WindowHubSectionMerger {
             section.windowGroups.flatMap(\.visibleTargets)
         }
     }
+
+    static func filteredSections(
+        from sections: [WindowHubAppSection],
+        query: String
+    ) -> [WindowHubAppSection] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return sections }
+
+        return sections.compactMap { section in
+            let appMatches = WindowHubFuzzyMatcher.score(query: trimmed, candidate: section.appName) != nil
+            let filteredGroups = section.windowGroups.compactMap { group -> WindowHubWindowGroup? in
+                let matchingTargets = WindowHubFuzzyMatcher.filter(targets: group.visibleTargets, query: trimmed)
+                guard !matchingTargets.isEmpty else { return nil }
+                return WindowHubWindowGroup(
+                    id: group.id,
+                    windowID: group.windowID,
+                    title: group.title,
+                    isMinimized: group.isMinimized,
+                    isActive: group.isActive,
+                    isHeavy: group.isHeavy,
+                    visibleTargets: matchingTargets,
+                    hiddenTabCount: group.hiddenTabCount,
+                    capabilities: group.capabilities
+                )
+            }
+
+            if filteredGroups.isEmpty {
+                return appMatches ? section : nil
+            }
+
+            return WindowHubAppSection(
+                id: section.id,
+                pid: section.pid,
+                bundleIdentifier: section.bundleIdentifier,
+                appName: section.appName,
+                windowGroups: filteredGroups,
+                isBackgroundOnly: section.isBackgroundOnly
+            )
+        }
+    }
 }
 
 struct WindowHubSnapshot: Sendable {
@@ -236,8 +276,6 @@ enum WindowHubSwitchResult: Equatable, Sendable {
 
 enum WindowHubPanelMode: Equatable, Sendable {
     case dashboard
-    case searchResults
-    case browseColumns
     case actionConfirmation
 }
 

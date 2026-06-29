@@ -3,6 +3,7 @@ import SwiftUI
 struct WindowHubTargetRowView: View {
     let target: WindowHubTarget
     var isSelected: Bool = false
+    var showsDomain: Bool = false
     let onActivate: () -> Void
     let onSelect: () -> Void
     let onAction: (WindowHubDirectAction) -> Void
@@ -26,6 +27,13 @@ struct WindowHubTargetRowView: View {
         target.kind == .tab ? .closeTab : .closeWindow
     }
 
+    private var shouldShowDomain: Bool {
+        showsDomain
+            && target.kind == .tab
+            && target.capabilities.contains(.readDomain)
+            && !(target.domain?.isEmpty ?? true)
+    }
+
     var body: some View {
         HStack(spacing: 7) {
             Circle()
@@ -33,7 +41,7 @@ struct WindowHubTargetRowView: View {
                 .frame(width: 6, height: 6)
 
             Text(target.displayTitle)
-                .font(.system(size: 12, weight: MAYNSelectionLabelStyle.weight(isSelected: isSelected)))
+                .font(.system(size: 12.5, weight: MAYNSelectionLabelStyle.weight(isSelected: isSelected)))
                 .foregroundStyle(
                     MAYNSelectionLabelStyle.foreground(isSelected: isSelected, scheme: colorScheme)
                 )
@@ -42,7 +50,7 @@ struct WindowHubTargetRowView: View {
 
             Spacer(minLength: 6)
 
-            if let domain = target.domain, !domain.isEmpty {
+            if shouldShowDomain, let domain = target.domain {
                 Text(domain)
                     .font(.system(size: 11))
                     .foregroundStyle(
@@ -69,7 +77,7 @@ struct WindowHubTargetRowView: View {
             }
         }
         .padding(.horizontal, 8)
-        .frame(height: 32)
+        .frame(height: 29)
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .maynSelectionBackground(
             isSelected: isSelected,
