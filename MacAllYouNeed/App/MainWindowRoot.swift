@@ -115,27 +115,39 @@ struct MainWindowRoot: View {
 
     private var mainWindowContent: some View {
         ZStack {
-            NavigationSplitView {
-                mainSidebar
-                    .navigationSplitViewColumnWidth(
-                        isSidebarCollapsed
-                            ? MainSidebarMetrics.collapsedWidth
-                            : MainSidebarMetrics.expandedWidth
+            // Single layout source: the sidebar width is the only animated value, so
+            // the detail column reflows in the same layout pass (pure push). This
+            // replaces NavigationSplitView, whose separate column-resize transition
+            // overlaid the expanded sidebar over the detail mid-animation (ghosting).
+            NavigationStack {
+                HStack(spacing: 0) {
+                    mainSidebar
+                        .frame(
+                            width: isSidebarCollapsed
+                                ? MainSidebarMetrics.collapsedWidth
+                                : MainSidebarMetrics.expandedWidth
+                        )
+                        .frame(maxHeight: .infinity)
+                        .background(MAYNTheme.window)
+                        .overlay(alignment: .trailing) {
+                            Rectangle()
+                                .fill(MAYNTheme.hairline)
+                                .frame(width: 1)
+                                .frame(maxHeight: .infinity)
+                        }
+
+                    MainWindowDetailView(
+                        destination: selectedDestination,
+                        controller: controller,
+                        openDestination: openMainDestination
                     )
-            } detail: {
-                MainWindowDetailView(
-                    destination: selectedDestination,
-                    controller: controller,
-                    openDestination: openMainDestination
-                )
-                .equatable()
+                    .equatable()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(MAYNTheme.window)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(MAYNTheme.window)
-                .toolbar(removing: .sidebarToggle)
+                .toolbar { mainToolbarItems }
             }
-            .toolbar(removing: .sidebarToggle)
-            .toolbar { mainToolbarItems }
-            .navigationSplitViewStyle(.balanced)
 
             if isCommandPalettePresented {
                 CommandPaletteOverlay(
@@ -437,7 +449,6 @@ struct MainWindowRoot: View {
         .background {
             MainWindowTitlebarInsetReader(topInset: $titlebarTopInset)
         }
-        .toolbar(removing: .sidebarToggle)
     }
 
     private var sidebarCollapseButton: some View {
@@ -608,9 +619,11 @@ enum MainWindowRootPresentation {
     /// Native `NavigationSplitView` sidebar toggles are removed; one in-sidebar control drives icon-rail collapse.
     static let removesNativeSidebarToggle = true
     static let ownsSidebarCollapseControlInSidebarColumn = true
-    /// Main shell uses `NavigationSplitView` so sidebar/toolbar pick up system Liquid Glass.
-    static let usesNavigationSplitView = true
-    /// Global search + attention badge live on the split view, not only the detail column.
+    /// Main shell is a single-layout `NavigationStack` + `HStack` (one animated sidebar
+    /// width = pure push). `NavigationSplitView` was removed because its separate
+    /// column-resize transition overlaid the expanded sidebar over the detail mid-animation.
+    static let usesNavigationSplitView = false
+    /// Global search + attention badge live on the window-level toolbar via `NavigationStack`.
     static let usesWindowLevelToolbar = true
     /// Command palette search pill does not resize or hide its label when the sidebar collapses.
     static let commandPaletteSearchDecoupledFromSidebar = true
