@@ -454,9 +454,3 @@ private final class RedirectBlocker: NSObject, URLSessionTaskDelegate, @unchecke
         completionHandler(nil)
     }
 }
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
-}

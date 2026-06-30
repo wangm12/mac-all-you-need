@@ -45,24 +45,33 @@ for implementation plans.
 
 ## Project Layout
 
-The app ships as three Xcode targets bundled into one `.app`:
+The app ships as one `MacAllYouNeed.app` bundling multiple Xcode targets:
 
 - `MacAllYouNeed/` - main app, all SwiftUI/AppKit surfaces. Composition root is
   `MacAllYouNeed/App/AppController.swift`.
 - `ClipboardDaemon/` - headless background helper registered as a Login Item via
   SMAppService. Embedded at `Contents/Library/LoginItems/ClipboardDaemon.app`.
-  Watches the system pasteboard 24/7 (including when the main app is closed) and
-  writes new clips to the shared App Group SQLite. Talks to the main app over XPC.
+- `DownloadDaemon/` - headless downloader helper registered as a Login Item.
+  Embedded at `Contents/Library/LoginItems/DownloadDaemon.app`. Shares
+  `yt-dlp`/`ffmpeg` from the App Group container (installed from the main app
+  bundle on first use) rather than duplicating binaries inside the daemon bundle.
 - `FolderPreview/` - macOS Quick Look extension (`.appex`). Embedded at
-  `Contents/PlugIns/FolderPreview.appex`. macOS requires Quick Look providers to
-  be a separate sandboxed target; this is not optional.
-- `Shared/` - SwiftPM package (`Core`, `Platform`, `UI`, vendored `FluidAudio`)
-  consumed by all three targets.
+  `Contents/PlugIns/FolderPreview.appex`.
+- `FinderHistoryExtension/` - Finder Sync extension (`.appex`).
+- `RemindersWidget/` - WidgetKit extension (declared in the project; not embedded
+  in the shipping app bundle yet).
+- `Shared/` - SwiftPM package (`Core`, `Platform`, `UI`, `FeatureCore`,
+  `PackPipeline`) consumed by all targets.
+- `Tools/TypelessImport`, `Tools/VoiceTrainingExport` - CLI utilities.
 - `MacAllYouNeedTests/` - XCTest target for the main app.
+
+SPM dependencies linked by the main app include **FluidAudio** (local Qwen3/Parakeet
+ASR) and **mlx-audio-swift** (SenseVoice); they are not part of the `Shared/`
+package itself.
 
 ## App Surfaces
 
-- Menu-bar tools popover with Clipboard, Voice, Downloads, Layouts, and Snippets tabs.
+- Menu-bar Command Center popover with Clipboard, Voice, Downloads, and Reminders tabs.
 - Main window with Dashboard plus first-class pages for every tool.
 - Bottom clipboard dock with history, snippets, user pinboards, drag/drop, and
   keyboard shortcuts.
@@ -202,6 +211,23 @@ DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID1234)" make
 
 Release packaging still depends on local Apple signing credentials and Xcode
 provisioning being configured correctly.
+
+## Bundle size notes
+
+A Release `.app` is dominated by:
+
+- `yt-dlp` + `ffmpeg` vendored binaries (~35 MB + ~148 MB) — shipped once in the
+  main app `Resources/` and mirrored into the App Group `binaries/` directory for
+  the DownloadDaemon login item.
+- MLX/ASR static code in the main executable and on-demand model weights (stored
+  outside the bundle under Application Support).
+
+Measure locally after `make release`:
+
+```bash
+du -sh build/dmg-staging/MacAllYouNeed.app
+ls -lh dist/MacAllYouNeed.dmg
+```
 
 ## Cleanup
 

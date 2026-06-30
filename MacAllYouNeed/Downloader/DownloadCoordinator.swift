@@ -134,49 +134,7 @@ final class DownloadCoordinator {
     }
 
     nonisolated private static func makeCookieArgs() -> ([String], hadErrors: Bool) {
-        let cookieFile = AppGroup.containerURL()
-            .appendingPathComponent("cookies", isDirectory: true)
-            .appendingPathComponent("downloader-cookies.txt")
-        let extensionCookieFile = AppGroup.containerURL()
-            .appendingPathComponent("cookies", isDirectory: true)
-            .appendingPathComponent("downloader-extension-cookies.txt")
-        let cookieMode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
-        do {
-            try FileManager.default.createDirectory(
-                at: cookieFile.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            if cookieMode == "extension_only" {
-                let exists = FileManager.default.fileExists(atPath: extensionCookieFile.path)
-                return (exists ? ["--cookies", extensionCookieFile.path] : [], !exists)
-            }
-            let browserPref = AppGroupSettings.defaults.string(forKey: "downloadCookieBrowserProfile") ?? "chrome"
-            let preferredBrowser = Self.preferredBrowserProfile(for: browserPref)
-            let options = CookieImportOptions(
-                preferredBrowser: preferredBrowser,
-                includeSafari: preferredBrowser == nil || preferredBrowser == .safari,
-                appendExistingCookieFile: extensionCookieFile
-            )
-            let result = try CookieImporter.combinedCookiesFile(at: cookieFile, options: options)
-            return (["--cookies", cookieFile.path], result.hadErrors)
-        } catch {
-            return ([], true)
-        }
-    }
-
-    nonisolated private static func preferredBrowserProfile(for raw: String) -> BrowserProfile.Browser? {
-        switch raw {
-        case "chrome", "chromium":
-            .chrome
-        case "edge":
-            .edge
-        case "brave":
-            .brave
-        case "safari":
-            .safari
-        default:
-            nil
-        }
+        DownloadCookieConfiguration.makeCookieArgs()
     }
 
     private func postCookieWarningIfNeeded(hadErrors: Bool) {
@@ -912,32 +870,7 @@ final class DownloadCoordinator {
             collectionTitle: collectionTitle,
             useCollectionSubfolder: useSubfolder
         )
-        let cookieMode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
-        let browserPref = AppGroupSettings.defaults.string(forKey: "downloadCookieBrowserProfile") ?? "chrome"
-        let preferredBrowser: BrowserProfile.Browser? = switch browserPref {
-        case "chrome", "chromium": .chrome
-        case "edge": .edge
-        case "brave": .brave
-        case "safari": .safari
-        default: nil
-        }
-        let cookiesDir = AppGroup.containerURL().appendingPathComponent("cookies", isDirectory: true)
-        let cookieFile = cookiesDir.appendingPathComponent("downloader-cookies.txt")
-        let extensionCookieFile = cookiesDir.appendingPathComponent("downloader-extension-cookies.txt")
-        var cookieArgsList: [String] = []
-        if cookieMode == "extension_only" {
-            if FileManager.default.fileExists(atPath: extensionCookieFile.path) {
-                cookieArgsList = ["--cookies", extensionCookieFile.path]
-            }
-        } else {
-            let options = CookieImportOptions(
-                preferredBrowser: preferredBrowser,
-                includeSafari: preferredBrowser == nil || preferredBrowser == .safari,
-                appendExistingCookieFile: extensionCookieFile
-            )
-            _ = try? CookieImporter.combinedCookiesFile(at: cookieFile, options: options)
-            cookieArgsList = ["--cookies", cookieFile.path]
-        }
+        let cookieArgsList = DownloadCookieConfiguration.bulkCookieArgs()
         let rawSpeedMode = AppGroupSettings.defaults.string(forKey: "downloadSpeedMode") ?? DownloadSpeedMode.balanced.rawValue
         let speedMode = DownloadSpeedMode(rawValue: rawSpeedMode) ?? .balanced
         let configuredFragments = AppGroupSettings.defaults.integer(forKey: "downloadConcurrentFragments")
@@ -1840,12 +1773,6 @@ public extension Notification.Name {
     static let downloadInterruptedRecovery = Notification.Name("downloadInterruptedRecovery")
     static let downloadRouteRequested = Notification.Name("downloadRouteRequested")
     static let downloadBulkChanged = Notification.Name("downloadBulkChanged")
-}
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
 }
 
 /// Mark the record as failed, persisting the yt-dlp error message when one is

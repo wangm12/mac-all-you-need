@@ -131,19 +131,20 @@ Current first-class tool surfaces (11 total):
 
 ## Architecture
 
-The build produces one `MacAllYouNeed.app` bundling three Xcode targets:
+The build produces one `MacAllYouNeed.app` bundling multiple Xcode targets:
 
 - `MacAllYouNeed/` - main app; composition root, all SwiftUI/AppKit surfaces.
 - `ClipboardDaemon/` - headless `LSUIElement + LSBackgroundOnly` helper
   registered as a Login Item via SMAppService; embedded at
-  `Contents/Library/LoginItems/ClipboardDaemon.app`. Captures the pasteboard
-  while the main app is closed and writes to the shared App Group DB; talks to
-  the main app over XPC for daemon-only commands.
+  `Contents/Library/LoginItems/ClipboardDaemon.app`.
+- `DownloadDaemon/` - headless downloader login item; shares `yt-dlp`/`ffmpeg`
+  from the App Group `binaries/` directory (seeded from the main app bundle).
 - `FolderPreview/` - macOS Quick Look extension (`app-extension` target);
-  embedded at `Contents/PlugIns/FolderPreview.appex`. Required to be a
-  separate sandboxed bundle by macOS; cannot be merged into the main app.
-- `Shared/` - SwiftPM package (`Core`, `Platform`, `UI`, vendored
-  `FluidAudio`) consumed by all three targets.
+  embedded at `Contents/PlugIns/FolderPreview.appex`.
+- `FinderHistoryExtension/` - Finder Sync extension.
+- `RemindersWidget/` - WidgetKit extension (not embedded in shipping builds yet).
+- `Shared/` - SwiftPM package (`Core`, `Platform`, `UI`, `FeatureCore`,
+  `PackPipeline`) consumed by all targets.
 - `MacAllYouNeedTests/` - XCTest target for the main app.
 
 Main-app source layout:
@@ -260,8 +261,8 @@ Main-app source layout:
 
 - Clipboard capture, encryption, FTS indexing, app exclusions, retention, paste
   injection, URL detection, and history search.
-- Command Center menu-bar popover with five tabs: Clipboard, Voice, Downloads, Layouts,
-  Snippets. Footer actions are tab-specific; Pause is Clipboard-only.
+- Command Center menu-bar popover with four tabs: Clipboard, Voice, Downloads,
+  Reminders. Footer actions are tab-specific; Pause is Clipboard-only.
 - Bottom dock with Clipboard History, Snippets, and user pinboards; pinboards
   support card and tab reordering.
 - Snippets are loaded from the local dock model, support body previews, and can

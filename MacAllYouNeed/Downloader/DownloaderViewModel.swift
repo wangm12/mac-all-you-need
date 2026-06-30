@@ -589,43 +589,7 @@ final class DownloaderViewModel {
     }
 
     private func coordinatorCookieArgs() -> ([String], Bool) {
-        // Reuse coordinator cookie path via a lightweight duplicate of cookie import
-        let cookieFile = AppGroup.containerURL()
-            .appendingPathComponent("cookies", isDirectory: true)
-            .appendingPathComponent("downloader-cookies.txt")
-        let extensionCookieFile = AppGroup.containerURL()
-            .appendingPathComponent("cookies", isDirectory: true)
-            .appendingPathComponent("downloader-extension-cookies.txt")
-        let cookieMode = AppGroupSettings.defaults.string(forKey: "downloadCookieMode") ?? "browser_auto"
-        do {
-            try FileManager.default.createDirectory(
-                at: cookieFile.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            if cookieMode == "extension_only" {
-                let exists = FileManager.default.fileExists(atPath: extensionCookieFile.path)
-                return (exists ? ["--cookies", extensionCookieFile.path] : [], !exists)
-            }
-            let browserProfile = AppGroupSettings.defaults.string(forKey: "downloadCookieBrowserProfile") ?? "chrome"
-            let preferredBrowser: BrowserProfile.Browser? = switch browserProfile {
-            case "chrome", "chromium": .chrome
-            case "edge": .edge
-            case "brave": .brave
-            case "safari": .safari
-            default: nil
-            }
-            let result = try CookieImporter.combinedCookiesFile(
-                at: cookieFile,
-                options: CookieImportOptions(
-                    preferredBrowser: preferredBrowser,
-                    includeSafari: preferredBrowser == nil || preferredBrowser == .safari,
-                    appendExistingCookieFile: extensionCookieFile
-                )
-            )
-            return (["--cookies", cookieFile.path], result.hadErrors)
-        } catch {
-            return ([], true)
-        }
+        DownloadCookieConfiguration.makeCookieArgs()
     }
 
     private func cookieFileURL(from cookieArgsList: [String]) -> URL? {

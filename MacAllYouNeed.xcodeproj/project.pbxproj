@@ -253,6 +253,7 @@
 		5CD19321F60EC30F6C88EA51 /* DouyinProfileLister.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E58B79D04FF9B356732D7D7 /* DouyinProfileLister.swift */; };
 		5CDB0198BD24AB6673A38530 /* DouyinVideoClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F283B820B7341F0AEBF912E /* DouyinVideoClient.swift */; };
 		5D6ED797DFE23677DED5ECB2 /* FolderPreviewFeatureActivatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 181EEF5DFC372CFF18BA80C7 /* FolderPreviewFeatureActivatorTests.swift */; };
+		5DC216BD1A243F47036549E9 /* MAYNByteCountFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F2A54236470719233FF4B3D /* MAYNByteCountFormatting.swift */; };
 		5EDF66A366F75CBAE31B51FB /* MAYNToolHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF3FFDFFC0F4890DAC17E38 /* MAYNToolHarness.swift */; };
 		5F0755F112AE6E9A54198E80 /* VoiceEnhancementPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A34C4F0DECCEFF8564D3E1F /* VoiceEnhancementPresets.swift */; };
 		5F47EB12F6AC9A76CF20AA9A /* PriorUsageLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF27DD38571D67705BB7F91 /* PriorUsageLevel.swift */; };
@@ -899,6 +900,7 @@
 		2E0CD8F01E8F661BCE2FF0A1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2E0E6B7A6AFFF95766CB5601 /* CopyHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyHUD.swift; sourceTree = "<group>"; };
 		2EB84FE30A7D93E62E2B79C3 /* PermissionGrantPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionGrantPresenterTests.swift; sourceTree = "<group>"; };
+		2F2A54236470719233FF4B3D /* MAYNByteCountFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MAYNByteCountFormatting.swift; sourceTree = "<group>"; };
 		2FAA6CEBE31F0BF6F61AF2D4 /* VoiceTranscriptHistoryPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTranscriptHistoryPresentationTests.swift; sourceTree = "<group>"; };
 		3156544FAECCD2A58E941E43 /* FolderHistoryPanelContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderHistoryPanelContext.swift; sourceTree = "<group>"; };
 		31C198A7EFF642EB6A95AE38 /* FeatureRegistryProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureRegistryProvider.swift; sourceTree = "<group>"; };
@@ -2329,6 +2331,7 @@
 				5E3835E590F0AEE03670F37E /* HotkeyActionFeature.swift */,
 				B945F20C749B8FE7E2336A32 /* HotkeyMapStore.swift */,
 				51B0AD792F22E95A7E450973 /* HotkeysSettingsView.swift */,
+				2F2A54236470719233FF4B3D /* MAYNByteCountFormatting.swift */,
 				785DD52CE7E2564E48EF1DF0 /* PermissionsSettingsView.swift */,
 				A42E7158D5D9C4889AC4A42A /* SearchSettingsView.swift */,
 				ADFF290F1DBB0DF5D983F9FA /* SettingsDestination.swift */,
@@ -3170,7 +3173,7 @@
 			buildPhases = (
 				A9BB14149C83EA91E5E1614E /* Sources */,
 				0C6106D2A4CF917435747A6D /* Frameworks */,
-				ECA75B982B522AFFE86BDC5D /* Copy downloader binaries to Resources */,
+				073A36C4E6BBD2EEFA14BE8D /* Remove downloader binaries from DownloadDaemon Resources */,
 			);
 			buildRules = (
 			);
@@ -3386,6 +3389,25 @@
 			shellPath = /bin/sh;
 			shellScript = "set -e\nDEST=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LoginItems\"\nmkdir -p \"$DEST\"\nif [ -d \"${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app\" ]; then\n  cp -Rf \"${BUILT_PRODUCTS_DIR}/ClipboardDaemon.app\" \"$DEST/\"\nfi\n";
 		};
+		073A36C4E6BBD2EEFA14BE8D /* Remove downloader binaries from DownloadDaemon Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Remove downloader binaries from DownloadDaemon Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nRES=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nrm -f \"${RES}/yt-dlp\" \"${RES}/ffmpeg\" \"${RES}/downloader-manifest.json\"\n";
+		};
 		2B1F90F337FBA0B7FEAD245C /* Copy downloader binaries to Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -3423,25 +3445,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -e\nDEST=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LoginItems\"\nmkdir -p \"$DEST\"\nif [ -d \"${BUILT_PRODUCTS_DIR}/DownloadDaemon.app\" ]; then\n  cp -Rf \"${BUILT_PRODUCTS_DIR}/DownloadDaemon.app\" \"$DEST/\"\nfi\n";
-		};
-		ECA75B982B522AFFE86BDC5D /* Copy downloader binaries to Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Copy downloader binaries to Resources";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -e\nRES=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRCROOT}/Vendored/binaries/yt-dlp\" ]; then\n  echo \"error: Missing Vendored/binaries/yt-dlp. Run scripts/fetch-binaries.sh first.\" >&2\n  exit 1\nfi\ncp \"${SRCROOT}/Vendored/binaries/yt-dlp\" \"${RES}/yt-dlp\"\ncp \"${SRCROOT}/Vendored/binaries/ffmpeg\" \"${RES}/ffmpeg\"\ncp \"${SRCROOT}/Vendored/binaries/manifest.json\" \"${RES}/downloader-manifest.json\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -3899,6 +3902,7 @@
 				F3BCF0DC26E2F7BC5B70FE15 /* LinkCard.swift in Sources */,
 				632ADECC35524EA087A10DBB /* LocalClipboardReader.swift in Sources */,
 				B7DAC1D64E0FF54F8B107A0B /* LoginItemController.swift in Sources */,
+				5DC216BD1A243F47036549E9 /* MAYNByteCountFormatting.swift in Sources */,
 				EBFD5BE694439DD5FF28FEED /* MAYNComponents.swift in Sources */,
 				E38E1F784FDDBCF2494F6997 /* MAYNLiquidGlass.swift in Sources */,
 				919E07EB018F6488650E89DA /* MAYNListPagination.swift in Sources */,
@@ -4336,6 +4340,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 2N55H39FC4;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -4354,6 +4359,8 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = "non-global";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;

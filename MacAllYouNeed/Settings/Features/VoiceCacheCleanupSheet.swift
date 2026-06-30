@@ -39,7 +39,7 @@ struct VoiceCacheCleanupSheet: View {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.displayName)
-                            Text(formatBytes(row.bytes))
+                            Text(MAYNByteCountFormatting.string(for: row.bytes))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -87,9 +87,5 @@ struct VoiceCacheCleanupSheet: View {
         } catch {
             NSLog("VoiceCacheCleanupSheet: delete \(rowID) failed: \(error)")
         }
-    }
-
-    private func formatBytes(_ b: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: b, countStyle: .file)
     }
 }

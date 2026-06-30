@@ -23,7 +23,7 @@ struct OrphanCacheCleanupSheet: View {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(orphan.url.lastPathComponent)
-                        Text(formatBytes(orphan.bytes))
+                        Text(MAYNByteCountFormatting.string(for: orphan.bytes))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -43,10 +43,6 @@ struct OrphanCacheCleanupSheet: View {
         }
         .padding(24)
         .frame(width: 460)
-    }
-
-    private func formatBytes(_ b: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: b, countStyle: .file)
     }
 }
 

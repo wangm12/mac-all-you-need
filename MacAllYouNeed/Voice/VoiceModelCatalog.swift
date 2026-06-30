@@ -6,7 +6,6 @@ enum VoiceModelRuntime: String, Codable, Equatable, Identifiable {
     case qwenCoreML
     case parakeetCoreML
     case whisperKit
-    case mlxExperimental
     case groq
     case elevenLabs
     case openAITranscribe
@@ -122,18 +121,6 @@ enum VoiceModelCatalog {
             subtitle: "Planned universal local fallback runtime for broad multilingual coverage.",
             diskLabel: nil,
             requiresOSLabel: "Not packaged",
-            localASRModelID: nil,
-            cloudASRModelID: nil,
-            groqASRModelID: nil
-        ),
-        VoiceModelDescriptor(
-            id: "mlxExperimental.qwen3-asr-1.7b",
-            category: .localASR,
-            runtime: .mlxExperimental,
-            title: "Qwen3-ASR 1.7B MLX",
-            subtitle: "Experimental local runtime; hidden from selection until packaging, memory, and latency are proven.",
-            diskLabel: nil,
-            requiresOSLabel: "Experimental",
             localASRModelID: nil,
             cloudASRModelID: nil,
             groqASRModelID: nil

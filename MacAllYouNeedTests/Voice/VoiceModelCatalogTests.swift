@@ -11,24 +11,24 @@ final class VoiceModelCatalogTests: XCTestCase {
                 "qwenCoreML.qwen3-asr-0.6b-f32",
                 "qwenCoreML.qwen3-asr-0.6b-int8",
                 "parakeetCoreML.parakeet-tdt-0.6b-v3",
-                "whisperKit.whisper-large-v3-turbo",
-                "mlxExperimental.qwen3-asr-1.7b"
+                "sensevoice.sense-voice-small",
+                "whisperKit.whisper-large-v3-turbo"
             ]
         )
         XCTAssertEqual(
             descriptors.map(\.runtime),
-            [.qwenCoreML, .qwenCoreML, .parakeetCoreML, .whisperKit, .mlxExperimental]
+            [.qwenCoreML, .qwenCoreML, .parakeetCoreML, .sensevoice, .whisperKit]
         )
         XCTAssertEqual(
             descriptors.compactMap(\.localASRModelID),
-            [.qwen3ASR06BF32, .qwen3ASR06BInt8, .parakeetTDT06BV3]
+            [.qwen3ASR06BF32, .qwen3ASR06BInt8, .parakeetTDT06BV3, .senseVoiceSmall]
         )
     }
 
     func testFutureLocalASRRuntimeDescriptorsAreUnsupportedUntilAdaptersExist() {
         let futureDescriptors = VoiceModelCatalog.localASRModels.filter { $0.localASRModelID == nil }
 
-        XCTAssertEqual(futureDescriptors.map(\.runtime), [.whisperKit, .mlxExperimental])
+        XCTAssertEqual(futureDescriptors.map(\.runtime), [.whisperKit])
         for descriptor in futureDescriptors {
             let state = VoiceModelManager.localASRInstallState(
                 descriptor: descriptor,

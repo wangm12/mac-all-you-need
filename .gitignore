@@ -36,3 +36,6 @@ docs/voice-cloning/reference-pack/instant-concat.txt
 
 # Local reference projects (not tracked)
 reference-projects/
+
+# Captured UI screenshots archive (large; regenerate locally, not tracked)
+docs/mayn-ui-capture.zip

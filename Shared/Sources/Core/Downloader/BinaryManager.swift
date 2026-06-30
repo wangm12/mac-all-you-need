@@ -21,9 +21,142 @@ private struct BinaryManifest: Decodable {
 }
 
 public final class BinaryManager {
+    public static let sharedBinaryNames = ["yt-dlp", "ffmpeg"]
+    public static let manifestFileName = "downloader-manifest.json"
+
     public let bundleResources: URL
     public let updateRoot: URL
     private let log = Logging.logger(for: "downloader", category: "binaries")
+
+    public static func sharedBinariesDirectory() -> URL {
+        AppGroup.containerURL().appendingPathComponent("binaries", isDirectory: true)
+    }
+
+    /// True when the App Group `binaries/` directory already holds a manifest and
+    /// both binaries that verify against it. Used to make seeding idempotent and
+    /// to let a login item start from a previous session's shared copies even when
+    /// its own bundle no longer ships the binaries.
+    public static func sharedBinariesVerified() -> Bool {
+        let destination = sharedBinariesDirectory()
+        let manifestURL = destination.appendingPathComponent(manifestFileName)
+        guard FileManager.default.fileExists(atPath: manifestURL.path),
+              let manifest = try? JSONDecoder().decode(BinaryManifest.self, from: Data(contentsOf: manifestURL))
+        else {
+            return false
+        }
+        for name in sharedBinaryNames {
+            let target = destination.appendingPathComponent(name)
+            let expected = name == "yt-dlp" ? manifest.ytdlp.sha256 : manifest.ffmpeg.sha256
+            guard FileManager.default.fileExists(atPath: target.path),
+                  (try? verify(at: target, expectedSHA256: expected)) != nil
+            else {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Copies bundled downloader binaries into the App Group when missing or stale.
+    /// Both the main app and DownloadDaemon call this before resolving paths.
+    ///
+    /// No-ops when the shared copies already verify. Serialized with an exclusive
+    /// file lock so a concurrent main-app launch and daemon login do not race on
+    /// the same destination paths.
+    public static func installSharedBinariesIfNeeded(bundleResources: URL) throws {
+        let destination = sharedBinariesDirectory()
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        if sharedBinariesVerified() { return }
+
+        try withInstallLock(in: destination) {
+            // Re-check inside the lock: another process may have just finished.
+            if sharedBinariesVerified() { return }
+
+            let manifestURL = bundleResources.appendingPathComponent(manifestFileName)
+            guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+                throw BinaryManagerError.missingManifest
+            }
+            let manifest = try JSONDecoder().decode(BinaryManifest.self, from: Data(contentsOf: manifestURL))
+
+            for name in sharedBinaryNames {
+                let source = bundleResources.appendingPathComponent(name)
+                guard FileManager.default.fileExists(atPath: source.path) else {
+                    throw BinaryManagerError.missing(name)
+                }
+                let expected = name == "yt-dlp" ? manifest.ytdlp.sha256 : manifest.ffmpeg.sha256
+                let target = destination.appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: target.path),
+                   (try? verify(at: target, expectedSHA256: expected)) != nil
+                {
+                    continue
+                }
+                // Copy to a temp sibling and atomically swap so a partially-copied
+                // binary is never observable by another process.
+                let staging = destination.appendingPathComponent(".\(name).\(UUID().uuidString).tmp")
+                if FileManager.default.fileExists(atPath: staging.path) {
+                    try FileManager.default.removeItem(at: staging)
+                }
+                try FileManager.default.copyItem(at: source, to: staging)
+                try verify(at: staging, expectedSHA256: expected)
+                try verifyExecutable(at: staging)
+                try verifyArchitectures(at: staging, required: ["arm64", "x86_64"])
+                _ = try FileManager.default.replaceItemAt(target, withItemAt: staging)
+            }
+
+            let sharedManifest = destination.appendingPathComponent(manifestFileName)
+            if FileManager.default.fileExists(atPath: sharedManifest.path) {
+                try FileManager.default.removeItem(at: sharedManifest)
+            }
+            try FileManager.default.copyItem(at: manifestURL, to: sharedManifest)
+        }
+    }
+
+    /// Resolves the wrapper app's Resources directory when running as an embedded login item.
+    public static func wrapperAppResourcesURL() -> URL? {
+        let loginItemContents = Bundle.main.bundleURL
+        let resources = loginItemContents
+            .deletingLastPathComponent() // LoginItems
+            .deletingLastPathComponent() // Library
+            .deletingLastPathComponent() // Contents
+            .appendingPathComponent("Resources", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: resources.path) else { return nil }
+        return resources
+    }
+
+    /// Picks the first candidate Resources directory that actually ships the
+    /// downloader manifest. The DownloadDaemon login item has its own (binary-free)
+    /// `Resources/`, so `Bundle.main.resourceURL` alone is not a valid seed source —
+    /// the wrapper app's Resources must be preferred when it carries the manifest.
+    public static func seedResourcesURL() -> URL? {
+        let candidates = [Bundle.main.resourceURL, wrapperAppResourcesURL()].compactMap { $0 }
+        return candidates.first {
+            FileManager.default.fileExists(atPath: $0.appendingPathComponent(manifestFileName).path)
+        }
+    }
+
+    public static func installSharedBinariesFromBundleIfNeeded() throws {
+        // Already seeded (e.g. prior session) — usable even if no bundle source ships binaries.
+        if sharedBinariesVerified() { return }
+        guard let resources = seedResourcesURL() else {
+            throw BinaryManagerError.missingManifest
+        }
+        try installSharedBinariesIfNeeded(bundleResources: resources)
+    }
+
+    /// Runs `body` while holding an exclusive advisory lock on a sentinel file in
+    /// `directory`, so concurrent installs across processes do not interleave.
+    private static func withInstallLock<T>(in directory: URL, _ body: () throws -> T) throws -> T {
+        let lockURL = directory.appendingPathComponent(".install.lock")
+        if !FileManager.default.fileExists(atPath: lockURL.path) {
+            FileManager.default.createFile(atPath: lockURL.path, contents: nil)
+        }
+        let fd = open(lockURL.path, O_RDONLY)
+        guard fd >= 0 else { return try body() }
+        defer { close(fd) }
+        flock(fd, LOCK_EX)
+        defer { flock(fd, LOCK_UN) }
+        return try body()
+    }
 
     public init(
         bundleResources: URL,
@@ -61,6 +194,20 @@ public final class BinaryManager {
                 return updated
             }
             log.warning("Ignoring unverified updated binary at \(updated.path)")
+        }
+        let shared = Self.sharedBinariesDirectory().appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: shared.path) {
+            let manifestURL = Self.sharedBinariesDirectory().appendingPathComponent(Self.manifestFileName)
+            if FileManager.default.fileExists(atPath: manifestURL.path),
+               let manifest = try? JSONDecoder().decode(BinaryManifest.self, from: Data(contentsOf: manifestURL))
+            {
+                let expected = name == "yt-dlp" ? manifest.ytdlp.sha256 : manifest.ffmpeg.sha256
+                if (try? Self.verify(at: shared, expectedSHA256: expected)) != nil {
+                    try Self.verifyExecutable(at: shared)
+                    try Self.verifyArchitectures(at: shared, required: ["arm64", "x86_64"])
+                    return shared
+                }
+            }
         }
         let bundled = bundleResources.appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: bundled.path) else {

@@ -249,9 +249,3 @@ enum DownloadCollectionPresentation {
         return nil
     }
 }
-
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
-}

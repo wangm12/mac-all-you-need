@@ -12,8 +12,7 @@ let package = Package(
         .library(name: "PackPipeline", targets: ["PackPipeline"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.27.0"),
-        .package(url: "https://github.com/JohnSundell/Splash.git", from: "0.16.0")
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.27.0")
     ],
     targets: [
         .target(
@@ -49,8 +48,7 @@ let package = Package(
         ),
         .target(name: "UI", dependencies: [
             "Core",
-            "Platform",
-            .product(name: "Splash", package: "Splash")
+            "Platform"
         ], path: "Sources/UI"),
         .target(name: "Platform", dependencies: ["Core", "CLibArchive"], path: "Sources/Platform"),
         .testTarget(name: "CoreTests", dependencies: ["Core", "Platform"], path: "Tests/CoreTests"),

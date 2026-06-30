@@ -1,7 +1,10 @@
 import AppKit
 import Core
+import os
 import Platform
 import SwiftUI
+
+private let downloadsListLog = Logger(subsystem: Logging.subsystem(for: "downloader"), category: "list")
 
 struct DownloadsListView: View {
     @Bindable var vm: DownloaderViewModel
@@ -710,7 +713,9 @@ struct DownloadsListView: View {
         do {
             try process.run()
             return true
-        } catch {}
+        } catch {
+            downloadsListLog.debug("open -a Google Chrome failed: \(error.localizedDescription, privacy: .public)")
+        }
         if let fallbackURL = URL(string: rawURL) {
             return NSWorkspace.shared.open(fallbackURL)
         }

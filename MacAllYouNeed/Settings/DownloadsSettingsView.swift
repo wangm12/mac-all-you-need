@@ -1,6 +1,9 @@
 import AppKit
 import Core
+import os
 import SwiftUI
+
+private let downloadsSettingsLog = Logger(subsystem: Logging.subsystem(for: "downloader"), category: "settings")
 
 // MARK: - Enums & Presentation (unchanged)
 
@@ -821,7 +824,9 @@ private struct DownloadBrowserSection: View {
         do {
             try p.run(); p.waitUntilExit()
             if p.terminationStatus == 0 { return true }
-        } catch {}
+        } catch {
+            downloadsSettingsLog.debug("open -a \(companionBrowser, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+        }
         if rawURL.hasPrefix("http"), let url = URL(string: rawURL) {
             return NSWorkspace.shared.open(url)
         }

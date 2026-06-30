@@ -238,7 +238,7 @@ final class AppController {
         folderCoordinator = coordinator
         folder = browser
 
-        let coord = try DownloadCoordinator(binaries: LegacyBundleLocator(binaries: BinaryManager(bundleResources: Bundle.main.resourceURL!)))
+        let coord = try DownloadCoordinator(binaries: LegacyBundleLocator.make())
         downloader = coord
         let dlVM = DownloaderViewModel(coordinator: coord)
         downloaderVM = dlVM

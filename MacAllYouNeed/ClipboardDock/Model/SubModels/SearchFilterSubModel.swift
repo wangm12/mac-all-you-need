@@ -241,14 +241,6 @@ final class SearchFilterSubModel {
         return await loadByIDs(board.itemIDs.map(\.rawValue), query: query, forcePinned: false)
     }
 
-    /// Load the implicit "Pinned" pinboard. Pre-existing in the monolithic
-    /// model; retained as dead code for now (no call sites) per the surgical
-    /// changes rule.
-    func loadPinned(query: String?) async -> [DockItem] {
-        guard let pinned = try? PinnedPinboard.findOrCreate(in: model.pinboardsSubModel.store) else { return [] }
-        return await loadByIDs(pinned.itemIDs.map(\.rawValue), query: query, forcePinned: true)
-    }
-
     func loadByIDs(_ ids: [String], query: String?, forcePinned: Bool) async -> [DockItem] {
         guard !ids.isEmpty else { return [] }
 

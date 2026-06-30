@@ -79,7 +79,7 @@ enum VoiceEngineID: Hashable, Identifiable {
         case let .cloud(modelID):
             VoiceProviderIconPresentation.pickerIcon(for: modelID.providerKind)
         case .experimental:
-            VoiceProviderIconPresentation.pickerIcon(for: VoiceModelRuntime.mlxExperimental)
+            VoiceProviderIconPresentation.pickerIcon(for: VoiceModelRuntime.whisperKit)
         }
     }
 }

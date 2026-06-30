@@ -6,7 +6,7 @@ font, spacing, animation, control, page chrome, or feature surface.
 
 ## Current App Surfaces
 
-- Menu-bar tools popover: Clipboard / Voice / Downloads / Layouts / Snippets.
+- Menu-bar Command Center popover: Clipboard / Voice / Downloads / Reminders.
 - Main window sidebar: Dashboard / Clipboard / Voice / Downloads / Folder
   Preview / Snippets / Window Layouts / Window Grab / Settings.
 - Dashboard: `FeatureToolCard` lifecycle cards for all feature-backed tools.

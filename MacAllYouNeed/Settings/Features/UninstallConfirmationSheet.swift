@@ -33,7 +33,7 @@ struct UninstallConfirmationSheet: View {
                     )) {
                         VStack(alignment: .leading) {
                             Text(row.displayName)
-                            Text(formatBytes(row.bytes)).font(.caption).foregroundStyle(.secondary)
+                            Text(MAYNByteCountFormatting.string(for: row.bytes)).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -51,9 +51,5 @@ struct UninstallConfirmationSheet: View {
             }
         }
         .padding(24).frame(width: 460)
-    }
-
-    private func formatBytes(_ b: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: b, countStyle: .file)
     }
 }

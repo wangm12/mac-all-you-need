@@ -97,7 +97,7 @@ public enum MetadataFetcher {
             "--no-check-certificate",
             "--dump-json",
         ]
-        if let node = findNode() {
+        if let node = YtdlpProcessHelpers.findNode() {
             args += ["--js-runtime", "node:\(node)"]
         }
         if let cookieFile {
@@ -158,19 +158,6 @@ public enum MetadataFetcher {
             }
         }
         return heights.sorted().reversed().map { $0 }
-    }
-
-    private static func findNode() -> String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let nvmNode = "\(home)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmNode),
-           let latest = versions.sorted().last
-        {
-            let path = "\(nvmNode)/\(latest)/bin/node"
-            if FileManager.default.isExecutableFile(atPath: path) { return path }
-        }
-        return ["/usr/local/bin/node", "/opt/homebrew/bin/node"]
-            .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }
 

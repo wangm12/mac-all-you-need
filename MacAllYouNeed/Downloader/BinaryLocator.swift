@@ -12,6 +12,23 @@ public protocol BinaryLocator: Sendable {
 public struct LegacyBundleLocator: BinaryLocator {
     public let binaries: BinaryManager
     public init(binaries: BinaryManager) { self.binaries = binaries }
+
+    public static func make(bundleResources: URL? = nil) throws -> LegacyBundleLocator {
+        if let bundleResources {
+            try BinaryManager.installSharedBinariesIfNeeded(bundleResources: bundleResources)
+            return LegacyBundleLocator(binaries: BinaryManager(bundleResources: bundleResources))
+        }
+        try BinaryManager.installSharedBinariesFromBundleIfNeeded()
+        // After seeding, the BinaryManager resolves yt-dlp/ffmpeg from the App Group
+        // shared directory first, so any non-nil Resources URL is a safe fallback base
+        // even for the binary-free DownloadDaemon bundle.
+        let resources = BinaryManager.seedResourcesURL()
+            ?? Bundle.main.resourceURL
+            ?? BinaryManager.wrapperAppResourcesURL()
+            ?? BinaryManager.sharedBinariesDirectory()
+        return LegacyBundleLocator(binaries: BinaryManager(bundleResources: resources))
+    }
+
     public func ytdlpPath() throws -> URL { try binaries.ytdlpPath() }
     public func ffmpegPath() throws -> URL { try binaries.ffmpegPath() }
 }

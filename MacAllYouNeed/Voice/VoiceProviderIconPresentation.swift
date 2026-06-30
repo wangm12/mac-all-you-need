@@ -28,7 +28,7 @@ enum VoiceProviderIconPresentation {
         case .ollama:
             .brandAsset(BrandAsset.ollama)
         case .omlx:
-            pickerIcon(for: VoiceModelRuntime.mlxExperimental)
+            .systemSymbol("flask.fill")
         }
     }
 
@@ -61,7 +61,7 @@ enum VoiceProviderIconPresentation {
             .brandAsset(BrandAsset.ollama)
         case .qwenCoreML, .parakeetCoreML, .sensevoice:
             .systemSymbol("internaldrive.fill")
-        case .whisperKit, .mlxExperimental:
+        case .whisperKit:
             .systemSymbol("flask.fill")
         }
     }

@@ -6,7 +6,7 @@ import Platform
 @main
 struct DownloadDaemonMain {
     static func main() throws {
-        let locator = LegacyBundleLocator(binaries: BinaryManager(bundleResources: Bundle.main.resourceURL ?? URL(fileURLWithPath: "/")))
+        let locator = try LegacyBundleLocator.make()
         let coordinator = try DownloadCoordinator(binaries: locator)
         NSLog("DownloadDaemon ready, container=\(AppGroup.containerURL().path)")
         Task { @MainActor in

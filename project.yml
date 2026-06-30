@@ -21,6 +21,11 @@ settings:
       # Matches scripts/ci-build.sh — Debug builds must not require per-extension
       # provisioning profiles (e.g. com.macallyouneed.app.finderhistory).
       CODE_SIGNING_ALLOWED: NO
+    Release:
+      DEAD_CODE_STRIPPING: YES
+      STRIP_INSTALLED_PRODUCT: YES
+      STRIP_STYLE: non-global
+      COPY_PHASE_STRIP: NO
 
 packages:
   Shared:
@@ -240,18 +245,12 @@ targets:
       - package: Shared
         product: FeatureCore
     postBuildScripts:
-      - name: "Copy downloader binaries to Resources"
+      - name: "Remove downloader binaries from DownloadDaemon Resources"
         basedOnDependencyAnalysis: false
         script: |
           set -e
           RES="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
-          if [ ! -f "${SRCROOT}/Vendored/binaries/yt-dlp" ]; then
-            echo "error: Missing Vendored/binaries/yt-dlp. Run scripts/fetch-binaries.sh first." >&2
-            exit 1
-          fi
-          cp "${SRCROOT}/Vendored/binaries/yt-dlp" "${RES}/yt-dlp"
-          cp "${SRCROOT}/Vendored/binaries/ffmpeg" "${RES}/ffmpeg"
-          cp "${SRCROOT}/Vendored/binaries/manifest.json" "${RES}/downloader-manifest.json"
+          rm -f "${RES}/yt-dlp" "${RES}/ffmpeg" "${RES}/downloader-manifest.json"
 
   FolderPreview:
     type: app-extension

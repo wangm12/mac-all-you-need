@@ -40,7 +40,7 @@ actor VoiceLocalASREngine: VoiceLiveTranscriptionEngine {
             return parakeet.capabilities
         case .sensevoice:
             return senseVoice.capabilities
-        case .whisperKit, .mlxExperimental,
+        case .whisperKit,
              .groq, .elevenLabs, .openAITranscribe, .deepgram,
              .anthropic, .openAICompatible, .ollama:
             return .batchOnly

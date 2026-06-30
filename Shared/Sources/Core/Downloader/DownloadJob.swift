@@ -60,8 +60,8 @@ public final class DownloadJob {
             "-o", destination.path
         ]
         // Provide Node.js runtime for yt-dlp 2026+ JavaScript extraction
-        if let nodePath = Self.findNode() {
-            args += ["--js-runtime", "node:\(nodePath)"]
+        if let node = YtdlpProcessHelpers.findNode() {
+            args += ["--js-runtime", "node:\(node)"]
         }
         self.recordID = recordID
         self.url = url
@@ -99,24 +99,5 @@ public final class DownloadJob {
         DispatchQueue.global().asyncAfter(deadline: .now() + 3) { [process] in
             if process.isRunning { kill(process.processIdentifier, SIGKILL) }
         }
-    }
-
-    /// Find Node.js for yt-dlp's JavaScript extraction (required in yt-dlp 2026+)
-    private static func findNode() -> String? {
-        let candidates = [
-            "/usr/local/bin/node",
-            "/opt/homebrew/bin/node",
-            "/usr/bin/node"
-        ]
-        // Also check nvm path
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let nvmNode = "\(home)/.nvm/versions/node"
-        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmNode),
-           let latest = versions.sorted().last
-        {
-            let nvmPath = "\(nvmNode)/\(latest)/bin/node"
-            if FileManager.default.isExecutableFile(atPath: nvmPath) { return nvmPath }
-        }
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }

@@ -25,13 +25,20 @@ public actor DownloaderFeatureActivator: FeatureActivator {
     public func activate() async throws {
         guard coordinator == nil else { return }   // idempotent
 
+        // Main app owns DownloadCoordinator via AppController; only the login-item daemon
+        // should allocate its own coordinator and dispatch server here.
+        let isDaemon = Bundle.main.bundleIdentifier == "com.macallyouneed.app.downloader"
+        guard isDaemon || testMode else {
+            dispatchServerStarted = true
+            return
+        }
+
         // Resolve a binary locator. Pack locator wins if installed; legacy fallback otherwise.
         let locator: any BinaryLocator
         if let manifestLoader, let packDir = Self.installedPackDir(loader: manifestLoader) {
             locator = PackLocator(packDir: packDir)
         } else {
-            let bm = BinaryManager(bundleResources: Bundle.main.resourceURL ?? URL(fileURLWithPath: "/"))
-            locator = LegacyBundleLocator(binaries: bm)
+            locator = try LegacyBundleLocator.make()
         }
 
         let coord = try await MainActor.run { try DownloadCoordinator(binaries: locator) }
